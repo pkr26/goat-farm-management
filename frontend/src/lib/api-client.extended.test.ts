@@ -1,0 +1,601 @@
+/**
+ * Extended unit tests for the central fetch wrapper, complementing
+ * api-client.test.ts: header injection rules (Authorization / X-Farm-Id /
+ * Content-Type / credentials), 204 + JSON success handling, ApiError
+ * detail-extraction edge cases, and the refresh-retry paths not covered
+ * there (retry still 401, refresh network failure, dedupe reset, refresh
+ * request shape). Global fetch is stubbed directly, same as the base file.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  ApiError,
+  apiFetch,
+  setAccessToken,
+  setCurrentFarmId,
+  setOnAuthFailure,
+} from "./api-client";
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    statusText: `Status ${status}`,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** Lets each microtask-scheduled refreshPromise reset (setTimeout 0) flush. */
+function flushMacrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Awaits a rejecting apiFetch and returns the ApiError, typed. */
+async function catchApiError(promise: Promise<unknown>): Promise<ApiError> {
+  try {
+    await promise;
+  } catch (e) {
+    return e as ApiError;
+  }
+  throw new Error("expected apiFetch to reject");
+}
+
+describe("apiFetch header injection", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    fetchMock.mockReset();
+    await flushMacrotasks();
+  });
+
+  it("omits the Authorization header when no token is stored", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals");
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBeNull();
+  });
+
+  it("sends the stored token as a Bearer Authorization header", async () => {
+    setAccessToken("token-abc");
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals");
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer token-abc");
+  });
+
+  it("omits the X-Farm-Id header when no farm is selected", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals");
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("X-Farm-Id")).toBeNull();
+  });
+
+  it("sends X-Farm-Id with the selected farm", async () => {
+    setCurrentFarmId("42");
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals");
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("X-Farm-Id")).toBe("42");
+  });
+
+  it("defaults Content-Type to application/json when a body is sent", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals", {
+      method: "POST",
+      body: JSON.stringify({ tag_number: "G-001" }),
+    });
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("preserves a caller-provided Content-Type", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/uploads", {
+      method: "POST",
+      body: "raw",
+      headers: { "Content-Type": "text/csv" },
+    });
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Content-Type")).toBe("text/csv");
+  });
+
+  it("does not set Content-Type on bodyless requests", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals");
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Content-Type")).toBeNull();
+  });
+
+  it("always sends cookies (credentials: include)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/animals");
+
+    expect(fetchMock.mock.calls[0][1]?.credentials).toBe("include");
+  });
+});
+
+describe("apiFetch success handling", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    fetchMock.mockReset();
+    await flushMacrotasks();
+  });
+
+  it("parses and returns the JSON body of a 200 response", async () => {
+    const payload = [{ id: 1, tag_number: "G-001" }];
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, payload));
+
+    const result = await apiFetch<typeof payload>("/api/animals");
+
+    expect(result).toEqual(payload);
+  });
+
+  it("returns undefined for a 204 No Content response", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const result = await apiFetch<string>("/api/animals/1", { method: "DELETE" });
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe("apiFetch ApiError detail extraction", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    fetchMock.mockReset();
+    await flushMacrotasks();
+  });
+
+  it("falls back to the HTTP status text when the error body has no detail", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ other: "x" }), {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(500);
+    expect(err.detail).toBe("Internal Server Error");
+  });
+
+  it("falls back to the status text when the error body is not JSON", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response("<html>Bad Gateway</html>", {
+        status: 502,
+        statusText: "Bad Gateway",
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.detail).toBe("Bad Gateway");
+  });
+
+  it("stringifies a non-string, non-array detail", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { detail: 42 }));
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.detail).toBe("42");
+  });
+
+  it("stringifies non-object entries in a detail array", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, { detail: ["plain string error", 7] }),
+    );
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.detail).toBe("plain string error; 7");
+  });
+
+  it("stringifies array entries that lack a msg field", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, { detail: [{ loc: ["body", "x"] }] }),
+    );
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.detail).toBe("[object Object]");
+  });
+
+  it("exposes status and detail and behaves as an Error", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { detail: "Forbidden" }));
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.message).toBe("Forbidden");
+    expect(err.detail).toBe("Forbidden");
+    expect(err.status).toBe(403);
+  });
+});
+
+describe("apiFetch refresh-retry edge cases", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken("old-token");
+    setCurrentFarmId("1");
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    fetchMock.mockReset();
+    await flushMacrotasks();
+  });
+
+  it("posts to /api/auth/refresh with cookies included", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      return jsonResponse(401, { detail: "Expired" });
+    });
+
+    await catchApiError(apiFetch("/api/animals")).catch(() => undefined);
+    // First call 401 → refresh succeeds → retry 401 → throws. Just inspect the refresh call.
+    const refreshCall = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "/api/auth/refresh",
+    );
+    expect(refreshCall).toBeDefined();
+    expect(refreshCall?.[1]?.method).toBe("POST");
+    expect(refreshCall?.[1]?.credentials).toBe("include");
+  });
+
+  it("throws the retry's 401 without looping when the retry is still unauthorized", async () => {
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      return jsonResponse(401, { detail: "Still expired" });
+    });
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(401);
+    expect(err.detail).toBe("Still expired");
+    // Exactly: initial call + one refresh + one retry. No further attempts.
+    const calls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(calls.filter((u) => u === "/api/animals")).toHaveLength(2);
+    expect(calls.filter((u) => u === "/api/auth/refresh")).toHaveLength(1);
+    // Refresh succeeded, so the auth-failure handler stays silent.
+    expect(onAuthFailure).not.toHaveBeenCalled();
+  });
+
+  it("treats a network failure during refresh as an auth failure", async () => {
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") throw new Error("network down");
+      return jsonResponse(401, { detail: "Expired" });
+    });
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(401);
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it("dedupes a refresh shared by three concurrent 401s", async () => {
+    const retried = new Set<string>();
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      if (!retried.has(url)) {
+        retried.add(url);
+        return jsonResponse(401, { detail: "Expired" });
+      }
+      return jsonResponse(200, { ok: url });
+    });
+
+    const results = await Promise.all([
+      apiFetch<{ ok: string }>("/api/animals"),
+      apiFetch<{ ok: string }>("/api/tasks"),
+      apiFetch<{ ok: string }>("/api/buckets"),
+    ]);
+
+    expect(results.map((r) => r.ok)).toEqual([
+      "/api/animals",
+      "/api/tasks",
+      "/api/buckets",
+    ]);
+    const refreshes = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === "/api/auth/refresh",
+    );
+    expect(refreshes).toHaveLength(1);
+  });
+
+  it("starts a fresh refresh for a 401 after the previous refresh settled", async () => {
+    let refreshCount = 0;
+    let expiredCalls = 0;
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        refreshCount += 1;
+        return jsonResponse(200, { access_token: `token-${refreshCount}` });
+      }
+      expiredCalls += 1;
+      if (expiredCalls % 2 === 1) return jsonResponse(401, { detail: "Expired" });
+      return jsonResponse(200, { ok: true });
+    });
+
+    // First 401 → refresh #1 → retry succeeds.
+    await apiFetch("/api/animals");
+    await flushMacrotasks();
+    // After the dedupe slot resets, a new 401 triggers refresh #2.
+    await apiFetch("/api/animals");
+
+    expect(refreshCount).toBe(2);
+  });
+
+  it("does not clear the token for a 401 on /api/auth/* paths", async () => {
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { detail: "No cookie" }));
+
+    await catchApiError(apiFetch("/api/auth/refresh", { method: "POST" }));
+
+    expect(onAuthFailure).not.toHaveBeenCalled();
+    // Token survives: the next request still carries it.
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    await apiFetch("/api/animals");
+    const headers = fetchMock.mock.calls[1][1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer old-token");
+  });
+
+  it("forwards method and body on the retried request after a refresh", async () => {
+    const retried = new Set<string>();
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      if (!retried.has(url)) {
+        retried.add(url);
+        return jsonResponse(401, { detail: "Expired" });
+      }
+      return jsonResponse(200, { id: 1 });
+    });
+
+    const body = JSON.stringify({ tag_number: "G-009", sex: "FEMALE" });
+    await apiFetch("/api/animals", { method: "POST", body });
+
+    const animalCalls = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === "/api/animals",
+    );
+    expect(animalCalls).toHaveLength(2);
+    for (const [, init] of animalCalls) {
+      expect(init?.method).toBe("POST");
+      expect(init?.body).toBe(body);
+    }
+  });
+});
+
+describe("apiFetch token semantics after refresh", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken("old-token");
+    setCurrentFarmId("1");
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    fetchMock.mockReset();
+    await flushMacrotasks();
+  });
+
+  it("uses the refreshed token for subsequent unrelated requests", async () => {
+    const retried = new Set<string>();
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      if (url === "/api/animals" && !retried.has(url)) {
+        retried.add(url);
+        return jsonResponse(401, { detail: "Expired" });
+      }
+      return jsonResponse(200, {});
+    });
+
+    await apiFetch("/api/animals");
+    await flushMacrotasks();
+    await apiFetch("/api/tasks");
+
+    const tasksInit = fetchMock.mock.calls.find(
+      ([input]) => String(input) === "/api/tasks",
+    )?.[1];
+    expect((tasksInit?.headers as Headers).get("Authorization")).toBe(
+      "Bearer new-token",
+    );
+  });
+
+  it("keeps X-Farm-Id on the retried request after a refresh", async () => {
+    let retried = false;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      if (!retried) {
+        retried = true;
+        return jsonResponse(401, { detail: "Expired" });
+      }
+      return jsonResponse(200, {});
+    });
+
+    await apiFetch("/api/animals");
+
+    const animalCalls = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === "/api/animals",
+    );
+    for (const [, init] of animalCalls) {
+      expect((init?.headers as Headers).get("X-Farm-Id")).toBe("1");
+    }
+  });
+
+  it("does not attempt a refresh for non-401 errors", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(403, { detail: "Forbidden" }));
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not attempt a refresh for 500 errors", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(500, { detail: "boom" }));
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(500);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes and retries a 401 on a POST request too", async () => {
+    let retried = false;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      if (!retried) {
+        retried = true;
+        return jsonResponse(401, { detail: "Expired" });
+      }
+      return jsonResponse(201, { id: 7 });
+    });
+
+    const result = await apiFetch<{ id: number }>("/api/animals", {
+      method: "POST",
+      body: JSON.stringify({ tag_number: "G-007" }),
+    });
+
+    expect(result).toEqual({ id: 7 });
+    const calls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(calls.filter((u) => u === "/api/auth/refresh")).toHaveLength(1);
+  });
+
+  it("parses a 201 Created body like any other success", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { id: 3, name: "Shed A" }));
+
+    const result = await apiFetch<{ id: number }>("/api/buckets", {
+      method: "POST",
+      body: "{}",
+    });
+
+    expect(result).toEqual({ id: 3, name: "Shed A" });
+  });
+});
+
+describe("apiFetch detail extraction — remaining shapes", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    fetchMock.mockReset();
+    await flushMacrotasks();
+  });
+
+  it("yields an empty detail for an empty validation-error array", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(422, { detail: [] }));
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.detail).toBe("");
+    expect(err.status).toBe(422);
+  });
+
+  it("stringifies a null detail", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(400, { detail: null }));
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.detail).toBe("null");
+  });
+});

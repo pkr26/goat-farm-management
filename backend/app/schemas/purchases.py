@@ -1,0 +1,51 @@
+"""Pydantic schemas for the purchases module."""
+
+import datetime as dt
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .animals import AnimalOut
+from .common import NonNegativeFloat, PastOrTodayDate
+from .tasks import TaskOut
+
+MAX_BATCH_COUNT = 1000  # mirrors services caps
+MAX_AGE_MONTHS = 240
+
+
+class PurchaseBatchIn(BaseModel):
+    date: PastOrTodayDate
+    supplier: str | None = Field(default=None, max_length=120)
+    count: int = Field(ge=1, le=MAX_BATCH_COUNT)
+    avg_age_months: float | None = Field(default=None, ge=0, le=MAX_AGE_MONTHS)
+    avg_weight_kg: NonNegativeFloat | None = None
+    total_price: NonNegativeFloat | None = None
+    notes: str | None = None
+    create_animals: bool = True
+
+    @field_validator("date")
+    @classmethod
+    def _not_ancient(cls, value: dt.date) -> dt.date:
+        if value.year < 2000:
+            raise ValueError("date must be year 2000 or later")
+        return value
+
+
+class PurchaseBatchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    date: dt.date
+    supplier: str | None
+    count: int
+    avg_age_months: float | None
+    avg_weight_kg: float | None
+    total_price: float | None
+    notes: str | None
+    animals_created: int = 0
+    open_tasks: int = 0  # pending quarantine tasks
+
+
+class PurchaseBatchDetailOut(BaseModel):
+    batch: PurchaseBatchOut
+    animals: list[AnimalOut]
+    tasks: list[TaskOut]

@@ -1,0 +1,119 @@
+/**
+ * Root page (`/`): a pure redirect hub driven by auth state. It always
+ * renders "Loading…" and, once the session bootstrap settles, replaces to
+ *   /login        — logged out
+ *   /farm-select  — logged in but no farm available/selected
+ *   /dashboard    — logged in with an active farm (auto-selected if needed)
+ * It must not redirect while the bootstrap is still pending.
+ */
+
+import { screen, waitFor } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { server, TEST_FARMS, TEST_USER } from "@/test/msw-server";
+import { renderWithProviders } from "@/test/render";
+
+import RootPage from "./page";
+
+const { replaceMock } = vi.hoisted(() => ({ replaceMock: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: replaceMock, prefetch: vi.fn() }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({}),
+}));
+
+describe("RootPage redirect hub", () => {
+  beforeEach(() => replaceMock.mockClear());
+
+  it("renders the Loading… placeholder", () => {
+    renderWithProviders(<RootPage />);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+  });
+
+  it("does not redirect while the session bootstrap is still pending", async () => {
+    server.use(
+      http.post("/api/auth/refresh", () => new Promise<Response>(() => {})),
+    );
+
+    renderWithProviders(<RootPage />);
+    await screen.findByText("Loading…");
+
+    // Give effects a chance to run; nothing should fire while loading.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects to /login when there is no session", async () => {
+    server.use(
+      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
+    );
+
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+  });
+
+  it("redirects to /farm-select when logged in but the user has no farms", async () => {
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
+
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
+  });
+
+  it("redirects to /dashboard when logged in with a farm (auto-selected)", async () => {
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
+    expect(localStorage.getItem("goatfarm.farmId")).toBe(String(TEST_FARMS[0].id));
+  });
+
+  it("redirects to /dashboard with multiple farms (first one auto-selected)", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          ...TEST_FARMS,
+          { id: 2, name: "Second Farm", location: null, role: "Mover" },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
+  });
+
+  it("honours a previously stored farm selection across reloads", async () => {
+    localStorage.setItem("goatfarm.farmId", "2");
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          ...TEST_FARMS,
+          { id: 2, name: "Second Farm", location: null, role: "Mover" },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("2");
+  });
+
+  it("falls back to the first farm when the stored selection no longer exists", async () => {
+    localStorage.setItem("goatfarm.farmId", "999");
+    server.use(
+      http.post("/api/auth/refresh", () =>
+        HttpResponse.json({ access_token: "tok", user: TEST_USER }),
+      ),
+    );
+
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
+    expect(localStorage.getItem("goatfarm.farmId")).toBe(String(TEST_FARMS[0].id));
+  });
+});

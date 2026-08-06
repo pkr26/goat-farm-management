@@ -1,0 +1,139 @@
+/**
+ * Animals page + Add-animal dialog: the list loads with owner permissions,
+ * submitting the dialog with an empty tag number shows the zod error without
+ * a POST, and a valid submit POSTs the mapped payload (defaults applied,
+ * blank optionals → null) and invalidates the list query.
+ */
+
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { server } from "@/test/msw-server";
+import { renderWithProviders } from "@/test/render";
+
+import AnimalsPage from "./page";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  usePathname: () => "/animals",
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({}),
+}));
+
+const ANIMAL = {
+  id: 1,
+  tag_number: "G-001",
+  name: "Lakshmi",
+  breed: "Osmanabadi",
+  sex: "F",
+  date_of_birth: "2025-05-10",
+  estimated_dob: null,
+  birth_type: "TWINS",
+  source: "BORN",
+  dam_id: null,
+  sire_id: null,
+  birth_weight: 2.4,
+  current_bucket: "LACTATING",
+  status: "ACTIVE",
+  status_date: null,
+  sale_price: null,
+  purchase_date: null,
+  purchase_price: null,
+  seller_name: null,
+  cull_candidate: false,
+  notes: null,
+  created_at: "2026-01-01T05:30:00Z",
+  age_months: 14,
+  latest_weight_kg: 32.5,
+};
+
+describe("AnimalsPage", () => {
+  let listCalls: number;
+  let lastListFarmHeader: string | null;
+  let postCalls: number;
+  let postBody: Record<string, unknown> | null;
+  let postFarmHeader: string | null;
+
+  beforeEach(() => {
+    listCalls = 0;
+    lastListFarmHeader = null;
+    postCalls = 0;
+    postBody = null;
+    postFarmHeader = null;
+    server.use(
+      http.get("/api/animals", ({ request }) => {
+        listCalls += 1;
+        lastListFarmHeader = request.headers.get("X-Farm-Id");
+        return HttpResponse.json({ animals: [ANIMAL], total: 1 });
+      }),
+      http.post("/api/animals", async ({ request }) => {
+        postCalls += 1;
+        postFarmHeader = request.headers.get("X-Farm-Id");
+        postBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { ...ANIMAL, id: 2, tag_number: String(postBody.tag_number) },
+          { status: 201 },
+        );
+      }),
+    );
+  });
+
+  async function renderAndWaitForList() {
+    renderWithProviders(<AnimalsPage />);
+    // List row proves: permissions resolved as owner, farm selected, GET ran.
+    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect(screen.getByText("1 animal(s)")).toBeInTheDocument();
+  }
+
+  it("loads the herd list with the selected farm header", async () => {
+    await renderAndWaitForList();
+    expect(listCalls).toBe(1);
+    expect(lastListFarmHeader).toBe("1");
+  });
+
+  it("shows the zod error and skips the POST when the tag number is empty", async () => {
+    const user = userEvent.setup();
+    await renderAndWaitForList();
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+    expect(await screen.findByText("Tag number is required")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("POSTs the mapped payload on a valid submit and invalidates the list", async () => {
+    const user = userEvent.setup();
+    await renderAndWaitForList();
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/tag number/i), "G-101");
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postFarmHeader).toBe("1");
+    expect(postBody).toMatchObject({
+      tag_number: "G-101",
+      // Defaults from the dialog's pre-selected selects.
+      sex: "F",
+      source: "BORN",
+      current_bucket: "QUARANTINE",
+      breed: "Osmanabadi",
+      // Blank optionals are mapped to null.
+      name: null,
+      date_of_birth: null,
+      birth_type: null,
+      birth_weight: null,
+      weight_kg: null,
+      notes: null,
+    });
+
+    // Dialog closed and the list query was invalidated → refetched.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
+  });
+});

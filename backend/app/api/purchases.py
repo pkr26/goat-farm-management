@@ -1,0 +1,119 @@
+"""Purchases: batches + 45-day quarantine protocol tracker."""
+
+from collections.abc import Sequence
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
+from ..models import Animal, PurchaseBatch, Task, TaskStatus
+from ..schemas.animals import AnimalOut
+from ..schemas.common import MAX_INT32_ID
+from ..schemas.purchases import PurchaseBatchDetailOut, PurchaseBatchIn, PurchaseBatchOut
+from ..schemas.tasks import TaskOut
+from ..services import create_purchase_batch
+
+router = APIRouter(prefix="/api/purchases", tags=["purchases"])
+
+PurchasesView = Annotated[set[str], Depends(require_perm("purchases.view"))]
+PurchasesManage = Annotated[set[str], Depends(require_perm("purchases.manage"))]
+
+
+async def _batch_out(db: AsyncSession, batches: Sequence[PurchaseBatch]) -> list[PurchaseBatchOut]:
+    """ORM batches → schema, enriched with animals-created and open-task counts
+    (batched aggregate queries, not per-row lazy loads)."""
+    if not batches:
+        return []
+    ids = [batch.id for batch in batches]
+    animal_rows = await db.execute(
+        select(Animal.purchase_batch_id, func.count())
+        .where(Animal.purchase_batch_id.in_(ids))
+        .group_by(Animal.purchase_batch_id)
+    )
+    animals_created: dict[int | None, int] = {}
+    for batch_id, n in animal_rows.all():
+        animals_created[batch_id] = n
+    task_rows = await db.execute(
+        select(Task.purchase_batch_id, func.count())
+        .where(Task.purchase_batch_id.in_(ids), Task.status == TaskStatus.PENDING.value)
+        .group_by(Task.purchase_batch_id)
+    )
+    open_tasks: dict[int | None, int] = {}
+    for batch_id, n in task_rows.all():
+        open_tasks[batch_id] = n
+    outs = []
+    for batch in batches:
+        out = PurchaseBatchOut.model_validate(batch)
+        out.animals_created = animals_created.get(batch.id, 0)
+        out.open_tasks = open_tasks.get(batch.id, 0)
+        outs.append(out)
+    return outs
+
+
+@router.get("")
+async def list_batches(
+    db: DbSession, farm: CurrentFarm, perms: PurchasesView
+) -> list[PurchaseBatchOut]:
+    """All purchase batches for this farm, newest first."""
+    result = await db.execute(
+        select(PurchaseBatch)
+        .where(PurchaseBatch.farm_id == farm.id)
+        .order_by(PurchaseBatch.date.desc(), PurchaseBatch.id.desc())
+    )
+    return await _batch_out(db, list(result.scalars().all()))
+
+
+@router.post("/new", status_code=201)
+async def create_batch(
+    payload: PurchaseBatchIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: PurchasesManage,
+) -> PurchaseBatchOut:
+    """Create a batch: stub animals into QUARANTINE, generate the 45-day
+    quarantine task schedule and book the purchase expense."""
+    try:
+        batch = await create_purchase_batch(
+            db,
+            farm,
+            payload.date,
+            (payload.supplier or "").strip(),
+            payload.count,
+            payload.avg_age_months,
+            payload.avg_weight_kg,
+            payload.total_price,
+            (payload.notes or "").strip(),
+            payload.create_animals,
+            created_by_id=user.id,
+        )
+    except ValueError as exc:  # backstop — the schema re-checks the same invariants
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    await db.commit()
+    return (await _batch_out(db, [batch]))[0]
+
+
+@router.get("/{batch_id}")
+async def batch_detail(
+    batch_id: int, db: DbSession, farm: CurrentFarm, perms: PurchasesView
+) -> PurchaseBatchDetailOut:
+    """One batch with its quarantine task schedule and stubbed animals."""
+    batch = await db.get(PurchaseBatch, batch_id) if 1 <= batch_id <= MAX_INT32_ID else None
+    if batch is None or batch.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail="Purchase batch not found")
+    task_result = await db.execute(
+        select(Task)
+        .where(Task.farm_id == farm.id, Task.purchase_batch_id == batch.id)
+        .order_by(Task.due_date, Task.id)
+    )
+    animal_result = await db.execute(
+        select(Animal).where(Animal.purchase_batch_id == batch.id).order_by(Animal.tag_number)
+    )
+    return PurchaseBatchDetailOut(
+        batch=(await _batch_out(db, [batch]))[0],
+        animals=[AnimalOut.model_validate(animal) for animal in animal_result.scalars().all()],
+        tasks=[TaskOut.model_validate(task) for task in task_result.scalars().all()],
+    )
