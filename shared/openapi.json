@@ -3796,10 +3796,876 @@
           }
         }
       }
+    },
+    "/api/simulation/defaults/breeds": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "List Breeds",
+        "description": "Available breed presets and production systems.",
+        "operationId": "list_breeds_api_simulation_defaults_breeds_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BreedsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/defaults": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Breed Defaults",
+        "description": "Default assumptions for a breed + production system (400 on unknown).",
+        "operationId": "breed_defaults_api_simulation_defaults_get",
+        "parameters": [
+          {
+            "name": "breed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "osmanabadi",
+              "title": "Breed"
+            }
+          },
+          {
+            "name": "system",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "stall_fed",
+              "title": "System"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationAssumptions"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/herd-snapshot": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Herd Snapshot",
+        "description": "Group the farm's ACTIVE animals into simulation starting cohorts:\nkid 0-2 m, weaner 3-5 m, grower 6-11 m, doe/buck 12+ m (or unknown age).",
+        "operationId": "herd_snapshot_api_simulation_herd_snapshot_get",
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HerdSnapshotOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/run": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Run Adhoc",
+        "description": "Run a simulation from posted assumptions (no persistence).",
+        "operationId": "run_adhoc_api_simulation_run_post",
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/scenarios": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Create Scenario",
+        "operationId": "create_scenario_api_simulation_scenarios_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "List Scenarios",
+        "operationId": "list_scenarios_api_simulation_scenarios_get",
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScenarioOut"
+                  },
+                  "title": "Response List Scenarios Api Simulation Scenarios Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/scenarios/compare": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Compare Scenarios",
+        "description": "Run 2+ stored scenarios deterministically side by side (``ids=1,2``).",
+        "operationId": "compare_scenarios_api_simulation_scenarios_compare_get",
+        "parameters": [
+          {
+            "name": "ids",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Ids"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioCompareOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/scenarios/{scenario_id}": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Get Scenario",
+        "operationId": "get_scenario_api_simulation_scenarios__scenario_id__get",
+        "parameters": [
+          {
+            "name": "scenario_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scenario Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Update Scenario",
+        "operationId": "update_scenario_api_simulation_scenarios__scenario_id__patch",
+        "parameters": [
+          {
+            "name": "scenario_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scenario Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScenarioUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScenarioOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Delete Scenario",
+        "operationId": "delete_scenario_api_simulation_scenarios__scenario_id__delete",
+        "parameters": [
+          {
+            "name": "scenario_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scenario Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/simulation/scenarios/{scenario_id}/run": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Run Scenario",
+        "description": "Run a stored scenario's assumptions (optionally with MC / sensitivity).",
+        "operationId": "run_scenario_api_simulation_scenarios__scenario_id__run_post",
+        "parameters": [
+          {
+            "name": "scenario_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Scenario Id"
+            }
+          },
+          {
+            "name": "monte_carlo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Monte Carlo"
+            }
+          },
+          {
+            "name": "sensitivity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Sensitivity"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AmortizationRowModel": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "opening_balance": {
+            "type": "number",
+            "title": "Opening Balance"
+          },
+          "payment": {
+            "type": "number",
+            "title": "Payment"
+          },
+          "interest": {
+            "type": "number",
+            "title": "Interest"
+          },
+          "principal": {
+            "type": "number",
+            "title": "Principal"
+          },
+          "closing_balance": {
+            "type": "number",
+            "title": "Closing Balance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "opening_balance",
+          "payment",
+          "interest",
+          "principal",
+          "closing_balance"
+        ],
+        "title": "AmortizationRowModel",
+        "description": "One row of the loan amortization schedule."
+      },
       "AnimalCreateIn": {
         "properties": {
           "tag_number": {
@@ -4300,6 +5166,105 @@
         ],
         "title": "AnimalProfileOut"
       },
+      "AnnualPLRow": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "meat_revenue": {
+            "type": "number",
+            "title": "Meat Revenue"
+          },
+          "cull_revenue": {
+            "type": "number",
+            "title": "Cull Revenue"
+          },
+          "milk_revenue": {
+            "type": "number",
+            "title": "Milk Revenue"
+          },
+          "manure_revenue": {
+            "type": "number",
+            "title": "Manure Revenue"
+          },
+          "total_revenue": {
+            "type": "number",
+            "title": "Total Revenue"
+          },
+          "feed_cost": {
+            "type": "number",
+            "title": "Feed Cost"
+          },
+          "vet_cost": {
+            "type": "number",
+            "title": "Vet Cost"
+          },
+          "labour_cost": {
+            "type": "number",
+            "title": "Labour Cost"
+          },
+          "insurance_cost": {
+            "type": "number",
+            "title": "Insurance Cost"
+          },
+          "misc_cost": {
+            "type": "number",
+            "title": "Misc Cost"
+          },
+          "stock_purchases": {
+            "type": "number",
+            "title": "Stock Purchases"
+          },
+          "total_opex": {
+            "type": "number",
+            "title": "Total Opex"
+          },
+          "ebitda": {
+            "type": "number",
+            "title": "Ebitda"
+          },
+          "interest": {
+            "type": "number",
+            "title": "Interest"
+          },
+          "principal": {
+            "type": "number",
+            "title": "Principal"
+          },
+          "debt_service": {
+            "type": "number",
+            "title": "Debt Service"
+          },
+          "net_cash_flow": {
+            "type": "number",
+            "title": "Net Cash Flow"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "meat_revenue",
+          "cull_revenue",
+          "milk_revenue",
+          "manure_revenue",
+          "total_revenue",
+          "feed_cost",
+          "vet_cost",
+          "labour_cost",
+          "insurance_cost",
+          "misc_cost",
+          "stock_purchases",
+          "total_opex",
+          "ebitda",
+          "interest",
+          "principal",
+          "debt_service",
+          "net_cash_flow"
+        ],
+        "title": "AnnualPLRow",
+        "description": "Annual profit-and-loss aggregation (12-month blocks)."
+      },
       "BreedingCreateIn": {
         "properties": {
           "doe_id": {
@@ -4567,6 +5532,30 @@
         ],
         "title": "BreedingStatsOut"
       },
+      "BreedsOut": {
+        "properties": {
+          "breeds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Breeds"
+          },
+          "systems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Systems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "breeds",
+          "systems"
+        ],
+        "title": "BreedsOut"
+      },
       "BucketAllocationOut": {
         "properties": {
           "bucket": {
@@ -4731,6 +5720,93 @@
           "avg_weight"
         ],
         "title": "BucketReportRow"
+      },
+      "CostsAssumptions": {
+        "properties": {
+          "vet_per_animal_per_year": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Vet Per Animal Per Year",
+            "default": 250.0
+          },
+          "labour_per_month": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Labour Per Month",
+            "default": 10000.0
+          },
+          "labour_per_head_threshold": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Labour Per Head Threshold",
+            "default": 75
+          },
+          "insurance_pct_stock_value_annual": {
+            "type": "number",
+            "maximum": 0.25,
+            "minimum": 0.0,
+            "title": "Insurance Pct Stock Value Annual",
+            "default": 0.04
+          },
+          "misc_overhead_per_month": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Misc Overhead Per Month",
+            "default": 2000.0
+          },
+          "shed_cost_per_animal_place": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Shed Cost Per Animal Place",
+            "default": 4500.0
+          },
+          "equipment_cost_per_animal": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Equipment Cost Per Animal",
+            "default": 500.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CostsAssumptions",
+        "description": "Recurring and capital costs (\u20b9)."
+      },
+      "CullingAssumptions": {
+        "properties": {
+          "doe_cull_rate_annual": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Doe Cull Rate Annual",
+            "default": 0.2
+          },
+          "max_doe_age_months": {
+            "type": "integer",
+            "maximum": 180.0,
+            "minimum": 24.0,
+            "title": "Max Doe Age Months",
+            "default": 72
+          },
+          "buck_rotation_years": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Buck Rotation Years",
+            "default": 3
+          },
+          "buck_doe_ratio": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Buck Doe Ratio",
+            "default": 25
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CullingAssumptions",
+        "description": "Disposal and sire-replacement policy."
       },
       "DashboardOut": {
         "properties": {
@@ -4956,6 +6032,170 @@
         ],
         "title": "FarmOut"
       },
+      "FeedAssumptions": {
+        "properties": {
+          "dmi_kid_creep": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Kid Creep",
+            "default": 0.015
+          },
+          "dmi_weaner": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Weaner",
+            "default": 0.03
+          },
+          "dmi_grower": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Grower",
+            "default": 0.035
+          },
+          "dmi_doe_maintenance": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Doe Maintenance",
+            "default": 0.03
+          },
+          "dmi_doe_pregnant": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Doe Pregnant",
+            "default": 0.035
+          },
+          "dmi_doe_lactating": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Doe Lactating",
+            "default": 0.045
+          },
+          "dmi_buck": {
+            "type": "number",
+            "maximum": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dmi Buck",
+            "default": 0.035
+          },
+          "concentrate_share_kid_creep": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Kid Creep",
+            "default": 0.6
+          },
+          "concentrate_share_weaner": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Weaner",
+            "default": 0.2
+          },
+          "concentrate_share_grower": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Grower",
+            "default": 0.2
+          },
+          "concentrate_share_doe_maintenance": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Doe Maintenance",
+            "default": 0.05
+          },
+          "concentrate_share_doe_pregnant": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Doe Pregnant",
+            "default": 0.15
+          },
+          "concentrate_share_doe_lactating": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Doe Lactating",
+            "default": 0.2
+          },
+          "concentrate_share_buck": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Concentrate Share Buck",
+            "default": 0.15
+          },
+          "green_dm_pct": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Green Dm Pct",
+            "default": 0.25
+          },
+          "dry_dm_pct": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Dry Dm Pct",
+            "default": 0.88
+          },
+          "concentrate_dm_pct": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Concentrate Dm Pct",
+            "default": 0.9
+          },
+          "green_price_per_kg": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Green Price Per Kg",
+            "default": 1.0
+          },
+          "dry_price_per_kg": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Dry Price Per Kg",
+            "default": 5.0
+          },
+          "concentrate_price_per_kg": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Concentrate Price Per Kg",
+            "default": 25.0
+          },
+          "grazing_dm_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Grazing Dm Fraction",
+            "default": 0.0
+          },
+          "cultivated_fodder_acres": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Cultivated Fodder Acres",
+            "default": 0.0
+          },
+          "fodder_yield_t_dm_per_acre_year": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Fodder Yield T Dm Per Acre Year",
+            "default": 6.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FeedAssumptions",
+        "description": "Dry-matter intake, ration split, feed prices and fodder production."
+      },
       "FeedInventoryOut": {
         "properties": {
           "id": {
@@ -5109,6 +6349,57 @@
         ],
         "title": "FeedSettingIn"
       },
+      "FeedSummary": {
+        "properties": {
+          "annual_green_kg": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Green Kg"
+          },
+          "annual_dry_kg": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Dry Kg"
+          },
+          "annual_concentrate_kg": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Concentrate Kg"
+          },
+          "annual_feed_cost": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Feed Cost"
+          },
+          "land_requirement_acres": {
+            "type": "number",
+            "title": "Land Requirement Acres"
+          },
+          "fodder_deficit_months": {
+            "type": "integer",
+            "title": "Fodder Deficit Months"
+          }
+        },
+        "type": "object",
+        "required": [
+          "annual_green_kg",
+          "annual_dry_kg",
+          "annual_concentrate_kg",
+          "annual_feed_cost",
+          "land_requirement_acres",
+          "fodder_deficit_months"
+        ],
+        "title": "FeedSummary",
+        "description": "Annual feed totals and the fodder land requirement."
+      },
       "FeedingPlanOut": {
         "properties": {
           "lines": {
@@ -5179,6 +6470,69 @@
         ],
         "title": "FeedingRecordOut"
       },
+      "FinanceAssumptions": {
+        "properties": {
+          "initial_stock_cost": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Initial Stock Cost",
+            "default": 0.0
+          },
+          "loan_fraction_of_project_cost": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Loan Fraction Of Project Cost",
+            "default": 0.85
+          },
+          "interest_rate_annual": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Interest Rate Annual",
+            "default": 0.11
+          },
+          "loan_term_months": {
+            "type": "integer",
+            "maximum": 180.0,
+            "minimum": 1.0,
+            "title": "Loan Term Months",
+            "default": 72
+          },
+          "moratorium_months": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 0.0,
+            "title": "Moratorium Months",
+            "default": 12
+          },
+          "subsidy_fraction": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Subsidy Fraction",
+            "default": 0.0
+          },
+          "discount_rate_annual": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Discount Rate Annual",
+            "default": 0.12
+          },
+          "working_capital_months": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Working Capital Months",
+            "default": 3
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FinanceAssumptions",
+        "description": "Project financing (NABARD refinance structure)."
+      },
       "FinanceOut": {
         "properties": {
           "transactions": {
@@ -5212,6 +6566,47 @@
           "pnl"
         ],
         "title": "FinanceOut"
+      },
+      "GrowthAssumptions": {
+        "properties": {
+          "birth_weight_kg": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Birth Weight Kg",
+            "default": 2.5
+          },
+          "adult_weight_doe_kg": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Adult Weight Doe Kg",
+            "default": 32.0
+          },
+          "adult_weight_buck_kg": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Adult Weight Buck Kg",
+            "default": 34.0
+          },
+          "weight_by_age_months": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "minItems": 13,
+            "title": "Weight By Age Months"
+          },
+          "sale_age_months": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 6.0,
+            "title": "Sale Age Months",
+            "default": 12
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GrowthAssumptions",
+        "description": "Live-weight curve and sale-age policy.\n\n``weight_by_age_months`` gives live weight (kg) at ages 0..12 months; from\nmonth 13 the curve approaches the adult weight linearly, reaching it at 24\nmonths. Default table is an Osmanabadi stall-fed curve (2.5 kg birth weight,\n~2 kg/month pre-yearling gain) per ICAR/NBAGR breed descriptors."
       },
       "HTTPValidationError": {
         "properties": {
@@ -5573,6 +6968,155 @@
         ],
         "title": "HealthEventOut"
       },
+      "HerdAssumptions": {
+        "properties": {
+          "does": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Does",
+            "default": 50
+          },
+          "bucks": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Bucks",
+            "default": 2
+          },
+          "female_growers": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Female Growers",
+            "default": 0
+          },
+          "male_growers": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Male Growers",
+            "default": 0
+          },
+          "female_weaners": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Female Weaners",
+            "default": 0
+          },
+          "male_weaners": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Male Weaners",
+            "default": 0
+          },
+          "female_kids": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Female Kids",
+            "default": 0
+          },
+          "male_kids": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Male Kids",
+            "default": 0
+          },
+          "female_retention_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Female Retention Fraction",
+            "default": 0.5
+          },
+          "max_breeding_does": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Max Breeding Does",
+            "default": 50
+          },
+          "doe_purchase_price": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Doe Purchase Price",
+            "default": 8000.0
+          },
+          "buck_purchase_price": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Buck Purchase Price",
+            "default": 12000.0
+          },
+          "auto_purchase_bucks": {
+            "type": "boolean",
+            "title": "Auto Purchase Bucks",
+            "default": true
+          },
+          "foundation_flock_state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "mixed"
+            ],
+            "title": "Foundation Flock State",
+            "default": "mixed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HerdAssumptions",
+        "description": "Starting stock and replacement/purchase policy."
+      },
+      "HerdSnapshotOut": {
+        "properties": {
+          "does": {
+            "type": "integer",
+            "title": "Does"
+          },
+          "bucks": {
+            "type": "integer",
+            "title": "Bucks"
+          },
+          "f_kids": {
+            "type": "integer",
+            "title": "F Kids"
+          },
+          "f_weaners": {
+            "type": "integer",
+            "title": "F Weaners"
+          },
+          "f_growers": {
+            "type": "integer",
+            "title": "F Growers"
+          },
+          "m_kids": {
+            "type": "integer",
+            "title": "M Kids"
+          },
+          "m_weaners": {
+            "type": "integer",
+            "title": "M Weaners"
+          },
+          "m_growers": {
+            "type": "integer",
+            "title": "M Growers"
+          },
+          "total_head": {
+            "type": "integer",
+            "title": "Total Head"
+          }
+        },
+        "type": "object",
+        "required": [
+          "does",
+          "bucks",
+          "f_kids",
+          "f_weaners",
+          "f_growers",
+          "m_kids",
+          "m_weaners",
+          "m_growers",
+          "total_head"
+        ],
+        "title": "HerdSnapshotOut",
+        "description": "The farm's ACTIVE animals grouped into simulation starting cohorts."
+      },
       "KidEntryOut": {
         "properties": {
           "id": {
@@ -5920,6 +7464,26 @@
         ],
         "title": "MembershipOut"
       },
+      "MetaAssumptions": {
+        "properties": {
+          "horizon_months": {
+            "type": "integer",
+            "maximum": 240.0,
+            "minimum": 12.0,
+            "title": "Horizon Months",
+            "default": 120
+          },
+          "start_year_month": {
+            "type": "string",
+            "title": "Start Year Month",
+            "default": "2026-08"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MetaAssumptions",
+        "description": "Run horizon and calendar anchoring."
+      },
       "MixIn": {
         "properties": {
           "recipe_code": {
@@ -5938,6 +7502,303 @@
           "batch_kg"
         ],
         "title": "MixIn"
+      },
+      "MonteCarloResult": {
+        "properties": {
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed"
+          },
+          "herd_percentiles": {
+            "$ref": "#/components/schemas/PercentileBand"
+          },
+          "cash_percentiles": {
+            "$ref": "#/components/schemas/PercentileBand"
+          },
+          "npv_mean": {
+            "type": "number",
+            "title": "Npv Mean"
+          },
+          "npv_std": {
+            "type": "number",
+            "title": "Npv Std"
+          },
+          "npv_p5": {
+            "type": "number",
+            "title": "Npv P5"
+          },
+          "npv_p50": {
+            "type": "number",
+            "title": "Npv P50"
+          },
+          "npv_p95": {
+            "type": "number",
+            "title": "Npv P95"
+          },
+          "prob_npv_negative": {
+            "type": "number",
+            "title": "Prob Npv Negative"
+          },
+          "npv_histogram_counts": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 20,
+            "title": "Npv Histogram Counts"
+          },
+          "npv_histogram_edges": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 21,
+            "minItems": 21,
+            "title": "Npv Histogram Edges"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs",
+          "seed",
+          "herd_percentiles",
+          "cash_percentiles",
+          "npv_mean",
+          "npv_std",
+          "npv_p5",
+          "npv_p50",
+          "npv_p95",
+          "prob_npv_negative",
+          "npv_histogram_counts",
+          "npv_histogram_edges"
+        ],
+        "title": "MonteCarloResult",
+        "description": "Aggregate of seeded triangular Monte Carlo runs."
+      },
+      "MonthlyRow": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "calendar_month": {
+            "type": "integer",
+            "title": "Calendar Month"
+          },
+          "f_kids": {
+            "type": "number",
+            "title": "F Kids"
+          },
+          "f_weaners": {
+            "type": "number",
+            "title": "F Weaners"
+          },
+          "f_growers": {
+            "type": "number",
+            "title": "F Growers"
+          },
+          "open_does": {
+            "type": "number",
+            "title": "Open Does"
+          },
+          "pregnant_does": {
+            "type": "number",
+            "title": "Pregnant Does"
+          },
+          "lactating_does": {
+            "type": "number",
+            "title": "Lactating Does"
+          },
+          "m_kids": {
+            "type": "number",
+            "title": "M Kids"
+          },
+          "m_weaners": {
+            "type": "number",
+            "title": "M Weaners"
+          },
+          "m_growers": {
+            "type": "number",
+            "title": "M Growers"
+          },
+          "bucks": {
+            "type": "number",
+            "title": "Bucks"
+          },
+          "total_herd": {
+            "type": "number",
+            "title": "Total Herd"
+          },
+          "births": {
+            "type": "number",
+            "title": "Births"
+          },
+          "deaths": {
+            "type": "number",
+            "title": "Deaths"
+          },
+          "sales_head": {
+            "type": "number",
+            "title": "Sales Head"
+          },
+          "sales_revenue": {
+            "type": "number",
+            "title": "Sales Revenue"
+          },
+          "culls_head": {
+            "type": "number",
+            "title": "Culls Head"
+          },
+          "cull_revenue": {
+            "type": "number",
+            "title": "Cull Revenue"
+          },
+          "milk_revenue": {
+            "type": "number",
+            "title": "Milk Revenue"
+          },
+          "manure_revenue": {
+            "type": "number",
+            "title": "Manure Revenue"
+          },
+          "purchases_head": {
+            "type": "number",
+            "title": "Purchases Head"
+          },
+          "purchase_cost": {
+            "type": "number",
+            "title": "Purchase Cost"
+          },
+          "feed_green_kg": {
+            "type": "number",
+            "title": "Feed Green Kg"
+          },
+          "feed_dry_kg": {
+            "type": "number",
+            "title": "Feed Dry Kg"
+          },
+          "feed_concentrate_kg": {
+            "type": "number",
+            "title": "Feed Concentrate Kg"
+          },
+          "feed_cost": {
+            "type": "number",
+            "title": "Feed Cost"
+          },
+          "vet_cost": {
+            "type": "number",
+            "title": "Vet Cost"
+          },
+          "labour_cost": {
+            "type": "number",
+            "title": "Labour Cost"
+          },
+          "insurance_cost": {
+            "type": "number",
+            "title": "Insurance Cost"
+          },
+          "misc_cost": {
+            "type": "number",
+            "title": "Misc Cost"
+          },
+          "debt_service": {
+            "type": "number",
+            "title": "Debt Service"
+          },
+          "net_cash_flow": {
+            "type": "number",
+            "title": "Net Cash Flow"
+          },
+          "cumulative_cash_flow": {
+            "type": "number",
+            "title": "Cumulative Cash Flow"
+          },
+          "fodder_surplus_kg": {
+            "type": "number",
+            "title": "Fodder Surplus Kg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "calendar_month",
+          "f_kids",
+          "f_weaners",
+          "f_growers",
+          "open_does",
+          "pregnant_does",
+          "lactating_does",
+          "m_kids",
+          "m_weaners",
+          "m_growers",
+          "bucks",
+          "total_herd",
+          "births",
+          "deaths",
+          "sales_head",
+          "sales_revenue",
+          "culls_head",
+          "cull_revenue",
+          "milk_revenue",
+          "manure_revenue",
+          "purchases_head",
+          "purchase_cost",
+          "feed_green_kg",
+          "feed_dry_kg",
+          "feed_concentrate_kg",
+          "feed_cost",
+          "vet_cost",
+          "labour_cost",
+          "insurance_cost",
+          "misc_cost",
+          "debt_service",
+          "net_cash_flow",
+          "cumulative_cash_flow",
+          "fodder_surplus_kg"
+        ],
+        "title": "MonthlyRow",
+        "description": "One simulation month: end-of-month headcounts and that month's flows."
+      },
+      "MortalityAssumptions": {
+        "properties": {
+          "kid_pre_weaning": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Kid Pre Weaning",
+            "default": 0.1
+          },
+          "kid_post_weaning": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Kid Post Weaning",
+            "default": 0.05
+          },
+          "grower": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Grower",
+            "default": 0.04
+          },
+          "adult": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Adult",
+            "default": 0.05
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MortalityAssumptions",
+        "description": "Annual mortality fractions per class (converted to monthly compounding rates)."
       },
       "MortalityOut": {
         "properties": {
@@ -6064,6 +7925,55 @@
           "password"
         ],
         "title": "PasswordResetIn"
+      },
+      "PercentileBand": {
+        "properties": {
+          "p5": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "P5"
+          },
+          "p25": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "P25"
+          },
+          "p50": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "P50"
+          },
+          "p75": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "P75"
+          },
+          "p95": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "P95"
+          }
+        },
+        "type": "object",
+        "required": [
+          "p5",
+          "p25",
+          "p50",
+          "p75",
+          "p95"
+        ],
+        "title": "PercentileBand",
+        "description": "Per-month percentile bands across Monte Carlo runs."
       },
       "PermissionGroupOut": {
         "properties": {
@@ -6500,6 +8410,133 @@
         ],
         "title": "ReportsOut"
       },
+      "ReproductionAssumptions": {
+        "properties": {
+          "conception_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Conception Rate",
+            "default": 0.85
+          },
+          "gestation_months": {
+            "type": "integer",
+            "maximum": 7.0,
+            "minimum": 1.0,
+            "title": "Gestation Months",
+            "default": 5
+          },
+          "lactation_months": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Lactation Months",
+            "default": 3
+          },
+          "months_open_before_breeding": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 0.0,
+            "title": "Months Open Before Breeding",
+            "default": 2
+          },
+          "litter_size": {
+            "type": "number",
+            "maximum": 4.0,
+            "minimum": 0.5,
+            "title": "Litter Size",
+            "default": 1.6
+          },
+          "sex_ratio_female": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Sex Ratio Female",
+            "default": 0.5
+          },
+          "age_at_first_breeding_months": {
+            "type": "integer",
+            "maximum": 30.0,
+            "minimum": 6.0,
+            "title": "Age At First Breeding Months",
+            "default": 12
+          },
+          "stillbirth_rate": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Stillbirth Rate",
+            "default": 0.02
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReproductionAssumptions",
+        "description": "Breeding biology (monthly resolution)."
+      },
+      "RiskAssumptions": {
+        "properties": {
+          "monte_carlo_runs": {
+            "type": "integer",
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Monte Carlo Runs",
+            "default": 500
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed",
+            "default": 42
+          },
+          "meat_price": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "feed_price": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "adult_mortality": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "kid_mortality": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "litter_size": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "conception_rate": {
+            "$ref": "#/components/schemas/RiskVariable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RiskAssumptions",
+        "description": "Monte Carlo controls and per-variable triangular spreads."
+      },
+      "RiskVariable": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "low": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Low",
+            "default": 0.8
+          },
+          "high": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "High",
+            "default": 1.2
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RiskVariable",
+        "description": "Triangular spread (multiplier on the base value) for one Monte Carlo variable."
+      },
       "RoleChangeIn": {
         "properties": {
           "role_id": {
@@ -6604,6 +8641,221 @@
           "permissions"
         ],
         "title": "RoleOut"
+      },
+      "RunIn": {
+        "properties": {
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          },
+          "monte_carlo": {
+            "type": "boolean",
+            "title": "Monte Carlo",
+            "default": false
+          },
+          "sensitivity": {
+            "type": "boolean",
+            "title": "Sensitivity",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "assumptions"
+        ],
+        "title": "RunIn"
+      },
+      "SalesAssumptions": {
+        "properties": {
+          "meat_price_per_kg": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Meat Price Per Kg",
+            "default": 350.0
+          },
+          "cull_doe_price_per_kg": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Cull Doe Price Per Kg",
+            "default": 180.0
+          },
+          "cull_buck_price_per_kg": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Cull Buck Price Per Kg",
+            "default": 200.0
+          },
+          "eid_month": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 0.0,
+            "title": "Eid Month",
+            "default": 0
+          },
+          "eid_price_uplift": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Eid Price Uplift",
+            "default": 0.3
+          },
+          "milk_price_per_litre": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Milk Price Per Litre",
+            "default": 30.0
+          },
+          "lactation_milk_litres": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Lactation Milk Litres",
+            "default": 0.0
+          },
+          "manure_income_per_adult_per_year": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Manure Income Per Adult Per Year",
+            "default": 900.0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SalesAssumptions",
+        "description": "Prices and non-meat revenue streams (\u20b9)."
+      },
+      "ScenarioCompareOut": {
+        "properties": {
+          "scenarios": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioOut"
+            },
+            "type": "array",
+            "title": "Scenarios"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SimulationResult"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scenarios",
+          "results"
+        ],
+        "title": "ScenarioCompareOut"
+      },
+      "ScenarioCreateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Notes",
+            "default": ""
+          },
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "assumptions"
+        ],
+        "title": "ScenarioCreateIn"
+      },
+      "ScenarioOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "farm_id": {
+            "type": "integer",
+            "title": "Farm Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes"
+          },
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "farm_id",
+          "name",
+          "notes",
+          "assumptions",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ScenarioOut",
+        "description": "Built explicitly by the router (assumptions are JSON text on the ORM row)."
+      },
+      "ScenarioUpdateIn": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "assumptions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationAssumptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "ScenarioUpdateIn"
       },
       "ScheduleOut": {
         "properties": {
@@ -6712,6 +8964,136 @@
           "status"
         ],
         "title": "ScheduleRowOut"
+      },
+      "SensitivityItem": {
+        "properties": {
+          "parameter": {
+            "type": "string",
+            "title": "Parameter"
+          },
+          "delta_npv_low": {
+            "type": "number",
+            "title": "Delta Npv Low"
+          },
+          "delta_npv_high": {
+            "type": "number",
+            "title": "Delta Npv High"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parameter",
+          "delta_npv_low",
+          "delta_npv_high"
+        ],
+        "title": "SensitivityItem",
+        "description": "One-at-a-time sensitivity of NPV to a single parameter."
+      },
+      "SimulationAssumptions": {
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/MetaAssumptions"
+          },
+          "herd": {
+            "$ref": "#/components/schemas/HerdAssumptions"
+          },
+          "reproduction": {
+            "$ref": "#/components/schemas/ReproductionAssumptions"
+          },
+          "mortality": {
+            "$ref": "#/components/schemas/MortalityAssumptions"
+          },
+          "culling": {
+            "$ref": "#/components/schemas/CullingAssumptions"
+          },
+          "growth": {
+            "$ref": "#/components/schemas/GrowthAssumptions"
+          },
+          "sales": {
+            "$ref": "#/components/schemas/SalesAssumptions"
+          },
+          "feed": {
+            "$ref": "#/components/schemas/FeedAssumptions"
+          },
+          "costs": {
+            "$ref": "#/components/schemas/CostsAssumptions"
+          },
+          "finance": {
+            "$ref": "#/components/schemas/FinanceAssumptions"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/RiskAssumptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SimulationAssumptions",
+        "description": "Full assumption set; ``SimulationAssumptions()`` is a valid default run."
+      },
+      "SimulationResult": {
+        "properties": {
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MonthlyRow"
+            },
+            "type": "array",
+            "title": "Months"
+          },
+          "annual_pl": {
+            "items": {
+              "$ref": "#/components/schemas/AnnualPLRow"
+            },
+            "type": "array",
+            "title": "Annual Pl"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/ViabilityMetrics"
+          },
+          "amortization": {
+            "items": {
+              "$ref": "#/components/schemas/AmortizationRowModel"
+            },
+            "type": "array",
+            "title": "Amortization"
+          },
+          "feed_summary": {
+            "$ref": "#/components/schemas/FeedSummary"
+          },
+          "monte_carlo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MonteCarloResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sensitivity": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SensitivityItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitivity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "months",
+          "annual_pl",
+          "metrics",
+          "amortization",
+          "feed_summary"
+        ],
+        "title": "SimulationResult",
+        "description": "Full deterministic result; Monte Carlo / sensitivity blocks are optional."
       },
       "StatusChangeIn": {
         "properties": {
@@ -7463,6 +9845,99 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ViabilityMetrics": {
+        "properties": {
+          "project_cost": {
+            "type": "number",
+            "title": "Project Cost"
+          },
+          "loan_amount": {
+            "type": "number",
+            "title": "Loan Amount"
+          },
+          "subsidy_amount": {
+            "type": "number",
+            "title": "Subsidy Amount"
+          },
+          "equity": {
+            "type": "number",
+            "title": "Equity"
+          },
+          "npv": {
+            "type": "number",
+            "title": "Npv"
+          },
+          "irr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Irr"
+          },
+          "bcr": {
+            "type": "number",
+            "title": "Bcr"
+          },
+          "dscr_per_year": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Dscr Per Year"
+          },
+          "avg_dscr": {
+            "type": "number",
+            "title": "Avg Dscr"
+          },
+          "min_dscr": {
+            "type": "number",
+            "title": "Min Dscr"
+          },
+          "payback_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payback Month"
+          },
+          "break_even_meat_price_per_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Break Even Meat Price Per Kg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_cost",
+          "loan_amount",
+          "subsidy_amount",
+          "equity",
+          "npv",
+          "irr",
+          "bcr",
+          "dscr_per_year",
+          "avg_dscr",
+          "min_dscr",
+          "payback_month",
+          "break_even_meat_price_per_kg"
+        ],
+        "title": "ViabilityMetrics",
+        "description": "NABARD-style project viability metrics."
       },
       "WeightIn": {
         "properties": {

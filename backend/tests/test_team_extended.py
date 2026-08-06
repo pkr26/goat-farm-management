@@ -64,7 +64,7 @@ PRESET_NAMES = {
     "FEEDER": "Feeder",
 }
 
-# The full permission catalog (25 codes; SPEC says "~24").
+# The full permission catalog (27 codes; SPEC says "~24").
 ALL_PERMS = {
     "dashboard.view",
     "animals.view",
@@ -89,6 +89,8 @@ ALL_PERMS = {
     "tasks.verify",
     "finance.view",
     "finance.manage",
+    "simulation.view",
+    "simulation.manage",
     "reports.view",
     "team.manage",
 }
@@ -588,7 +590,7 @@ async def test_permissions_owner_has_everything(client: httpx.AsyncClient) -> No
     assert body["is_owner"] is True
     assert set(body["permissions"]) == ALL_PERMS
     assert body["permissions"] == sorted(body["permissions"])
-    assert len(body["permissions"]) == 25  # full catalog size
+    assert len(body["permissions"]) == 27  # full catalog size
 
 
 @pytest.mark.parametrize("role_code", sorted(PRESET_PERMS))

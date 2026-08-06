@@ -50,6 +50,8 @@ export const ALL_PERMISSIONS = [
   "tasks.verify",
   "finance.view",
   "finance.manage",
+  "simulation.view",
+  "simulation.manage",
   "reports.view",
   "team.manage",
 ];

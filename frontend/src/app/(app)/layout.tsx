@@ -24,6 +24,7 @@ const NAV_ITEMS: { href: string; label: string; perm: string }[] = [
   { href: "/feeding", label: "Feeding", perm: "feeding.view" },
   { href: "/tasks", label: "Tasks", perm: "tasks.view" },
   { href: "/finance", label: "Finance", perm: "finance.view" },
+  { href: "/simulation", label: "Simulation", perm: "simulation.view" },
   { href: "/reports", label: "Reports", perm: "reports.view" },
   { href: "/team", label: "Team", perm: "team.manage" },
 ];

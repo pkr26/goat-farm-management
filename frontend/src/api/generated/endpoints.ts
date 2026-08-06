@@ -28,10 +28,13 @@ import type {
   AnimalListOut,
   AnimalOut,
   AnimalProfileOut,
+  BreedDefaultsApiSimulationDefaultsGetParams,
   BreedingCreateIn,
   BreedingListOut,
   BreedingRecordOut,
+  BreedsOut,
   BucketBoardRow,
+  CompareScenariosApiSimulationScenariosCompareGetParams,
   DashboardOut,
   DispenseIn,
   FarmCreateIn,
@@ -45,6 +48,7 @@ import type {
   HTTPValidationError,
   HealthEventIn,
   HealthEventOut,
+  HerdSnapshotOut,
   KiddingCreateIn,
   KiddingListOut,
   KiddingRecordOut,
@@ -65,7 +69,15 @@ import type {
   RoleChangeIn,
   RoleIn,
   RoleOut,
+  RunIn,
+  RunScenarioApiSimulationScenariosScenarioIdRunPostParams,
+  ScenarioCompareOut,
+  ScenarioCreateIn,
+  ScenarioOut,
+  ScenarioUpdateIn,
   ScheduleOut,
+  SimulationAssumptions,
+  SimulationResult,
   StatusChangeIn,
   StockAddIn,
   TaskCreateIn,
@@ -5538,5 +5550,1206 @@ export const useDeleteRoleApiTeamRolesRoleIdDelete = <TError = ErrorType<HTTPVal
         TContext
       > => {
       return useMutation(getDeleteRoleApiTeamRolesRoleIdDeleteMutationOptions(options), queryClient);
+    }
+
+export type listBreedsApiSimulationDefaultsBreedsGetResponse200 = {
+  data: BreedsOut
+  status: 200
+}
+
+export type listBreedsApiSimulationDefaultsBreedsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listBreedsApiSimulationDefaultsBreedsGetResponseSuccess = (listBreedsApiSimulationDefaultsBreedsGetResponse200) & {
+  headers: Headers;
+};
+export type listBreedsApiSimulationDefaultsBreedsGetResponseError = (listBreedsApiSimulationDefaultsBreedsGetResponse422) & {
+  headers: Headers;
+};
+
+export type listBreedsApiSimulationDefaultsBreedsGetResponse = (listBreedsApiSimulationDefaultsBreedsGetResponseSuccess | listBreedsApiSimulationDefaultsBreedsGetResponseError)
+
+export const getListBreedsApiSimulationDefaultsBreedsGetUrl = () => {
+
+
+
+
+  return `/api/simulation/defaults/breeds`
+}
+
+/**
+ * Available breed presets and production systems.
+ * @summary List Breeds
+ */
+export const listBreedsApiSimulationDefaultsBreedsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listBreedsApiSimulationDefaultsBreedsGetResponse> => {
+
+  return customInstance<listBreedsApiSimulationDefaultsBreedsGetResponse>(getListBreedsApiSimulationDefaultsBreedsGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBreedsApiSimulationDefaultsBreedsGetQueryKey = () => {
+    return [
+    `/api/simulation/defaults/breeds`
+    ] as const;
+    }
+
+
+export const getListBreedsApiSimulationDefaultsBreedsGetQueryOptions = <TData = Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBreedsApiSimulationDefaultsBreedsGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>> = ({ signal }) => listBreedsApiSimulationDefaultsBreedsGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListBreedsApiSimulationDefaultsBreedsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>>
+export type ListBreedsApiSimulationDefaultsBreedsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useListBreedsApiSimulationDefaultsBreedsGet<TData = Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError = ErrorType<HTTPValidationError>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListBreedsApiSimulationDefaultsBreedsGet<TData = Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListBreedsApiSimulationDefaultsBreedsGet<TData = Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Breeds
+ */
+
+export function useListBreedsApiSimulationDefaultsBreedsGet<TData = Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBreedsApiSimulationDefaultsBreedsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListBreedsApiSimulationDefaultsBreedsGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type breedDefaultsApiSimulationDefaultsGetResponse200 = {
+  data: SimulationAssumptions
+  status: 200
+}
+
+export type breedDefaultsApiSimulationDefaultsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type breedDefaultsApiSimulationDefaultsGetResponseSuccess = (breedDefaultsApiSimulationDefaultsGetResponse200) & {
+  headers: Headers;
+};
+export type breedDefaultsApiSimulationDefaultsGetResponseError = (breedDefaultsApiSimulationDefaultsGetResponse422) & {
+  headers: Headers;
+};
+
+export type breedDefaultsApiSimulationDefaultsGetResponse = (breedDefaultsApiSimulationDefaultsGetResponseSuccess | breedDefaultsApiSimulationDefaultsGetResponseError)
+
+export const getBreedDefaultsApiSimulationDefaultsGetUrl = (params?: BreedDefaultsApiSimulationDefaultsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/simulation/defaults?${stringifiedParams}` : `/api/simulation/defaults`
+}
+
+/**
+ * Default assumptions for a breed + production system (400 on unknown).
+ * @summary Breed Defaults
+ */
+export const breedDefaultsApiSimulationDefaultsGet = async (params?: BreedDefaultsApiSimulationDefaultsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<breedDefaultsApiSimulationDefaultsGetResponse> => {
+
+  return customInstance<breedDefaultsApiSimulationDefaultsGetResponse>(getBreedDefaultsApiSimulationDefaultsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getBreedDefaultsApiSimulationDefaultsGetQueryKey = (params?: BreedDefaultsApiSimulationDefaultsGetParams,) => {
+    return [
+    `/api/simulation/defaults`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getBreedDefaultsApiSimulationDefaultsGetQueryOptions = <TData = Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError = ErrorType<HTTPValidationError>>(params?: BreedDefaultsApiSimulationDefaultsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getBreedDefaultsApiSimulationDefaultsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>> = ({ signal }) => breedDefaultsApiSimulationDefaultsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type BreedDefaultsApiSimulationDefaultsGetQueryResult = NonNullable<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>>
+export type BreedDefaultsApiSimulationDefaultsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useBreedDefaultsApiSimulationDefaultsGet<TData = Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  BreedDefaultsApiSimulationDefaultsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>,
+          TError,
+          Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useBreedDefaultsApiSimulationDefaultsGet<TData = Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: BreedDefaultsApiSimulationDefaultsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>,
+          TError,
+          Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useBreedDefaultsApiSimulationDefaultsGet<TData = Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: BreedDefaultsApiSimulationDefaultsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Breed Defaults
+ */
+
+export function useBreedDefaultsApiSimulationDefaultsGet<TData = Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: BreedDefaultsApiSimulationDefaultsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedDefaultsApiSimulationDefaultsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getBreedDefaultsApiSimulationDefaultsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type herdSnapshotApiSimulationHerdSnapshotGetResponse200 = {
+  data: HerdSnapshotOut
+  status: 200
+}
+
+export type herdSnapshotApiSimulationHerdSnapshotGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type herdSnapshotApiSimulationHerdSnapshotGetResponseSuccess = (herdSnapshotApiSimulationHerdSnapshotGetResponse200) & {
+  headers: Headers;
+};
+export type herdSnapshotApiSimulationHerdSnapshotGetResponseError = (herdSnapshotApiSimulationHerdSnapshotGetResponse422) & {
+  headers: Headers;
+};
+
+export type herdSnapshotApiSimulationHerdSnapshotGetResponse = (herdSnapshotApiSimulationHerdSnapshotGetResponseSuccess | herdSnapshotApiSimulationHerdSnapshotGetResponseError)
+
+export const getHerdSnapshotApiSimulationHerdSnapshotGetUrl = () => {
+
+
+
+
+  return `/api/simulation/herd-snapshot`
+}
+
+/**
+ * Group the farm's ACTIVE animals into simulation starting cohorts:
+ * kid 0-2 m, weaner 3-5 m, grower 6-11 m, doe/buck 12+ m (or unknown age).
+ * @summary Herd Snapshot
+ */
+export const herdSnapshotApiSimulationHerdSnapshotGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<herdSnapshotApiSimulationHerdSnapshotGetResponse> => {
+
+  return customInstance<herdSnapshotApiSimulationHerdSnapshotGetResponse>(getHerdSnapshotApiSimulationHerdSnapshotGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getHerdSnapshotApiSimulationHerdSnapshotGetQueryKey = () => {
+    return [
+    `/api/simulation/herd-snapshot`
+    ] as const;
+    }
+
+
+export const getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions = <TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getHerdSnapshotApiSimulationHerdSnapshotGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>> = ({ signal }) => herdSnapshotApiSimulationHerdSnapshotGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type HerdSnapshotApiSimulationHerdSnapshotGetQueryResult = NonNullable<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>>
+export type HerdSnapshotApiSimulationHerdSnapshotGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>,
+          TError,
+          Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>,
+          TError,
+          Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Herd Snapshot
+ */
+
+export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type runAdhocApiSimulationRunPostResponse200 = {
+  data: SimulationResult
+  status: 200
+}
+
+export type runAdhocApiSimulationRunPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type runAdhocApiSimulationRunPostResponseSuccess = (runAdhocApiSimulationRunPostResponse200) & {
+  headers: Headers;
+};
+export type runAdhocApiSimulationRunPostResponseError = (runAdhocApiSimulationRunPostResponse422) & {
+  headers: Headers;
+};
+
+export type runAdhocApiSimulationRunPostResponse = (runAdhocApiSimulationRunPostResponseSuccess | runAdhocApiSimulationRunPostResponseError)
+
+export const getRunAdhocApiSimulationRunPostUrl = () => {
+
+
+
+
+  return `/api/simulation/run`
+}
+
+/**
+ * Run a simulation from posted assumptions (no persistence).
+ * @summary Run Adhoc
+ */
+export const runAdhocApiSimulationRunPost = async (runIn: RunIn, options?: Parameters<typeof customInstance>[1]): Promise<runAdhocApiSimulationRunPostResponse> => {
+
+  return customInstance<runAdhocApiSimulationRunPostResponse>(getRunAdhocApiSimulationRunPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(runIn)
+  }
+);}
+
+
+
+
+
+export const getRunAdhocApiSimulationRunPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAdhocApiSimulationRunPost>>, TError,{data: RunIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof runAdhocApiSimulationRunPost>>, TError,{data: RunIn}, TContext> => {
+
+const mutationKey = ['runAdhocApiSimulationRunPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runAdhocApiSimulationRunPost>>, {data: RunIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  runAdhocApiSimulationRunPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunAdhocApiSimulationRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runAdhocApiSimulationRunPost>>>
+    export type RunAdhocApiSimulationRunPostMutationBody = RunIn
+    export type RunAdhocApiSimulationRunPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Run Adhoc
+ */
+export const useRunAdhocApiSimulationRunPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAdhocApiSimulationRunPost>>, TError,{data: RunIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runAdhocApiSimulationRunPost>>,
+        TError,
+        {data: RunIn},
+        TContext
+      > => {
+      return useMutation(getRunAdhocApiSimulationRunPostMutationOptions(options), queryClient);
+    }
+
+export type createScenarioApiSimulationScenariosPostResponse201 = {
+  data: ScenarioOut
+  status: 201
+}
+
+export type createScenarioApiSimulationScenariosPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type createScenarioApiSimulationScenariosPostResponseSuccess = (createScenarioApiSimulationScenariosPostResponse201) & {
+  headers: Headers;
+};
+export type createScenarioApiSimulationScenariosPostResponseError = (createScenarioApiSimulationScenariosPostResponse422) & {
+  headers: Headers;
+};
+
+export type createScenarioApiSimulationScenariosPostResponse = (createScenarioApiSimulationScenariosPostResponseSuccess | createScenarioApiSimulationScenariosPostResponseError)
+
+export const getCreateScenarioApiSimulationScenariosPostUrl = () => {
+
+
+
+
+  return `/api/simulation/scenarios`
+}
+
+/**
+ * @summary Create Scenario
+ */
+export const createScenarioApiSimulationScenariosPost = async (scenarioCreateIn: ScenarioCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createScenarioApiSimulationScenariosPostResponse> => {
+
+  return customInstance<createScenarioApiSimulationScenariosPostResponse>(getCreateScenarioApiSimulationScenariosPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(scenarioCreateIn)
+  }
+);}
+
+
+
+
+
+export const getCreateScenarioApiSimulationScenariosPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createScenarioApiSimulationScenariosPost>>, TError,{data: ScenarioCreateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createScenarioApiSimulationScenariosPost>>, TError,{data: ScenarioCreateIn}, TContext> => {
+
+const mutationKey = ['createScenarioApiSimulationScenariosPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createScenarioApiSimulationScenariosPost>>, {data: ScenarioCreateIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createScenarioApiSimulationScenariosPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateScenarioApiSimulationScenariosPostMutationResult = NonNullable<Awaited<ReturnType<typeof createScenarioApiSimulationScenariosPost>>>
+    export type CreateScenarioApiSimulationScenariosPostMutationBody = ScenarioCreateIn
+    export type CreateScenarioApiSimulationScenariosPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Create Scenario
+ */
+export const useCreateScenarioApiSimulationScenariosPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createScenarioApiSimulationScenariosPost>>, TError,{data: ScenarioCreateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createScenarioApiSimulationScenariosPost>>,
+        TError,
+        {data: ScenarioCreateIn},
+        TContext
+      > => {
+      return useMutation(getCreateScenarioApiSimulationScenariosPostMutationOptions(options), queryClient);
+    }
+
+export type listScenariosApiSimulationScenariosGetResponse200 = {
+  data: ScenarioOut[]
+  status: 200
+}
+
+export type listScenariosApiSimulationScenariosGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listScenariosApiSimulationScenariosGetResponseSuccess = (listScenariosApiSimulationScenariosGetResponse200) & {
+  headers: Headers;
+};
+export type listScenariosApiSimulationScenariosGetResponseError = (listScenariosApiSimulationScenariosGetResponse422) & {
+  headers: Headers;
+};
+
+export type listScenariosApiSimulationScenariosGetResponse = (listScenariosApiSimulationScenariosGetResponseSuccess | listScenariosApiSimulationScenariosGetResponseError)
+
+export const getListScenariosApiSimulationScenariosGetUrl = () => {
+
+
+
+
+  return `/api/simulation/scenarios`
+}
+
+/**
+ * @summary List Scenarios
+ */
+export const listScenariosApiSimulationScenariosGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listScenariosApiSimulationScenariosGetResponse> => {
+
+  return customInstance<listScenariosApiSimulationScenariosGetResponse>(getListScenariosApiSimulationScenariosGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListScenariosApiSimulationScenariosGetQueryKey = () => {
+    return [
+    `/api/simulation/scenarios`
+    ] as const;
+    }
+
+
+export const getListScenariosApiSimulationScenariosGetQueryOptions = <TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListScenariosApiSimulationScenariosGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>> = ({ signal }) => listScenariosApiSimulationScenariosGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListScenariosApiSimulationScenariosGetQueryResult = NonNullable<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>>
+export type ListScenariosApiSimulationScenariosGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>,
+          TError,
+          Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>,
+          TError,
+          Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Scenarios
+ */
+
+export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListScenariosApiSimulationScenariosGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type compareScenariosApiSimulationScenariosCompareGetResponse200 = {
+  data: ScenarioCompareOut
+  status: 200
+}
+
+export type compareScenariosApiSimulationScenariosCompareGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type compareScenariosApiSimulationScenariosCompareGetResponseSuccess = (compareScenariosApiSimulationScenariosCompareGetResponse200) & {
+  headers: Headers;
+};
+export type compareScenariosApiSimulationScenariosCompareGetResponseError = (compareScenariosApiSimulationScenariosCompareGetResponse422) & {
+  headers: Headers;
+};
+
+export type compareScenariosApiSimulationScenariosCompareGetResponse = (compareScenariosApiSimulationScenariosCompareGetResponseSuccess | compareScenariosApiSimulationScenariosCompareGetResponseError)
+
+export const getCompareScenariosApiSimulationScenariosCompareGetUrl = (params: CompareScenariosApiSimulationScenariosCompareGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/simulation/scenarios/compare?${stringifiedParams}` : `/api/simulation/scenarios/compare`
+}
+
+/**
+ * Run 2+ stored scenarios deterministically side by side (``ids=1,2``).
+ * @summary Compare Scenarios
+ */
+export const compareScenariosApiSimulationScenariosCompareGet = async (params: CompareScenariosApiSimulationScenariosCompareGetParams, options?: Parameters<typeof customInstance>[1]): Promise<compareScenariosApiSimulationScenariosCompareGetResponse> => {
+
+  return customInstance<compareScenariosApiSimulationScenariosCompareGetResponse>(getCompareScenariosApiSimulationScenariosCompareGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getCompareScenariosApiSimulationScenariosCompareGetQueryKey = (params?: CompareScenariosApiSimulationScenariosCompareGetParams,) => {
+    return [
+    `/api/simulation/scenarios/compare`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getCompareScenariosApiSimulationScenariosCompareGetQueryOptions = <TData = Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError = ErrorType<HTTPValidationError>>(params: CompareScenariosApiSimulationScenariosCompareGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getCompareScenariosApiSimulationScenariosCompareGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>> = ({ signal }) => compareScenariosApiSimulationScenariosCompareGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type CompareScenariosApiSimulationScenariosCompareGetQueryResult = NonNullable<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>>
+export type CompareScenariosApiSimulationScenariosCompareGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useCompareScenariosApiSimulationScenariosCompareGet<TData = Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: CompareScenariosApiSimulationScenariosCompareGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>,
+          TError,
+          Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCompareScenariosApiSimulationScenariosCompareGet<TData = Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: CompareScenariosApiSimulationScenariosCompareGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>,
+          TError,
+          Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useCompareScenariosApiSimulationScenariosCompareGet<TData = Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: CompareScenariosApiSimulationScenariosCompareGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Compare Scenarios
+ */
+
+export function useCompareScenariosApiSimulationScenariosCompareGet<TData = Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: CompareScenariosApiSimulationScenariosCompareGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof compareScenariosApiSimulationScenariosCompareGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getCompareScenariosApiSimulationScenariosCompareGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type getScenarioApiSimulationScenariosScenarioIdGetResponse200 = {
+  data: ScenarioOut
+  status: 200
+}
+
+export type getScenarioApiSimulationScenariosScenarioIdGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getScenarioApiSimulationScenariosScenarioIdGetResponseSuccess = (getScenarioApiSimulationScenariosScenarioIdGetResponse200) & {
+  headers: Headers;
+};
+export type getScenarioApiSimulationScenariosScenarioIdGetResponseError = (getScenarioApiSimulationScenariosScenarioIdGetResponse422) & {
+  headers: Headers;
+};
+
+export type getScenarioApiSimulationScenariosScenarioIdGetResponse = (getScenarioApiSimulationScenariosScenarioIdGetResponseSuccess | getScenarioApiSimulationScenariosScenarioIdGetResponseError)
+
+export const getGetScenarioApiSimulationScenariosScenarioIdGetUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/simulation/scenarios/${scenarioId}`
+}
+
+/**
+ * @summary Get Scenario
+ */
+export const getScenarioApiSimulationScenariosScenarioIdGet = async (scenarioId: number, options?: Parameters<typeof customInstance>[1]): Promise<getScenarioApiSimulationScenariosScenarioIdGetResponse> => {
+
+  return customInstance<getScenarioApiSimulationScenariosScenarioIdGetResponse>(getGetScenarioApiSimulationScenariosScenarioIdGetUrl(scenarioId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetScenarioApiSimulationScenariosScenarioIdGetQueryKey = (scenarioId: number,) => {
+    return [
+    `/api/simulation/scenarios/${scenarioId}`
+    ] as const;
+    }
+
+
+export const getGetScenarioApiSimulationScenariosScenarioIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError = ErrorType<HTTPValidationError>>(scenarioId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetScenarioApiSimulationScenariosScenarioIdGetQueryKey(scenarioId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>> = ({ signal }) => getScenarioApiSimulationScenariosScenarioIdGet(scenarioId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: scenarioId !== null && scenarioId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetScenarioApiSimulationScenariosScenarioIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>>
+export type GetScenarioApiSimulationScenariosScenarioIdGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useGetScenarioApiSimulationScenariosScenarioIdGet<TData = Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ scenarioId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetScenarioApiSimulationScenariosScenarioIdGet<TData = Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ scenarioId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetScenarioApiSimulationScenariosScenarioIdGet<TData = Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ scenarioId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Scenario
+ */
+
+export function useGetScenarioApiSimulationScenariosScenarioIdGet<TData = Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ scenarioId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScenarioApiSimulationScenariosScenarioIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetScenarioApiSimulationScenariosScenarioIdGetQueryOptions(scenarioId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse200 = {
+  data: ScenarioOut
+  status: 200
+}
+
+export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updateScenarioApiSimulationScenariosScenarioIdPatchResponseSuccess = (updateScenarioApiSimulationScenariosScenarioIdPatchResponse200) & {
+  headers: Headers;
+};
+export type updateScenarioApiSimulationScenariosScenarioIdPatchResponseError = (updateScenarioApiSimulationScenariosScenarioIdPatchResponse422) & {
+  headers: Headers;
+};
+
+export type updateScenarioApiSimulationScenariosScenarioIdPatchResponse = (updateScenarioApiSimulationScenariosScenarioIdPatchResponseSuccess | updateScenarioApiSimulationScenariosScenarioIdPatchResponseError)
+
+export const getUpdateScenarioApiSimulationScenariosScenarioIdPatchUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/simulation/scenarios/${scenarioId}`
+}
+
+/**
+ * @summary Update Scenario
+ */
+export const updateScenarioApiSimulationScenariosScenarioIdPatch = async (scenarioId: number,
+    scenarioUpdateIn: ScenarioUpdateIn, options?: Parameters<typeof customInstance>[1]): Promise<updateScenarioApiSimulationScenariosScenarioIdPatchResponse> => {
+
+  return customInstance<updateScenarioApiSimulationScenariosScenarioIdPatchResponse>(getUpdateScenarioApiSimulationScenariosScenarioIdPatchUrl(scenarioId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(scenarioUpdateIn)
+  }
+);}
+
+
+
+
+
+export const getUpdateScenarioApiSimulationScenariosScenarioIdPatchMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateScenarioApiSimulationScenariosScenarioIdPatch>>, TError,{scenarioId: number;data: ScenarioUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateScenarioApiSimulationScenariosScenarioIdPatch>>, TError,{scenarioId: number;data: ScenarioUpdateIn}, TContext> => {
+
+const mutationKey = ['updateScenarioApiSimulationScenariosScenarioIdPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateScenarioApiSimulationScenariosScenarioIdPatch>>, {scenarioId: number;data: ScenarioUpdateIn}> = (props) => {
+          const {scenarioId,data} = props ?? {};
+
+          return  updateScenarioApiSimulationScenariosScenarioIdPatch(scenarioId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateScenarioApiSimulationScenariosScenarioIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateScenarioApiSimulationScenariosScenarioIdPatch>>>
+    export type UpdateScenarioApiSimulationScenariosScenarioIdPatchMutationBody = ScenarioUpdateIn
+    export type UpdateScenarioApiSimulationScenariosScenarioIdPatchMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Update Scenario
+ */
+export const useUpdateScenarioApiSimulationScenariosScenarioIdPatch = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateScenarioApiSimulationScenariosScenarioIdPatch>>, TError,{scenarioId: number;data: ScenarioUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateScenarioApiSimulationScenariosScenarioIdPatch>>,
+        TError,
+        {scenarioId: number;data: ScenarioUpdateIn},
+        TContext
+      > => {
+      return useMutation(getUpdateScenarioApiSimulationScenariosScenarioIdPatchMutationOptions(options), queryClient);
+    }
+
+export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseSuccess = (deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseError = (deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse = (deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseSuccess | deleteScenarioApiSimulationScenariosScenarioIdDeleteResponseError)
+
+export const getDeleteScenarioApiSimulationScenariosScenarioIdDeleteUrl = (scenarioId: number,) => {
+
+
+
+
+  return `/api/simulation/scenarios/${scenarioId}`
+}
+
+/**
+ * @summary Delete Scenario
+ */
+export const deleteScenarioApiSimulationScenariosScenarioIdDelete = async (scenarioId: number, options?: Parameters<typeof customInstance>[1]): Promise<deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse> => {
+
+  return customInstance<deleteScenarioApiSimulationScenariosScenarioIdDeleteResponse>(getDeleteScenarioApiSimulationScenariosScenarioIdDeleteUrl(scenarioId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteScenarioApiSimulationScenariosScenarioIdDeleteMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteScenarioApiSimulationScenariosScenarioIdDelete>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteScenarioApiSimulationScenariosScenarioIdDelete>>, TError,{scenarioId: number}, TContext> => {
+
+const mutationKey = ['deleteScenarioApiSimulationScenariosScenarioIdDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteScenarioApiSimulationScenariosScenarioIdDelete>>, {scenarioId: number}> = (props) => {
+          const {scenarioId} = props ?? {};
+
+          return  deleteScenarioApiSimulationScenariosScenarioIdDelete(scenarioId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteScenarioApiSimulationScenariosScenarioIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteScenarioApiSimulationScenariosScenarioIdDelete>>>
+
+    export type DeleteScenarioApiSimulationScenariosScenarioIdDeleteMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Delete Scenario
+ */
+export const useDeleteScenarioApiSimulationScenariosScenarioIdDelete = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteScenarioApiSimulationScenariosScenarioIdDelete>>, TError,{scenarioId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteScenarioApiSimulationScenariosScenarioIdDelete>>,
+        TError,
+        {scenarioId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteScenarioApiSimulationScenariosScenarioIdDeleteMutationOptions(options), queryClient);
+    }
+
+export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse200 = {
+  data: SimulationResult
+  status: 200
+}
+
+export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type runScenarioApiSimulationScenariosScenarioIdRunPostResponseSuccess = (runScenarioApiSimulationScenariosScenarioIdRunPostResponse200) & {
+  headers: Headers;
+};
+export type runScenarioApiSimulationScenariosScenarioIdRunPostResponseError = (runScenarioApiSimulationScenariosScenarioIdRunPostResponse422) & {
+  headers: Headers;
+};
+
+export type runScenarioApiSimulationScenariosScenarioIdRunPostResponse = (runScenarioApiSimulationScenariosScenarioIdRunPostResponseSuccess | runScenarioApiSimulationScenariosScenarioIdRunPostResponseError)
+
+export const getRunScenarioApiSimulationScenariosScenarioIdRunPostUrl = (scenarioId: number,
+    params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/simulation/scenarios/${scenarioId}/run?${stringifiedParams}` : `/api/simulation/scenarios/${scenarioId}/run`
+}
+
+/**
+ * Run a stored scenario's assumptions (optionally with MC / sensitivity).
+ * @summary Run Scenario
+ */
+export const runScenarioApiSimulationScenariosScenarioIdRunPost = async (scenarioId: number,
+    params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams, options?: Parameters<typeof customInstance>[1]): Promise<runScenarioApiSimulationScenariosScenarioIdRunPostResponse> => {
+
+  return customInstance<runScenarioApiSimulationScenariosScenarioIdRunPostResponse>(getRunScenarioApiSimulationScenariosScenarioIdRunPostUrl(scenarioId,params),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRunScenarioApiSimulationScenariosScenarioIdRunPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runScenarioApiSimulationScenariosScenarioIdRunPost>>, TError,{scenarioId: number;params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof runScenarioApiSimulationScenariosScenarioIdRunPost>>, TError,{scenarioId: number;params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams}, TContext> => {
+
+const mutationKey = ['runScenarioApiSimulationScenariosScenarioIdRunPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runScenarioApiSimulationScenariosScenarioIdRunPost>>, {scenarioId: number;params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams}> = (props) => {
+          const {scenarioId,params} = props ?? {};
+
+          return  runScenarioApiSimulationScenariosScenarioIdRunPost(scenarioId,params,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunScenarioApiSimulationScenariosScenarioIdRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runScenarioApiSimulationScenariosScenarioIdRunPost>>>
+
+    export type RunScenarioApiSimulationScenariosScenarioIdRunPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Run Scenario
+ */
+export const useRunScenarioApiSimulationScenariosScenarioIdRunPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runScenarioApiSimulationScenariosScenarioIdRunPost>>, TError,{scenarioId: number;params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runScenarioApiSimulationScenariosScenarioIdRunPost>>,
+        TError,
+        {scenarioId: number;params?: RunScenarioApiSimulationScenariosScenarioIdRunPostParams},
+        TContext
+      > => {
+      return useMutation(getRunScenarioApiSimulationScenariosScenarioIdRunPostMutationOptions(options), queryClient);
     }
 

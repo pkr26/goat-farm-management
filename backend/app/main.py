@@ -23,6 +23,7 @@ from .api import (
     health,
     kidding,
     purchases,
+    simulation,
     tasks,
     team,
 )
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(purchases.router)
     app.include_router(dashboard.router)
     app.include_router(team.router)
+    app.include_router(simulation.router)
     return app
 
 

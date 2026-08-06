@@ -37,6 +37,8 @@ PERMISSIONS: list[tuple[str, str]] = [
     ("tasks.verify", "Verify completed duties"),
     ("finance.view", "View transactions & P&L"),
     ("finance.manage", "Record transactions"),
+    ("simulation.view", "View & run simulations"),
+    ("simulation.manage", "Save & manage scenarios"),
     ("reports.view", "View reports"),
     ("team.manage", "Manage team, roles & passwords"),
 ]
@@ -58,6 +60,7 @@ PERMISSION_GROUPS: list[tuple[str, list[str]]] = [
     ("Feeding", ["feeding.view", "feeding.manage"]),
     ("Tasks / duties", ["tasks.view", "tasks.create", "tasks.complete", "tasks.verify"]),
     ("Finance", ["finance.view", "finance.manage"]),
+    ("Simulation", ["simulation.view", "simulation.manage"]),
     ("Reports", ["reports.view"]),
     ("Team", ["team.manage"]),
 ]

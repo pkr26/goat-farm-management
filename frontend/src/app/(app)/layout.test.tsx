@@ -39,6 +39,7 @@ const ALL_NAV_LABELS = [
   "Feeding",
   "Tasks",
   "Finance",
+  "Simulation",
   "Reports",
   "Team",
 ];
@@ -128,11 +129,11 @@ describe("AppLayout — permission-gated nav", () => {
     replaceMock.mockClear();
   });
 
-  it("shows all 12 nav items to the farm owner (full catalog)", async () => {
+  it("shows all 13 nav items to the farm owner (full catalog)", async () => {
     renderWithProviders(<AppLayout>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
-    await waitFor(() => expect(navLinks()).toHaveLength(12));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     for (const label of ALL_NAV_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
@@ -199,7 +200,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("nav links point at their module routes", async () => {
     renderWithProviders(<AppLayout>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(12));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     const expected: Record<string, string> = {
       Dashboard: "/dashboard",
       Animals: "/animals",
@@ -211,6 +212,7 @@ describe("AppLayout — permission-gated nav", () => {
       Feeding: "/feeding",
       Tasks: "/tasks",
       Finance: "/finance",
+      Simulation: "/simulation",
       Reports: "/reports",
       Team: "/team",
     };
@@ -222,7 +224,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("highlights the nav item matching the current path", async () => {
     renderWithProviders(<AppLayout>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(12));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     // usePathname is mocked to /dashboard.
     expect(screen.getByRole("link", { name: "Dashboard" }).className).toContain(
       "bg-primary",
