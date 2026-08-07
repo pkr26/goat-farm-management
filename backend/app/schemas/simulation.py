@@ -6,7 +6,6 @@ transport schemas.
 """
 
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,8 +25,6 @@ __all__ = [
     "SimulationAssumptions",
     "SimulationResult",
 ]
-
-SystemStr = Literal["stall_fed", "semi_intensive"]
 
 
 class ScenarioCreateIn(BaseModel):

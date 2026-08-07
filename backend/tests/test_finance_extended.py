@@ -8,7 +8,7 @@ Endpoints under test:
 - GET /api/dashboard/reports — herd summary, breeding performance, mortality.
 
 Aggregation numbers are hand-computed from fixtures built through the API.
-SPEC.md is the domain contract (Financial entity, dashboard/reports pages).
+Domain contract under test: Financial entity, dashboard/reports pages.
 Auth/tenancy follows the JSON API rules: 401 without a bearer token, 400 for a
 missing/malformed X-Farm-Id, 404 for an unknown farm, 403 for a non-member.
 """

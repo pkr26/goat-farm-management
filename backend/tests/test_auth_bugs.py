@@ -1,6 +1,6 @@
 """REGRESSION SUITE — the auth & security app bugs documented here are FIXED.
 
-Every test asserted the behavior the API contract (SPEC.md / schema
+Every test asserted the behavior the API contract (schema
 declarations / consistency with sibling endpoints) requires and FAILED
 against the old app; the fixes are in backend/app code and these tests now
 pass. Do not weaken these assertions — they guard the fixed behavior.

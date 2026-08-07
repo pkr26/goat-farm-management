@@ -57,9 +57,9 @@ export const ALL_PERMISSIONS = [
 ];
 
 /** Permissions endpoint override for tests that need a reduced/granular set. */
-export function permissionsHandler(permissions: string[], isOwner = false) {
+export function permissionsHandler(permissions: string[]) {
   return http.get("/api/auth/permissions", () =>
-    HttpResponse.json({ is_owner: isOwner, permissions }),
+    HttpResponse.json({ is_owner: false, permissions }),
   );
 }
 
@@ -68,5 +68,5 @@ export const server = setupServer(
     HttpResponse.json({ access_token: TEST_ACCESS_TOKEN, user: TEST_USER }),
   ),
   http.get("/api/auth/farms", () => HttpResponse.json(TEST_FARMS)),
-  permissionsHandler(ALL_PERMISSIONS, true),
+  permissionsHandler(ALL_PERMISSIONS),
 );

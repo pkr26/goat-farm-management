@@ -16,7 +16,6 @@ export function usePermissions() {
   const payload = query.data?.status === 200 ? query.data.data : undefined;
   const perms = new Set(payload?.permissions ?? []);
   return {
-    isOwner: payload?.is_owner ?? false,
     loading: query.isLoading,
     can: (code: string) => perms.has(code),
   };

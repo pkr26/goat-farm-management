@@ -8,7 +8,7 @@ Endpoints under test:
 - POST /api/purchases/new            — batch + QUARANTINE stubs + 45-day tasks + expense
 - GET  /api/purchases/{batch_id}     — batch detail with tasks & stubbed animals
 
-Domain rules from SPEC.md: the 45-day quarantine protocol (rest days 1–3 →
+Domain rules under test: the 45-day quarantine protocol (rest days 1–3 →
 deworm day 4 → liver tonic days 5–9 → PPR day 10 → ET+TT day 20 → Goat Pox
 day 30 → FMD day 40 → zinc-sulfate footbath + release to FOUNDATION day 45),
 deworming every 6 months, seeded vaccine schedule templates, purchase expense

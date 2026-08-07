@@ -1,9 +1,9 @@
 /**
- * Tests for usePermissions: the hook that gates nav/buttons per SPEC
- * (farm owner holds the full catalog; workers get a granted subset; with
- * no active farm the endpoint must not be called at all). Rendered through
- * the real AuthProvider bootstrap (default MSW handlers), with the
- * permissions endpoint overridden per scenario.
+ * Tests for usePermissions: the hook that gates nav/buttons (the server
+ * returns the granted permission set for the active farm; with no active
+ * farm the endpoint must not be called at all). Rendered through the real
+ * AuthProvider bootstrap (default MSW handlers), with the permissions
+ * endpoint overridden per scenario.
  */
 
 import { screen, waitFor } from "@testing-library/react";
@@ -23,10 +23,9 @@ vi.mock("next/navigation", () => ({
 
 /** Renders the hook's outputs into the DOM for assertion. */
 function Probe({ codes = [] }: { codes?: string[] }) {
-  const { isOwner, loading, can } = usePermissions();
+  const { loading, can } = usePermissions();
   return (
     <div>
-      <span data-testid="isOwner">{String(isOwner)}</span>
       <span data-testid="loading">{String(loading)}</span>
       {codes.map((code) => (
         <span key={code} data-testid={`can:${code}`}>
@@ -44,14 +43,12 @@ async function expectSettled(testId: string, value: string) {
 }
 
 describe("usePermissions — farm owner", () => {
-  it("reports isOwner true once loaded", async () => {
-    renderWithProviders(<Probe />);
-    await expectSettled("isOwner", "true");
-  });
-
   it("grants can() for every permission in the catalog", async () => {
     renderWithProviders(<Probe codes={ALL_PERMISSIONS} />);
-    await expectSettled("isOwner", "true");
+    // A granted permission flipping to true proves the payload was applied.
+    await waitFor(() =>
+      expect(screen.getByTestId("can:animals.view")).toHaveTextContent("true"),
+    );
     for (const code of ALL_PERMISSIONS) {
       expect(screen.getByTestId(`can:${code}`)).toHaveTextContent("true");
     }
@@ -85,13 +82,6 @@ describe("usePermissions — worker with a granted subset", () => {
     await waitFor(() => expect(served()).toBe(true));
     await expectSettled("loading", "false");
   }
-
-  it("reports isOwner false", async () => {
-    const served = useWorkerPermissions(WORKER_PERMISSIONS);
-    renderWithProviders(<Probe />);
-    await waitForServed(served);
-    expect(screen.getByTestId("isOwner")).toHaveTextContent("false");
-  });
 
   it("grants can() only for the permissions the server returned", async () => {
     useWorkerPermissions(WORKER_PERMISSIONS);
@@ -154,7 +144,6 @@ describe("usePermissions — no active farm", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(permissionCalls).toBe(0);
-    expect(screen.getByTestId("isOwner")).toHaveTextContent("false");
     expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
   });
 });
@@ -174,7 +163,6 @@ describe("usePermissions — loading and error states", () => {
     await expectSettled("loading", "true");
     // Then it settles.
     await expectSettled("loading", "false");
-    expect(screen.getByTestId("isOwner")).toHaveTextContent("true");
   });
 
   it("denies everything and stops loading when the endpoint errors", async () => {
@@ -187,7 +175,6 @@ describe("usePermissions — loading and error states", () => {
     renderWithProviders(<Probe codes={["animals.view"]} />);
 
     await expectSettled("loading", "false");
-    expect(screen.getByTestId("isOwner")).toHaveTextContent("false");
     expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
   });
 });

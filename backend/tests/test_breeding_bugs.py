@@ -1,11 +1,11 @@
 """Kidding-date guards — formerly "reviewed suspected bugs", now enforced.
 
 This module used to pin the ACCEPTANCE of kiddings recorded far outside
-SPEC.md's gestation window (a 0-day or 100-day "gestation" returned 201),
+the gestation window (a 0-day or 100-day "gestation" returned 201),
 because the pre-existing suite relied on same-day kiddings and real farm
 record-keeping is backdated. Phase 3 of the hardening audit (B8.1) reversed
 that decision: `services.record_kidding` now enforces a generous
-100–200 day gestation sanity band (SPEC: 150 days, window 145–155) — wide
+100–200 day gestation sanity band (150-day gestation, window 145–155) — wide
 enough for any plausible backdated entry, tight enough that a "kidding"
 recorded 1 day or 3 years post-breeding is rejected as a data-entry error.
 The tests that needed same-day kiddings were updated to realistic ~150-day

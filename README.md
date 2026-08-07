@@ -3,13 +3,12 @@
 Multi-farm web app for commercial **Osmanabadi** goat farming in Telangana,
 India. Monorepo: async **FastAPI + PostgreSQL** JSON API (`backend/`), a
 **Next.js + React + strict TypeScript** SPA (`frontend/`), and a shared
-OpenAPI contract (`shared/openapi.json`). Full build spec: `SPEC.md`.
+OpenAPI contract (`shared/openapi.json`).
 
 ```
 backend/    FastAPI app (async SQLAlchemy 2.0 + asyncpg, Alembic, Argon2id, JWT)
 frontend/   Next.js App Router SPA (Tailwind + shadcn/ui, TanStack Query, Orval)
 shared/     openapi.json — the API contract (exported from the backend)
-goatfarm.db archived v1 SQLite database (input for the data migration)
 ```
 
 ## Quick start
@@ -67,20 +66,6 @@ pairs are auto-generated into `backend/keys/` on first run (gitignored).
   resets apply only to accounts whose sole farm affiliation is yours —
   passwords are global, so cross-farm resets are refused.
 
-## Data migration from v1 (SQLite → PostgreSQL)
-
-Already run for the shipped `goatfarm.db`; to re-run or migrate another copy:
-
-```bash
-cd backend
-./.venv/bin/python scripts/migrate_sqlite_to_pg.py            # dry run: row counts
-./.venv/bin/python scripts/migrate_sqlite_to_pg.py --yes      # wipe-and-load, idempotent
-```
-
-Preserves primary keys, converts booleans/dates, resets sequences, and
-verifies per-table counts (532 rows for the archived demo DB, incl.
-**demo@goatfarm.in / demo1234** with "Demo Osmanabadi Farm").
-
 ## Development
 
 ```bash
@@ -137,7 +122,7 @@ and the whole quarantine schedule.
 - Key records (bucket moves, health events, feeding, weights, breedings,
   kiddings, transactions) carry `created_by_id` for attribution.
 
-## Domain reference (see SPEC.md for detail)
+## Domain reference
 
 - Gestation **150 days** (kidding window 145–155); ultrasound scan at
   breeding + 32 days; heat cycle 21 days. Kidding records are accepted only
@@ -174,7 +159,7 @@ backend/
     api/             auth, animals, buckets, breeding, kidding, health, tasks,
                      feeding, finance, purchases, dashboard (incl. reports), team
   alembic/           Migrations (single head: initial schema)
-  scripts/           export_openapi.py, migrate_sqlite_to_pg.py
+  scripts/           export_openapi.py
   tests/             2315 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
@@ -206,10 +191,9 @@ frontend/
   (`backend/app/utils.py`). Date-only inputs accept one day of "future"
   headroom so clients east of UTC (India is UTC+5:30) can enter their local
   today during 00:00–05:30 local; genuinely future dates are still rejected.
-- Passkeys are a **future amendment** (see SPEC): neither `webauthn` nor
+- Passkeys are a **future amendment**: neither `webauthn` nor
   `@simplewebauthn/browser` is installed in this release.
 - The refresh cookie is `Secure`-flaggable via `GOATFARM_COOKIE_SECURE=true`
   in production; CORS is credentialed and pinned to the frontend origin.
 - The v1 Jinja app was removed after the rewrite; its behavioral contract
-  lives on in `backend/tests/` (2168 tests) and `goatfarm.db` stays as the
-  migration archive.
+  lives on in `backend/tests/`.
