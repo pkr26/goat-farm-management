@@ -310,7 +310,8 @@ export default function FeedingPage() {
                 const shifts = line.shifts as unknown as ShiftCell[];
                 const dispensed = dispensedByBucket.get(line.bucket) ?? 0;
                 return (
-                  <TableRow key={line.bucket}>
+                  // One bucket can appear on several lines (split by recipe).
+                  <TableRow key={`${line.bucket}:${line.recipe_code}`}>
                     <TableCell className="font-medium">{line.bucket}</TableCell>
                     <TableCell>{line.recipe_name}</TableCell>
                     <TableCell>{line.heads}</TableCell>

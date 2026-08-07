@@ -10,6 +10,7 @@ import type { FeedAssumptions } from './feedAssumptions';
 import type { FinanceAssumptions } from './financeAssumptions';
 import type { GrowthAssumptions } from './growthAssumptions';
 import type { HerdAssumptions } from './herdAssumptions';
+import type { HerdEventAssumptions } from './herdEventAssumptions';
 import type { MetaAssumptions } from './metaAssumptions';
 import type { MortalityAssumptions } from './mortalityAssumptions';
 import type { ReproductionAssumptions } from './reproductionAssumptions';
@@ -31,4 +32,5 @@ export interface SimulationAssumptions {
   costs?: CostsAssumptions;
   finance?: FinanceAssumptions;
   risk?: RiskAssumptions;
+  events?: HerdEventAssumptions[];
 }

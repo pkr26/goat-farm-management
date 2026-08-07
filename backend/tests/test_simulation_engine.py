@@ -23,8 +23,10 @@ from app.simulation import (
     BREED_PRESETS,
     HerdAssumptions,
     MetaAssumptions,
+    MonthlyRow,
     SalesAssumptions,
     SimulationAssumptions,
+    SimulationResult,
     amortization_schedule,
     bcr,
     class_feed,
@@ -41,6 +43,7 @@ from app.simulation import (
     run_simulation,
     weight_at_age,
 )
+from app.simulation.assumptions import HerdEventAssumptions
 
 S_ADULT = 0.95 ** (1.0 / 12.0)  # monthly adult survival, default 5% annual mortality
 S_KID = 0.90 ** (1.0 / 12.0)  # monthly pre-weaning survival, default 10% annual
@@ -157,7 +160,10 @@ def test_irr_known_series() -> None:
 def test_payback_month() -> None:
     assert payback_month([-100.0, -50.0, 10.0]) == 2
     assert payback_month([-100.0, -50.0, -1.0]) is None
-    assert payback_month([0.0, 5.0]) == 0
+    # Month 0 (the equity outflow) is never a payback: a zero-equity project
+    # pays back when operating cash first accumulates, here month 1.
+    assert payback_month([0.0, 5.0]) == 1
+    assert payback_month([0.0, -5.0, -1.0]) is None
 
 
 # ---------------------------------------------------------------------------
@@ -431,3 +437,330 @@ def test_stock_cost_and_project_cost_components() -> None:
     working_capital = metrics.project_cost - shed_plus_equipment - 424000.0
     assert working_capital > 0.0  # 3 months of year-1 average opex
     assert metrics.project_cost == pytest.approx(shed_plus_equipment + 424000.0 + working_capital)
+
+
+# ---------------------------------------------------------------------------
+# (i) Scheduled herd events (SimulationAssumptions.events)
+# ---------------------------------------------------------------------------
+def event_toy(
+    events: list[HerdEventAssumptions], horizon: int = 24, **herd_overrides: object
+) -> SimulationAssumptions:
+    """Toy herd (10 open does) with scheduled events; doe culling disabled so
+    the only adult flows at the event month come from the events themselves."""
+    a = toy_assumptions(**herd_overrides)
+    a.meta.horizon_months = horizon
+    a.culling.doe_cull_rate_annual = 0.0
+    a.culling.max_doe_age_months = 180  # no max-age cull inside the horizon
+    a.events = events
+    return a
+
+
+def _doe_pool(row: MonthlyRow) -> float:
+    return row.open_does + row.pregnant_does + row.lactating_does
+
+
+def test_purchase_event_does_jump_at_event_month() -> None:
+    event = HerdEventAssumptions(month=14, kind="purchase", animal_class="doe", count=10)
+    res = run_simulation(event_toy([event]), with_break_even=False)
+    base = run_simulation(event_toy([]), with_break_even=False)
+    m14, m14_base = res.months[13], base.months[13]
+    # Purchased does face this month's mortality like the rest of the pool.
+    assert _doe_pool(m14) - _doe_pool(m14_base) == pytest.approx(10.0 * S_ADULT, abs=1e-6)
+    assert m14.total_herd - m14_base.total_herd == pytest.approx(10.0 * S_ADULT, abs=1e-6)
+    # Charged as opex at the default doe purchase price; revenue untouched.
+    assert m14.purchases_head == 10.0
+    assert m14.purchase_cost == pytest.approx(10.0 * 8000.0)
+    assert m14.sales_revenue == pytest.approx(m14_base.sales_revenue, abs=1e-9)
+    assert m14.cull_revenue == pytest.approx(m14_base.cull_revenue, abs=1e-9)
+    assert any("Purchased 10 doe(s)" in note for note in m14.events)
+    # Earlier months are identical to the baseline run.
+    assert res.months[12].total_herd == pytest.approx(base.months[12].total_herd, abs=1e-9)
+
+
+def test_purchase_events_per_class_jump_and_price() -> None:
+    g = SimulationAssumptions().growth
+    doe_w, buck_w = g.adult_weight_doe_kg, g.adult_weight_buck_kg
+    s_weaner = 1.0 - monthly_mortality_rate(0.05)
+    s_grower = 1.0 - monthly_mortality_rate(0.04)
+    meat = SimulationAssumptions().sales.meat_price_per_kg
+    # (animal_class, row accessor, survival, default price per head)
+    cases = [
+        ("doe", _doe_pool, S_ADULT, 8000.0),
+        ("buck", lambda r: r.bucks, S_ADULT, 12000.0),
+        ("female_kid", lambda r: r.f_kids, S_KID, weight_at_age(1, g, doe_w) * meat),
+        ("male_kid", lambda r: r.m_kids, S_KID, weight_at_age(1, g, doe_w) * meat),
+        ("female_weaner", lambda r: r.f_weaners, s_weaner, weight_at_age(4, g, doe_w) * meat),
+        ("male_weaner", lambda r: r.m_weaners, s_weaner, weight_at_age(4, g, doe_w) * meat),
+        ("female_grower", lambda r: r.f_growers, s_grower, weight_at_age(8, g, doe_w) * meat),
+        ("male_grower", lambda r: r.m_growers, s_grower, weight_at_age(8, g, buck_w) * meat),
+    ]
+    for animal_class, accessor, survival, price in cases:
+        event = HerdEventAssumptions.model_validate(
+            {"month": 6, "kind": "purchase", "animal_class": animal_class, "count": 5}
+        )
+        res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
+        base = run_simulation(event_toy([], horizon=12), with_break_even=False)
+        m6, m6_base = res.months[5], base.months[5]
+        assert accessor(m6) - accessor(m6_base) == pytest.approx(5.0 * survival, abs=1e-6), (
+            animal_class
+        )
+        assert m6.purchases_head == 5.0, animal_class
+        assert m6.purchase_cost == pytest.approx(5.0 * price), animal_class
+
+
+def test_purchase_price_per_head_override_used_verbatim() -> None:
+    event = HerdEventAssumptions(
+        month=3, kind="purchase", animal_class="doe", count=2, price_per_head=5000.0
+    )
+    res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
+    m3 = res.months[2]
+    assert m3.purchase_cost == pytest.approx(2.0 * 5000.0)
+    assert any("₹5,000/head" in note for note in m3.events)
+
+
+def test_young_purchase_default_price_is_live_weight_meat_value() -> None:
+    # A weaner is placed mid-class (age 4): 10.5 kg x ₹350/kg = ₹3,675/head.
+    g = SimulationAssumptions().growth
+    expected = 4.0 * weight_at_age(4, g, 32.0) * 350.0
+    event = HerdEventAssumptions(month=3, kind="purchase", animal_class="female_weaner", count=4)
+    res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
+    assert res.months[2].purchase_cost == pytest.approx(expected)
+    assert any("₹3,675/head" in note for note in res.months[2].events)
+
+
+def test_female_grower_purchase_without_grower_chain_joins_doe_pool() -> None:
+    # afb == 6: no grower slots exist, so a grower purchase is already
+    # breeding-age and goes straight into the doe pool.
+    a = event_toy(
+        [HerdEventAssumptions(month=3, kind="purchase", animal_class="female_grower", count=3)],
+        horizon=12,
+    )
+    a.reproduction.age_at_first_breeding_months = 6
+    base_a = a.model_copy(deep=True)
+    base_a.events = []
+    res = run_simulation(a, with_break_even=False)
+    base = run_simulation(base_a, with_break_even=False)
+    m3, m3_base = res.months[2], base.months[2]
+    assert m3.f_growers == pytest.approx(m3_base.f_growers, abs=1e-9)
+    assert _doe_pool(m3) - _doe_pool(m3_base) == pytest.approx(3.0 * S_ADULT, abs=1e-6)
+
+
+def test_male_grower_purchase_at_sale_age_resold_immediately() -> None:
+    # sale_age == 6: no grower slots, so the purchase is resold at once at the
+    # sale-age weight while the purchase is charged at the mid-class weight.
+    a = event_toy(
+        [HerdEventAssumptions(month=3, kind="purchase", animal_class="male_grower", count=3)],
+        horizon=12,
+    )
+    a.growth.sale_age_months = 6
+    res = run_simulation(a, with_break_even=False)
+    m3 = res.months[2]
+    assert m3.m_growers == 0.0
+    assert m3.sales_head == pytest.approx(3.0)
+    assert m3.sales_revenue == pytest.approx(3.0 * weight_at_age(6, a.growth, 34.0) * 350.0)
+    assert m3.purchase_cost == pytest.approx(3.0 * weight_at_age(5, a.growth, 34.0) * 350.0)
+
+
+def test_sale_event_does_booked_as_culls() -> None:
+    event = HerdEventAssumptions(month=6, kind="sale", animal_class="doe", count=5)
+    res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
+    base = run_simulation(event_toy([], horizon=12), with_break_even=False)
+    m6, m6_base = res.months[5], base.months[5]
+    assert _doe_pool(m6) - _doe_pool(m6_base) == pytest.approx(-5.0 * S_ADULT, abs=1e-6)
+    # Adult disposals are culls: 5 x 32 kg x ₹180/kg = ₹28,800, no meat sale.
+    assert m6.culls_head - m6_base.culls_head == pytest.approx(5.0)
+    assert m6.cull_revenue - m6_base.cull_revenue == pytest.approx(5.0 * 180.0 * 32.0)
+    assert m6.sales_head == pytest.approx(m6_base.sales_head, abs=1e-9)
+    assert m6.sales_revenue == pytest.approx(m6_base.sales_revenue, abs=1e-9)
+    assert any("Sold 5 doe(s)" in note for note in m6.events)
+
+
+def test_sale_event_young_stock_booked_as_meat() -> None:
+    event = HerdEventAssumptions(month=2, kind="sale", animal_class="male_weaner", count=5)
+    res = run_simulation(event_toy([event], horizon=12, male_weaners=10), with_break_even=False)
+    base = run_simulation(event_toy([], horizon=12, male_weaners=10), with_break_even=False)
+    m2, m2_base = res.months[1], base.months[1]
+    # The remaining weaners graduate to the grower chain this same month and
+    # take one month of grower mortality, so the shortfall shows up there.
+    s_grower = 1.0 - monthly_mortality_rate(0.04)
+    assert m2.m_growers - m2_base.m_growers == pytest.approx(-5.0 * s_grower, abs=1e-6)
+    assert m2.total_herd - m2_base.total_herd == pytest.approx(-5.0 * s_grower, abs=1e-6)
+    # Young-stock disposals are meat sales: 5 x 10.5 kg x ₹350/kg = ₹18,375.
+    assert m2_base.sales_head == 0.0
+    assert m2.sales_head == pytest.approx(5.0)
+    assert m2.sales_revenue == pytest.approx(5.0 * 10.5 * 350.0)
+    assert m2.culls_head == pytest.approx(m2_base.culls_head, abs=1e-9)
+    assert m2.cull_revenue == pytest.approx(m2_base.cull_revenue, abs=1e-9)
+
+
+def test_sale_event_capped_at_available_with_note() -> None:
+    # Requesting 1,000 does from a 10-doe herd sells only what is on the
+    # ground (~10 x one month of survival) and logs the shortfall.
+    event = HerdEventAssumptions(month=2, kind="sale", animal_class="doe", count=1000)
+    res = run_simulation(toy_assumptions_with_events(event), with_break_even=False)
+    m2 = res.months[1]
+    take = 10.0 * S_ADULT
+    assert m2.culls_head == pytest.approx(take, abs=1e-6)
+    assert m2.cull_revenue == pytest.approx(take * 180.0 * 32.0, abs=1e-6)
+    (note,) = m2.events
+    assert "only" in note and "of 1000 available" in note
+    assert all(row.total_herd >= 0.0 for row in res.months)
+
+
+def toy_assumptions_with_events(*events: HerdEventAssumptions) -> SimulationAssumptions:
+    a = toy_assumptions()
+    a.events = list(events)
+    return a
+
+
+def test_event_on_month_one() -> None:
+    event = HerdEventAssumptions(month=1, kind="purchase", animal_class="doe", count=4)
+    res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
+    base = run_simulation(event_toy([], horizon=12), with_break_even=False)
+    m1 = res.months[0]
+    assert m1.purchases_head == 4.0
+    assert m1.purchase_cost == pytest.approx(4.0 * 8000.0)
+    assert _doe_pool(m1) - _doe_pool(base.months[0]) == pytest.approx(4.0 * S_ADULT, abs=1e-6)
+
+
+def test_events_on_empty_herd_no_crash_no_negative() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
+        events=[HerdEventAssumptions(month=3, kind="sale", animal_class="doe", count=5)],
+    )
+    res = run_simulation(a, with_break_even=False)
+    assert all(row.total_herd == 0.0 for row in res.months)
+    assert all(row.sales_head == 0.0 and row.culls_head == 0.0 for row in res.months)
+    assert all(row.cull_revenue == 0.0 and row.sales_revenue == 0.0 for row in res.months)
+    (note,) = res.months[2].events
+    assert "only 0 of 5 available" in note
+
+
+def test_event_purchase_cost_reaches_annual_pl_and_lowers_npv() -> None:
+    event = HerdEventAssumptions(month=14, kind="purchase", animal_class="doe", count=10)
+    res = run_simulation(event_toy([event]), with_break_even=False)
+    base = run_simulation(event_toy([]), with_break_even=False)
+    # Month 14 falls in year 2; the purchase is opex, not project cost.
+    assert res.annual_pl[1].stock_purchases - base.annual_pl[1].stock_purchases == pytest.approx(
+        80000.0
+    )
+    assert res.annual_pl[0].stock_purchases == pytest.approx(base.annual_pl[0].stock_purchases)
+    assert res.metrics.npv < base.metrics.npv
+
+
+def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
+    # Month 12 is before the first organic meat sale (month 13), so the event
+    # sale is the only year-1 meat-revenue delta: 3 x 18.5 kg x ₹350/kg.
+    event = HerdEventAssumptions(month=12, kind="sale", animal_class="male_grower", count=3)
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24), events=[event])
+    res = run_simulation(a, with_break_even=False)
+    base = run_simulation(
+        SimulationAssumptions(meta=MetaAssumptions(horizon_months=24)), with_break_even=False
+    )
+    assert res.months[11].sales_head - base.months[11].sales_head == pytest.approx(3.0)
+    assert res.annual_pl[0].meat_revenue - base.annual_pl[0].meat_revenue == pytest.approx(
+        3.0 * 18.5 * 350.0
+    )
+
+
+def test_profitable_event_sale_raises_npv() -> None:
+    # Selling 5 does at ₹50,000/head (far above the ₹5,760 cull value) brings
+    # cash forward and outweighs the lost future production.
+    event = HerdEventAssumptions(
+        month=14, kind="sale", animal_class="doe", count=5, price_per_head=50000.0
+    )
+    res = run_simulation(event_toy([event]), with_break_even=False)
+    base = run_simulation(event_toy([]), with_break_even=False)
+    assert res.months[13].cull_revenue - base.months[13].cull_revenue == pytest.approx(250000.0)
+    assert res.annual_pl[1].cull_revenue - base.annual_pl[1].cull_revenue == pytest.approx(250000.0)
+    assert res.metrics.npv > base.metrics.npv
+
+
+def test_event_sale_of_young_stock_gets_eid_uplift() -> None:
+    # Start 2026-08: simulation month 15 is calendar month 10.
+    def run(eid_month: int) -> float:
+        a = SimulationAssumptions(
+            meta=MetaAssumptions(horizon_months=24),
+            sales=SalesAssumptions(eid_month=eid_month, eid_price_uplift=0.30),
+            events=[
+                HerdEventAssumptions(month=15, kind="sale", animal_class="male_grower", count=2)
+            ],
+        )
+        res = run_simulation(a, with_break_even=False)
+        assert res.months[14].sales_head > 0.0
+        return res.months[14].sales_revenue
+
+    assert run(10) / run(0) == pytest.approx(1.30, abs=1e-9)
+
+
+def test_events_survive_monte_carlo() -> None:
+    event = HerdEventAssumptions(month=14, kind="purchase", animal_class="doe", count=10)
+
+    def mc_run(with_event: bool) -> SimulationResult:
+        a = event_toy([event] if with_event else [])
+        a.risk.monte_carlo_runs = 30
+        return run_simulation(a, with_break_even=False, with_monte_carlo=True)
+
+    res, base = mc_run(True), mc_run(False)
+    assert res.monte_carlo is not None and base.monte_carlo is not None
+    # The p50 herd at the event month reflects the purchase across MC runs.
+    diff = res.monte_carlo.herd_percentiles.p50[13] - base.monte_carlo.herd_percentiles.p50[13]
+    assert diff > 5.0
+    # The deterministic block still carries the event unchanged.
+    assert res.months[13].purchases_head == 10.0
+    assert any("Purchased 10 doe(s)" in note for note in res.months[13].events)
+
+
+def test_events_deterministic() -> None:
+    events = [
+        HerdEventAssumptions(month=6, kind="purchase", animal_class="female_weaner", count=4),
+        HerdEventAssumptions(month=14, kind="sale", animal_class="doe", count=2),
+    ]
+    first = run_simulation(event_toy(events), with_break_even=False)
+    second = run_simulation(event_toy(events), with_break_even=False)
+    assert first.model_dump() == second.model_dump()
+
+
+def test_event_validation() -> None:
+    def event_payload(**overrides: object) -> dict[str, object]:
+        return {
+            "month": 3,
+            "kind": "purchase",
+            "animal_class": "doe",
+            "count": 5,
+            **overrides,
+        }
+
+    # month > horizon is rejected by the model validator; month == horizon ok.
+    with pytest.raises(ValidationError, match="exceeds the simulation horizon"):
+        SimulationAssumptions(
+            meta=MetaAssumptions(horizon_months=24),
+            events=[event_payload(month=25)],  # type: ignore[list-item]
+        )
+    ok = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        events=[event_payload(month=24)],  # type: ignore[list-item]
+    )
+    assert ok.events[0].month == 24
+    with pytest.raises(ValidationError):
+        SimulationAssumptions(events=[event_payload(count=0)])  # type: ignore[list-item]
+    with pytest.raises(ValidationError):
+        SimulationAssumptions(events=[event_payload(count=-1)])  # type: ignore[list-item]
+    with pytest.raises(ValidationError):
+        SimulationAssumptions(events=[event_payload(animal_class="camel")])  # type: ignore[list-item]
+    with pytest.raises(ValidationError):
+        SimulationAssumptions(events=[event_payload(bogus=1)])  # type: ignore[list-item]
+
+
+def test_project_cost_breakdown_sums_and_ignores_events() -> None:
+    event = HerdEventAssumptions(month=14, kind="purchase", animal_class="doe", count=10)
+    res = run_simulation(event_toy([event]), with_break_even=False)
+    base = run_simulation(event_toy([]), with_break_even=False)
+    b = res.project_cost_breakdown
+    assert b.shed_cost + b.equipment_cost + b.stock_cost + b.working_capital == pytest.approx(
+        res.metrics.project_cost
+    )
+    # Mid-run purchases are opex: the month-0 project cost is untouched.
+    assert res.metrics.project_cost == base.metrics.project_cost
+    assert res.project_cost_breakdown == base.project_cost_breakdown

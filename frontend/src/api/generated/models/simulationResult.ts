@@ -7,8 +7,11 @@
 import type { AmortizationRowModel } from './amortizationRowModel';
 import type { AnnualPLRow } from './annualPLRow';
 import type { FeedSummary } from './feedSummary';
+import type { MetricExplanation } from './metricExplanation';
 import type { MonteCarloResult } from './monteCarloResult';
 import type { MonthlyRow } from './monthlyRow';
+import type { ProjectCostBreakdown } from './projectCostBreakdown';
+import type { ReportSection } from './reportSection';
 import type { SensitivityItem } from './sensitivityItem';
 import type { ViabilityMetrics } from './viabilityMetrics';
 
@@ -21,6 +24,9 @@ export interface SimulationResult {
   metrics: ViabilityMetrics;
   amortization: AmortizationRowModel[];
   feed_summary: FeedSummary;
+  project_cost_breakdown: ProjectCostBreakdown;
+  metric_explanations?: MetricExplanation[];
+  narrative_report?: ReportSection[];
   monte_carlo?: MonteCarloResult | null;
   sensitivity?: SensitivityItem[] | null;
 }

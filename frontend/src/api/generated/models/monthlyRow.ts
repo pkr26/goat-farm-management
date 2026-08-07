@@ -44,4 +44,5 @@ export interface MonthlyRow {
   net_cash_flow: number;
   cumulative_cash_flow: number;
   fodder_surplus_kg: number;
+  events?: string[];
 }

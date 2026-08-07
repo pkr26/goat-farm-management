@@ -7,7 +7,7 @@ All sub-models forbid extra keys so API payloads fail loudly on typos.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Group(BaseModel):
@@ -230,6 +230,33 @@ class RiskAssumptions(_Group):
     conception_rate: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.80, high=1.05))
 
 
+class HerdEventAssumptions(_Group):
+    """One scheduled herd event: a purchase or sale applied at the start of a
+    simulation month (before that month's aging, breeding and mortality).
+
+    Purchases are charged as operating cost in that month (not added to the
+    project cost); sales are booked as meat/cull revenue. ``price_per_head``
+    overrides the default valuation — purchases default to the class purchase
+    price (adults) or live-weight meat value (young stock); sales default to
+    live-weight meat value for young stock and cull value for adults.
+    """
+
+    month: int = Field(ge=1)  # 1-based simulation month; <= meta.horizon_months
+    kind: Literal["purchase", "sale"]
+    animal_class: Literal[
+        "doe",
+        "buck",
+        "female_kid",
+        "male_kid",
+        "female_weaner",
+        "male_weaner",
+        "female_grower",
+        "male_grower",
+    ]
+    count: float = Field(gt=0.0)  # head (expected-value float, like all counts)
+    price_per_head: float | None = Field(default=None, ge=0.0)  # ₹; None = default valuation
+
+
 class SimulationAssumptions(_Group):
     """Full assumption set; ``SimulationAssumptions()`` is a valid default run."""
 
@@ -244,3 +271,14 @@ class SimulationAssumptions(_Group):
     costs: CostsAssumptions = Field(default_factory=CostsAssumptions)
     finance: FinanceAssumptions = Field(default_factory=FinanceAssumptions)
     risk: RiskAssumptions = Field(default_factory=RiskAssumptions)
+    events: list[HerdEventAssumptions] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _events_within_horizon(self) -> "SimulationAssumptions":
+        for event in self.events:
+            if event.month > self.meta.horizon_months:
+                raise ValueError(
+                    f"event month {event.month} exceeds the simulation horizon "
+                    f"({self.meta.horizon_months} months)"
+                )
+        return self

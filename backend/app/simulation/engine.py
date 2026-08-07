@@ -17,20 +17,26 @@ Documented v1 approximations:
   also spread uniformly across the reproductive cycle, while ``"open"`` starts
   them all open and ready to breed in month 1. Initial kids/weaners/growers
   are placed mid-class (age 1 / 4 / mid-grower).
+- Scheduled herd events (``SimulationAssumptions.events``) are applied at the
+  start of their month, before aging/breeding/mortality, and purchased animals
+  are placed mid-class like foundation stock. Event purchases are operating
+  cost in that month (they never join the project cost); adult event sales are
+  booked at cull value, young-stock sales at live-weight meat value, unless an
+  explicit ``price_per_head`` is given.
 - Shed/equipment capacity is based on the *initial* adult + grower count, not
   the projected peak herd.
 - Cull removals (rate-based and max-age) are taken proportionally from all doe
   reproductive pools; doe ages are tracked in a parallel cohort array whose
   total always equals the pooled doe count.
 - Working capital is ``working_capital_months`` x the average monthly opex of
-  simulation year 1.
+  simulation year 1 (excluding scheduled event purchases).
 - No depreciation and no terminal/herd-salvage value in v1.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from .assumptions import GrowthAssumptions, SimulationAssumptions
+from .assumptions import GrowthAssumptions, HerdEventAssumptions, SimulationAssumptions
 from .feed import class_feed, combine_feed, cultivated_green_supply_kg
 from .finance import (
     AmortizationRow,
@@ -45,6 +51,7 @@ from .results import (
     AnnualPLRow,
     FeedSummary,
     MonthlyRow,
+    ProjectCostBreakdown,
     SimulationResult,
     ViabilityMetrics,
 )
@@ -107,6 +114,7 @@ class _MonthRecord:
     insurance_cost: float
     misc_cost: float
     fodder_surplus_kg: float
+    events: list[str] = field(default_factory=list)
 
     @property
     def revenue(self) -> float:
@@ -136,6 +144,10 @@ class _CoreResult:
     amortization: list[AmortizationRow]
     feed_summary: FeedSummary
     project_cost: float
+    shed_cost: float
+    equipment_cost: float
+    stock_cost: float
+    working_capital: float
     loan_amount: float
     subsidy_amount: float
     equity: float
@@ -150,6 +162,33 @@ class _CoreResult:
 
 def _scale(values: list[float], factor: float) -> list[float]:
     return [v * factor for v in values]
+
+
+_EVENT_LABELS = {
+    "doe": "doe(s)",
+    "buck": "buck(s)",
+    "female_kid": "female kid(s)",
+    "male_kid": "male kid(s)",
+    "female_weaner": "female weaner(s)",
+    "male_weaner": "male weaner(s)",
+    "female_grower": "female grower(s)",
+    "male_grower": "male grower(s)",
+}
+
+# Event-sale classes booked as adult disposals (cull pricing); the rest are
+# young-stock meat sales.
+_EVENT_ADULT_CLASSES = ("doe", "buck")
+
+
+def _draw(pool: list[float], requested: float) -> float:
+    """Remove up to ``requested`` head proportionally across an age pool
+    (in place) and return how many were actually taken."""
+    available = sum(pool)
+    take = min(requested, available)
+    if take > 0.0:
+        factor = 1.0 - take / available
+        pool[:] = [v * factor for v in pool]
+    return take
 
 
 def _run_core(a: SimulationAssumptions) -> _CoreResult:
@@ -218,12 +257,119 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
 
     records: list[_MonthRecord] = []
 
+    # Scheduled herd events grouped by simulation month (schema guarantees
+    # month <= horizon).
+    events_by_month: dict[int, list[HerdEventAssumptions]] = {}
+    for event in a.events:
+        events_by_month.setdefault(event.month, []).append(event)
+
     for month in range(1, a.meta.horizon_months + 1):
         calendar_month = (start_month - 1 + (month - 1)) % 12 + 1
         births = deaths = 0.0
         sales_head = sales_revenue = 0.0
         culls_head = cull_revenue = 0.0
         purchases_head = purchase_cost = 0.0
+        event_log: list[str] = []
+
+        # Meat price with the seasonal (Eid) uplift for this calendar month.
+        uplift = 1.0 + sales.eid_price_uplift if calendar_month == sales.eid_month else 1.0
+        meat_price = sales.meat_price_per_kg * uplift
+
+        # --- 0. scheduled herd events (user-programmed purchases/sales) -----
+        # Applied at the start of the month, before aging/breeding/mortality,
+        # so purchased animals face this month's mortality like newborns do.
+        # Purchases are opex (never project cost); adult sales are booked as
+        # culls, young-stock sales as meat sales.
+        for event in events_by_month.get(month, ()):
+            label = _EVENT_LABELS[event.animal_class]
+            if event.kind == "purchase":
+                n = event.count
+                if event.animal_class == "doe":
+                    open_ready += n
+                    doe_ages[afb] += n
+                    default_price = a.herd.doe_purchase_price
+                elif event.animal_class == "buck":
+                    bucks += n
+                    default_price = a.herd.buck_purchase_price
+                elif event.animal_class == "female_kid":
+                    f_kid[1] += n  # mid-class (age 1), like foundation kids
+                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                elif event.animal_class == "male_kid":
+                    m_kid[1] += n
+                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                elif event.animal_class == "female_weaner":
+                    f_weaner[1] += n  # mid-class (age 4)
+                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                elif event.animal_class == "male_weaner":
+                    m_weaner[1] += n
+                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                elif event.animal_class == "female_grower":
+                    default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
+                    if f_grower:
+                        f_grower[len(f_grower) // 2] += n  # mid-class
+                    else:  # afb == 6: a grower is already breeding-age
+                        open_ready += n
+                        doe_ages[afb] += n
+                else:  # male_grower
+                    default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
+                    if m_grower:
+                        m_grower[len(m_grower) // 2] += n  # mid-class
+                    else:  # sale_age == 6: already at sale age — resold at once
+                        sales_head += n
+                        sales_revenue += n * weight_at_age(sale_age, g, buck_w) * meat_price
+                price = event.price_per_head if event.price_per_head is not None else default_price
+                purchases_head += n
+                purchase_cost += n * price
+                event_log.append(
+                    f"Purchased {n:g} {label} at ₹{price:,.0f}/head (₹{n * price:,.0f})"
+                )
+            else:  # sale
+                requested = event.count
+                if event.animal_class == "doe":
+                    available = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+                    take = min(requested, available)
+                    if take > 0.0:
+                        factor = 1.0 - take / available
+                        open_ready *= factor
+                        open_waiting = _scale(open_waiting, factor)
+                        preg = _scale(preg, factor)
+                        lact = _scale(lact, factor)
+                        doe_ages = _scale(doe_ages, factor)
+                    default_price = sales.cull_doe_price_per_kg * doe_w
+                elif event.animal_class == "buck":
+                    take = min(requested, bucks)
+                    bucks -= take
+                    default_price = sales.cull_buck_price_per_kg * buck_w
+                elif event.animal_class == "female_kid":
+                    take = _draw(f_kid, requested)
+                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                elif event.animal_class == "male_kid":
+                    take = _draw(m_kid, requested)
+                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                elif event.animal_class == "female_weaner":
+                    take = _draw(f_weaner, requested)
+                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                elif event.animal_class == "male_weaner":
+                    take = _draw(m_weaner, requested)
+                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                elif event.animal_class == "female_grower":
+                    take = _draw(f_grower, requested)
+                    default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
+                else:  # male_grower
+                    take = _draw(m_grower, requested)
+                    default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
+                price = event.price_per_head if event.price_per_head is not None else default_price
+                revenue = take * price
+                if event.animal_class in _EVENT_ADULT_CLASSES:
+                    culls_head += take
+                    cull_revenue += revenue
+                else:
+                    sales_head += take
+                    sales_revenue += revenue
+                note = f"Sold {take:g} {label} at ₹{price:,.0f}/head (₹{revenue:,.0f})"
+                if take < requested:
+                    note += f" — only {take:g} of {requested:g} available"
+                event_log.append(note)
 
         # --- 1. young-stock aging and graduations ---------------------------
         f_kid_out = f_kid[2]
@@ -245,10 +391,6 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
             m_grower = [m_wea_out, *m_grower[:-1]]
         else:
             m_gro_out = m_wea_out
-
-        # Meat price with the seasonal (Eid) uplift for this calendar month.
-        uplift = 1.0 + sales.eid_price_uplift if calendar_month == sales.eid_month else 1.0
-        meat_price = sales.meat_price_per_kg * uplift
 
         # Breeding-age females: retained fraction joins the doe pool (subject to
         # the cap), the surplus is sold as meat at the first-breeding-age weight.
@@ -454,7 +596,8 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         stock_value = (
             does_now * a.herd.doe_purchase_price
             + bucks * a.herd.buck_purchase_price
-            + young_value_kg * sales.meat_price_per_kg
+            # Young stock insured at this month's market value (Eid uplift included).
+            + young_value_kg * meat_price
         )
         insurance_cost = stock_value * costs.insurance_pct_stock_value_annual / 12.0
 
@@ -492,6 +635,7 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
                 insurance_cost=insurance_cost,
                 misc_cost=costs.misc_overhead_per_month,
                 fodder_surplus_kg=fodder_surplus,
+                events=event_log,
             )
         )
 
@@ -576,6 +720,7 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
                 net_cash_flow=net_cash,
                 cumulative_cash_flow=cumulative,
                 fodder_surplus_kg=rec.fodder_surplus_kg,
+                events=rec.events,
             )
         )
 
@@ -670,6 +815,10 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
             fodder_deficit_months=sum(1 for m in months if m.fodder_surplus_kg < 0.0),
         ),
         project_cost=project_cost,
+        shed_cost=shed_cost,
+        equipment_cost=equipment_cost,
+        stock_cost=stock_cost,
+        working_capital=working_capital,
         loan_amount=loan_amount,
         subsidy_amount=subsidy_amount,
         equity=equity,
@@ -752,6 +901,12 @@ def run_simulation(
             for row in core.amortization
         ],
         feed_summary=core.feed_summary,
+        project_cost_breakdown=ProjectCostBreakdown(
+            shed_cost=core.shed_cost,
+            equipment_cost=core.equipment_cost,
+            stock_cost=core.stock_cost,
+            working_capital=core.working_capital,
+        ),
     )
     if with_monte_carlo or with_sensitivity:
         from .montecarlo import run_monte_carlo, run_sensitivity
@@ -760,4 +915,9 @@ def run_simulation(
             result.monte_carlo = run_monte_carlo(assumptions)
         if with_sensitivity:
             result.sensitivity = run_sensitivity(assumptions)
+    # Explanations are built last so the risk section can see MC/sensitivity.
+    from .explain import build_metric_explanations, build_narrative_report
+
+    result.metric_explanations = build_metric_explanations(assumptions, result)
+    result.narrative_report = build_narrative_report(assumptions, result)
     return result

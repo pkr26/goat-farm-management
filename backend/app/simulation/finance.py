@@ -119,8 +119,13 @@ def bcr(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]
 
 
 def payback_month(cumulative_cash: Sequence[float]) -> int | None:
-    """First index (month; 0 = month 0) where cumulative cash turns non-negative."""
+    """First month where cumulative cash turns non-negative; None if never.
+
+    Index 0 (the month-0 equity outflow) is skipped: a fully-financed project
+    (equity = 0) has no instant payback — it pays back when operating cash has
+    actually accumulated.
+    """
     for idx, value in enumerate(cumulative_cash):
-        if value >= 0.0:
+        if idx > 0 and value >= 0.0:
             return idx
     return None

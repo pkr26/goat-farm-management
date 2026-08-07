@@ -109,9 +109,17 @@ async def breed_defaults(
 
 
 @router.get("/herd-snapshot")
-async def herd_snapshot(db: DbSession, farm: CurrentFarm, perms: SimView) -> HerdSnapshotOut:
+async def herd_snapshot(
+    db: DbSession, farm: CurrentFarm, perms: SimView, breed: str = "osmanabadi"
+) -> HerdSnapshotOut:
     """Group the farm's ACTIVE animals into simulation starting cohorts:
-    kid 0-2 m, weaner 3-5 m, grower 6-11 m, doe/buck 12+ m (or unknown age)."""
+    kid 0-2 m, weaner 3-5 m, grower 6 m up to breeding age, adult at breeding
+    age (doe threshold = the breed's age-at-first-breeding, buck at 12 m;
+    unknown age counts as adult)."""
+    try:
+        afb = get_preset(breed, "stall_fed").reproduction.age_at_first_breeding_months
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     result = await db.execute(
         select(Animal).where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
     )
@@ -121,7 +129,8 @@ async def herd_snapshot(db: DbSession, farm: CurrentFarm, perms: SimView) -> Her
     )
     for animal in result.scalars():
         age = animal.age_months
-        if age is None or age >= 12:
+        adult_age = afb if animal.sex == Sex.F.value else 12
+        if age is None or age >= adult_age:
             counts["does" if animal.sex == Sex.F.value else "bucks"] += 1
         elif age >= 6:
             counts["f_growers" if animal.sex == Sex.F.value else "m_growers"] += 1

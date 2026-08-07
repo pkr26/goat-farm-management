@@ -1,20 +1,17 @@
-// SUSPECTED APP BUG — reported to orchestrator
+// REGRESSION TESTS — bug fixed; these tests pin the fix.
 //
-// Finance page sends filter params as the literal string "null" when no
-// filter is active. `src/app/(app)/finance/page.tsx` builds
+// The finance page used to send filter params as the literal string "null"
+// when no filter was active: `src/app/(app)/finance/page.tsx` built
 //   params = { month: month || null, type: ... ? null : ..., category: ... }
-// and the Orval URL builder (src/api/generated/endpoints.ts,
-// getListTransactionsApiFinanceGetUrl) serializes `null` as 'null', so the
-// default page load requests `/api/finance?month=null&type=null&category=null`.
-// Backend `backend/app/api/finance.py` treats a truthy `month` that fails
-// `strptime("%Y-%m")` as "match nothing" and compares `type`/`category`
-// verbatim — so the transactions table renders "No transactions match." on
-// every load (and after Clear), even when the farm has transactions.
-// Totals and P&L are computed unfiltered server-side, which masks the bug:
-// cards look right while the table is always empty.
+// and the Orval URL builder serialized `null` as 'null', so the default page
+// load requested `/api/finance?month=null&type=null&category=null`.
+// The backend treated a truthy `month` that fails strptime("%Y-%m") as
+// "match nothing" — so the transactions table rendered "No transactions
+// match." on every load even when the farm had transactions, while totals
+// and P&L (computed unfiltered server-side) masked it.
 //
-// Expected: with no active filter the GET omits month/type/category entirely
-// (searchParams.get(...) === null). Actual: each is the string "null".
+// With no active filter the GET now omits month/type/category entirely
+// (searchParams.get(...) === null); these tests pin that.
 
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";

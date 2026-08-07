@@ -3955,9 +3955,19 @@
           "simulation"
         ],
         "summary": "Herd Snapshot",
-        "description": "Group the farm's ACTIVE animals into simulation starting cohorts:\nkid 0-2 m, weaner 3-5 m, grower 6-11 m, doe/buck 12+ m (or unknown age).",
+        "description": "Group the farm's ACTIVE animals into simulation starting cohorts:\nkid 0-2 m, weaner 3-5 m, grower 6 m up to breeding age, adult at breeding\nage (doe threshold = the breed's age-at-first-breeding, buck at 12 m;\nunknown age counts as adult).",
         "operationId": "herd_snapshot_api_simulation_herd_snapshot_get",
         "parameters": [
+          {
+            "name": "breed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "osmanabadi",
+              "title": "Breed"
+            }
+          },
           {
             "name": "x-farm-id",
             "in": "header",
@@ -7063,6 +7073,64 @@
         "title": "HerdAssumptions",
         "description": "Starting stock and replacement/purchase policy."
       },
+      "HerdEventAssumptions": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Month"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "purchase",
+              "sale"
+            ],
+            "title": "Kind"
+          },
+          "animal_class": {
+            "type": "string",
+            "enum": [
+              "doe",
+              "buck",
+              "female_kid",
+              "male_kid",
+              "female_weaner",
+              "male_weaner",
+              "female_grower",
+              "male_grower"
+            ],
+            "title": "Animal Class"
+          },
+          "count": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Count"
+          },
+          "price_per_head": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Per Head"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "kind",
+          "animal_class",
+          "count"
+        ],
+        "title": "HerdEventAssumptions",
+        "description": "One scheduled herd event: a purchase or sale applied at the start of a\nsimulation month (before that month's aging, breeding and mortality).\n\nPurchases are charged as operating cost in that month (not added to the\nproject cost); sales are booked as meat/cull revenue. ``price_per_head``\noverrides the default valuation \u2014 purchases default to the class purchase\nprice (adults) or live-weight meat value (young stock); sales default to\nlive-weight meat value for young stock and cull value for adults."
+      },
       "HerdSnapshotOut": {
         "properties": {
           "does": {
@@ -7484,6 +7552,47 @@
         "title": "MetaAssumptions",
         "description": "Run horizon and calendar anchoring."
       },
+      "MetricExplanation": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "figures": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Figures"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "explanation"
+        ],
+        "title": "MetricExplanation",
+        "description": "Plain-language account of one viability metric, with the numbers used."
+      },
       "MixIn": {
         "properties": {
           "recipe_code": {
@@ -7721,6 +7830,13 @@
           "fodder_surplus_kg": {
             "type": "number",
             "title": "Fodder Surplus Kg"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Events"
           }
         },
         "type": "object",
@@ -8104,6 +8220,35 @@
         ],
         "title": "PnlRowOut"
       },
+      "ProjectCostBreakdown": {
+        "properties": {
+          "shed_cost": {
+            "type": "number",
+            "title": "Shed Cost"
+          },
+          "equipment_cost": {
+            "type": "number",
+            "title": "Equipment Cost"
+          },
+          "stock_cost": {
+            "type": "number",
+            "title": "Stock Cost"
+          },
+          "working_capital": {
+            "type": "number",
+            "title": "Working Capital"
+          }
+        },
+        "type": "object",
+        "required": [
+          "shed_cost",
+          "equipment_cost",
+          "stock_cost",
+          "working_capital"
+        ],
+        "title": "ProjectCostBreakdown",
+        "description": "Components of the month-0 project cost (sums to metrics.project_cost)."
+      },
       "PurchaseBatchDetailOut": {
         "properties": {
           "batch": {
@@ -8364,6 +8509,50 @@
           "password"
         ],
         "title": "RegisterIn"
+      },
+      "ReportSection": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "paragraphs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Paragraphs"
+          },
+          "figures": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Figures"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "paragraphs"
+        ],
+        "title": "ReportSection",
+        "description": "One section of the narrative report; paragraphs carry the figures."
       },
       "ReportsOut": {
         "properties": {
@@ -9023,6 +9212,13 @@
           },
           "risk": {
             "$ref": "#/components/schemas/RiskAssumptions"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/HerdEventAssumptions"
+            },
+            "type": "array",
+            "title": "Events"
           }
         },
         "additionalProperties": false,
@@ -9059,6 +9255,23 @@
           "feed_summary": {
             "$ref": "#/components/schemas/FeedSummary"
           },
+          "project_cost_breakdown": {
+            "$ref": "#/components/schemas/ProjectCostBreakdown"
+          },
+          "metric_explanations": {
+            "items": {
+              "$ref": "#/components/schemas/MetricExplanation"
+            },
+            "type": "array",
+            "title": "Metric Explanations"
+          },
+          "narrative_report": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSection"
+            },
+            "type": "array",
+            "title": "Narrative Report"
+          },
           "monte_carlo": {
             "anyOf": [
               {
@@ -9090,7 +9303,8 @@
           "annual_pl",
           "metrics",
           "amortization",
-          "feed_summary"
+          "feed_summary",
+          "project_cost_breakdown"
         ],
         "title": "SimulationResult",
         "description": "Full deterministic result; Monte Carlo / sensitivity blocks are optional."

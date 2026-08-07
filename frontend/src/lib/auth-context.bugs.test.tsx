@@ -1,24 +1,15 @@
-// SUSPECTED APP BUG — reported to orchestrator
+// REGRESSION TESTS — bug fixed; these tests pin the fix.
 //
-// AuthProvider's bootstrap IIFE (auth-context.tsx useEffect) wraps the
-// silent /api/auth/refresh in try/finally WITHOUT a catch:
-//
-//   (async () => {
-//     try {
-//       const resp = await fetch("/api/auth/refresh", ...);
-//       if (resp.ok) { ... await refreshFarms(); }
-//     } finally {
-//       setLoading(false);
-//     }
-//   })();
-//
-// When the refresh fetch itself rejects (backend down / network error) or
-// a 200 response carries a non-JSON body (resp.json() throws), the promise
-// rejects with no handler → an UNHANDLED PROMISE REJECTION on every app
-// load for a signed-out user on a flaky network. The redirect itself still
-// works (finally runs, user stays null, /login push happens), so the tests
-// below pass functionally — the bug manifests as the unhandled rejection
-// vitest reports against this file. The source must not be edited from here.
+// AuthProvider's bootstrap IIFE (auth-context.tsx useEffect) used to wrap the
+// silent /api/auth/refresh in try/finally WITHOUT a catch. When the refresh
+// fetch itself rejected (backend down / network error) or a 200 response
+// carried a non-JSON body (resp.json() throws), the promise rejected with no
+// handler → an UNHANDLED PROMISE REJECTION on every app load for a
+// signed-out user on a flaky network. The redirect itself still worked
+// (finally ran, user stayed null, /login push happened), so the bug
+// manifested only as the unhandled rejection vitest reports against this
+// file. The bootstrap now has a catch; these tests confirm both the
+// functional path and the absence of the rejection.
 
 import { screen, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";

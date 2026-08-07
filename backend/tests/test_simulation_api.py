@@ -348,3 +348,113 @@ async def test_scenario_compare(client: httpx.AsyncClient) -> None:
     assert all(len(r["months"]) == 24 for r in body["results"])
     # Higher meat price -> higher NPV for Plan B.
     assert body["results"][1]["metrics"]["npv"] > body["results"][0]["metrics"]["npv"]
+
+
+# ---------------------------------------------------------------------------
+# Scheduled herd events (assumptions.events)
+# ---------------------------------------------------------------------------
+def purchase_event(month: int = 14) -> dict[str, object]:
+    return {"month": month, "kind": "purchase", "animal_class": "doe", "count": 10}
+
+
+async def test_scenario_events_roundtrip(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 24
+    assumptions["events"] = [purchase_event()]
+
+    created = await create_scenario(client, headers, "Events plan", assumptions)
+    assert created["assumptions"]["events"] == [purchase_event() | {"price_per_head": None}]
+
+    fetched = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["assumptions"]["events"][0]["animal_class"] == "doe"
+
+    resp = await client.post(f"/api/simulation/scenarios/{created['id']}/run", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    month14 = body["months"][13]
+    assert month14["purchases_head"] >= 10.0  # plus fractional auto-buck top-ups
+    assert month14["purchase_cost"] >= 80000.0
+    assert any("Purchased 10 doe(s)" in note for note in month14["events"])
+    assert body["months"][12]["events"] == []
+
+
+async def test_scenario_compare_with_events(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 24
+    first = await create_scenario(client, headers, "No events", assumptions)
+    assumptions["events"] = [purchase_event()]
+    second = await create_scenario(client, headers, "Doe purchase", assumptions)
+
+    resp = await client.get(
+        "/api/simulation/scenarios/compare",
+        params={"ids": f"{first['id']},{second['id']}"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["scenarios"][1]["assumptions"]["events"][0]["kind"] == "purchase"
+    base, with_event = body["results"]
+    assert any("Purchased" in note for note in with_event["months"][13]["events"])
+    # The mid-run purchase is a cost: the event scenario has a lower NPV.
+    assert with_event["metrics"]["npv"] < base["metrics"]["npv"]
+
+
+async def test_run_rejects_invalid_events(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 24
+
+    invalid_events = [
+        purchase_event(month=25),  # beyond the horizon
+        purchase_event() | {"count": 0},  # count must be > 0
+        purchase_event() | {"animal_class": "camel"},  # unknown class
+        purchase_event() | {"bogus": 1},  # extra keys forbidden
+    ]
+    for events in invalid_events:
+        payload = assumptions | {"events": [events]}
+        resp = await client.post(
+            "/api/simulation/run", json={"assumptions": payload}, headers=headers
+        )
+        assert resp.status_code == 422, events
+
+    # A valid event inside the horizon still runs.
+    resp = await client.post(
+        "/api/simulation/run",
+        json={"assumptions": assumptions | {"events": [purchase_event(month=24)]}},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Herd snapshot breed parameter
+# ---------------------------------------------------------------------------
+async def test_herd_snapshot_breed_param(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "G-13", "F", 400)  # ~13-month-old female
+
+    # Osmanabadi (age at first breeding 12): she counts as a doe.
+    resp = await client.get("/api/simulation/herd-snapshot", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["does"] == 1
+    assert resp.json()["f_growers"] == 0
+
+    # Jamunapari (age at first breeding 15): still a grower at 13 months.
+    resp = await client.get(
+        "/api/simulation/herd-snapshot", params={"breed": "jamunapari"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["does"] == 0
+    assert resp.json()["f_growers"] == 1
+    assert resp.json()["total_head"] == 1
+
+
+async def test_herd_snapshot_unknown_breed_400(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.get(
+        "/api/simulation/herd-snapshot", params={"breed": "merino"}, headers=headers
+    )
+    assert resp.status_code == 400

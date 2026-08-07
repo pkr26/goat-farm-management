@@ -118,6 +118,69 @@ const RESULT = {
     land_requirement_acres: 0,
     fodder_deficit_months: 0,
   },
+  project_cost_breakdown: {
+    shed_cost: 200000,
+    equipment_cost: 50000,
+    stock_cost: 200000,
+    working_capital: 50000,
+  },
+  metric_explanations: [
+    {
+      key: "npv",
+      title: "Net Present Value",
+      explanation: "NPV is ₹2,34,567 over the 60-month horizon.",
+      figures: { npv: 234567, discount_rate: 0.12 },
+    },
+    {
+      key: "project_cost",
+      title: "Project Cost",
+      explanation: "Total project cost is ₹5,00,000 at month 0.",
+      figures: {
+        shed_cost: 200000,
+        equipment_cost: 50000,
+        stock_cost: 200000,
+        working_capital: 50000,
+      },
+    },
+  ],
+  narrative_report: [
+    {
+      key: "overview",
+      title: "Overview",
+      paragraphs: ["A 50-doe stall-fed Osmanabadi unit over 60 months."],
+      figures: {},
+    },
+    {
+      key: "herd_trajectory",
+      title: "Herd Trajectory",
+      paragraphs: ["The herd grows from 52 to 90 head."],
+      figures: {},
+    },
+    {
+      key: "revenue_mix",
+      title: "Revenue Mix",
+      paragraphs: ["Meat sales dominate revenue."],
+      figures: {},
+    },
+    {
+      key: "cost_mix",
+      title: "Cost Mix",
+      paragraphs: ["Feed is the largest cost."],
+      figures: {},
+    },
+    {
+      key: "viability_verdict",
+      title: "Viability Verdict",
+      paragraphs: ["The unit clears the viability bar."],
+      figures: { verdict: "VIABLE" },
+    },
+    {
+      key: "risks",
+      title: "Risks",
+      paragraphs: ["Meat price swings are the main risk."],
+      figures: {},
+    },
+  ],
   monte_carlo: null,
   sensitivity: null,
 };

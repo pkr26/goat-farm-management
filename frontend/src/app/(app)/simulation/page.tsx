@@ -24,6 +24,8 @@ import {
   useUpdateScenarioApiSimulationScenariosScenarioIdPatch,
 } from "@/api/generated/endpoints";
 import type {
+  HerdEventAssumptions,
+  MetricExplanation,
   ScenarioOut,
   SimulationAssumptions,
   SimulationResult,
@@ -63,6 +65,67 @@ import { usePermissions } from "@/lib/use-permissions";
 const DEFAULT_BREED = "osmanabadi";
 const DEFAULT_SYSTEM = "stall_fed";
 
+/** Quick-pick simulation horizons (meta.horizon_months stays editable). */
+const HORIZON_PRESETS = [
+  { months: 60, label: "5 yr" },
+  { months: 120, label: "10 yr" },
+  { months: 180, label: "15 yr" },
+  { months: 240, label: "20 yr" },
+] as const;
+
+/** value → label maps for the root `items` prop: without them, Base UI's
+ * Select.Value renders the raw value in the closed trigger. */
+const EVENT_KIND_ITEMS: Record<string, string> = {
+  purchase: "Purchase",
+  sale: "Sale",
+};
+const EVENT_CLASS_ITEMS: Record<string, string> = {
+  doe: "Doe",
+  buck: "Buck",
+  female_kid: "Female kid",
+  male_kid: "Male kid",
+  female_weaner: "Female weaner",
+  male_weaner: "Male weaner",
+  female_grower: "Female grower",
+  male_grower: "Male grower",
+};
+
+/** Inline validation for the herd events editor; horizon comes from meta. */
+function validateEvents(events: HerdEventAssumptions[], horizonMonths: number): string[] {
+  const errors: string[] = [];
+  events.forEach((event, i) => {
+    const label = `Event ${i + 1}`;
+    if (
+      !Number.isInteger(event.month) ||
+      event.month < 1 ||
+      event.month > horizonMonths
+    ) {
+      errors.push(`${label}: month must be a whole number between 1 and ${horizonMonths}.`);
+    }
+    if (!Number.isInteger(event.count) || event.count <= 0) {
+      errors.push(`${label}: count must be a positive whole number.`);
+    }
+    if (
+      event.price_per_head !== null &&
+      event.price_per_head !== undefined &&
+      (Number.isNaN(event.price_per_head) || event.price_per_head < 0)
+    ) {
+      errors.push(`${label}: price per head must be zero or more (or left blank).`);
+    }
+  });
+  return errors;
+}
+
+/** One figure value in an explanation: currency for money-shaped keys,
+ * percent for rate-shaped keys, otherwise a plain number. */
+function formatFigure(key: string, value: number | string): string {
+  if (typeof value === "string") return value;
+  if (/rate|irr|percent|pct|prob/i.test(key)) return formatPercent(value);
+  if (/cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash/i.test(key))
+    return formatMoney(value);
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
 /** snake_case → Title Case ("horizon_months" → "Horizon Months"). */
 function humanize(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -82,11 +145,31 @@ function formatPercent(value: number | null): string {
   return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
 }
 
-function StatCard({ value, label }: { value: string; label: string }) {
+function StatCard({
+  value,
+  label,
+  onInfo,
+}: {
+  value: string;
+  label: string;
+  onInfo?: () => void;
+}) {
   return (
     <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
       <div className="text-2xl font-semibold">{value}</div>
-      <div className="text-sm text-muted-foreground">{label}</div>
+      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <span>{label}</span>
+        {onInfo && (
+          <button
+            type="button"
+            aria-label={`Explain ${label}`}
+            onClick={onInfo}
+            className="inline-flex size-4 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] leading-none text-muted-foreground hover:bg-accent"
+          >
+            ?
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -136,6 +219,9 @@ export default function SimulationPage() {
   });
   const [assumptions, setAssumptions] = useState<SimulationAssumptions | null>(null);
   const [loadedScenario, setLoadedScenario] = useState<ScenarioOut | null>(null);
+  // Scheduled herd events live outside the reflected sections editor.
+  const [events, setEvents] = useState<HerdEventAssumptions[]>([]);
+  const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
 
   const [monteCarlo, setMonteCarlo] = useState(false);
   const [sensitivity, setSensitivity] = useState(false);
@@ -166,13 +252,17 @@ export default function SimulationPage() {
       // into editable state (one-shot per new payload identity).
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAssumptions(defaultsQuery.data.data);
+      setEvents(defaultsQuery.data.data.events ?? []);
       setLoadedScenario(null);
     }
   }, [defaultsQuery.data]);
 
-  const snapshotQuery = useHerdSnapshotApiSimulationHerdSnapshotGet({
-    query: { enabled: false },
-  });
+  const snapshotQuery = useHerdSnapshotApiSimulationHerdSnapshotGet(
+    { breed },
+    {
+      query: { enabled: false },
+    },
+  );
 
   const scenariosQuery = useListScenariosApiSimulationScenariosGet({
     query: { enabled: allowed },
@@ -219,6 +309,38 @@ export default function SimulationPage() {
     });
   }
 
+  /** Horizon from the meta section; gates event-month validation. */
+  const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
+  const eventErrors = validateEvents(events, horizonMonths);
+
+  function addEvent() {
+    setEvents((prev) => [
+      ...prev,
+      {
+        month: Math.min(12, horizonMonths),
+        kind: "purchase",
+        animal_class: "doe",
+        count: 10,
+        price_per_head: null,
+      },
+    ]);
+  }
+
+  function updateEvent(index: number, patch: Partial<HerdEventAssumptions>) {
+    setEvents((prev) =>
+      prev.map((event, i) => (i === index ? { ...event, ...patch } : event)),
+    );
+  }
+
+  function removeEvent(index: number) {
+    setEvents((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  /** Assumptions plus the scheduled events, as sent to run/save endpoints. */
+  function assumptionsWithEvents(): SimulationAssumptions | null {
+    return assumptions ? { ...assumptions, events } : null;
+  }
+
   async function onUseCurrentHerd() {
     try {
       const res = await snapshotQuery.refetch();
@@ -250,11 +372,13 @@ export default function SimulationPage() {
   }
 
   async function onRun() {
-    if (!assumptions) return;
+    const payload = assumptionsWithEvents();
+    if (!payload) return;
+    if (eventErrors.length > 0) return; // inline messages already shown
     setRunError(null);
     try {
       const res = await runMutation.mutateAsync({
-        data: { assumptions, monte_carlo: monteCarlo, sensitivity },
+        data: { assumptions: payload, monte_carlo: monteCarlo, sensitivity },
       });
       if (res.status === 200) setResult(res.data);
     } catch (err) {
@@ -305,11 +429,17 @@ export default function SimulationPage() {
   }
 
   async function onSaveScenario() {
-    if (!assumptions || !saveName.trim()) return;
+    const payload = assumptionsWithEvents();
+    if (!payload || !saveName.trim()) return;
+    if (eventErrors.length > 0) return;
     setSaveError(null);
     try {
       await createMutation.mutateAsync({
-        data: { name: saveName.trim(), notes: saveNotes.trim(), assumptions },
+        data: {
+          name: saveName.trim(),
+          notes: saveNotes.trim(),
+          assumptions: payload,
+        },
       });
       toast.success("Scenario saved.");
       invalidateScenarios();
@@ -324,11 +454,13 @@ export default function SimulationPage() {
   }
 
   async function onUpdateScenario() {
-    if (!assumptions || !loadedScenario) return;
+    const payload = assumptionsWithEvents();
+    if (!payload || !loadedScenario) return;
+    if (eventErrors.length > 0) return;
     try {
       await updateMutation.mutateAsync({
         scenarioId: loadedScenario.id,
-        data: { assumptions },
+        data: { assumptions: payload },
       });
       toast.success("Scenario updated.");
       invalidateScenarios();
@@ -498,6 +630,13 @@ export default function SimulationPage() {
 
   function renderResults(r: SimulationResult) {
     const m = r.metrics;
+    const explanationsByKey = new Map(
+      (r.metric_explanations ?? []).map((entry) => [entry.key, entry]),
+    );
+    const infoFor = (key: string) => {
+      const entry = explanationsByKey.get(key);
+      return entry ? () => setExplanation(entry) : undefined;
+    };
     const sortedSensitivity = r.sensitivity
       ? [...r.sensitivity].sort(
           (a, b) =>
@@ -508,13 +647,18 @@ export default function SimulationPage() {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard value={formatMoney(m.npv)} label="NPV" />
-          <StatCard value={formatPercent(m.irr)} label="IRR" />
-          <StatCard value={formatRatio(m.bcr)} label="BCR" />
-          <StatCard value={formatRatio(m.avg_dscr)} label="Avg DSCR" />
+          <StatCard value={formatMoney(m.npv)} label="NPV" onInfo={infoFor("npv")} />
+          <StatCard value={formatPercent(m.irr)} label="IRR" onInfo={infoFor("irr")} />
+          <StatCard value={formatRatio(m.bcr)} label="BCR" onInfo={infoFor("bcr")} />
+          <StatCard
+            value={formatRatio(m.avg_dscr)}
+            label="Avg DSCR"
+            onInfo={infoFor("avg_dscr")}
+          />
           <StatCard
             value={m.payback_month === null ? "—" : String(m.payback_month)}
             label="Payback month"
+            onInfo={infoFor("payback_month")}
           />
           <StatCard
             value={
@@ -523,12 +667,71 @@ export default function SimulationPage() {
                 : formatMoney(m.break_even_meat_price_per_kg)
             }
             label="Break-even meat (₹/kg)"
+            onInfo={infoFor("break_even_meat_price_per_kg")}
           />
-          <StatCard value={formatMoney(m.project_cost)} label="Project cost" />
-          <StatCard value={formatMoney(m.loan_amount)} label="Loan" />
-          <StatCard value={formatMoney(m.subsidy_amount)} label="Subsidy" />
-          <StatCard value={formatMoney(m.equity)} label="Equity" />
+          <StatCard
+            value={formatMoney(m.project_cost)}
+            label="Project cost"
+            onInfo={infoFor("project_cost")}
+          />
+          <StatCard
+            value={formatMoney(m.loan_amount)}
+            label="Loan"
+            onInfo={infoFor("loan_amount")}
+          />
+          <StatCard
+            value={formatMoney(m.subsidy_amount)}
+            label="Subsidy"
+            onInfo={infoFor("subsidy_amount")}
+          />
+          <StatCard
+            value={formatMoney(m.equity)}
+            label="Equity"
+            onInfo={infoFor("equity")}
+          />
         </div>
+
+        {r.narrative_report && r.narrative_report.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Report</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {r.narrative_report.map((section) => {
+                const verdict =
+                  section.key === "viability_verdict" &&
+                  typeof section.figures?.verdict === "string"
+                    ? section.figures.verdict
+                    : null;
+                return (
+                  <section key={section.key} className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-medium">{section.title}</h3>
+                      {verdict && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            verdict === "VIABLE"
+                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                              : verdict === "VIABLE WITH CAUTION"
+                                ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                                : "bg-destructive/15 text-destructive"
+                          }`}
+                        >
+                          {verdict}
+                        </span>
+                      )}
+                    </div>
+                    {section.paragraphs.map((paragraph, i) => (
+                      <p key={i} className="text-sm text-muted-foreground">
+                        {paragraph}
+                      </p>
+                    ))}
+                  </section>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -584,11 +787,19 @@ export default function SimulationPage() {
                   <TableHead>Debt service</TableHead>
                   <TableHead>Net cash flow</TableHead>
                   <TableHead>Cumulative cash flow</TableHead>
+                  <TableHead>Events</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {r.months.map((row) => (
-                  <TableRow key={row.month}>
+                  <TableRow
+                    key={row.month}
+                    className={
+                      row.events && row.events.length > 0
+                        ? "bg-amber-500/5"
+                        : undefined
+                    }
+                  >
                     <TableCell>{row.month}</TableCell>
                     <TableCell>{row.total_herd}</TableCell>
                     <TableCell>{row.births}</TableCell>
@@ -608,6 +819,17 @@ export default function SimulationPage() {
                       }
                     >
                       {formatMoney(row.cumulative_cash_flow)}
+                    </TableCell>
+                    <TableCell>
+                      {row.events && row.events.length > 0 ? (
+                        <div className="space-y-0.5 text-xs whitespace-nowrap">
+                          {row.events.map((line, i) => (
+                            <div key={i}>{line}</div>
+                          ))}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -682,6 +904,41 @@ export default function SimulationPage() {
             </CardContent>
           </Card>
         )}
+
+        <Dialog
+          open={explanation !== null}
+          onOpenChange={(open) => {
+            if (!open) setExplanation(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{explanation?.title}</DialogTitle>
+            </DialogHeader>
+            {explanation && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  {explanation.explanation}
+                </p>
+                {explanation.figures && (
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                    {Object.entries(explanation.figures)
+                      .filter(
+                        (entry): entry is [string, number | string] =>
+                          entry[1] !== null,
+                      )
+                      .map(([key, value]) => (
+                        <div key={key} className="contents">
+                          <dt className="text-muted-foreground">{humanize(key)}</dt>
+                          <dd>{formatFigure(key, value)}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -769,6 +1026,26 @@ export default function SimulationPage() {
         {!assumptions && !defaultsQuery.isError && (
           <p className="text-muted-foreground">Loading defaults…</p>
         )}
+        {assumptions?.meta && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">Horizon presets:</span>
+            {HORIZON_PRESETS.map((preset) => (
+              <Button
+                key={preset.months}
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  updateField("meta", "horizon_months", preset.months)
+                }
+              >
+                {preset.label}
+              </Button>
+            ))}
+            <span className="text-xs text-muted-foreground">
+              120 months = 10 years
+            </span>
+          </div>
+        )}
         {assumptions &&
           sectionEntries(assumptions).map(([section, values]) => (
             <details
@@ -787,6 +1064,148 @@ export default function SimulationPage() {
             </details>
           ))}
       </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Herd events</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {events.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No scheduled events. Add purchases or sales that fire at a given
+              simulation month.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Kind</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Count</TableHead>
+                  <TableHead>Price/head</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {events.map((event, index) => (
+                  <TableRow key={index}>
+                    <TableCell>
+                      <Input
+                        aria-label="Month"
+                        type="number"
+                        min={1}
+                        max={horizonMonths}
+                        className="w-20"
+                        value={event.month}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          updateEvent(index, {
+                            month: Number.isNaN(n) ? 0 : n,
+                          });
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={event.kind}
+                        onValueChange={(v) =>
+                          updateEvent(index, {
+                            kind: v as HerdEventAssumptions["kind"],
+                          })
+                        }
+                        items={EVENT_KIND_ITEMS}
+                      >
+                        <SelectTrigger aria-label="Kind" size="sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(EVENT_KIND_ITEMS).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={event.animal_class}
+                        onValueChange={(v) =>
+                          updateEvent(index, {
+                            animal_class: v as HerdEventAssumptions["animal_class"],
+                          })
+                        }
+                        items={EVENT_CLASS_ITEMS}
+                      >
+                        <SelectTrigger aria-label="Class" size="sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        aria-label="Count"
+                        type="number"
+                        min={1}
+                        className="w-20"
+                        value={event.count}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          updateEvent(index, {
+                            count: Number.isNaN(n) ? 0 : n,
+                          });
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        aria-label="Price per head"
+                        type="number"
+                        min={0}
+                        step="any"
+                        placeholder="auto"
+                        className="w-24"
+                        value={event.price_per_head ?? ""}
+                        onChange={(e) =>
+                          updateEvent(index, {
+                            price_per_head:
+                              e.target.value === "" ? null : Number(e.target.value),
+                          })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeEvent(index)}
+                      >
+                        Remove
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          <Button variant="outline" size="sm" onClick={addEvent}>
+            Add event
+          </Button>
+          {eventErrors.map((error) => (
+            <p key={error} className="text-sm text-destructive">
+              {error}
+            </p>
+          ))}
+        </CardContent>
+      </Card>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-4">
@@ -901,6 +1320,7 @@ export default function SimulationPage() {
                           size="sm"
                           onClick={() => {
                             setAssumptions(scenario.assumptions);
+                            setEvents(scenario.assumptions.events ?? []);
                             setLoadedScenario(scenario);
                           }}
                         >

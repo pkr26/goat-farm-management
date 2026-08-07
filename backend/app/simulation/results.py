@@ -45,6 +45,9 @@ class MonthlyRow(BaseModel):
     net_cash_flow: float  # ₹, revenues - opex - debt service
     cumulative_cash_flow: float  # ₹, including the month-0 equity outflow
     fodder_surplus_kg: float  # green DM: cultivated supply - requirement (negative = deficit)
+    # Human-readable log of scheduled herd events applied this month
+    # (SimulationAssumptions.events); empty when nothing was scheduled.
+    events: list[str] = Field(default_factory=list)
 
 
 class AnnualPLRow(BaseModel):
@@ -109,6 +112,33 @@ class FeedSummary(BaseModel):
     fodder_deficit_months: int  # months where cultivated supply fell short
 
 
+class ProjectCostBreakdown(BaseModel):
+    """Components of the month-0 project cost (sums to metrics.project_cost)."""
+
+    shed_cost: float  # capacity places x shed_cost_per_animal_place
+    equipment_cost: float
+    stock_cost: float  # starting herd valuation
+    working_capital: float  # working_capital_months x year-1 average monthly opex
+
+
+class MetricExplanation(BaseModel):
+    """Plain-language account of one viability metric, with the numbers used."""
+
+    key: str  # e.g. "npv" (matches the ViabilityMetrics field name)
+    title: str
+    explanation: str
+    figures: dict[str, float | str | None] = Field(default_factory=dict)
+
+
+class ReportSection(BaseModel):
+    """One section of the narrative report; paragraphs carry the figures."""
+
+    key: str  # e.g. "revenue_mix"
+    title: str
+    paragraphs: list[str]
+    figures: dict[str, float | str | None] = Field(default_factory=dict)
+
+
 class PercentileBand(BaseModel):
     """Per-month percentile bands across Monte Carlo runs."""
 
@@ -152,5 +182,8 @@ class SimulationResult(BaseModel):
     metrics: ViabilityMetrics
     amortization: list[AmortizationRowModel]
     feed_summary: FeedSummary
+    project_cost_breakdown: ProjectCostBreakdown
+    metric_explanations: list[MetricExplanation] = Field(default_factory=list)
+    narrative_report: list[ReportSection] = Field(default_factory=list)
     monte_carlo: MonteCarloResult | None = None
     sensitivity: list[SensitivityItem] | None = None

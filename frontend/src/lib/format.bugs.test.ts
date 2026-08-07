@@ -1,13 +1,11 @@
-// SUSPECTED APP BUG — reported to orchestrator
+// REGRESSION TESTS — bug fixed; these tests pin the fix.
 //
 // formatDate's documented contract is "ISO date string (YYYY-MM-DD) →
-// 'd Mon yyyy'; empty/invalid → '—'". But it only checks that the three
-// numeric parts are non-zero — it never validates month ≤ 12 or the day
-// against the calendar. Out-of-range dates therefore render as nonsense
-// ("1 undefined 2026" for month 13, "30 Feb 2024" for a non-existent day)
-// instead of the em dash. These tests assert the contract-correct output
-// and FAIL against the current source; the source must not be edited from
-// here.
+// 'd Mon yyyy'; empty/invalid → '—'". The original implementation only
+// checked that the three numeric parts were non-zero — it never validated
+// month ≤ 12 or the day against the calendar, so out-of-range dates rendered
+// as nonsense ("1 undefined 2026", "30 Feb 2024") instead of the em dash.
+// These tests assert the contract-correct output and now pass.
 
 import { describe, expect, it } from "vitest";
 

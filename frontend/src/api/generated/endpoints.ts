@@ -48,6 +48,7 @@ import type {
   HTTPValidationError,
   HealthEventIn,
   HealthEventOut,
+  HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
   KiddingCreateIn,
   KiddingListOut,
@@ -5820,22 +5821,31 @@ export type herdSnapshotApiSimulationHerdSnapshotGetResponseError = (herdSnapsho
 
 export type herdSnapshotApiSimulationHerdSnapshotGetResponse = (herdSnapshotApiSimulationHerdSnapshotGetResponseSuccess | herdSnapshotApiSimulationHerdSnapshotGetResponseError)
 
-export const getHerdSnapshotApiSimulationHerdSnapshotGetUrl = () => {
+export const getHerdSnapshotApiSimulationHerdSnapshotGetUrl = (params?: HerdSnapshotApiSimulationHerdSnapshotGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/simulation/herd-snapshot`
+  return stringifiedParams.length > 0 ? `/api/simulation/herd-snapshot?${stringifiedParams}` : `/api/simulation/herd-snapshot`
 }
 
 /**
  * Group the farm's ACTIVE animals into simulation starting cohorts:
- * kid 0-2 m, weaner 3-5 m, grower 6-11 m, doe/buck 12+ m (or unknown age).
+ * kid 0-2 m, weaner 3-5 m, grower 6 m up to breeding age, adult at breeding
+ * age (doe threshold = the breed's age-at-first-breeding, buck at 12 m;
+ * unknown age counts as adult).
  * @summary Herd Snapshot
  */
-export const herdSnapshotApiSimulationHerdSnapshotGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<herdSnapshotApiSimulationHerdSnapshotGetResponse> => {
+export const herdSnapshotApiSimulationHerdSnapshotGet = async (params?: HerdSnapshotApiSimulationHerdSnapshotGetParams, options?: Parameters<typeof customInstance>[1]): Promise<herdSnapshotApiSimulationHerdSnapshotGetResponse> => {
 
-  return customInstance<herdSnapshotApiSimulationHerdSnapshotGetResponse>(getHerdSnapshotApiSimulationHerdSnapshotGetUrl(),
+  return customInstance<herdSnapshotApiSimulationHerdSnapshotGetResponse>(getHerdSnapshotApiSimulationHerdSnapshotGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -5848,23 +5858,23 @@ export const herdSnapshotApiSimulationHerdSnapshotGet = async ( options?: Parame
 
 
 
-export const getHerdSnapshotApiSimulationHerdSnapshotGetQueryKey = () => {
+export const getHerdSnapshotApiSimulationHerdSnapshotGetQueryKey = (params?: HerdSnapshotApiSimulationHerdSnapshotGetParams,) => {
     return [
-    `/api/simulation/herd-snapshot`
+    `/api/simulation/herd-snapshot`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions = <TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions = <TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(params?: HerdSnapshotApiSimulationHerdSnapshotGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getHerdSnapshotApiSimulationHerdSnapshotGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getHerdSnapshotApiSimulationHerdSnapshotGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>> = ({ signal }) => herdSnapshotApiSimulationHerdSnapshotGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>> = ({ signal }) => herdSnapshotApiSimulationHerdSnapshotGet(params, { signal, ...requestOptions });
 
 
 
@@ -5878,7 +5888,7 @@ export type HerdSnapshotApiSimulationHerdSnapshotGetQueryError = ErrorType<HTTPV
 
 
 export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>> & Pick<
+ params: undefined |  HerdSnapshotApiSimulationHerdSnapshotGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>,
           TError,
@@ -5888,7 +5898,7 @@ export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<Retu
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>> & Pick<
+ params?: HerdSnapshotApiSimulationHerdSnapshotGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>,
           TError,
@@ -5898,7 +5908,7 @@ export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<Retu
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: HerdSnapshotApiSimulationHerdSnapshotGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -5906,11 +5916,11 @@ export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<Retu
  */
 
 export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: HerdSnapshotApiSimulationHerdSnapshotGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof herdSnapshotApiSimulationHerdSnapshotGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions(options)
+  const queryOptions = getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

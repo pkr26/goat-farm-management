@@ -1,23 +1,17 @@
-// SUSPECTED APP BUG — reported to orchestrator
+// REGRESSION TESTS — bug fixed; these tests pin the fix.
 //
-// Closed Base UI Select triggers render the raw option VALUE instead of the
-// option's label. Every Select in the animals pages passes nice display
-// labels as SelectItem children ("Female", "Born on farm", "FEMALE KIDS"),
-// but Base UI's Select.Value only resolves labels from the root `items` prop
-// or a children render function (see @base-ui/react/internals/resolveValueLabel:
-// `resolveSelectedLabel` falls back to `stringifyAsLabel(value)` when no
-// `items` map is provided). The animals pages do neither, so the trigger
-// shows the raw enum: "F", "BORN", "PREGNANCY_EARLY" (with underscores),
-// contradicting the labels the code clearly intends (the same files render
-// bucket names with `.replace(/_/g, " ")` everywhere else).
+// Closed Base UI Select triggers used to render the raw option VALUE instead
+// of the option's label. Every Select in the animals pages passes nice
+// display labels as SelectItem children ("Female", "Born on farm", "FEMALE
+// KIDS"), but Base UI's Select.Value only resolves labels from the root
+// `items` prop or a children render function (see
+// @base-ui/react/internals/resolveValueLabel: `resolveSelectedLabel` falls
+// back to `stringifyAsLabel(value)` when no `items` map is provided). The
+// animals pages did neither, so the trigger showed the raw enum: "F",
+// "BORN", "PREGNANCY_EARLY" (with underscores).
 //
-// Expected: trigger shows the item label. Actual: trigger shows the raw value.
-// Affects: src/app/(app)/animals/page.tsx (3 filter selects + 4 create-dialog
-// selects) and src/app/(app)/animals/[id]/page.tsx (Move bucket dialog select;
-// the Change status select is unaffected because value == label there).
-//
-// These tests assert the EXPECTED behavior and therefore FAIL until the
-// Select usage (or ui/select wrapper) maps values to labels.
+// The pages now pass a value→label `items` map on every Select root; these
+// tests pin the labeled trigger.
 
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
