@@ -17,6 +17,7 @@ the hardening phase); the default (no params) still returns the full filtered
 list, and filter coverage is exhaustive.
 """
 
+import re
 from datetime import timedelta
 
 import httpx
@@ -520,7 +521,7 @@ async def test_create_missing_required_fields_422(client: httpx.AsyncClient) -> 
     }
     resp = await post_animal(client, owner, {})
     assert resp.status_code == 422
-    for field in ["tag_number", "sex", "source", "current_bucket"]:
+    for field in ["sex", "source", "current_bucket"]:  # tag_number is optional (auto-generated)
         payload = {k: v for k, v in base.items() if k != field}
         resp = await post_animal(client, owner, payload)
         assert resp.status_code == 422, field
@@ -591,15 +592,54 @@ async def test_create_empty_tag_422(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422  # min_length=1
 
 
-async def test_create_whitespace_tag_400(client: httpx.AsyncClient) -> None:
+async def test_create_without_tag_auto_generates(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    resp = await post_animal(
+        client,
+        owner,
+        {"sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
+    )
+    assert resp.status_code == 201, resp.text
+    tag = resp.json()["tag_number"]
+    assert re.fullmatch(r"G-[2-9A-HJ-NP-Z]{5}", tag), tag
+
+
+async def test_create_whitespace_tag_auto_generates(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await post_animal(
         client,
         owner,
         {"tag_number": "   ", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
     )
+    assert resp.status_code == 201, resp.text
+    assert re.fullmatch(r"G-[2-9A-HJ-NP-Z]{5}", resp.json()["tag_number"])
+
+
+async def test_create_tagless_creates_get_distinct_tags(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    base = {"sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"}
+    first = await post_animal(client, owner, base)
+    second = await post_animal(client, owner, base)
+    assert first.status_code == 201 and second.status_code == 201
+    assert first.json()["tag_number"] != second.json()["tag_number"]
+
+
+async def test_create_explicit_tag_still_works(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="MANUAL-1")
+    assert animal["tag_number"] == "MANUAL-1"
+
+
+async def test_create_duplicate_explicit_tag_400(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    await make_animal(client, owner, tag="DUP-1")
+    resp = await post_animal(
+        client,
+        owner,
+        {"tag_number": "DUP-1", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
+    )
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "Tag number is required."
+    assert resp.json()["detail"] == "Tag 'DUP-1' already exists on this farm."
 
 
 async def test_create_tag_length_boundaries(client: httpx.AsyncClient) -> None:

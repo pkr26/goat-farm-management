@@ -3,9 +3,12 @@
 /** Feed recipes with ingredient lines + bucket→recipe allocation reference
  * (parity with v1 feeding/recipes.html). Mixing batches lives on the inventory page. */
 
+import { Wheat } from "lucide-react";
 import Link from "next/link";
 
 import { useListRecipesApiFeedingRecipesGet } from "@/api/generated/endpoints";
+import { DataTableCard } from "@/components/data-table-card";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -26,15 +29,15 @@ function FeedingNav({ active }: { active: string }) {
     { href: "/feeding/inventory", label: "Inventory" },
   ];
   return (
-    <nav className="flex gap-4 border-b pb-2 text-sm">
+    <nav className="flex flex-wrap gap-1 border-b text-sm">
       {tabs.map((t) => (
         <Link
           key={t.href}
           href={t.href}
           className={
             t.label === active
-              ? "font-semibold text-foreground"
-              : "text-muted-foreground hover:text-foreground"
+              ? "-mb-px border-b-2 border-primary px-3 py-2 font-medium text-foreground"
+              : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
           }
         >
           {t.label}
@@ -70,7 +73,10 @@ export default function RecipesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">TMR recipes</h1>
+      <PageHeader
+        title="TMR recipes"
+        description="Total mixed ration formulas and the bucket each one feeds."
+      />
 
       <FeedingNav active="Recipes" />
 
@@ -79,6 +85,7 @@ export default function RecipesPage() {
           <Card key={recipe.id}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
+                <Wheat className="size-4 text-primary" />
                 {recipe.name}
                 <Badge variant="secondary">{recipe.code}</Badge>
               </CardTitle>
@@ -91,7 +98,7 @@ export default function RecipesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Ingredient</TableHead>
-                    <TableHead>kg / 100 kg</TableHead>
+                    <TableHead className="text-right">kg / 100 kg</TableHead>
                     <TableHead>Category</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -99,7 +106,9 @@ export default function RecipesPage() {
                   {(recipe.lines ?? []).map((line) => (
                     <TableRow key={line.ingredient}>
                       <TableCell>{line.ingredient}</TableCell>
-                      <TableCell>{line.kg_per_100kg}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {line.kg_per_100kg}
+                      </TableCell>
                       <TableCell>{line.category}</TableCell>
                     </TableRow>
                   ))}
@@ -110,8 +119,7 @@ export default function RecipesPage() {
         ))}
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-lg font-medium">Bucket → recipe allocation (reference)</h2>
+      <DataTableCard title={<h2>Bucket → recipe allocation (reference)</h2>}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -130,7 +138,7 @@ export default function RecipesPage() {
             ))}
           </TableBody>
         </Table>
-      </section>
+      </DataTableCard>
     </div>
   );
 }

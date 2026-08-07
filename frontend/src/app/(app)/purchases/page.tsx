@@ -5,6 +5,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { Plus, ShoppingCart } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { Controller, useForm , useWatch} from "react-hook-form";
@@ -18,6 +19,10 @@ import {
   useListBatchesApiPurchasesGet,
 } from "@/api/generated/endpoints";
 import { PurchaseBatchInSex } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -161,7 +166,9 @@ function BatchDetailDialog({ batchId, onClose }: { batchId: number | null; onClo
                           </TableCell>
                           <TableCell>{a.sex}</TableCell>
                           <TableCell>{a.current_bucket}</TableCell>
-                          <TableCell>{a.status}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={a.status}>{a.status}</StatusBadge>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -188,7 +195,7 @@ function BatchDetailDialog({ batchId, onClose }: { batchId: number | null; onClo
                           <TableCell>{formatDate(t.due_date)}</TableCell>
                           <TableCell>{t.title}</TableCell>
                           <TableCell>
-                            <Badge variant="secondary">{t.status}</Badge>
+                            <StatusBadge status={t.status}>{t.status}</StatusBadge>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -276,72 +283,90 @@ export default function PurchasesPage() {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
+  function openNewBatch() {
+    reset({
+      date: localToday(),
+      count: 50,
+      sex: PurchaseBatchInSex.F,
+      create_animals: true,
+    });
+    setOpen(true);
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Purchase batches</h1>
-        {canManage && (
-          <Button
-            onClick={() => {
-              reset({
-                date: localToday(),
-                count: 50,
-                sex: PurchaseBatchInSex.F,
-                create_animals: true,
-              });
-              setOpen(true);
-            }}
-          >
-            + New batch
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Purchase batches"
+        description="Incoming groups of goats — each batch auto-creates its 45-day quarantine protocol."
+        actions={
+          canManage && (
+            <Button onClick={openNewBatch}>
+              <Plus /> New batch
+            </Button>
+          )
+        }
+      />
 
       {batches.length === 0 ? (
-        <p className="text-muted-foreground">No purchase batches yet.</p>
+        <EmptyState
+          icon={ShoppingCart}
+          title="No purchase batches yet."
+          description="Record your first batch to create animal stubs and its quarantine task schedule."
+        >
+          {canManage && (
+            <Button onClick={openNewBatch}>
+              <Plus /> Add your first batch
+            </Button>
+          )}
+        </EmptyState>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Batch</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead>Supplier</TableHead>
-              <TableHead>Count</TableHead>
-              <TableHead>Avg age</TableHead>
-              <TableHead>Avg wt</TableHead>
-              <TableHead>Total price</TableHead>
-              <TableHead>Animals</TableHead>
-              <TableHead>Open tasks</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {batches.map((b) => (
-              <TableRow key={b.id}>
-                <TableCell className="font-medium">#{b.id}</TableCell>
-                <TableCell>{formatDate(b.date)}</TableCell>
-                <TableCell>{b.supplier ?? "—"}</TableCell>
-                <TableCell>{b.count}</TableCell>
-                <TableCell>{b.avg_age_months !== null ? `${b.avg_age_months} mo` : "—"}</TableCell>
-                <TableCell>{b.avg_weight_kg !== null ? `${b.avg_weight_kg} kg` : "—"}</TableCell>
-                <TableCell>{formatMoney(b.total_price)}</TableCell>
-                <TableCell>{b.animals_created ?? 0}</TableCell>
-                <TableCell>
-                  {b.open_tasks ? (
-                    <Badge variant="secondary">{b.open_tasks}</Badge>
-                  ) : (
-                    (b.open_tasks ?? 0)
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Button size="sm" variant="outline" onClick={() => setDetailId(b.id)}>
-                    View
-                  </Button>
-                </TableCell>
+        <DataTableCard
+          title="All batches"
+          description={`${batches.length} batch${batches.length === 1 ? "" : "es"} recorded`}
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Batch</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Count</TableHead>
+                <TableHead>Avg age</TableHead>
+                <TableHead>Avg wt</TableHead>
+                <TableHead>Total price</TableHead>
+                <TableHead>Animals</TableHead>
+                <TableHead>Open tasks</TableHead>
+                <TableHead />
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {batches.map((b) => (
+                <TableRow key={b.id}>
+                  <TableCell className="font-medium">#{b.id}</TableCell>
+                  <TableCell>{formatDate(b.date)}</TableCell>
+                  <TableCell>{b.supplier ?? "—"}</TableCell>
+                  <TableCell>{b.count}</TableCell>
+                  <TableCell>{b.avg_age_months !== null ? `${b.avg_age_months} mo` : "—"}</TableCell>
+                  <TableCell>{b.avg_weight_kg !== null ? `${b.avg_weight_kg} kg` : "—"}</TableCell>
+                  <TableCell>{formatMoney(b.total_price)}</TableCell>
+                  <TableCell>{b.animals_created ?? 0}</TableCell>
+                  <TableCell>
+                    {b.open_tasks ? (
+                      <Badge variant="secondary">{b.open_tasks}</Badge>
+                    ) : (
+                      (b.open_tasks ?? 0)
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Button size="sm" variant="outline" onClick={() => setDetailId(b.id)}>
+                      View
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DataTableCard>
       )}
 
       <BatchDetailDialog batchId={detailId} onClose={() => setDetailId(null)} />
@@ -357,6 +382,9 @@ export default function PurchasesPage() {
             for the total price.
           </p>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Batch details
+            </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Date *</Label>

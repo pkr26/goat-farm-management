@@ -9,7 +9,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
@@ -28,6 +28,16 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
+beforeAll(() => {
+  // jsdom has no matchMedia; the sidebar's useIsMobile hook needs it.
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+});
+
 const ALL_NAV_LABELS = [
   "Dashboard",
   "Animals",
@@ -45,7 +55,9 @@ const ALL_NAV_LABELS = [
 ];
 
 function navLinks() {
-  return screen.getAllByRole("link").filter((el) => el.closest("nav"));
+  return screen
+    .getAllByRole("link")
+    .filter((el) => el.closest('[data-slot="sidebar-content"]'));
 }
 
 describe("AppLayout — header", () => {
@@ -62,10 +74,9 @@ describe("AppLayout — header", () => {
     );
 
     expect(await screen.findByText("Test Goat Farm")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "🐐 GoatFarm" })).toHaveAttribute(
-      "href",
-      "/dashboard",
-    );
+    expect(
+      screen.getByRole("link", { name: "GoatFarm dashboard" }),
+    ).toHaveAttribute("href", "/dashboard");
     expect(screen.getByRole("link", { name: "switch farm" })).toHaveAttribute(
       "href",
       "/farm-select",
@@ -226,11 +237,11 @@ describe("AppLayout — permission-gated nav", () => {
 
     await waitFor(() => expect(navLinks()).toHaveLength(13));
     // usePathname is mocked to /dashboard.
-    expect(screen.getByRole("link", { name: "Dashboard" }).className).toContain(
-      "bg-primary",
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+      "data-active",
     );
-    expect(screen.getByRole("link", { name: "Animals" }).className).not.toContain(
-      "bg-primary",
+    expect(screen.getByRole("link", { name: "Animals" })).not.toHaveAttribute(
+      "data-active",
     );
   });
 });

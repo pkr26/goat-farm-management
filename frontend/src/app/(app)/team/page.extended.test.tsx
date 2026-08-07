@@ -435,11 +435,17 @@ describe("TeamPage role cards", () => {
   });
 
   function cardOf(name: string): HTMLElement {
-    // Role card root: the rounded div wrapping the role name.
+    // Role card root: the rounded div wrapping the role name. The workers
+    // table card is also rounded-xl (and role names show in its row select
+    // triggers), so identify role cards by their Edit button.
     const el = screen
       .getAllByText(name)
       .map((n) => n.closest("div.rounded-xl"))
-      .find((n): n is HTMLElement => n !== null);
+      .find(
+        (n): n is HTMLElement =>
+          n instanceof HTMLElement &&
+          within(n).queryByRole("button", { name: "Edit" }) !== null,
+      );
     expect(el).toBeDefined();
     return el as HTMLElement;
   }

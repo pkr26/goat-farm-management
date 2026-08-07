@@ -2,10 +2,14 @@
 
 /** Per-animal vaccination schedule — parity with v1's health/schedule.html. */
 
+import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { useVaccinationScheduleApiHealthScheduleAnimalIdGet } from "@/api/generated/endpoints";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -20,18 +24,54 @@ import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 
-type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
-
-function statusVariant(status: string): BadgeVariant {
+/** Status pill: DONE in emerald, UPCOMING in amber, OVERDUE in red, anything
+ *  else neutral. The raw status string stays visible for parity with the API. */
+function ScheduleStatusBadge({ status }: { status: string }) {
   switch (status) {
     case "DONE":
-      return "secondary";
-    case "OVERDUE":
-      return "destructive";
+      return (
+        <Badge
+          variant="outline"
+          className="border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        >
+          <Syringe />
+          DONE
+        </Badge>
+      );
     case "UPCOMING":
-      return "default";
+      return (
+        <Badge
+          variant="outline"
+          className="border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+        >
+          <CalendarClock />
+          UPCOMING
+        </Badge>
+      );
+    case "OVERDUE":
+      return (
+        <Badge
+          variant="outline"
+          className="border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+        >
+          <CalendarClock />
+          OVERDUE
+        </Badge>
+      );
     default:
-      return "outline";
+      return <Badge variant="secondary">{status}</Badge>;
+  }
+}
+
+/** Subtle row tint so due/overdue vaccines stand out at a glance. */
+function rowTint(status: string): string | undefined {
+  switch (status) {
+    case "OVERDUE":
+      return "bg-red-50 dark:bg-red-950/20";
+    case "UPCOMING":
+      return "bg-amber-50 dark:bg-amber-950/20";
+    default:
+      return undefined;
   }
 }
 
@@ -75,60 +115,72 @@ export default function VaccinationSchedulePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">
-        Vaccination schedule —{" "}
-        <Link href={`/animals/${payload.animal_id}`} className="text-primary underline">
-          Animal #{payload.animal_id}
-        </Link>
-      </h1>
+      <PageHeader
+        title={
+          <>
+            Vaccination schedule —{" "}
+            <Link href={`/animals/${payload.animal_id}`} className="text-primary underline">
+              Animal #{payload.animal_id}
+            </Link>
+          </>
+        }
+        description="Due dates and boosters from the vaccination templates that apply to this animal."
+        actions={
+          <>
+            <Link href="/health" className={buttonVariants({ variant: "outline" })}>
+              Back to health log
+            </Link>
+            <Link href="/health" className={buttonVariants()}>
+              + Add event
+            </Link>
+          </>
+        }
+      />
 
-      {payload.rows.length === 0 ? (
-        <p className="text-muted-foreground">No vaccination templates apply to this animal.</p>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Vaccine</TableHead>
-              <TableHead>First dose due</TableHead>
-              <TableHead>Booster due</TableHead>
-              <TableHead>Last done</TableHead>
-              <TableHead>Next due</TableHead>
-              <TableHead>Status</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {payload.rows.map((row) => (
-              <TableRow key={row.template_id}>
-                <TableCell>
-                  {row.template_name}
-                  {row.timing_note && (
-                    <>
-                      <br />
-                      <span className="text-xs text-muted-foreground">{row.timing_note}</span>
-                    </>
-                  )}
-                </TableCell>
-                <TableCell>{dateOrDash(row.first_due)}</TableCell>
-                <TableCell>{dateOrDash(row.booster_due)}</TableCell>
-                <TableCell>{dateOrDash(row.last_done)}</TableCell>
-                <TableCell>{dateOrDash(row.next_due)}</TableCell>
-                <TableCell>
-                  <Badge variant={statusVariant(row.status)}>{row.status}</Badge>
-                </TableCell>
+      <DataTableCard title="Vaccines & boosters">
+        {payload.rows.length === 0 ? (
+          <EmptyState
+            icon={Syringe}
+            title="No vaccination templates apply to this animal."
+            description="Templates are matched on the animal's bucket and age."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Vaccine</TableHead>
+                <TableHead>First dose due</TableHead>
+                <TableHead>Booster due</TableHead>
+                <TableHead>Last done</TableHead>
+                <TableHead>Next due</TableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-
-      <p className="flex gap-2">
-        <Link href="/health" className={buttonVariants({ variant: "outline" })}>
-          Back to health log
-        </Link>
-        <Link href="/health" className={buttonVariants()}>
-          + Add event
-        </Link>
-      </p>
+            </TableHeader>
+            <TableBody>
+              {payload.rows.map((row) => (
+                <TableRow key={row.template_id} className={rowTint(row.status)}>
+                  <TableCell>
+                    {row.template_name}
+                    {row.timing_note && (
+                      <>
+                        <br />
+                        <span className="text-xs text-muted-foreground">{row.timing_note}</span>
+                      </>
+                    )}
+                  </TableCell>
+                  <TableCell>{dateOrDash(row.first_due)}</TableCell>
+                  <TableCell>{dateOrDash(row.booster_due)}</TableCell>
+                  <TableCell>{dateOrDash(row.last_done)}</TableCell>
+                  <TableCell>{dateOrDash(row.next_due)}</TableCell>
+                  <TableCell>
+                    <ScheduleStatusBadge status={row.status} />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </DataTableCard>
     </div>
   );
 }

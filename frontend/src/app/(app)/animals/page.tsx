@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { Search, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -26,7 +27,10 @@ import {
   ListAnimalsApiAnimalsGetStatus,
   type ListAnimalsApiAnimalsGetParams,
 } from "@/api/generated/models";
-import { Badge } from "@/components/ui/badge";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -87,7 +91,7 @@ const optNum = (schema: z.ZodNumber) =>
   );
 
 const createSchema = z.object({
-  tag_number: z.string().min(1, "Tag number is required").max(50),
+  tag_number: z.string().max(50).optional().or(z.literal("")),
   name: z.string().max(80).optional(),
   sex: z.enum([AnimalCreateInSex.M, AnimalCreateInSex.F]),
   source: z.enum([AnimalCreateInSource.BORN, AnimalCreateInSource.PURCHASED]),
@@ -138,7 +142,7 @@ function CreateAnimalDialog({
     try {
       await createMut.mutateAsync({
         data: {
-          tag_number: values.tag_number,
+          tag_number: values.tag_number?.trim() || undefined,
           name: emptyToNull(values.name),
           sex: values.sex,
           source: values.source,
@@ -174,8 +178,12 @@ function CreateAnimalDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="tag_number">Tag number *</Label>
-              <Input id="tag_number" {...register("tag_number")} />
+              <Label htmlFor="tag_number">Tag number</Label>
+              <Input
+                id="tag_number"
+                placeholder="Auto-generated if left blank (e.g. G-7KP2D)"
+                {...register("tag_number")}
+              />
               {errors.tag_number && (
                 <p className="text-sm text-destructive">{errors.tag_number.message}</p>
               )}
@@ -371,18 +379,21 @@ function AnimalsPageContent() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Animals</h1>
-        {can("animals.create") && (
-          <CreateAnimalDialog
-            onCreated={refresh}
-            startOpen={searchParams.get("new") === "1"}
-          />
-        )}
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Animals"
+        description="Your herd at a glance — filter by bucket, sex or status, or search by tag."
+        actions={
+          can("animals.create") && (
+            <CreateAnimalDialog
+              onCreated={refresh}
+              startOpen={searchParams.get("new") === "1"}
+            />
+          )
+        }
+      />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <Select value={bucket} onValueChange={setBucket} items={BUCKET_FILTER_ITEMS}>
           <SelectTrigger>
             <SelectValue placeholder="All buckets" />
@@ -419,12 +430,15 @@ function AnimalsPageContent() {
             ))}
           </SelectContent>
         </Select>
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search tag or name…"
-          className="w-56"
-        />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search tag or name…"
+            className="w-56 pl-8"
+          />
+        </div>
       </div>
 
       {query.isLoading ? (
@@ -434,10 +448,13 @@ function AnimalsPageContent() {
           {query.error instanceof ApiError ? query.error.detail : "Could not load animals."}
         </p>
       ) : !payload || payload.animals.length === 0 ? (
-        <p className="text-muted-foreground">No animals match these filters.</p>
+        <EmptyState
+          icon={SearchX}
+          title="No animals found"
+          description="No animals match these filters."
+        />
       ) : (
-        <>
-          <p className="text-sm text-muted-foreground">{payload.total} animal(s)</p>
+        <DataTableCard title="Herd" description={`${payload.total} animal(s)`}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -455,7 +472,10 @@ function AnimalsPageContent() {
               {payload.animals.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>
-                    <Link href={`/animals/${a.id}`} className="text-primary underline">
+                    <Link
+                      href={`/animals/${a.id}`}
+                      className="font-medium text-foreground hover:text-primary"
+                    >
                       {a.tag_number}
                     </Link>
                   </TableCell>
@@ -464,9 +484,7 @@ function AnimalsPageContent() {
                   <TableCell>{a.breed}</TableCell>
                   <TableCell>{a.current_bucket.replace(/_/g, " ")}</TableCell>
                   <TableCell>
-                    <Badge variant={a.status === "ACTIVE" ? "default" : "secondary"}>
-                      {a.status}
-                    </Badge>
+                    <StatusBadge status={a.status}>{a.status}</StatusBadge>
                   </TableCell>
                   <TableCell className="text-right">{a.age_months ?? "—"}</TableCell>
                   <TableCell className="text-right">
@@ -476,7 +494,7 @@ function AnimalsPageContent() {
               ))}
             </TableBody>
           </Table>
-        </>
+        </DataTableCard>
       )}
     </div>
   );

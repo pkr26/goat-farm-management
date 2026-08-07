@@ -34,7 +34,7 @@ from ..schemas.animals import (
 )
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.health import HealthEventOut
-from ..services import move_animal, skip_pending_tasks_for_animal
+from ..services import generate_unique_tag, move_animal, skip_pending_tasks_for_animal
 from ..utils import today
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
@@ -118,66 +118,74 @@ async def create_animal(
     user: CurrentUser,
     _perms: Annotated[set[str], Depends(require_perm("animals.create"))],
 ) -> AnimalOut:
-    tag_number = payload.tag_number.strip()
-    if not tag_number:
-        raise HTTPException(status_code=400, detail="Tag number is required.")
-    existing = await db.execute(
-        select(Animal.id).where(Animal.farm_id == farm.id, Animal.tag_number == tag_number)
-    )
-    if existing.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
+    tag_number = (payload.tag_number or "").strip()
+    if tag_number:
+        existing = await db.execute(
+            select(Animal.id).where(Animal.farm_id == farm.id, Animal.tag_number == tag_number)
         )
-    # enum/date/non-negativity guards from v1 now live in AnimalCreateIn's validators.
-    animal = Animal(
-        farm_id=farm.id,
-        tag_number=tag_number,
-        name=(payload.name or "").strip() or None,
-        sex=payload.sex,
-        source=payload.source,
-        current_bucket=payload.current_bucket,
-        date_of_birth=payload.date_of_birth,
-        estimated_dob=payload.estimated_dob,
-        birth_type=payload.birth_type,
-        breed=payload.breed.strip() or "Osmanabadi",
-        birth_weight=payload.birth_weight,
-        purchase_date=payload.purchase_date,
-        purchase_price=payload.purchase_price,
-        seller_name=(payload.seller_name or "").strip() or None,
-        notes=(payload.notes or "").strip() or None,
-        status=AnimalStatus.ACTIVE.value,
-    )
-    db.add(animal)
-    try:
-        await db.flush()
-        db.add(
-            BucketMove(
-                animal_id=animal.id,
-                from_bucket=None,
-                to_bucket=payload.current_bucket,
-                reason="Initial entry",
-                created_by_id=user.id,
+        if existing.scalar_one_or_none() is not None:
+            raise HTTPException(
+                status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
             )
+    # enum/date/non-negativity guards from v1 now live in AnimalCreateIn's validators.
+    # A blank tag gets an auto-generated one; that retries once on a lost race.
+    attempts = 1 if tag_number else 2
+    for attempt in range(attempts):
+        if not tag_number:
+            tag_number = await generate_unique_tag(db, farm.id)
+        animal = Animal(
+            farm_id=farm.id,
+            tag_number=tag_number,
+            name=(payload.name or "").strip() or None,
+            sex=payload.sex,
+            source=payload.source,
+            current_bucket=payload.current_bucket,
+            date_of_birth=payload.date_of_birth,
+            estimated_dob=payload.estimated_dob,
+            birth_type=payload.birth_type,
+            breed=payload.breed.strip() or "Osmanabadi",
+            birth_weight=payload.birth_weight,
+            purchase_date=payload.purchase_date,
+            purchase_price=payload.purchase_price,
+            seller_name=(payload.seller_name or "").strip() or None,
+            notes=(payload.notes or "").strip() or None,
+            status=AnimalStatus.ACTIVE.value,
         )
-        if payload.weight_kg is not None and payload.weight_kg > 0:
+        db.add(animal)
+        try:
+            await db.flush()
             db.add(
-                WeightRecord(
+                BucketMove(
                     animal_id=animal.id,
-                    date=today(),
-                    weight_kg=payload.weight_kg,
-                    notes="Entry weight",
+                    from_bucket=None,
+                    to_bucket=payload.current_bucket,
+                    reason="Initial entry",
                     created_by_id=user.id,
                 )
             )
-        await db.commit()
-    except IntegrityError:
-        # A concurrent insert won the tag race past the pre-check above
-        # (uq_animal_tag_per_farm) — answer exactly like the pre-check, never 500.
-        await db.rollback()
-        raise HTTPException(
-            status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
-        ) from None
-    return await _animal_out(db, animal)
+            if payload.weight_kg is not None and payload.weight_kg > 0:
+                db.add(
+                    WeightRecord(
+                        animal_id=animal.id,
+                        date=today(),
+                        weight_kg=payload.weight_kg,
+                        notes="Entry weight",
+                        created_by_id=user.id,
+                    )
+                )
+            await db.commit()
+            return await _animal_out(db, animal)
+        except IntegrityError:
+            # A concurrent insert won the tag race past the pre-check above
+            # (uq_animal_tag_per_farm) — answer exactly like the pre-check,
+            # never 500; auto tags retry once with a fresh generated tag.
+            await db.rollback()
+            if attempt + 1 == attempts:
+                raise HTTPException(
+                    status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
+                ) from None
+            tag_number = ""
+    raise AssertionError("unreachable")  # the loop always returns or raises
 
 
 @router.get("/{animal_id}")

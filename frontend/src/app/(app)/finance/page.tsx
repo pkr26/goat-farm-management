@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { ReceiptText, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
@@ -23,7 +24,6 @@ import {
 } from "@/api/generated/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -48,9 +48,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { ApiError } from "@/lib/api-client";
 import { formatDate, formatMoney } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
+import { cn } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TransactionInCategory);
 const TYPES = Object.values(TransactionInType);
@@ -94,14 +99,15 @@ const txnSchema = z.object({
 type TxnInput = z.input<typeof txnSchema>;
 type TxnValues = z.output<typeof txnSchema>;
 
-function StatCard({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="text-sm text-muted-foreground">{label}</div>
-    </div>
-  );
-}
+/** Income vs expense tint pair (light + dark), reused for badges and amounts. */
+const TYPE_TINTS: Record<string, string> = {
+  INCOME: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  EXPENSE: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
+};
+const AMOUNT_TINTS: Record<string, string> = {
+  INCOME: "text-emerald-600 dark:text-emerald-400",
+  EXPENSE: "text-red-600 dark:text-red-400",
+};
 
 export default function FinancePage() {
   const { can, loading: permsLoading } = usePermissions();
@@ -211,72 +217,99 @@ export default function FinancePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Finance</h1>
-        {canManage && (
-          <Button
-            onClick={() => {
-              reset();
-              setFormError(null);
-              setOpen(true);
-            }}
-          >
-            New transaction
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Finance"
+        description="Income, expenses and monthly profit & loss for the farm."
+        actions={
+          canManage && (
+            <Button
+              onClick={() => {
+                reset();
+                setFormError(null);
+                setOpen(true);
+              }}
+            >
+              New transaction
+            </Button>
+          )
+        }
+      />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <StatCard value={formatMoney(payload.total_income)} label="Total income" />
-        <StatCard value={formatMoney(payload.total_expense)} label="Total expense" />
-        <StatCard value={formatMoney(net)} label="Net (all time)" />
+        <StatCard
+          label="Total income"
+          value={<span className="tabular-nums">{formatMoney(payload.total_income)}</span>}
+          icon={TrendingUp}
+          tint="emerald"
+        />
+        <StatCard
+          label="Total expense"
+          value={<span className="tabular-nums">{formatMoney(payload.total_expense)}</span>}
+          icon={TrendingDown}
+          tint="red"
+        />
+        <StatCard
+          label="Net (all time)"
+          value={<span className="tabular-nums">{formatMoney(net)}</span>}
+          icon={Scale}
+          tint="amber"
+        />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Monthly P&amp;L (last 12 months)</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {payload.pnl.length === 0 ? (
-            <p className="text-muted-foreground">No transactions yet.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead>Income</TableHead>
-                  <TableHead>Expense</TableHead>
-                  <TableHead>Net</TableHead>
+      <DataTableCard title="Monthly P&L (last 12 months)">
+        {payload.pnl.length === 0 ? (
+          <p className="text-muted-foreground">No transactions yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Month</TableHead>
+                <TableHead className="text-right">Income</TableHead>
+                <TableHead className="text-right">Expense</TableHead>
+                <TableHead className="text-right">Net</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {payload.pnl.map((row) => (
+                <TableRow key={row.month}>
+                  <TableCell>
+                    <button
+                      type="button"
+                      className="text-primary underline"
+                      onClick={() => setMonth(row.month)}
+                    >
+                      {row.month}
+                    </button>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {formatMoney(row.income)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-red-600 dark:text-red-400">
+                    {formatMoney(row.expense)}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right tabular-nums",
+                      row.net < 0
+                        ? "text-destructive"
+                        : "text-emerald-600 dark:text-emerald-400",
+                    )}
+                  >
+                    {formatMoney(row.net)}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payload.pnl.map((row) => (
-                  <TableRow key={row.month}>
-                    <TableCell>
-                      <button
-                        type="button"
-                        className="text-primary underline"
-                        onClick={() => setMonth(row.month)}
-                      >
-                        {row.month}
-                      </button>
-                    </TableCell>
-                    <TableCell>{formatMoney(row.income)}</TableCell>
-                    <TableCell>{formatMoney(row.expense)}</TableCell>
-                    <TableCell className={row.net < 0 ? "text-destructive" : undefined}>
-                      {formatMoney(row.net)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </DataTableCard>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Transactions</h2>
-        <div className="flex flex-wrap items-center gap-2">
+      <DataTableCard
+        title="Transactions"
+        description="Filter the ledger by month, type or category."
+        contentClassName="space-y-4"
+      >
+        <div className="flex flex-wrap items-center gap-3">
           <Input
             type="month"
             value={month}
@@ -326,7 +359,11 @@ export default function FinancePage() {
         </div>
 
         {payload.transactions.length === 0 ? (
-          <p className="text-muted-foreground">No transactions match.</p>
+          <EmptyState
+            icon={ReceiptText}
+            title="No transactions match."
+            description="Try clearing the filters or add a new transaction."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -334,7 +371,7 @@ export default function FinancePage() {
                 <TableHead>Date</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Category</TableHead>
-                <TableHead>Amount</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Animal</TableHead>
                 <TableHead>Notes</TableHead>
               </TableRow>
@@ -344,12 +381,16 @@ export default function FinancePage() {
                 <TableRow key={t.id}>
                   <TableCell>{formatDate(t.date)}</TableCell>
                   <TableCell>
-                    <Badge variant={t.type === "INCOME" ? "default" : "destructive"}>
+                    <Badge variant="outline" className={cn("border-transparent", TYPE_TINTS[t.type])}>
                       {t.type}
                     </Badge>
                   </TableCell>
                   <TableCell>{t.category}</TableCell>
-                  <TableCell>{formatMoney(t.amount)}</TableCell>
+                  <TableCell
+                    className={cn("text-right tabular-nums font-medium", AMOUNT_TINTS[t.type])}
+                  >
+                    {formatMoney(t.amount)}
+                  </TableCell>
                   <TableCell>
                     {t.animal_tag && t.related_animal_id ? (
                       <Link
@@ -368,7 +409,7 @@ export default function FinancePage() {
             </TableBody>
           </Table>
         )}
-      </section>
+      </DataTableCard>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

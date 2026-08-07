@@ -1,8 +1,8 @@
 /**
  * Animals page + Add-animal dialog: the list loads with owner permissions,
- * submitting the dialog with an empty tag number shows the zod error without
- * a POST, and a valid submit POSTs the mapped payload (defaults applied,
- * blank optionals → null) and invalidates the list query.
+ * submitting the dialog with a blank tag number POSTs without one (the
+ * server auto-generates it), and a valid submit POSTs the mapped payload
+ * (defaults applied, blank optionals → null) and invalidates the list query.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -96,16 +96,22 @@ describe("AnimalsPage", () => {
     expect(lastListFarmHeader).toBe("1");
   });
 
-  it("shows the zod error and skips the POST when the tag number is empty", async () => {
+  it("POSTs without a tag number when it is left blank (server auto-generates it)", async () => {
     const user = userEvent.setup();
     await renderAndWaitForList();
 
     await user.click(screen.getByRole("button", { name: "Add animal" }));
     const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/tag number/i)).toHaveAttribute(
+      "placeholder",
+      "Auto-generated if left blank (e.g. G-7KP2D)",
+    );
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
-    expect(await screen.findByText("Tag number is required")).toBeInTheDocument();
-    expect(postCalls).toBe(0);
+    // No zod error: a blank tag is valid and is omitted from the payload.
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postBody).not.toHaveProperty("tag_number");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("POSTs the mapped payload on a valid submit and invalidates the list", async () => {

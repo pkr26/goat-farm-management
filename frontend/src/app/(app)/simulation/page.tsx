@@ -7,6 +7,28 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
+import {
+  Beef,
+  CalendarClock,
+  ChartColumn,
+  FolderOpen,
+  Gauge,
+  GitCompareArrows,
+  HandCoins,
+  IndianRupee,
+  Info,
+  Landmark,
+  Percent,
+  PiggyBank,
+  Play,
+  Plus,
+  Save,
+  Scale,
+  Sigma,
+  TriangleAlert,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 
@@ -31,8 +53,18 @@ import type {
   SimulationResult,
   ViabilityMetrics,
 } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -146,32 +178,40 @@ function formatPercent(value: number | null): string {
   return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
 }
 
-function StatCard({
+/** Headline metric: shared StatCard with tabular numerals, plus an optional
+ * "explain" button in the hint slot that opens the metric's dialog. */
+function MetricCard({
   value,
   label,
+  icon,
+  tint = "default",
   onInfo,
 }: {
   value: string;
   label: string;
+  icon: LucideIcon;
+  tint?: "default" | "emerald" | "amber" | "red";
   onInfo?: () => void;
 }) {
   return (
-    <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-        <span>{label}</span>
-        {onInfo && (
+    <StatCard
+      label={label}
+      value={<span className="tabular-nums">{value}</span>}
+      icon={icon}
+      tint={tint}
+      hint={
+        onInfo ? (
           <button
             type="button"
             aria-label={`Explain ${label}`}
             onClick={onInfo}
-            className="inline-flex size-4 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] leading-none text-muted-foreground hover:bg-accent"
+            className="inline-flex size-4 items-center justify-center rounded-full border border-muted-foreground/40 text-muted-foreground hover:bg-accent"
           >
-            ?
+            <Info className="size-2.5" aria-hidden />
           </button>
-        )}
-      </div>
-    </div>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -699,46 +739,73 @@ export default function SimulationPage() {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard value={formatMoney(m.npv)} label="NPV" onInfo={infoFor("npv")} />
-          <StatCard value={formatPercent(m.irr)} label="IRR" onInfo={infoFor("irr")} />
-          <StatCard value={formatRatio(m.bcr)} label="BCR" onInfo={infoFor("bcr")} />
-          <StatCard
+          <MetricCard
+            value={formatMoney(m.npv)}
+            label="NPV"
+            icon={IndianRupee}
+            tint="emerald"
+            onInfo={infoFor("npv")}
+          />
+          <MetricCard
+            value={formatPercent(m.irr)}
+            label="IRR"
+            icon={Percent}
+            tint="emerald"
+            onInfo={infoFor("irr")}
+          />
+          <MetricCard
+            value={formatRatio(m.bcr)}
+            label="BCR"
+            icon={Scale}
+            onInfo={infoFor("bcr")}
+          />
+          <MetricCard
             value={formatRatio(m.avg_dscr)}
             label="Avg DSCR"
+            icon={Gauge}
             onInfo={infoFor("avg_dscr")}
           />
-          <StatCard
+          <MetricCard
             value={m.payback_month === null ? "—" : String(m.payback_month)}
             label="Payback month"
+            icon={CalendarClock}
+            tint="amber"
             onInfo={infoFor("payback_month")}
           />
-          <StatCard
+          <MetricCard
             value={
               m.break_even_meat_price_per_kg === null
                 ? "—"
                 : formatMoney(m.break_even_meat_price_per_kg)
             }
             label="Break-even meat (₹/kg)"
+            icon={Beef}
+            tint="amber"
             onInfo={infoFor("break_even_meat_price_per_kg")}
           />
-          <StatCard
+          <MetricCard
             value={formatMoney(m.project_cost)}
             label="Project cost"
+            icon={Wallet}
             onInfo={infoFor("project_cost")}
           />
-          <StatCard
+          <MetricCard
             value={formatMoney(m.loan_amount)}
             label="Loan"
+            icon={Landmark}
             onInfo={infoFor("loan_amount")}
           />
-          <StatCard
+          <MetricCard
             value={formatMoney(m.subsidy_amount)}
             label="Subsidy"
+            icon={HandCoins}
+            tint="emerald"
             onInfo={infoFor("subsidy_amount")}
           />
-          <StatCard
+          <MetricCard
             value={formatMoney(m.equity)}
             label="Equity"
+            icon={PiggyBank}
             onInfo={infoFor("equity")}
           />
         </div>
@@ -763,10 +830,10 @@ export default function SimulationPage() {
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                             verdict === "VIABLE"
-                              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
                               : verdict === "VIABLE WITH CAUTION"
-                                ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                                : "bg-destructive/15 text-destructive"
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                                : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
                           }`}
                         >
                           {verdict}
@@ -785,47 +852,45 @@ export default function SimulationPage() {
           </Card>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Annual P&amp;L</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Year</TableHead>
-                  <TableHead>Revenue</TableHead>
-                  <TableHead>Opex</TableHead>
-                  <TableHead>EBITDA</TableHead>
-                  <TableHead>Debt service</TableHead>
-                  <TableHead>Net cash flow</TableHead>
+        <DataTableCard
+          title="Annual P&amp;L"
+          description="Yearly revenue, operating costs and cash flow."
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Year</TableHead>
+                <TableHead>Revenue</TableHead>
+                <TableHead>Opex</TableHead>
+                <TableHead>EBITDA</TableHead>
+                <TableHead>Debt service</TableHead>
+                <TableHead>Net cash flow</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {r.annual_pl.map((row) => (
+                <TableRow key={row.year}>
+                  <TableCell>{row.year}</TableCell>
+                  <TableCell>{formatMoney(row.total_revenue)}</TableCell>
+                  <TableCell>{formatMoney(row.total_opex)}</TableCell>
+                  <TableCell>{formatMoney(row.ebitda)}</TableCell>
+                  <TableCell>{formatMoney(row.debt_service)}</TableCell>
+                  <TableCell
+                    className={row.net_cash_flow < 0 ? "text-destructive" : undefined}
+                  >
+                    {formatMoney(row.net_cash_flow)}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {r.annual_pl.map((row) => (
-                  <TableRow key={row.year}>
-                    <TableCell>{row.year}</TableCell>
-                    <TableCell>{formatMoney(row.total_revenue)}</TableCell>
-                    <TableCell>{formatMoney(row.total_opex)}</TableCell>
-                    <TableCell>{formatMoney(row.ebitda)}</TableCell>
-                    <TableCell>{formatMoney(row.debt_service)}</TableCell>
-                    <TableCell
-                      className={row.net_cash_flow < 0 ? "text-destructive" : undefined}
-                    >
-                      {formatMoney(row.net_cash_flow)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+              ))}
+            </TableBody>
+          </Table>
+        </DataTableCard>
 
-        <details className="rounded-xl bg-card ring-1 ring-foreground/10">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-            Monthly projection ({r.months.length} months)
-          </summary>
-          <div className="max-h-96 overflow-auto border-t">
+        <DataTableCard
+          title="Monthly projection"
+          description={`Herd and cash-flow detail over ${r.months.length} months.`}
+        >
+          <div className="max-h-96 overflow-auto rounded-lg border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -848,7 +913,7 @@ export default function SimulationPage() {
                     key={row.month}
                     className={
                       row.events && row.events.length > 0
-                        ? "bg-amber-500/5"
+                        ? "bg-amber-50 dark:bg-amber-950/40"
                         : undefined
                     }
                   >
@@ -888,7 +953,7 @@ export default function SimulationPage() {
               </TableBody>
             </Table>
           </div>
-        </details>
+        </DataTableCard>
 
         {r.monte_carlo && (
           <Card>
@@ -899,14 +964,37 @@ export default function SimulationPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                <StatCard value={formatMoney(r.monte_carlo.npv_mean)} label="NPV mean" />
-                <StatCard value={formatMoney(r.monte_carlo.npv_std)} label="NPV std" />
-                <StatCard value={formatMoney(r.monte_carlo.npv_p5)} label="P5" />
-                <StatCard value={formatMoney(r.monte_carlo.npv_p50)} label="P50" />
-                <StatCard value={formatMoney(r.monte_carlo.npv_p95)} label="P95" />
-                <StatCard
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.npv_mean)}
+                  label="NPV mean"
+                  icon={IndianRupee}
+                  tint="emerald"
+                />
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.npv_std)}
+                  label="NPV std"
+                  icon={Sigma}
+                />
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.npv_p5)}
+                  label="P5"
+                  icon={ChartColumn}
+                />
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.npv_p50)}
+                  label="P50"
+                  icon={ChartColumn}
+                />
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.npv_p95)}
+                  label="P95"
+                  icon={ChartColumn}
+                />
+                <MetricCard
                   value={`${(r.monte_carlo.prob_npv_negative * 100).toFixed(1)}%`}
                   label="P(NPV < 0)"
+                  icon={TriangleAlert}
+                  tint="red"
                 />
               </div>
               <MonteCarloHistogram
@@ -918,43 +1006,41 @@ export default function SimulationPage() {
         )}
 
         {sortedSensitivity && sortedSensitivity.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Sensitivity (ΔNPV)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Parameter</TableHead>
-                    <TableHead>ΔNPV low</TableHead>
-                    <TableHead>ΔNPV high</TableHead>
+          <DataTableCard
+            title="Sensitivity (ΔNPV)"
+            description="Parameters ranked by their largest absolute NPV swing."
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Parameter</TableHead>
+                  <TableHead>ΔNPV low</TableHead>
+                  <TableHead>ΔNPV high</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedSensitivity.map((item) => (
+                  <TableRow key={item.parameter}>
+                    <TableCell>{humanize(item.parameter)}</TableCell>
+                    <TableCell
+                      className={
+                        item.delta_npv_low < 0 ? "text-destructive" : undefined
+                      }
+                    >
+                      {formatMoney(item.delta_npv_low)}
+                    </TableCell>
+                    <TableCell
+                      className={
+                        item.delta_npv_high < 0 ? "text-destructive" : undefined
+                      }
+                    >
+                      {formatMoney(item.delta_npv_high)}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedSensitivity.map((item) => (
-                    <TableRow key={item.parameter}>
-                      <TableCell>{humanize(item.parameter)}</TableCell>
-                      <TableCell
-                        className={
-                          item.delta_npv_low < 0 ? "text-destructive" : undefined
-                        }
-                      >
-                        {formatMoney(item.delta_npv_low)}
-                      </TableCell>
-                      <TableCell
-                        className={
-                          item.delta_npv_high < 0 ? "text-destructive" : undefined
-                        }
-                      >
-                        {formatMoney(item.delta_npv_high)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </DataTableCard>
         )}
 
         <Dialog
@@ -1004,11 +1090,62 @@ export default function SimulationPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Simulation</h1>
+      <PageHeader
+        title="Simulation"
+        description="Project herd growth, cash flow and viability from editable bio-economic assumptions."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={onCompare}
+              disabled={selectedIds.length < 2 || compareQuery.isFetching}
+            >
+              <GitCompareArrows />
+              {compareQuery.isFetching ? "Comparing…" : "Compare selected"}
+            </Button>
+            {canManage && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSaveError(null);
+                    setSaveOpen(true);
+                  }}
+                  disabled={!assumptions}
+                >
+                  <Save />
+                  Save as scenario
+                </Button>
+                {loadedScenario && (
+                  <Button
+                    variant="outline"
+                    onClick={() => void onUpdateScenario()}
+                    disabled={!assumptions || updateMutation.isPending}
+                  >
+                    {updateMutation.isPending
+                      ? "Updating…"
+                      : `Update ${loadedScenario.name}`}
+                  </Button>
+                )}
+              </>
+            )}
+            <Button
+              onClick={() => void onRun()}
+              disabled={!assumptions || runMutation.isPending}
+            >
+              <Play />
+              {runMutation.isPending ? "Running…" : "Run simulation"}
+            </Button>
+          </>
+        }
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>Setup</CardTitle>
+          <CardDescription>
+            Pick a breed and rearing system, then load the baseline assumptions.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -1073,176 +1210,187 @@ export default function SimulationPage() {
         </CardContent>
       </Card>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Assumptions</h2>
-        {!assumptions && !defaultsQuery.isError && (
-          <p className="text-muted-foreground">Loading defaults…</p>
-        )}
-        {assumptions?.meta && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-muted-foreground">Horizon presets:</span>
-            {HORIZON_PRESETS.map((preset) => (
-              <Button
-                key={preset.months}
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  updateField("meta", "horizon_months", preset.months)
-                }
-              >
-                {preset.label}
-              </Button>
-            ))}
-            <span className="text-xs text-muted-foreground">
-              120 months = 10 years
-            </span>
-          </div>
-        )}
-        {assumptions &&
-          sectionEntries(assumptions).map(([section, values]) => (
-            <details
-              key={section}
-              open={section === "meta" || section === "herd"}
-              className="rounded-xl bg-card ring-1 ring-foreground/10"
-            >
-              <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-                {humanize(section)}
-              </summary>
-              <div className="grid gap-3 border-t px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(values).map(([key, value]) =>
-                  renderField(section, key, value),
-                )}
-              </div>
-            </details>
-          ))}
-      </section>
-
       <Card>
         <CardHeader>
-          <CardTitle>Herd events</CardTitle>
+          <CardTitle>Assumptions</CardTitle>
+          <CardDescription>
+            Model inputs grouped by section, mirroring the backend defaults payload.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No scheduled events. Add purchases or sales that fire at a given
-              simulation month.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead>Class</TableHead>
-                  <TableHead>Count</TableHead>
-                  <TableHead>Price/head</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {events.map((event, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <NumberInput
-                        aria-label="Month"
-                        min={1}
-                        max={horizonMonths}
-                        className="w-20"
-                        value={event.month}
-                        onCommit={(n) => updateEvent(index, { month: n })}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={event.kind}
-                        onValueChange={(v) =>
-                          updateEvent(index, {
-                            kind: v as HerdEventAssumptions["kind"],
-                          })
-                        }
-                        items={EVENT_KIND_ITEMS}
-                      >
-                        <SelectTrigger aria-label="Kind" size="sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(EVENT_KIND_ITEMS).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                              {label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={event.animal_class}
-                        onValueChange={(v) =>
-                          updateEvent(index, {
-                            animal_class: v as HerdEventAssumptions["animal_class"],
-                          })
-                        }
-                        items={EVENT_CLASS_ITEMS}
-                      >
-                        <SelectTrigger aria-label="Class" size="sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                              {label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <NumberInput
-                        aria-label="Count"
-                        min={1}
-                        className="w-20"
-                        value={event.count}
-                        onCommit={(n) => updateEvent(index, { count: n })}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <NumberInput
-                        aria-label="Price per head"
-                        min={0}
-                        placeholder="auto"
-                        className="w-24"
-                        nullable
-                        value={event.price_per_head ?? null}
-                        onCommit={(n) => updateEvent(index, { price_per_head: n })}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => removeEvent(index)}
-                      >
-                        Remove
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+        <CardContent className="space-y-4">
+          {!assumptions && !defaultsQuery.isError && (
+            <p className="text-muted-foreground">Loading defaults…</p>
           )}
-          <Button variant="outline" size="sm" onClick={addEvent}>
-            Add event
-          </Button>
-          {eventErrors.map((error) => (
-            <p key={error} className="text-sm text-destructive">
-              {error}
-            </p>
-          ))}
+          {assumptions?.meta && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Horizon presets:</span>
+              {HORIZON_PRESETS.map((preset) => (
+                <Button
+                  key={preset.months}
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    updateField("meta", "horizon_months", preset.months)
+                  }
+                >
+                  {preset.label}
+                </Button>
+              ))}
+              <span className="text-xs text-muted-foreground">
+                120 months = 10 years
+              </span>
+            </div>
+          )}
+          {assumptions &&
+            sectionEntries(assumptions).map(([section, values]) => (
+              <details
+                key={section}
+                open={section === "meta" || section === "herd"}
+                className="rounded-lg border"
+              >
+                <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium hover:bg-muted/50">
+                  {humanize(section)}
+                </summary>
+                <div className="grid gap-3 border-t px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {Object.entries(values).map(([key, value]) =>
+                    renderField(section, key, value),
+                  )}
+                </div>
+              </details>
+            ))}
         </CardContent>
       </Card>
 
+      <DataTableCard
+        title="Herd events"
+        description="Purchases or sales that fire at a given simulation month."
+        actions={
+          <Button variant="outline" size="sm" onClick={addEvent}>
+            <Plus />
+            Add event
+          </Button>
+        }
+        contentClassName="space-y-3"
+      >
+        {events.length === 0 ? (
+          <EmptyState
+            icon={CalendarClock}
+            title="No scheduled events"
+            description="Add purchases or sales that fire at a given simulation month."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Month</TableHead>
+                <TableHead>Kind</TableHead>
+                <TableHead>Class</TableHead>
+                <TableHead>Count</TableHead>
+                <TableHead>Price/head</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {events.map((event, index) => (
+                <TableRow key={index}>
+                  <TableCell>
+                    <NumberInput
+                      aria-label="Month"
+                      min={1}
+                      max={horizonMonths}
+                      className="w-20"
+                      value={event.month}
+                      onCommit={(n) => updateEvent(index, { month: n })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={event.kind}
+                      onValueChange={(v) =>
+                        updateEvent(index, {
+                          kind: v as HerdEventAssumptions["kind"],
+                        })
+                      }
+                      items={EVENT_KIND_ITEMS}
+                    >
+                      <SelectTrigger aria-label="Kind" size="sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(EVENT_KIND_ITEMS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={event.animal_class}
+                      onValueChange={(v) =>
+                        updateEvent(index, {
+                          animal_class: v as HerdEventAssumptions["animal_class"],
+                        })
+                      }
+                      items={EVENT_CLASS_ITEMS}
+                    >
+                      <SelectTrigger aria-label="Class" size="sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <NumberInput
+                      aria-label="Count"
+                      min={1}
+                      className="w-20"
+                      value={event.count}
+                      onCommit={(n) => updateEvent(index, { count: n })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <NumberInput
+                      aria-label="Price per head"
+                      min={0}
+                      placeholder="auto"
+                      className="w-24"
+                      nullable
+                      value={event.price_per_head ?? null}
+                      onCommit={(n) => updateEvent(index, { price_per_head: n })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeEvent(index)}
+                    >
+                      Remove
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {eventErrors.map((error) => (
+          <p key={error} className="text-sm text-destructive">
+            {error}
+          </p>
+        ))}
+      </DataTableCard>
+
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
+          <span className="text-sm font-medium">Run options</span>
           <div className="flex items-center gap-2">
             <Checkbox
               id="sim-monte-carlo"
@@ -1263,37 +1411,6 @@ export default function SimulationPage() {
               Sensitivity
             </Label>
           </div>
-          <Button
-            onClick={() => void onRun()}
-            disabled={!assumptions || runMutation.isPending}
-          >
-            {runMutation.isPending ? "Running…" : "Run simulation"}
-          </Button>
-          {canManage && (
-            <>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSaveError(null);
-                  setSaveOpen(true);
-                }}
-                disabled={!assumptions}
-              >
-                Save as scenario
-              </Button>
-              {loadedScenario && (
-                <Button
-                  variant="outline"
-                  onClick={() => void onUpdateScenario()}
-                  disabled={!assumptions || updateMutation.isPending}
-                >
-                  {updateMutation.isPending
-                    ? "Updating…"
-                    : `Update ${loadedScenario.name}`}
-                </Button>
-              )}
-            </>
-          )}
         </div>
         {loadedScenario && (
           <p className="text-sm text-muted-foreground">
@@ -1310,90 +1427,88 @@ export default function SimulationPage() {
         </section>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Scenarios</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {scenarios.length === 0 ? (
-            <p className="text-muted-foreground">No saved scenarios yet.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8" />
-                  <TableHead>Name</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead>Updated</TableHead>
-                  <TableHead />
+      <DataTableCard
+        title="Scenarios"
+        description="Saved assumption sets to load, run, update or compare."
+        contentClassName="space-y-4"
+      >
+        {scenarios.length === 0 ? (
+          <EmptyState
+            icon={FolderOpen}
+            title="No saved scenarios yet."
+            description="Save the current assumptions as a scenario to rerun or compare later."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-8" />
+                <TableHead>Name</TableHead>
+                <TableHead>Notes</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {scenarios.map((scenario) => (
+                <TableRow key={scenario.id}>
+                  <TableCell>
+                    <Checkbox
+                      aria-label={`Compare ${scenario.name}`}
+                      checked={selectedIds.includes(scenario.id)}
+                      onCheckedChange={(checked) =>
+                        setSelectedIds((prev) =>
+                          checked === true
+                            ? [...prev, scenario.id]
+                            : prev.filter((id) => id !== scenario.id),
+                        )
+                      }
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium">{scenario.name}</TableCell>
+                  <TableCell>{scenario.notes}</TableCell>
+                  <TableCell>{formatDate(scenario.updated_at)}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setAssumptions(scenario.assumptions);
+                          setEvents(scenario.assumptions.events ?? []);
+                          setLoadedScenario(scenario);
+                        }}
+                      >
+                        Load
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void onRunScenario(scenario)}
+                        disabled={runningScenarioId !== null}
+                      >
+                        {runningScenarioId === scenario.id ? "Running…" : "Run"}
+                      </Button>
+                      {canManage && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={deleteMutation.isPending}
+                          onClick={() => void onDeleteScenario(scenario)}
+                        >
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {scenarios.map((scenario) => (
-                  <TableRow key={scenario.id}>
-                    <TableCell>
-                      <Checkbox
-                        aria-label={`Compare ${scenario.name}`}
-                        checked={selectedIds.includes(scenario.id)}
-                        onCheckedChange={(checked) =>
-                          setSelectedIds((prev) =>
-                            checked === true
-                              ? [...prev, scenario.id]
-                              : prev.filter((id) => id !== scenario.id),
-                          )
-                        }
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium">{scenario.name}</TableCell>
-                    <TableCell>{scenario.notes}</TableCell>
-                    <TableCell>{formatDate(scenario.updated_at)}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setAssumptions(scenario.assumptions);
-                            setEvents(scenario.assumptions.events ?? []);
-                            setLoadedScenario(scenario);
-                          }}
-                        >
-                          Load
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void onRunScenario(scenario)}
-                          disabled={runningScenarioId !== null}
-                        >
-                          {runningScenarioId === scenario.id ? "Running…" : "Run"}
-                        </Button>
-                        {canManage && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            disabled={deleteMutation.isPending}
-                            onClick={() => void onDeleteScenario(scenario)}
-                          >
-                            Delete
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          <Button
-            variant="outline"
-            onClick={onCompare}
-            disabled={selectedIds.length < 2 || compareQuery.isFetching}
-          >
-            {compareQuery.isFetching ? "Comparing…" : "Compare selected"}
-          </Button>
-
-          {comparePayload && comparePayload.results.length > 0 && (
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {comparePayload && comparePayload.results.length > 0 && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-medium">Comparison</h3>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1416,9 +1531,9 @@ export default function SimulationPage() {
                 ))}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        )}
+      </DataTableCard>
 
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent className="sm:max-w-lg">

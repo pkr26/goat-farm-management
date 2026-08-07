@@ -2,6 +2,7 @@
 
 /** Entry hub: redirect the user based on auth state. */
 
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -19,7 +20,8 @@ export default function RootPage() {
   }, [loading, user, farmId, router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-3">
+      <Loader2 className="size-6 animate-spin text-primary" />
       <p className="text-muted-foreground">Loading…</p>
     </main>
   );

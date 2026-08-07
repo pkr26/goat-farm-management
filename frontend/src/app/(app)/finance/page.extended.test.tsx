@@ -113,13 +113,13 @@ describe("FinancePage totals and P&L", () => {
   it("renders income, expense and net stat cards with ₹ formatting", async () => {
     await renderLoaded();
 
-    // StatCard renders value directly above its label.
+    // StatCard renders value directly below its label.
     const incomeLabel = screen.getByText("Total income");
-    expect(incomeLabel.previousElementSibling).toHaveTextContent("₹1,50,000");
+    expect(incomeLabel.nextElementSibling).toHaveTextContent("₹1,50,000");
     const expenseLabel = screen.getByText("Total expense");
-    expect(expenseLabel.previousElementSibling).toHaveTextContent("₹90,000");
+    expect(expenseLabel.nextElementSibling).toHaveTextContent("₹90,000");
     const netLabel = screen.getByText("Net (all time)");
-    expect(netLabel.previousElementSibling).toHaveTextContent("₹60,000");
+    expect(netLabel.nextElementSibling).toHaveTextContent("₹60,000");
   });
 
   it("renders the P&L table and marks negative months destructive", async () => {

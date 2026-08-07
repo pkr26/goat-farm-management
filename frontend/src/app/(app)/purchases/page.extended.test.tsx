@@ -184,11 +184,11 @@ describe("PurchasesPage RBAC", () => {
     expect(calls).toBe(0);
   });
 
-  it("hides + New batch for a purchases.view-only user", async () => {
+  it("hides New batch for a purchases.view-only user", async () => {
     server.use(permissionsHandler(["purchases.view"]), listHandler([BATCH_1]));
     renderWithProviders(<PurchasesPage />);
     expect(await screen.findByText("Sharma Goat Farm")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "+ New batch" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New batch" })).not.toBeInTheDocument();
   });
 });
 
@@ -217,7 +217,7 @@ describe("PurchasesPage new-batch dialog", () => {
   async function openDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "+ New batch" }));
+    await user.click(screen.getByRole("button", { name: "New batch" }));
     const dialog = await screen.findByRole("dialog");
     return { user, dialog };
   }

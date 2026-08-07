@@ -288,7 +288,7 @@ describe("BreedingPage", () => {
     server.use(permissionsHandler(["breeding.view"]));
     await renderLoaded();
     expect(
-      screen.queryByRole("button", { name: "+ Add breeding" }),
+      screen.queryByRole("button", { name: "Add breeding" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("Actions")).not.toBeInTheDocument();
     expect(
@@ -318,7 +318,7 @@ describe("BreedingPage", () => {
   async function openNewDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "+ Add breeding" }));
+    await user.click(screen.getByRole("button", { name: "Add breeding" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
 

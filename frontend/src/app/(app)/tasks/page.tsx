@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { ListChecks, Plus } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
@@ -21,6 +22,10 @@ import {
   useVerifyApiTasksTaskIdVerifyPost,
 } from "@/api/generated/endpoints";
 import { TaskCreateInCategory, type TaskOut } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -51,6 +56,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
+import { cn } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TaskCreateInCategory);
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
@@ -218,85 +224,108 @@ function TaskTable({
   today: string;
 }) {
   if (tasks.length === 0) {
-    return <p className="text-muted-foreground">No {tab} tasks.</p>;
+    return (
+      <EmptyState
+        icon={ListChecks}
+        title={`No ${tab} tasks.`}
+        description="New duties and auto-generated protocol tasks will show up here."
+      />
+    );
   }
   const completedTab = tab === "completed";
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Due</TableHead>
-          <TableHead>Task</TableHead>
-          <TableHead>Category</TableHead>
-          <TableHead>Assigned to</TableHead>
-          <TableHead>Animal</TableHead>
-          {completedTab && <TableHead>Status</TableHead>}
-          {completedTab && <TableHead>Completed</TableHead>}
-          <TableHead />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {tasks.map((t) => (
-          <TableRow key={t.id}>
-            <TableCell>
-              {formatDate(t.due_date)}
-              {t.status === "PENDING" && t.due_date < today && (
-                <span className="text-destructive"> ({daysBetween(t.due_date, today)}d late)</span>
-              )}
-            </TableCell>
-            <TableCell>
-              {t.title}
-              {t.recur_days !== null && (
-                <Badge variant="secondary" className="ml-2">
-                  every {t.recur_days}d
-                </Badge>
-              )}
-              {t.status === "PENDING" && t.verification_note && (
-                <>
-                  <br />
-                  <span className="text-destructive">Sent back: {t.verification_note}</span>
-                </>
-              )}
-            </TableCell>
-            <TableCell>
-              <Badge variant="secondary">{t.category}</Badge>
-            </TableCell>
-            <TableCell>{t.assigned_role_name ?? t.assigned_user_name ?? "—"}</TableCell>
-            <TableCell>
-              {t.animal_tag && t.animal_id ? (
-                <Link href={`/animals/${t.animal_id}`} className="text-primary underline">
-                  {t.animal_tag}
-                </Link>
-              ) : (
-                "—"
-              )}
-            </TableCell>
-            {completedTab && (
-              <TableCell>
-                <Badge variant={t.status === "VERIFIED" ? "default" : "outline"}>
-                  {t.status}
-                </Badge>
-                {t.status !== "VERIFIED" && t.needs_verification && (
-                  <span className="ml-1 text-xs text-muted-foreground">awaiting</span>
-                )}
-              </TableCell>
-            )}
-            {completedTab && (
-              <TableCell>{t.completed_at ? fmtDateTime(t.completed_at) : "—"}</TableCell>
-            )}
-            <TableCell>
-              <RowActions
-                task={t}
-                tab={tab}
-                canComplete={canComplete}
-                canVerify={canVerify}
-                today={today}
-              />
-            </TableCell>
+    <DataTableCard>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Due</TableHead>
+            <TableHead>Task</TableHead>
+            <TableHead>Category</TableHead>
+            <TableHead>Assigned to</TableHead>
+            <TableHead>Animal</TableHead>
+            {completedTab && <TableHead>Status</TableHead>}
+            {completedTab && <TableHead>Completed</TableHead>}
+            <TableHead />
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {tasks.map((t) => {
+            const overdue = t.status === "PENDING" && t.due_date < today;
+            const dueSoon =
+              t.status === "PENDING" && !overdue && daysBetween(today, t.due_date) <= 2;
+            return (
+              <TableRow key={t.id}>
+                <TableCell>
+                  <span
+                    className={cn(
+                      overdue &&
+                        "rounded-md bg-red-100 px-1.5 py-0.5 text-red-700 dark:bg-red-950 dark:text-red-300",
+                      dueSoon &&
+                        "rounded-md bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+                    )}
+                  >
+                    {formatDate(t.due_date)}
+                  </span>
+                  {overdue && (
+                    <span className="text-destructive">
+                      {" "}
+                      ({daysBetween(t.due_date, today)}d late)
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {t.title}
+                  {t.recur_days !== null && (
+                    <Badge variant="secondary" className="ml-2">
+                      every {t.recur_days}d
+                    </Badge>
+                  )}
+                  {t.status === "PENDING" && t.verification_note && (
+                    <>
+                      <br />
+                      <span className="text-destructive">Sent back: {t.verification_note}</span>
+                    </>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Badge variant="secondary">{t.category}</Badge>
+                </TableCell>
+                <TableCell>{t.assigned_role_name ?? t.assigned_user_name ?? "—"}</TableCell>
+                <TableCell>
+                  {t.animal_tag && t.animal_id ? (
+                    <Link href={`/animals/${t.animal_id}`} className="text-primary underline">
+                      {t.animal_tag}
+                    </Link>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
+                {completedTab && (
+                  <TableCell>
+                    <StatusBadge status={t.status}>{t.status}</StatusBadge>
+                    {t.status !== "VERIFIED" && t.needs_verification && (
+                      <span className="ml-1 text-xs text-muted-foreground">awaiting</span>
+                    )}
+                  </TableCell>
+                )}
+                {completedTab && (
+                  <TableCell>{t.completed_at ? fmtDateTime(t.completed_at) : "—"}</TableCell>
+                )}
+                <TableCell>
+                  <RowActions
+                    task={t}
+                    tab={tab}
+                    canComplete={canComplete}
+                    canVerify={canVerify}
+                    today={today}
+                  />
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </DataTableCard>
   );
 }
 
@@ -445,19 +474,22 @@ export default function TasksPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Tasks</h1>
-        {canCreate && (
-          <Button
-            onClick={() => {
-              reset();
-              setOpen(true);
-            }}
-          >
-            New duty
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Tasks"
+        description="Duties and auto-generated protocol tasks, grouped by when they're due."
+        actions={
+          canCreate && (
+            <Button
+              onClick={() => {
+                reset();
+                setOpen(true);
+              }}
+            >
+              <Plus /> New duty
+            </Button>
+          )
+        }
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
         <TabsList>
@@ -538,54 +570,59 @@ export default function TasksPage() {
               </div>
             </div>
             {canSeeTeam ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Assign to role</Label>
-                  <Select
-                    value={wAssignedRoleId || NONE}
-                    onValueChange={(v) => {
-                      setValue("assigned_role_id", v);
-                      if (v !== NONE) setValue("assigned_user_id", NONE);
-                    }}
-                    items={roleItems}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>— none —</SelectItem>
-                      {(team?.roles ?? []).map((r) => (
-                        <SelectItem key={r.id} value={String(r.id)}>
-                          {r.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>or assign to worker</Label>
-                  <Select
-                    value={wAssignedUserId || NONE}
-                    onValueChange={(v) => {
-                      setValue("assigned_user_id", v);
-                      if (v !== NONE) setValue("assigned_role_id", NONE);
-                    }}
-                    items={workerItems}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>— none —</SelectItem>
-                      {(team?.memberships ?? [])
-                        .filter((m) => m.is_active)
-                        .map((m) => (
-                          <SelectItem key={m.id} value={String(m.user_id)}>
-                            {m.name ?? m.email} ({m.role_name ?? "worker"})
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Assignment
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Assign to role</Label>
+                    <Select
+                      value={wAssignedRoleId || NONE}
+                      onValueChange={(v) => {
+                        setValue("assigned_role_id", v);
+                        if (v !== NONE) setValue("assigned_user_id", NONE);
+                      }}
+                      items={roleItems}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>— none —</SelectItem>
+                        {(team?.roles ?? []).map((r) => (
+                          <SelectItem key={r.id} value={String(r.id)}>
+                            {r.name}
                           </SelectItem>
                         ))}
-                    </SelectContent>
-                  </Select>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>or assign to worker</Label>
+                    <Select
+                      value={wAssignedUserId || NONE}
+                      onValueChange={(v) => {
+                        setValue("assigned_user_id", v);
+                        if (v !== NONE) setValue("assigned_role_id", NONE);
+                      }}
+                      items={workerItems}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>— none —</SelectItem>
+                        {(team?.memberships ?? [])
+                          .filter((m) => m.is_active)
+                          .map((m) => (
+                            <SelectItem key={m.id} value={String(m.user_id)}>
+                              {m.name ?? m.email} ({m.role_name ?? "worker"})
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             ) : (

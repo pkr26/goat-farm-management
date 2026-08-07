@@ -4710,9 +4710,16 @@
       "AnimalCreateIn": {
         "properties": {
           "tag_number": {
-            "type": "string",
-            "maxLength": 50,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Tag Number"
           },
           "name": {
@@ -4881,7 +4888,6 @@
         },
         "type": "object",
         "required": [
-          "tag_number",
           "sex",
           "source",
           "current_bucket"

@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -21,7 +22,10 @@ import {
   useSubmitUltrasoundApiBreedingRecordIdUltrasoundPost,
 } from "@/api/generated/endpoints";
 import type { AnimalOut, BreedingRecordOut } from "@/api/generated/models";
-import { Badge } from "@/components/ui/badge";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -68,17 +72,22 @@ function errorText(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
 }
 
-/** v1's tag-{outcome} styles as a Badge. */
+/** v1's tag-{outcome} styles as a tinted StatusBadge. */
+const OUTCOME_TINTS: Record<string, string> = {
+  CONFIRMED_PREGNANT:
+    "border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  FAILED:
+    "border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  ABORTED:
+    "border-transparent bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+};
+
 function OutcomeBadge({ outcome }: { outcome: string }) {
-  const variant =
-    outcome === "CONFIRMED_PREGNANT"
-      ? "default"
-      : outcome === "PENDING"
-        ? "secondary"
-        : outcome === "FAILED"
-          ? "outline"
-          : "destructive";
-  return <Badge variant={variant}>{outcome.replace(/_/g, " ")}</Badge>;
+  return (
+    <StatusBadge status={outcome} className={OUTCOME_TINTS[outcome]}>
+      {outcome.replace(/_/g, " ")}
+    </StatusBadge>
+  );
 }
 
 const breedingSchema = z.object({
@@ -415,87 +424,106 @@ export default function BreedingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Breeding</h1>
-        {canManage && (
-          <Button onClick={() => setNewOpen(true)}>+ Add breeding</Button>
-        )}
-      </div>
+      <PageHeader
+        title="Breeding"
+        description="Breeding records, ultrasound checks and pregnancy outcomes."
+        actions={
+          canManage ? (
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus />
+              Add breeding
+            </Button>
+          ) : undefined
+        }
+      />
 
       {payload.records.length === 0 ? (
-        <p className="text-muted-foreground">No breeding records yet.</p>
+        <EmptyState
+          icon={HeartHandshake}
+          title="No breeding records yet."
+          description="Add a breeding to start tracking ultrasound checks and expected kidding dates."
+        />
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Bred</TableHead>
-              <TableHead>Doe</TableHead>
-              <TableHead>Buck</TableHead>
-              <TableHead>Cycle</TableHead>
-              <TableHead>Ultrasound</TableHead>
-              <TableHead>Kids</TableHead>
-              <TableHead>Expected kidding</TableHead>
-              <TableHead>Outcome</TableHead>
-              {canManage && <TableHead className="text-right">Actions</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {payload.records.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell>{formatDate(r.breeding_date)}</TableCell>
-                <TableCell>
-                  <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
-                    {r.doe_tag ?? `Doe #${r.doe_id}`}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Link href={`/animals/${r.buck_id}`} className="text-primary underline">
-                    {r.buck_tag ?? `Buck #${r.buck_id}`}
-                  </Link>
-                </TableCell>
-                <TableCell>{r.heat_cycle_number}</TableCell>
-                <TableCell>
-                  {r.ultrasound_done
-                    ? "done"
-                    : r.ultrasound_date
-                      ? `due ${formatDate(r.ultrasound_date)}`
-                      : "—"}
-                </TableCell>
-                <TableCell>{r.kid_count_detected ?? "—"}</TableCell>
-                <TableCell>{formatDate(r.expected_kidding_date)}</TableCell>
-                <TableCell>
-                  <OutcomeBadge outcome={r.outcome} />
-                </TableCell>
-                {canManage && (
-                  <TableCell className="space-x-2 text-right">
-                    {r.outcome === "PENDING" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setUltrasoundFor(r)}
-                      >
-                        Ultrasound result
-                      </Button>
-                    )}
-                    {r.outcome === "CONFIRMED_PREGNANT" && !r.has_kidding && (
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={abortMutation.isPending}
-                        onClick={() => markAborted(r)}
-                      >
-                        Abort
-                      </Button>
-                    )}
-                    {r.has_kidding && (
-                      <span className="text-muted-foreground">Kidded</span>
+        <DataTableCard
+          title="Breeding records"
+          description="Ultrasound is due 32 days after breeding; confirmed pregnancies get an expected kidding date."
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Bred</TableHead>
+                <TableHead>Doe</TableHead>
+                <TableHead>Buck</TableHead>
+                <TableHead>Cycle</TableHead>
+                <TableHead>Ultrasound</TableHead>
+                <TableHead>Kids</TableHead>
+                <TableHead>Expected kidding</TableHead>
+                <TableHead>Outcome</TableHead>
+                {canManage && <TableHead className="text-right">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {payload.records.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell>{formatDate(r.breeding_date)}</TableCell>
+                  <TableCell>
+                    <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
+                      {r.doe_tag ?? `Doe #${r.doe_id}`}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Link href={`/animals/${r.buck_id}`} className="text-primary underline">
+                      {r.buck_tag ?? `Buck #${r.buck_id}`}
+                    </Link>
+                  </TableCell>
+                  <TableCell>{r.heat_cycle_number}</TableCell>
+                  <TableCell>
+                    {r.ultrasound_done ? (
+                      <span className="text-emerald-700 dark:text-emerald-400">done</span>
+                    ) : r.ultrasound_date ? (
+                      <span className="text-amber-700 dark:text-amber-400">
+                        due {formatDate(r.ultrasound_date)}
+                      </span>
+                    ) : (
+                      "—"
                     )}
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                  <TableCell>{r.kid_count_detected ?? "—"}</TableCell>
+                  <TableCell>{formatDate(r.expected_kidding_date)}</TableCell>
+                  <TableCell>
+                    <OutcomeBadge outcome={r.outcome} />
+                  </TableCell>
+                  {canManage && (
+                    <TableCell className="space-x-2 text-right">
+                      {r.outcome === "PENDING" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setUltrasoundFor(r)}
+                        >
+                          Ultrasound result
+                        </Button>
+                      )}
+                      {r.outcome === "CONFIRMED_PREGNANT" && !r.has_kidding && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={abortMutation.isPending}
+                          onClick={() => markAborted(r)}
+                        >
+                          Abort
+                        </Button>
+                      )}
+                      {r.has_kidding && (
+                        <span className="text-muted-foreground">Kidded</span>
+                      )}
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DataTableCard>
       )}
 
       {canManage && (

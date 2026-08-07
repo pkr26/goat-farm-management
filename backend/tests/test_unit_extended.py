@@ -1283,12 +1283,18 @@ def test_animal_create_invalid_variants(field: str, value: object) -> None:
         AnimalCreateIn(**(VALID_ANIMAL | {field: value}))
 
 
-@pytest.mark.parametrize("missing", ["tag_number", "sex", "source", "current_bucket"])
+@pytest.mark.parametrize("missing", ["sex", "source", "current_bucket"])
 def test_animal_create_missing_required_fields(missing: str) -> None:
     payload = dict(VALID_ANIMAL)
     del payload[missing]
     with pytest.raises(ValidationError):
         AnimalCreateIn(**payload)
+
+
+def test_animal_create_tag_optional_defaults_none() -> None:
+    payload = dict(VALID_ANIMAL)
+    del payload["tag_number"]
+    assert AnimalCreateIn(**payload).tag_number is None
 
 
 def test_animal_create_defaults_breed_to_osmanabadi() -> None:

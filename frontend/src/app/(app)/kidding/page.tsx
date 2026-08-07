@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Baby, CalendarClock, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -18,9 +19,11 @@ import {
   useKiddingListApiKiddingGet,
 } from "@/api/generated/endpoints";
 import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models";
-import { Badge } from "@/components/ui/badge";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -211,7 +214,8 @@ function RecordKiddingDialog({
                 disabled={fields.length >= MAX_KIDS}
                 onClick={() => append(emptyKid())}
               >
-                + Add kid
+                <Plus />
+                Add kid
               </Button>
             </div>
             {fields.map((field, index) => (
@@ -277,10 +281,11 @@ function RecordKiddingDialog({
                   type="button"
                   variant="destructive"
                   size="sm"
+                  aria-label="Remove kid"
                   disabled={fields.length <= 1}
                   onClick={() => remove(index)}
                 >
-                  ✕
+                  <X />
                 </Button>
                 {(errors.kids?.[index]?.tag || errors.kids?.[index]?.birth_weight) && (
                   <p className="col-span-full text-sm text-destructive">
@@ -400,49 +405,58 @@ export default function KiddingPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Kidding</h1>
+      <PageHeader
+        title="Kidding"
+        description="Confirmed pregnancies due soon and recent kidding history."
+      />
 
       {payload.overdue.length > 0 && (
-        <Card className="ring-destructive/40">
-          <CardHeader>
-            <CardTitle>⚠ Overdue (past expected date, no kidding recorded)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableBody>
-                {payload.overdue.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell>
-                      <Link
-                        href={`/animals/${r.doe_id}`}
-                        className="text-primary underline"
-                      >
-                        {r.doe_tag ?? `Doe #${r.doe_id}`}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      was due {formatDate(r.expected_kidding_date)}{" "}
-                      {r.expected_kidding_date && (
-                        <span className="text-destructive">
-                          ({daysBetween(r.expected_kidding_date, today)}d late)
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{recordButton(r)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <DataTableCard
+          className="border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/30"
+          title={
+            <span className="flex items-center gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="size-4" />
+              Overdue (past expected date, no kidding recorded)
+            </span>
+          }
+        >
+          <Table>
+            <TableBody>
+              {payload.overdue.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell>
+                    <Link
+                      href={`/animals/${r.doe_id}`}
+                      className="text-primary underline"
+                    >
+                      {r.doe_tag ?? `Doe #${r.doe_id}`}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    was due {formatDate(r.expected_kidding_date)}{" "}
+                    {r.expected_kidding_date && (
+                      <span className="text-destructive">
+                        ({daysBetween(r.expected_kidding_date, today)}d late)
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">{recordButton(r)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DataTableCard>
       )}
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Upcoming (next 30 days)</h2>
+      <DataTableCard
+        title="Upcoming (next 30 days)"
+        description="Confirmed pregnancies with an expected kidding date in the next 30 days."
+      >
         {payload.upcoming.length === 0 ? (
-          <p className="text-muted-foreground">
-            No confirmed pregnancies due in the next 30 days.
-          </p>
+          <EmptyState
+            icon={CalendarClock}
+            title="No confirmed pregnancies due in the next 30 days."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -482,12 +496,18 @@ export default function KiddingPage() {
             </TableBody>
           </Table>
         )}
-      </section>
+      </DataTableCard>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Recent kiddings</h2>
+      <DataTableCard
+        title="Recent kiddings"
+        description="Latest recorded kiddings with ease and kid outcomes."
+      >
         {payload.records.length === 0 ? (
-          <p className="text-muted-foreground">No kiddings recorded yet.</p>
+          <EmptyState
+            icon={Baby}
+            title="No kiddings recorded yet."
+            description="Record a kidding from the upcoming list once a doe delivers."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -512,7 +532,7 @@ export default function KiddingPage() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{k.ease}</Badge>
+                    <StatusBadge status={k.ease}>{k.ease}</StatusBadge>
                   </TableCell>
                   <TableCell>
                     <KidsCell kidding={k} />
@@ -523,7 +543,7 @@ export default function KiddingPage() {
             </TableBody>
           </Table>
         )}
-      </section>
+      </DataTableCard>
 
       {recordFor && (
         <RecordKiddingDialog

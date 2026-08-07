@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { Check, Wheat } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
@@ -23,6 +24,9 @@ import {
   type FeedSettingInBucket,
   type PlanLineOut,
 } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -89,15 +93,15 @@ function FeedingNav({ active }: { active: string }) {
     { href: "/feeding/inventory", label: "Inventory" },
   ];
   return (
-    <nav className="flex gap-4 border-b pb-2 text-sm">
+    <nav className="flex flex-wrap gap-1 border-b text-sm">
       {tabs.map((t) => (
         <Link
           key={t.href}
           href={t.href}
           className={
             t.label === active
-              ? "font-semibold text-foreground"
-              : "text-muted-foreground hover:text-foreground"
+              ? "-mb-px border-b-2 border-primary px-3 py-2 font-medium text-foreground"
+              : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
           }
         >
           {t.label}
@@ -281,45 +285,54 @@ export default function FeedingPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Feeding — today</h1>
-        {canManage && (
-          <Button
-            onClick={() => {
-              reset({
-                bucket: (payload.lines[0]?.bucket ?? "QUARANTINE") as DispenseValues["bucket"],
-                shift: "MORNING",
-                recipe_code: NONE,
-                qty_kg: undefined,
-                date: today,
-              });
-              setDispenseOpen(true);
-            }}
-          >
-            Record dispensing
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Feeding — today"
+        description="The 3-shift ration plan and what's been dispensed so far."
+        actions={
+          canManage && (
+            <Button
+              onClick={() => {
+                reset({
+                  bucket: (payload.lines[0]?.bucket ?? "QUARANTINE") as DispenseValues["bucket"],
+                  shift: "MORNING",
+                  recipe_code: NONE,
+                  qty_kg: undefined,
+                  date: today,
+                });
+                setDispenseOpen(true);
+              }}
+            >
+              Record dispensing
+            </Button>
+          )
+        }
+      />
 
       <FeedingNav active="Today's plan" />
 
-      <section className="space-y-2">
-        <h2 className="text-lg font-medium">Plan (headcount × kg/head, split 40 / 20 / 40)</h2>
+      <DataTableCard
+        title="Plan (headcount × kg/head, split 40 / 20 / 40)"
+        description="Per-bucket rations split across the three daily shifts."
+      >
         {payload.lines.length === 0 ? (
-          <p className="text-muted-foreground">No active animals — nothing to feed.</p>
+          <EmptyState
+            icon={Wheat}
+            title="No active animals — nothing to feed."
+            description="Once animals are active, their ration plan will show up here."
+          />
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Bucket</TableHead>
                 <TableHead>Recipe today</TableHead>
-                <TableHead>Heads</TableHead>
-                <TableHead>kg/head/day</TableHead>
-                <TableHead>Daily kg</TableHead>
-                <TableHead>Morning 40%</TableHead>
-                <TableHead>Afternoon 20%</TableHead>
-                <TableHead>Night 40%</TableHead>
-                <TableHead>Dispensed</TableHead>
+                <TableHead className="text-right">Heads</TableHead>
+                <TableHead className="text-right">kg/head/day</TableHead>
+                <TableHead className="text-right">Daily kg</TableHead>
+                <TableHead className="text-right">Morning 40%</TableHead>
+                <TableHead className="text-right">Afternoon 20%</TableHead>
+                <TableHead className="text-right">Night 40%</TableHead>
+                <TableHead className="text-right">Dispensed</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -331,21 +344,29 @@ export default function FeedingPage() {
                   <TableRow key={`${line.bucket}:${line.recipe_code}`}>
                     <TableCell className="font-medium">{line.bucket}</TableCell>
                     <TableCell>{line.recipe_name}</TableCell>
-                    <TableCell>{line.heads}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
+                    <TableCell className="text-right tabular-nums">
                       {line.kg_per_head}
                       {canManage && <KgPerHeadDialog line={line} />}
                     </TableCell>
-                    <TableCell>{line.daily_kg}</TableCell>
+                    <TableCell className="text-right tabular-nums">{line.daily_kg}</TableCell>
                     {shifts.map((s) => (
-                      <TableCell key={s.shift} title={`${s.shift} ${s.time}`}>
+                      <TableCell
+                        key={s.shift}
+                        title={`${s.shift} ${s.time}`}
+                        className="text-right tabular-nums"
+                      >
                         {s.kg}
                       </TableCell>
                     ))}
-                    <TableCell>
+                    <TableCell className="text-right tabular-nums">
                       {dispensed.toFixed(1)} kg
                       {dispensed >= line.daily_kg && (
-                        <Badge variant="secondary" className="ml-2">
+                        <Badge
+                          variant="outline"
+                          className="ml-2 border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                        >
+                          <Check />
                           done
                         </Badge>
                       )}
@@ -356,16 +377,19 @@ export default function FeedingPage() {
             </TableBody>
           </Table>
         )}
-        <p className="text-sm text-muted-foreground">
+        <p className="mt-3 text-sm text-muted-foreground">
           Shifts: MORNING 6:30 AM (sweep bunks first) · AFTERNOON 1:30 PM · NIGHT 7:30 PM. RESTING
           switches MAINTENANCE → FLUSH at day 10; MALE_KIDS frame-builder → fattening at day 91.
         </p>
-      </section>
+      </DataTableCard>
 
-      <section className="space-y-2">
-        <h2 className="text-lg font-medium">Today&apos;s dispensing log</h2>
+      <DataTableCard title="Today's dispensing log">
         {payload.records.length === 0 ? (
-          <p className="text-muted-foreground">Nothing dispensed yet today.</p>
+          <EmptyState
+            icon={Wheat}
+            title="Nothing dispensed yet today."
+            description="Recorded dispensing will appear here as the shifts progress."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -373,7 +397,7 @@ export default function FeedingPage() {
                 <TableHead>Shift</TableHead>
                 <TableHead>Bucket</TableHead>
                 <TableHead>Recipe</TableHead>
-                <TableHead>Qty (kg)</TableHead>
+                <TableHead className="text-right">Qty (kg)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -382,13 +406,13 @@ export default function FeedingPage() {
                   <TableCell>{r.shift}</TableCell>
                   <TableCell>{r.bucket}</TableCell>
                   <TableCell>{r.recipe_code ?? "—"}</TableCell>
-                  <TableCell>{r.qty_kg.toFixed(1)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.qty_kg.toFixed(1)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-      </section>
+      </DataTableCard>
 
       <Dialog open={dispenseOpen} onOpenChange={setDispenseOpen}>
         <DialogContent className="sm:max-w-lg">

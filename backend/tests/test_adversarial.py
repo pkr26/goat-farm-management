@@ -267,7 +267,7 @@ async def test_create_animal_rejects_bad_enums_and_empty_tag(client: httpx.Async
         ({"source": "STOLEN"}, 422),
         ({"current_bucket": "MOON"}, 422),
         ({"birth_type": "QUINTUPLET"}, 422),
-        ({"tag_number": "   "}, 400),  # strips to empty → "Tag number is required."
+        ({"tag_number": ""}, 422),  # below min_length=1 (whitespace-only auto-generates)
         ({"date_of_birth": "32/13/2020"}, 422),
         ({"purchase_price": "abc"}, 422),
     ]:

@@ -2,14 +2,30 @@
 
 /** Landing page after login — parity with v1's dashboard.html. */
 
+import {
+  Baby,
+  CircleCheckBig,
+  HandCoins,
+  Layers,
+  ListChecks,
+  Mars,
+  MoveRight,
+  PawPrint,
+  Scale,
+  ScanLine,
+  TriangleAlert,
+  Venus,
+} from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
 
 import { useDashboardApiDashboardGet } from "@/api/generated/endpoints";
 import type { AnimalOut, TaskOut } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -40,15 +56,6 @@ function localToday(): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${m}-${d}`;
-}
-
-function StatCard({ value, label }: { value: ReactNode; label: string }) {
-  return (
-    <div className="rounded-xl bg-card p-4 ring-1 ring-foreground/10">
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="text-sm text-muted-foreground">{label}</div>
-    </div>
-  );
 }
 
 /** "Open" to the task's linked form, else a plain "View" link to the tasks tab. */
@@ -102,170 +109,221 @@ export default function DashboardPage() {
   const farm = farms.find((f) => f.id === farmId);
   const today = localToday();
   const taskTotal = payload.todays_tasks.length + payload.overdue_tasks.length;
+  const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">{farm ? `${farm.name} — Dashboard` : "Dashboard"}</h1>
+      <PageHeader
+        title={farm ? `${farm.name} — Dashboard` : "Dashboard"}
+        description="Herd overview — tasks, breeding dates and recent weights."
+      />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard value={payload.total_active} label="Active animals" />
-        <StatCard value={payload.sex_counts.F ?? 0} label="Females" />
-        <StatCard value={payload.sex_counts.M ?? 0} label="Males" />
-        <StatCard value={payload.status_totals.SOLD ?? 0} label="Sold (all time)" />
-        <StatCard value={taskTotal} label="Tasks due + overdue" />
+        <StatCard
+          label="Active animals"
+          value={payload.total_active}
+          icon={PawPrint}
+          tint="emerald"
+        />
+        <StatCard label="Females" value={payload.sex_counts.F ?? 0} icon={Venus} />
+        <StatCard label="Males" value={payload.sex_counts.M ?? 0} icon={Mars} />
+        <StatCard
+          label="Sold (all time)"
+          value={payload.status_totals.SOLD ?? 0}
+          icon={HandCoins}
+        />
+        <StatCard
+          label="Tasks due + overdue"
+          value={taskTotal}
+          icon={ListChecks}
+          tint={
+            payload.overdue_tasks.length > 0 ? "red" : taskTotal > 0 ? "amber" : "default"
+          }
+        />
       </div>
 
       {payload.overdue_tasks.length > 0 && (
-        <Card className="ring-destructive/40">
-          <CardHeader>
-            <CardTitle>⚠ Overdue tasks</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <DataTableCard
+          className="ring-red-200 dark:ring-red-900"
+          title={
+            <span className="flex items-center gap-2">
+              <TriangleAlert className="size-4 text-red-600 dark:text-red-400" />
+              Overdue tasks
+            </span>
+          }
+        >
+          <Table>
+            <TableBody>
+              {payload.overdue_tasks.map((t) => (
+                <TableRow key={t.id} className="bg-red-50/60 dark:bg-red-950/20">
+                  <TableCell>
+                    {formatDate(t.due_date)}{" "}
+                    <span className="text-destructive">
+                      ({daysBetween(t.due_date, today)}d late)
+                    </span>
+                  </TableCell>
+                  <TableCell>{t.title}</TableCell>
+                  <TableCell className="text-right">
+                    <TaskLink task={t} fallbackHref="/tasks?tab=overdue" />
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DataTableCard>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <DataTableCard
+          title="Today's tasks"
+          actions={
+            <Link
+              href="/tasks?tab=today"
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              View all
+            </Link>
+          }
+        >
+          {payload.todays_tasks.length === 0 ? (
+            <EmptyState
+              icon={CircleCheckBig}
+              title="Nothing due today."
+              className="py-8"
+            />
+          ) : (
             <Table>
               <TableBody>
-                {payload.overdue_tasks.map((t) => (
+                {payload.todays_tasks.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell>
-                      {formatDate(t.due_date)}{" "}
-                      <span className="text-destructive">
-                        ({daysBetween(t.due_date, today)}d late)
-                      </span>
-                    </TableCell>
                     <TableCell>{t.title}</TableCell>
                     <TableCell className="text-right">
-                      <TaskLink task={t} fallbackHref="/tasks?tab=overdue" />
+                      <TaskLink task={t} fallbackHref="/tasks?tab=today" />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </DataTableCard>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Today&apos;s tasks</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {payload.todays_tasks.length === 0 ? (
-              <p className="text-muted-foreground">Nothing due today.</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {payload.todays_tasks.map((t) => (
-                    <TableRow key={t.id}>
-                      <TableCell>{t.title}</TableCell>
-                      <TableCell className="text-right">
-                        <TaskLink task={t} fallbackHref="/tasks?tab=today" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        <DataTableCard
+          title="Kiddings due in 14 days"
+          actions={
+            <Link
+              href="/breeding"
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              Breeding
+            </Link>
+          }
+        >
+          {payload.kiddings_due.length === 0 ? (
+            <EmptyState icon={Baby} title="None." className="py-8" />
+          ) : (
+            <Table>
+              <TableBody>
+                {payload.kiddings_due.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
+                        {r.doe_tag ?? `Doe #${r.doe_id}`}
+                      </Link>
+                    </TableCell>
+                    <TableCell>due {formatDate(r.expected_kidding_date)}</TableCell>
+                    <TableCell className="text-right">
+                      <Link
+                        href={`/kidding/new?breeding_id=${r.id}`}
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
+                      >
+                        Record
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DataTableCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Kiddings due in 14 days</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {payload.kiddings_due.length === 0 ? (
-              <p className="text-muted-foreground">None.</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {payload.kiddings_due.map((r) => (
-                    <TableRow key={r.id}>
-                      <TableCell>
-                        <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
-                          {r.doe_tag ?? `Doe #${r.doe_id}`}
-                        </Link>
-                      </TableCell>
-                      <TableCell>due {formatDate(r.expected_kidding_date)}</TableCell>
-                      <TableCell className="text-right">
-                        <Link
-                          href={`/kidding/new?breeding_id=${r.id}`}
-                          className={buttonVariants({ variant: "outline", size: "sm" })}
-                        >
-                          Record
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        <DataTableCard
+          title="Ultrasounds due in 7 days"
+          actions={
+            <Link
+              href="/breeding"
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              Breeding
+            </Link>
+          }
+        >
+          {payload.ultrasounds_due.length === 0 ? (
+            <EmptyState icon={ScanLine} title="None." className="py-8" />
+          ) : (
+            <Table>
+              <TableBody>
+                {payload.ultrasounds_due.map((t) => (
+                  <TableRow key={t.id}>
+                    <TableCell>{formatDate(t.due_date)}</TableCell>
+                    <TableCell>{t.title}</TableCell>
+                    <TableCell className="text-right">
+                      <TaskLink task={t} fallbackHref="/tasks?tab=today" label="Record result" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DataTableCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Ultrasounds due in 7 days</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {payload.ultrasounds_due.length === 0 ? (
-              <p className="text-muted-foreground">None.</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {payload.ultrasounds_due.map((t) => (
-                    <TableRow key={t.id}>
-                      <TableCell>{formatDate(t.due_date)}</TableCell>
-                      <TableCell>{t.title}</TableCell>
-                      <TableCell className="text-right">
-                        <TaskLink task={t} fallbackHref="/tasks?tab=today" label="Record result" />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Ready to move ({payload.suggestions.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {payload.suggestions.length === 0 ? (
-              <p className="text-muted-foreground">No suggestions.</p>
-            ) : (
-              <Table>
-                <TableBody>
-                  {payload.suggestions.map((s) => (
-                    <TableRow key={s.animal.id}>
-                      <TableCell>
-                        <Link
-                          href={`/animals/${s.animal.id}`}
-                          className="text-primary underline"
-                        >
-                          {animalName(s.animal)}
-                        </Link>
-                      </TableCell>
-                      <TableCell>{s.reason}</TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant="secondary">→ {s.to}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-            {payload.cull_candidates.length > 0 && (
-              <p className="text-destructive">
-                ⚠ {payload.cull_candidates.length} cull candidate(s) —{" "}
+        <DataTableCard
+          title={`Ready to move (${payload.suggestions.length})`}
+          actions={
+            <Link
+              href="/animals"
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              View herd
+            </Link>
+          }
+          contentClassName="space-y-3"
+        >
+          {payload.suggestions.length === 0 ? (
+            <EmptyState icon={MoveRight} title="No suggestions." className="py-8" />
+          ) : (
+            <Table>
+              <TableBody>
+                {payload.suggestions.map((s) => (
+                  <TableRow key={s.animal.id}>
+                    <TableCell>
+                      <Link
+                        href={`/animals/${s.animal.id}`}
+                        className="text-primary underline"
+                      >
+                        {animalName(s.animal)}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{s.reason}</TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant="secondary">→ {s.to}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {payload.cull_candidates.length > 0 && (
+            <p className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              <TriangleAlert className="size-4 shrink-0" />
+              <span>
+                {payload.cull_candidates.length} cull candidate(s) —{" "}
                 <Link href="/breeding" className="underline">
                   see breeding page
                 </Link>
-              </p>
-            )}
-          </CardContent>
-        </Card>
+              </span>
+            </p>
+          )}
+        </DataTableCard>
       </div>
 
       <section className="space-y-3">
@@ -275,11 +333,24 @@ export default function DashboardPage() {
             <Link
               key={b.code}
               href={`/animals?bucket=${encodeURIComponent(b.code)}`}
-              className="rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary"
+              className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary"
             >
-              <div className="text-2xl font-semibold">{b.count}</div>
-              <div className="text-sm">{b.name}</div>
-              <div className="text-xs text-muted-foreground">{b.code}</div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 [&_svg]:size-4.5">
+                  <Layers />
+                </span>
+                <span className="text-2xl font-semibold tracking-tight">{b.count}</span>
+              </div>
+              <div>
+                <div className="text-sm font-medium">{b.name}</div>
+                <div className="text-xs text-muted-foreground">{b.code}</div>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-accent/60">
+                <div
+                  className="h-full rounded-full bg-primary"
+                  style={{ width: `${Math.round((b.count / maxBucketCount) * 100)}%` }}
+                />
+              </div>
             </Link>
           ))}
         </div>
@@ -288,34 +359,41 @@ export default function DashboardPage() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Recent weight records</h2>
         {payload.recent_weights.length === 0 ? (
-          <p className="text-muted-foreground">
-            No weight records yet.{" "}
-            <Link href="/animals/new" className="text-primary underline">
+          <EmptyState
+            icon={Scale}
+            title="No weight records yet."
+            description="Weights you record will show up here."
+          >
+            <Link
+              href="/animals/new"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
               Add your first animal
-            </Link>{" "}
-            to get started.
-          </p>
+            </Link>
+          </EmptyState>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Weight</TableHead>
-                <TableHead>BCS</TableHead>
-                <TableHead>Notes</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {payload.recent_weights.map((w) => (
-                <TableRow key={w.id}>
-                  <TableCell>{formatDate(w.date)}</TableCell>
-                  <TableCell>{w.weight_kg.toFixed(1)} kg</TableCell>
-                  <TableCell>{w.bcs ?? "—"}</TableCell>
-                  <TableCell>{w.notes ?? ""}</TableCell>
+          <DataTableCard>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Weight</TableHead>
+                  <TableHead>BCS</TableHead>
+                  <TableHead>Notes</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {payload.recent_weights.map((w) => (
+                  <TableRow key={w.id}>
+                    <TableCell>{formatDate(w.date)}</TableCell>
+                    <TableCell>{w.weight_kg.toFixed(1)} kg</TableCell>
+                    <TableCell>{w.bcs ?? "—"}</TableCell>
+                    <TableCell>{w.notes ?? ""}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </DataTableCard>
         )}
       </section>
     </div>

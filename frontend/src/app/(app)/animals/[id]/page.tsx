@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -24,7 +25,9 @@ import {
   StatusChangeInNewStatus,
   type AnimalProfileOut,
 } from "@/api/generated/models";
-import { Badge } from "@/components/ui/badge";
+import { DataTableCard } from "@/components/data-table-card";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -395,22 +398,40 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
   const active = a.status === "ACTIVE";
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">
-          {a.tag_number}
-          {a.name ? ` · ${a.name}` : ""}{" "}
-          <Badge variant={active ? "default" : "secondary"}>{a.status}</Badge>
-        </h1>
-        {active && (
-          <div className="flex gap-2">
-            {can("animals.weight") && <AddWeightDialog animalId={a.id} onDone={refresh} />}
-            {can("animals.move") && (
-              <MoveBucketDialog animalId={a.id} currentBucket={a.current_bucket} onDone={refresh} />
-            )}
-            {can("animals.status") && <StatusDialog animalId={a.id} onDone={refresh} />}
-          </div>
-        )}
+    <div className="space-y-6">
+      <div>
+        <Link
+          href="/animals"
+          className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          Back to animals
+        </Link>
+        <PageHeader
+          title={
+            <span className="inline-flex flex-wrap items-center gap-2">
+              {a.tag_number}
+              {a.name ? ` · ${a.name}` : ""}
+              <StatusBadge status={a.status}>{a.status}</StatusBadge>
+            </span>
+          }
+          description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${a.current_bucket.replace(/_/g, " ")}`}
+          actions={
+            active && (
+              <>
+                {can("animals.weight") && <AddWeightDialog animalId={a.id} onDone={refresh} />}
+                {can("animals.move") && (
+                  <MoveBucketDialog
+                    animalId={a.id}
+                    currentBucket={a.current_bucket}
+                    onDone={refresh}
+                  />
+                )}
+                {can("animals.status") && <StatusDialog animalId={a.id} onDone={refresh} />}
+              </>
+            )
+          }
+        />
       </div>
 
       <Card>
@@ -456,14 +477,20 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
             )}
             {a.dam_id != null && (
               <Detail label="Dam">
-                <Link href={`/animals/${a.dam_id}`} className="text-primary underline">
+                <Link
+                  href={`/animals/${a.dam_id}`}
+                  className="font-medium text-primary hover:underline"
+                >
                   #{a.dam_id}
                 </Link>
               </Detail>
             )}
             {a.sire_id != null && (
               <Detail label="Sire">
-                <Link href={`/animals/${a.sire_id}`} className="text-primary underline">
+                <Link
+                  href={`/animals/${a.sire_id}`}
+                  className="font-medium text-primary hover:underline"
+                >
                   #{a.sire_id}
                 </Link>
               </Detail>
@@ -474,144 +501,125 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Weight history ({profile.weights.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile.weights.length === 0 ? (
-              <p className="text-muted-foreground">No weight records yet.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="text-right">Weight</TableHead>
-                    <TableHead className="text-right">BCS</TableHead>
-                    <TableHead>Notes</TableHead>
+        <DataTableCard title={`Weight history (${profile.weights.length})`}>
+          {profile.weights.length === 0 ? (
+            <p className="text-muted-foreground">No weight records yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Weight</TableHead>
+                  <TableHead className="text-right">BCS</TableHead>
+                  <TableHead>Notes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {profile.weights.map((w) => (
+                  <TableRow key={w.id}>
+                    <TableCell>{formatDate(w.date)}</TableCell>
+                    <TableCell className="text-right">{w.weight_kg.toFixed(1)} kg</TableCell>
+                    <TableCell className="text-right">{w.bcs ?? "—"}</TableCell>
+                    <TableCell>{w.notes ?? ""}</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profile.weights.map((w) => (
-                    <TableRow key={w.id}>
-                      <TableCell>{formatDate(w.date)}</TableCell>
-                      <TableCell className="text-right">{w.weight_kg.toFixed(1)} kg</TableCell>
-                      <TableCell className="text-right">{w.bcs ?? "—"}</TableCell>
-                      <TableCell>{w.notes ?? ""}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DataTableCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Bucket moves ({profile.moves.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile.moves.length === 0 ? (
-              <p className="text-muted-foreground">No moves recorded.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>From</TableHead>
-                    <TableHead>To</TableHead>
-                    <TableHead>Reason</TableHead>
+        <DataTableCard title={`Bucket moves (${profile.moves.length})`}>
+          {profile.moves.length === 0 ? (
+            <p className="text-muted-foreground">No moves recorded.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>From</TableHead>
+                  <TableHead>To</TableHead>
+                  <TableHead>Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {profile.moves.map((m) => (
+                  <TableRow key={m.id}>
+                    <TableCell>{formatDate(m.moved_at)}</TableCell>
+                    <TableCell>{m.from_bucket?.replace(/_/g, " ") ?? "—"}</TableCell>
+                    <TableCell>{m.to_bucket.replace(/_/g, " ")}</TableCell>
+                    <TableCell>{m.reason ?? ""}</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profile.moves.map((m) => (
-                    <TableRow key={m.id}>
-                      <TableCell>{formatDate(m.moved_at)}</TableCell>
-                      <TableCell>{m.from_bucket?.replace(/_/g, " ") ?? "—"}</TableCell>
-                      <TableCell>{m.to_bucket.replace(/_/g, " ")}</TableCell>
-                      <TableCell>{m.reason ?? ""}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DataTableCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Health events ({profile.health_events.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile.health_events.length === 0 ? (
-              <p className="text-muted-foreground">No health events.</p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Cost</TableHead>
-                    <TableHead>Next due</TableHead>
+        <DataTableCard title={`Health events (${profile.health_events.length})`}>
+          {profile.health_events.length === 0 ? (
+            <p className="text-muted-foreground">No health events.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Cost</TableHead>
+                  <TableHead>Next due</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {profile.health_events.map((h) => (
+                  <TableRow key={h.id}>
+                    <TableCell>{formatDate(h.date)}</TableCell>
+                    <TableCell>{h.type}</TableCell>
+                    <TableCell>{h.product_name ?? h.disease_target ?? "—"}</TableCell>
+                    <TableCell className="text-right">{formatMoney(h.cost)}</TableCell>
+                    <TableCell>{formatDate(h.next_due_date)}</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profile.health_events.map((h) => (
-                    <TableRow key={h.id}>
-                      <TableCell>{formatDate(h.date)}</TableCell>
-                      <TableCell>{h.type}</TableCell>
-                      <TableCell>{h.product_name ?? h.disease_target ?? "—"}</TableCell>
-                      <TableCell className="text-right">{formatMoney(h.cost)}</TableCell>
-                      <TableCell>{formatDate(h.next_due_date)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DataTableCard>
 
         {a.sex === "F" && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Kids ({profile.kids.length})</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {profile.kids.length === 0 ? (
-                <p className="text-muted-foreground">No kids recorded.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Tag</TableHead>
-                      <TableHead>Sex</TableHead>
-                      <TableHead>Born</TableHead>
-                      <TableHead>Status</TableHead>
+          <DataTableCard title={`Kids (${profile.kids.length})`}>
+            {profile.kids.length === 0 ? (
+              <p className="text-muted-foreground">No kids recorded.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tag</TableHead>
+                    <TableHead>Sex</TableHead>
+                    <TableHead>Born</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {profile.kids.map((k) => (
+                    <TableRow key={k.id}>
+                      <TableCell>
+                        <Link
+                          href={`/animals/${k.id}`}
+                          className="font-medium text-foreground hover:text-primary"
+                        >
+                          {k.tag_number}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{k.sex}</TableCell>
+                      <TableCell>{formatDate(k.date_of_birth)}</TableCell>
+                      <TableCell>
+                        <StatusBadge status={k.status}>{k.status}</StatusBadge>
+                      </TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {profile.kids.map((k) => (
-                      <TableRow key={k.id}>
-                        <TableCell>
-                          <Link href={`/animals/${k.id}`} className="text-primary underline">
-                            {k.tag_number}
-                          </Link>
-                        </TableCell>
-                        <TableCell>{k.sex}</TableCell>
-                        <TableCell>{formatDate(k.date_of_birth)}</TableCell>
-                        <TableCell>
-                          <Badge variant={k.status === "ACTIVE" ? "default" : "secondary"}>
-                            {k.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </DataTableCard>
         )}
       </div>
     </div>

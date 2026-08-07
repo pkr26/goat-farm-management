@@ -141,10 +141,10 @@ describe("KiddingPage", () => {
   it("renders the overdue card with days late and a record button", async () => {
     await renderLoaded();
     expect(
-      screen.getByText("⚠ Overdue (past expected date, no kidding recorded)"),
+      screen.getByText("Overdue (past expected date, no kidding recorded)"),
     ).toBeInTheDocument();
     expect(screen.getByText("(5d late)")).toBeInTheDocument();
-    const card = screen.getByText(/⚠ Overdue/).closest("[data-slot='card']") as HTMLElement;
+    const card = screen.getByText(/Overdue/).closest("[data-slot='card']") as HTMLElement;
     const link = within(card).getByRole("link", { name: "G-010" });
     expect(link).toHaveAttribute("href", "/animals/10");
     expect(
@@ -156,13 +156,15 @@ describe("KiddingPage", () => {
     payload.overdue = [];
     renderWithProviders(<KiddingPage />);
     await screen.findByText("big twins");
-    expect(screen.queryByText(/⚠ Overdue/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Overdue/)).not.toBeInTheDocument();
   });
 
   it("renders upcoming pregnancies with days left and kids detected", async () => {
     await renderLoaded();
     expect(screen.getByText("Upcoming (next 30 days)")).toBeInTheDocument();
-    const section = screen.getByText("Upcoming (next 30 days)").parentElement!;
+    const section = screen
+      .getByText("Upcoming (next 30 days)")
+      .closest("[data-slot='card']") as HTMLElement;
     expect(within(section).getByText("10")).toBeInTheDocument(); // days left
     expect(within(section).getByText("2")).toBeInTheDocument(); // kids detected
     expect(
@@ -174,7 +176,9 @@ describe("KiddingPage", () => {
     payload.upcoming = [makeBreeding({ id: 13, expected_kidding_date: null, kid_count_detected: null })];
     payload.overdue = [];
     renderWithProviders(<KiddingPage />);
-    const section = (await screen.findByText("Upcoming (next 30 days)")).parentElement!;
+    const section = (await screen.findByText("Upcoming (next 30 days)")).closest(
+      "[data-slot='card']",
+    ) as HTMLElement;
     expect(within(section).getAllByText("—").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -203,7 +207,9 @@ describe("KiddingPage", () => {
     payload.records = [makeKidding({ id: 22, kids: [] })];
     payload.overdue = [];
     renderWithProviders(<KiddingPage />);
-    const section = (await screen.findByText("Recent kiddings")).parentElement!;
+    const section = (await screen.findByText("Recent kiddings")).closest(
+      "[data-slot='card']",
+    ) as HTMLElement;
     const cell = within(section).getByText("—");
     expect(cell).toBeInTheDocument();
   });
@@ -248,7 +254,9 @@ describe("KiddingPage", () => {
   async function openDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    const section = screen.getByText("Upcoming (next 30 days)").parentElement!;
+    const section = screen
+      .getByText("Upcoming (next 30 days)")
+      .closest("[data-slot='card']") as HTMLElement;
     await user.click(within(section).getByRole("button", { name: "Record kidding" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -265,7 +273,7 @@ describe("KiddingPage", () => {
 
   it("adds kid rows up to 10, then disables the add button", async () => {
     const { user, dialog } = await openDialog();
-    const add = within(dialog).getByRole("button", { name: "+ Add kid" });
+    const add = within(dialog).getByRole("button", { name: "Add kid" });
     for (let i = 0; i < 7; i += 1) await user.click(add);
     expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(9);
     await user.click(add);
@@ -275,7 +283,7 @@ describe("KiddingPage", () => {
 
   it("removes kid rows but never below one", async () => {
     const { user, dialog } = await openDialog();
-    const removeButtons = () => within(dialog).getAllByRole("button", { name: "✕" });
+    const removeButtons = () => within(dialog).getAllByRole("button", { name: "Remove kid" });
     await user.click(removeButtons()[1]);
     expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(1);
     expect(removeButtons()[0]).toBeDisabled();

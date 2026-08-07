@@ -20,6 +20,7 @@ Async adaptation notes (vs. the v1 sync services):
 
 import math
 import re
+import secrets
 from datetime import date, timedelta
 from typing import Any, cast
 
@@ -393,6 +394,22 @@ async def mark_aborted(db: AsyncSession, br: BreedingRecord) -> BreedingRecord:
         task.status = TaskStatus.SKIPPED.value
     await db.flush()
     return br
+
+
+# Placeholder tag scheme until RFID scanning is introduced; manual tags are
+# still accepted — this only fills in tags the user leaves blank.
+TAG_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # digits+uppercase minus 0/O/1/I
+
+
+async def generate_unique_tag(db: AsyncSession, farm_id: int, attempts: int = 10) -> str:
+    """Random ``G-XXXXX`` tag, unique within the farm; retries on collision."""
+    result = await db.execute(select(Animal.tag_number).where(Animal.farm_id == farm_id))
+    existing_tags = set(result.scalars().all())
+    for _ in range(attempts):
+        tag = "G-" + "".join(secrets.choice(TAG_ALPHABET) for _ in range(5))
+        if tag not in existing_tags:
+            return tag
+    raise RuntimeError("could not generate a unique tag")  # practically unreachable
 
 
 # ---------------------------------------------------------------------------

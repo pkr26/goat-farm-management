@@ -4,8 +4,12 @@
 
 import Link from "next/link";
 
+import { Layers } from "lucide-react";
+
 import { useBucketsBoardApiBucketsGet } from "@/api/generated/endpoints";
 import type { BucketBoardRow } from "@/api/generated/models";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -86,8 +90,11 @@ export default function BucketsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Buckets</h1>
+    <div className="space-y-6">
+      <PageHeader
+        title="Buckets"
+        description="Daily feed plan and occupancy per bucket."
+      />
       {query.isLoading ? (
         <p className="py-10 text-center text-muted-foreground">Loading…</p>
       ) : query.isError ? (
@@ -95,7 +102,11 @@ export default function BucketsPage() {
           {query.error instanceof ApiError ? query.error.detail : "Could not load buckets."}
         </p>
       ) : !rows || rows.length === 0 ? (
-        <p className="text-muted-foreground">No buckets configured.</p>
+        <EmptyState
+          icon={Layers}
+          title="No buckets configured."
+          description="Buckets group animals by life stage and set their daily feed allowance."
+        />
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {rows.map((row) => (

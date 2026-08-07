@@ -7,8 +7,9 @@ import type { ReactNode } from "react";
 
 import { useReportsApiDashboardReportsGet } from "@/api/generated/endpoints";
 import type { AnimalOut } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -34,7 +35,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <TableRow>
       <TableCell>{label}</TableCell>
-      <TableCell className="text-right">{value}</TableCell>
+      <TableCell className="text-right tabular-nums">{value}</TableCell>
     </TableRow>
   );
 }
@@ -66,136 +67,134 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Reports</h1>
+      <PageHeader
+        title="Reports"
+        description="Key herd, breeding and mortality numbers at a glance."
+        actions={
+          <Link href="/finance" className={buttonVariants({ variant: "outline" })}>
+            Financial summary →
+          </Link>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Herd summary ({payload.total_active} active)</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-2">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Bucket</TableHead>
-                <TableHead>Heads</TableHead>
-                <TableHead>Avg weight</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {payload.bucket_rows.map((row) => (
-                <TableRow key={row.code}>
-                  <TableCell>
-                    {row.name}{" "}
-                    <span className="text-xs text-muted-foreground">{row.code}</span>
-                  </TableCell>
-                  <TableCell>{row.count}</TableCell>
-                  <TableCell>
-                    {row.avg_weight !== null ? `${row.avg_weight.toFixed(1)} kg` : "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <Table>
-            <TableBody>
-              <SummaryRow label="Females (active)" value={payload.sex_counts.F ?? 0} />
-              <SummaryRow label="Males (active)" value={payload.sex_counts.M ?? 0} />
-              {Object.entries(payload.status_counts).map(([status, count]) => (
-                <SummaryRow key={status} label={`${status} (all time)`} value={count} />
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Breeding performance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableBody>
-              <SummaryRow label="Breeding records" value={breeding.total_records} />
-              <SummaryRow
-                label="Conception rate (confirmed / completed)"
-                value={pct(breeding.conception_rate)}
-              />
-              <SummaryRow label="First-cycle success" value={pct(breeding.first_cycle_rate)} />
-              <SummaryRow label="Kiddings recorded" value={breeding.kiddings} />
-              <SummaryRow
-                label="Alive kids per kidding"
-                value={breeding.kids_per_kidding ?? "—"}
-              />
-              <SummaryRow label="Twin rate (≥2 kids)" value={pct(breeding.twin_rate)} />
-              <TableRow>
-                <TableCell>Cull candidates</TableCell>
-                <TableCell className="text-right">
-                  {breeding.cull_candidates.length}
-                  {breeding.cull_candidates.length > 0 && (
-                    <span className="ml-2 inline-flex flex-wrap gap-1">
-                      {breeding.cull_candidates.map((a) => (
-                        <Link
-                          key={a.id}
-                          href={`/animals/${a.id}`}
-                          className="rounded-full border px-2 py-0.5 text-xs hover:bg-muted"
-                        >
-                          {animalName(a)}
-                        </Link>
-                      ))}
-                    </span>
-                  )}
+      <DataTableCard
+        title={`Herd summary (${payload.total_active} active)`}
+        description="Headcount and average weight per bucket, plus sex and status totals."
+        contentClassName="grid gap-4 lg:grid-cols-2"
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Bucket</TableHead>
+              <TableHead className="text-right">Heads</TableHead>
+              <TableHead className="text-right">Avg weight</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {payload.bucket_rows.map((row) => (
+              <TableRow key={row.code}>
+                <TableCell>
+                  {row.name}{" "}
+                  <span className="text-xs text-muted-foreground">{row.code}</span>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{row.count}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {row.avg_weight !== null ? `${row.avg_weight.toFixed(1)} kg` : "—"}
                 </TableCell>
               </TableRow>
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+            ))}
+          </TableBody>
+        </Table>
+        <Table>
+          <TableBody>
+            <SummaryRow label="Females (active)" value={payload.sex_counts.F ?? 0} />
+            <SummaryRow label="Males (active)" value={payload.sex_counts.M ?? 0} />
+            {Object.entries(payload.status_counts).map(([status, count]) => (
+              <SummaryRow key={status} label={`${status} (all time)`} value={count} />
+            ))}
+          </TableBody>
+        </Table>
+      </DataTableCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Mortality</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 lg:grid-cols-2">
-          <Table>
-            <TableBody>
-              <SummaryRow label="Total deaths (herd)" value={mortality.total_deaths} />
-              <SummaryRow label="Kids born (recorded)" value={mortality.total_kids_born} />
-              <SummaryRow label="Stillborn" value={mortality.stillborn} />
-              <SummaryRow label="Stillborn rate" value={pct(mortality.stillborn_rate)} />
-            </TableBody>
-          </Table>
-          <Table>
-            <TableHeader>
+      <DataTableCard
+        title="Breeding performance"
+        description="Conception, kidding and twinning rates across all breeding records."
+      >
+        <Table>
+          <TableBody>
+            <SummaryRow label="Breeding records" value={breeding.total_records} />
+            <SummaryRow
+              label="Conception rate (confirmed / completed)"
+              value={pct(breeding.conception_rate)}
+            />
+            <SummaryRow label="First-cycle success" value={pct(breeding.first_cycle_rate)} />
+            <SummaryRow label="Kiddings recorded" value={breeding.kiddings} />
+            <SummaryRow
+              label="Alive kids per kidding"
+              value={breeding.kids_per_kidding ?? "—"}
+            />
+            <SummaryRow label="Twin rate (≥2 kids)" value={pct(breeding.twin_rate)} />
+            <TableRow>
+              <TableCell>Cull candidates</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {breeding.cull_candidates.length}
+                {breeding.cull_candidates.length > 0 && (
+                  <span className="ml-2 inline-flex flex-wrap gap-1">
+                    {breeding.cull_candidates.map((a) => (
+                      <Link
+                        key={a.id}
+                        href={`/animals/${a.id}`}
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+                      >
+                        {animalName(a)}
+                      </Link>
+                    ))}
+                  </span>
+                )}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </DataTableCard>
+
+      <DataTableCard
+        title="Mortality"
+        description="Deaths, stillbirths and monthly losses for the herd."
+        contentClassName="grid gap-4 lg:grid-cols-2"
+      >
+        <Table>
+          <TableBody>
+            <SummaryRow label="Total deaths (herd)" value={mortality.total_deaths} />
+            <SummaryRow label="Kids born (recorded)" value={mortality.total_kids_born} />
+            <SummaryRow label="Stillborn" value={mortality.stillborn} />
+            <SummaryRow label="Stillborn rate" value={pct(mortality.stillborn_rate)} />
+          </TableBody>
+        </Table>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Month</TableHead>
+              <TableHead className="text-right">Deaths</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {mortality.deaths_by_month.length === 0 ? (
               <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead>Deaths</TableHead>
+                <TableCell colSpan={2} className="text-muted-foreground">
+                  No deaths recorded.
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mortality.deaths_by_month.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={2} className="text-muted-foreground">
-                    No deaths recorded.
-                  </TableCell>
+            ) : (
+              mortality.deaths_by_month.map(([month, count]) => (
+                <TableRow key={month}>
+                  <TableCell>{month}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count}</TableCell>
                 </TableRow>
-              ) : (
-                mortality.deaths_by_month.map(([month, count]) => (
-                  <TableRow key={month}>
-                    <TableCell>{month}</TableCell>
-                    <TableCell>{count}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <p>
-        <Link href="/finance" className={buttonVariants({ variant: "outline" })}>
-          Financial summary →
-        </Link>
-      </p>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </DataTableCard>
     </div>
   );
 }

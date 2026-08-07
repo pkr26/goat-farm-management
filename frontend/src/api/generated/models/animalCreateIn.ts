@@ -10,11 +10,7 @@ import type { AnimalCreateInSex } from './animalCreateInSex';
 import type { AnimalCreateInSource } from './animalCreateInSource';
 
 export interface AnimalCreateIn {
-  /**
-     * @minLength 1
-     * @maxLength 50
-     */
-  tag_number: string;
+  tag_number?: string | null;
   name?: string | null;
   sex: AnimalCreateInSex;
   source: AnimalCreateInSource;

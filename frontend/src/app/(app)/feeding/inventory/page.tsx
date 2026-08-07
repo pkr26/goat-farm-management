@@ -5,6 +5,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { Package, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
@@ -19,7 +20,9 @@ import {
   useMixBatchApiFeedingMixPost,
 } from "@/api/generated/endpoints";
 import type { FeedInventoryOut } from "@/api/generated/models";
-import { Badge } from "@/components/ui/badge";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -56,15 +59,15 @@ function FeedingNav({ active }: { active: string }) {
     { href: "/feeding/inventory", label: "Inventory" },
   ];
   return (
-    <nav className="flex gap-4 border-b pb-2 text-sm">
+    <nav className="flex flex-wrap gap-1 border-b text-sm">
       {tabs.map((t) => (
         <Link
           key={t.href}
           href={t.href}
           className={
             t.label === active
-              ? "font-semibold text-foreground"
-              : "text-muted-foreground hover:text-foreground"
+              ? "-mb-px border-b-2 border-primary px-3 py-2 font-medium text-foreground"
+              : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
           }
         >
           {t.label}
@@ -311,55 +314,70 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Feed inventory</h1>
-        {canManage && <MixBatchDialog />}
-      </div>
+      <PageHeader
+        title="Feed inventory"
+        description="Stock on hand per ingredient, with reorder levels."
+        actions={canManage && <MixBatchDialog />}
+      />
 
       <FeedingNav active="Inventory" />
 
-      {items.length === 0 ? (
-        <p className="text-muted-foreground">No feed inventory items yet.</p>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Category</TableHead>
-              <TableHead>Ingredient</TableHead>
-              <TableHead>On hand (kg)</TableHead>
-              <TableHead>Reorder at</TableHead>
-              <TableHead>Last price / kg</TableHead>
-              {canManage && <TableHead />}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item) => {
-              const low = item.reorder_level !== null && item.qty_on_hand <= item.reorder_level;
-              return (
-                <TableRow key={item.id}>
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell className="font-medium">{item.ingredient}</TableCell>
-                  <TableCell>
-                    {item.qty_on_hand.toFixed(1)}
-                    {low && (
-                      <Badge variant="destructive" className="ml-2">
-                        low
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>{item.reorder_level ?? "—"}</TableCell>
-                  <TableCell>{formatMoney(item.last_purchase_price_per_kg)}</TableCell>
-                  {canManage && (
-                    <TableCell>
-                      <AddStockDialog item={item} />
+      <DataTableCard title="Stock on hand">
+        {items.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="No feed inventory items yet."
+            description="Ingredients appear here once the first feed purchase is recorded."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Category</TableHead>
+                <TableHead>Ingredient</TableHead>
+                <TableHead className="text-right">On hand (kg)</TableHead>
+                <TableHead className="text-right">Reorder at</TableHead>
+                <TableHead className="text-right">Last price / kg</TableHead>
+                {canManage && <TableHead />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item) => {
+                const low = item.reorder_level !== null && item.qty_on_hand <= item.reorder_level;
+                return (
+                  <TableRow
+                    key={item.id}
+                    className={low ? "bg-amber-50 dark:bg-amber-950/20" : undefined}
+                  >
+                    <TableCell>{item.category}</TableCell>
+                    <TableCell className="font-medium">{item.ingredient}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {item.qty_on_hand.toFixed(1)}
+                      {low && (
+                        <span className="ml-2 inline-flex items-center align-middle text-amber-600 dark:text-amber-400">
+                          <TriangleAlert className="size-4" />
+                          <span className="sr-only">low</span>
+                        </span>
+                      )}
                     </TableCell>
-                  )}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      )}
+                    <TableCell className="text-right tabular-nums">
+                      {item.reorder_level ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(item.last_purchase_price_per_kg)}
+                    </TableCell>
+                    {canManage && (
+                      <TableCell>
+                        <AddStockDialog item={item} />
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </DataTableCard>
       <p className="text-sm text-muted-foreground">
         Mixing a recipe batch decrements stock per recipe lines. Purchases with a price book a FEED
         expense automatically.

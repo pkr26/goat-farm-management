@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { ShieldCheck, Users } from "lucide-react";
 import { useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
@@ -21,8 +22,13 @@ import {
   useUpdateRoleApiTeamRolesRoleIdPut,
 } from "@/api/generated/endpoints";
 import type { MembershipOut, RoleOut, TeamOut } from "@/api/generated/models";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -110,7 +116,14 @@ function WorkerRow({
 
   return (
     <TableRow>
-      <TableCell>{m.name ?? "—"}</TableCell>
+      <TableCell>
+        <div className="flex items-center gap-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-accent-foreground">
+            {(m.name ?? m.email).trim().charAt(0).toUpperCase()}
+          </span>
+          <span>{m.name ?? "—"}</span>
+        </div>
+      </TableCell>
       <TableCell>{m.email}</TableCell>
       <TableCell>
         <Select
@@ -146,9 +159,7 @@ function WorkerRow({
         </Select>
       </TableCell>
       <TableCell>
-        <Badge variant={m.is_active ? "default" : "secondary"}>
-          {m.is_active ? "Active" : "Inactive"}
-        </Badge>
+        <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"} />
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap items-center gap-2">
@@ -501,11 +512,18 @@ function RoleCard({
       : undefined;
 
   return (
-    <div className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+    <Card className="gap-3 p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
           <span className="font-medium">{role.name}</span>{" "}
-          {role.code && <Badge variant="secondary">preset</Badge>}
+          {role.code && (
+            <Badge
+              variant="outline"
+              className="border-transparent bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+            >
+              preset
+            </Badge>
+          )}
           <div className="text-sm text-muted-foreground">{role.description ?? "—"}</div>
           <div className="text-xs text-muted-foreground">
             {memberCount} member{memberCount === 1 ? "" : "s"}
@@ -546,7 +564,7 @@ function RoleCard({
           ))
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -581,11 +599,15 @@ export default function TeamPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Team</h1>
+      <PageHeader
+        title="Team"
+        description="Manage the workers on this farm, their roles and what each role can do."
+      />
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Workers</h2>
+      <DataTableCard
+        title="Workers"
+        description="People who can sign in to this farm."
+        actions={
           <Button
             onClick={() => {
               setWorkerOpen(true);
@@ -593,11 +615,14 @@ export default function TeamPage() {
           >
             Add worker
           </Button>
-        </div>
+        }
+      >
         {payload.memberships.length === 0 ? (
-          <p className="text-muted-foreground">
-            No workers yet. Add your first worker — they&apos;ll see only what their role allows.
-          </p>
+          <EmptyState
+            icon={Users}
+            title="No workers yet"
+            description="Add your first worker — they'll see only what their role allows."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -622,15 +647,19 @@ export default function TeamPage() {
             </TableBody>
           </Table>
         )}
-      </section>
+      </DataTableCard>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Roles</h2>
-          <Button onClick={() => setRoleDialog({ role: null })}>New role</Button>
-        </div>
+      <DataTableCard
+        title="Roles"
+        description="A role bundles the pages and actions a worker can use."
+        actions={<Button onClick={() => setRoleDialog({ role: null })}>New role</Button>}
+      >
         {payload.roles.length === 0 ? (
-          <p className="text-muted-foreground">No roles yet.</p>
+          <EmptyState
+            icon={ShieldCheck}
+            title="No roles yet."
+            description="Create a role to control what workers can see and do."
+          />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {payload.roles.map((r) => (
@@ -638,7 +667,7 @@ export default function TeamPage() {
             ))}
           </div>
         )}
-      </section>
+      </DataTableCard>
 
       <AddWorkerDialog open={workerOpen} onOpenChange={setWorkerOpen} roles={payload.roles} />
       {resetTarget && (

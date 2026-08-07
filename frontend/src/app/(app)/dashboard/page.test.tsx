@@ -235,7 +235,7 @@ describe("DashboardPage — populated aggregates", () => {
     renderWithProviders(<DashboardPage />);
     await screen.findByText("Deworm batch 4");
 
-    expect(screen.getByText("⚠ Overdue tasks")).toBeInTheDocument();
+    expect(screen.getByText("Overdue tasks")).toBeInTheDocument();
     const row = rowOf("Deworm batch 4");
     expect(within(row).getByText(/3d late/)).toBeInTheDocument();
     expect(within(row).getByText(new RegExp(formatDateRe(THREE_DAYS_AGO)))).toBeInTheDocument();
@@ -445,7 +445,7 @@ describe("DashboardPage — empty farm", () => {
     renderWithProviders(<DashboardPage />);
 
     expect(await screen.findByText("Nothing due today.")).toBeInTheDocument();
-    expect(screen.queryByText("⚠ Overdue tasks")).not.toBeInTheDocument();
+    expect(screen.queryByText("Overdue tasks")).not.toBeInTheDocument();
   });
 
   it("shows 'None.' for both kiddings and ultrasounds due", async () => {

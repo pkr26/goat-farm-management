@@ -4,6 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -26,9 +27,18 @@ import {
   type HealthEventIn,
   type TaskOut,
 } from "@/api/generated/models";
-import { Badge } from "@/components/ui/badge";
+import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -74,6 +84,34 @@ function localToday(): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${m}-${d}`;
+}
+
+/** Local YYYY-MM-DD `days` from now (for the due-soon threshold). */
+function localDatePlus(days: number): string {
+  const dt = new Date();
+  dt.setDate(dt.getDate() + days);
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${m}-${d}`;
+}
+
+/** Next-due date cell: red tint when overdue, amber when due within a week. */
+function NextDue({ date }: { date: string }) {
+  const overdue = date < localToday();
+  const dueSoon = !overdue && date <= localDatePlus(7);
+  if (!overdue && !dueSoon) return <>{formatDate(date)}</>;
+  return (
+    <span
+      className={
+        overdue
+          ? "inline-flex items-center gap-1 rounded-md bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950 dark:text-red-300"
+          : "inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+      }
+    >
+      <CalendarClock className="size-3" />
+      {formatDate(date)}
+    </span>
+  );
 }
 
 const eventSchema = z
@@ -330,25 +368,34 @@ export default function HealthPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Health</h1>
-        {canManage && (
-          <Button
-            onClick={() => {
-              reset();
-              setOpen(true);
-            }}
-          >
-            + Add event
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Health"
+        description="Vaccinations, deworming and treatments across the herd."
+        actions={
+          canManage && (
+            <Button
+              onClick={() => {
+                reset();
+                setOpen(true);
+              }}
+            >
+              + Add event
+            </Button>
+          )
+        }
+      />
 
       <Card>
         <CardHeader>
-          <CardTitle>Vaccination schedule per animal</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarClock className="size-4 text-primary" />
+            Vaccination schedule per animal
+          </CardTitle>
+          <CardDescription>
+            Pick an animal to see due dates and boosters from the vaccination templates.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="flex items-end gap-2">
+        <CardContent className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
             <Label>View schedule for</Label>
             <Select value={scheduleAnimalId} onValueChange={(v) => setScheduleAnimalId(v)} items={scheduleAnimalItems}>
@@ -375,10 +422,16 @@ export default function HealthPage() {
         </CardContent>
       </Card>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Event log</h2>
+      <DataTableCard
+        title="Event log"
+        description="Every recorded health event, newest scope first."
+      >
         {events.length === 0 ? (
-          <p className="text-muted-foreground">No health events recorded yet.</p>
+          <EmptyState
+            icon={Syringe}
+            title="No health events recorded yet."
+            description="Recorded vaccinations, deworming and treatments will appear here."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -390,7 +443,7 @@ export default function HealthPage() {
                 <TableHead>Target</TableHead>
                 <TableHead>Dose</TableHead>
                 <TableHead>Route</TableHead>
-                <TableHead>Cost</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
                 <TableHead>Next due</TableHead>
               </TableRow>
             </TableHeader>
@@ -399,7 +452,7 @@ export default function HealthPage() {
                 <TableRow key={e.id}>
                   <TableCell>{formatDate(e.date)}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{e.type}</Badge>
+                    <StatusBadge status={e.type}>{e.type}</StatusBadge>
                   </TableCell>
                   <TableCell>
                     {e.animal_tag ? (
@@ -416,14 +469,16 @@ export default function HealthPage() {
                   <TableCell>{e.disease_target ?? "—"}</TableCell>
                   <TableCell>{e.dose ?? "—"}</TableCell>
                   <TableCell>{e.route ?? "—"}</TableCell>
-                  <TableCell>{formatMoney(e.cost)}</TableCell>
-                  <TableCell>{e.next_due_date ? formatDate(e.next_due_date) : "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatMoney(e.cost)}</TableCell>
+                  <TableCell>
+                    {e.next_due_date ? <NextDue date={e.next_due_date} /> : "—"}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-      </section>
+      </DataTableCard>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">

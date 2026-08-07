@@ -48,7 +48,8 @@ describe("LoginPage — rendering", () => {
   it("renders the sign-in card with email, password and submit button", () => {
     renderWithProviders(<LoginPage />);
 
-    expect(screen.getByText("🐐 GoatFarm")).toBeInTheDocument();
+    // Brand wordmark (Logo) appears in the desktop panel and the mobile header.
+    expect(screen.getAllByText("GoatFarm").length).toBeGreaterThan(0);
     expect(screen.getByText("Sign in to your account")).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
