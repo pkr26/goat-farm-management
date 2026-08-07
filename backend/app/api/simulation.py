@@ -5,15 +5,19 @@ The engine itself is pure Python (``app.simulation``); this router only handles
 transport, persistence (assumptions stored as JSON text, like
 ``Role.permissions``) and RBAC. Runs are synchronous CPU work — horizon and
 Monte Carlo runs are bounded by the assumption schema (monte_carlo_runs <=
-2000), which keeps a worst-case run in the low seconds.
+2000), which keeps a worst-case run in the low seconds, and every run is
+offloaded to a worker thread so it can't block the event loop.
 """
 
 import json
+import math
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from starlette.concurrency import run_in_threadpool
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import Animal, AnimalStatus, Sex, SimulationScenario
@@ -38,6 +42,9 @@ SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 SimManage = Annotated[set[str], Depends(require_perm("simulation.manage"))]
 
 _SYSTEMS = ["stall_fed", "semi_intensive"]
+
+# A compare re-runs a full simulation per id — cap the work per request.
+MAX_COMPARE_IDS = 5
 
 
 def _scenario_out(scenario: SimulationScenario) -> ScenarioOut:
@@ -81,14 +88,40 @@ async def _check_name_free(db: DbSession, farm_id: int, name: str, exclude_id: i
         raise HTTPException(status_code=400, detail="A scenario with that name already exists.")
 
 
+def _finite_payload(value: object) -> bool:
+    """False if any float anywhere in a ``model_dump``'d payload is NaN/±inf."""
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, Mapping):
+        return all(_finite_payload(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return all(_finite_payload(item) for item in value)
+    return True
+
+
 def _run(
     assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool
 ) -> SimulationResult:
-    return run_simulation(
+    result = run_simulation(
         assumptions,
         with_monte_carlo=monte_carlo,
         with_sensitivity=sensitivity,
     )
+    # Defense in depth past the input caps: bounded inputs can still overflow
+    # derived math (a near-zero fodder yield makes the land requirement 1/ε →
+    # inf), and Starlette's allow_nan=False JSONResponse turns any non-finite
+    # float in the payload into a 500. Answer a clean 422 instead.
+    if not _finite_payload(result.model_dump()):
+        raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
+    return result
+
+
+async def _run_offloaded(
+    assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool
+) -> SimulationResult:
+    """Runs are synchronous CPU work — push them off the event loop so a long
+    horizon / Monte Carlo batch can't stall every other request."""
+    return await run_in_threadpool(_run, assumptions, monte_carlo, sensitivity)
 
 
 @router.get("/defaults/breeds")
@@ -144,7 +177,7 @@ async def herd_snapshot(
 @router.post("/run")
 async def run_adhoc(payload: RunIn, farm: CurrentFarm, perms: SimView) -> SimulationResult:
     """Run a simulation from posted assumptions (no persistence)."""
-    return _run(payload.assumptions, payload.monte_carlo, payload.sensitivity)
+    return await _run_offloaded(payload.assumptions, payload.monte_carlo, payload.sensitivity)
 
 
 @router.post("/scenarios", status_code=201)
@@ -191,21 +224,30 @@ async def list_scenarios(db: DbSession, farm: CurrentFarm, perms: SimView) -> li
 async def compare_scenarios(
     db: DbSession, farm: CurrentFarm, perms: SimView, ids: str
 ) -> ScenarioCompareOut:
-    """Run 2+ stored scenarios deterministically side by side (``ids=1,2``)."""
+    """Run 2+ stored scenarios deterministically side by side (``ids=1,2``).
+
+    Duplicate ids are collapsed (a repeated id must not re-run a simulation);
+    more than MAX_COMPARE_IDS distinct ids is a 400."""
     try:
-        id_list = [int(part) for part in ids.split(",") if part.strip()]
+        id_list = list(dict.fromkeys(int(part) for part in ids.split(",") if part.strip()))
     except ValueError:
         raise HTTPException(
             status_code=400, detail="ids must be comma-separated integers"
         ) from None
     if not id_list:
         raise HTTPException(status_code=400, detail="ids must name at least one scenario")
+    if len(id_list) > MAX_COMPARE_IDS:
+        raise HTTPException(
+            status_code=400, detail=f"compare is limited to {MAX_COMPARE_IDS} scenarios"
+        )
     scenarios = [await _get_scenario(db, farm.id, scenario_id) for scenario_id in id_list]
     return ScenarioCompareOut(
         scenarios=[_scenario_out(scenario) for scenario in scenarios],
         results=[
-            _run(
-                SimulationAssumptions.model_validate(json.loads(scenario.assumptions)), False, False
+            await _run_offloaded(
+                SimulationAssumptions.model_validate(json.loads(scenario.assumptions)),
+                False,
+                False,
             )
             for scenario in scenarios
         ],
@@ -270,4 +312,4 @@ async def run_scenario(
     """Run a stored scenario's assumptions (optionally with MC / sensitivity)."""
     scenario = await _get_scenario(db, farm.id, scenario_id)
     assumptions = SimulationAssumptions.model_validate(json.loads(scenario.assumptions))
-    return _run(assumptions, monte_carlo, sensitivity)
+    return await _run_offloaded(assumptions, monte_carlo, sensitivity)

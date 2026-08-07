@@ -20,6 +20,9 @@ ADMIN_URL = "postgresql://localhost:5432/postgres"
 TEST_URL = f"postgresql+asyncpg://localhost:5432/{TEST_DB}"
 
 os.environ["GOATFARM_DATABASE_URL"] = TEST_URL  # before any app import
+# The suite logs in/registers constantly from one client — the auth rate
+# limiter stays off globally; its tests re-enable it per-test (monkeypatch).
+os.environ["GOATFARM_AUTH_RATE_LIMIT_ENABLED"] = "false"
 
 from app.db import Base, get_sessionmaker, reset_engine  # noqa: E402
 from app.main import create_app  # noqa: E402

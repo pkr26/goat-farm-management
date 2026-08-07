@@ -31,6 +31,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import jwt
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -103,12 +104,17 @@ async def make_breeding(
 
 
 async def breed_doe(
-    client: httpx.AsyncClient, headers: dict, tag: str = "D-1"
+    client: httpx.AsyncClient, headers: dict, tag: str = "D-1", bred_days_ago: int = 0
 ) -> tuple[int, int, int]:
-    """Breeding-ready doe + buck and one PENDING breeding. Returns (doe, buck, br) ids."""
+    """Breeding-ready doe + buck and one PENDING breeding. Returns (doe, buck, br) ids.
+    `bred_days_ago` backdates the breeding so a kidding today lands at a
+    realistic gestation (goats kid ~150 days post-breeding)."""
     doe_id = await make_doe(client, headers, tag=tag)
     buck_id = await make_buck(client, headers, tag=f"{tag}-BUCK")
-    br_id = await make_breeding(client, headers, doe_id, buck_id)
+    overrides: dict[str, object] = {}
+    if bred_days_ago:
+        overrides["breeding_date"] = iso(date.today() - timedelta(days=bred_days_ago))
+    br_id = await make_breeding(client, headers, doe_id, buck_id, **overrides)
     return doe_id, buck_id, br_id
 
 
@@ -531,7 +537,7 @@ async def test_cull_flag_cleared_on_later_confirmed_pregnancy(client: httpx.Asyn
 
 async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    doe, buck, br1 = await breed_doe(client, owner)
+    doe, buck, br1 = await breed_doe(client, owner, bred_days_ago=150)
     assert (await ultrasound(client, owner, br1, kid_count=1)).status_code == 200
     resp = await post_kidding(client, owner, br1, kids=[{"sex": "M"}])
     assert resp.status_code == 201, resp.text
@@ -542,7 +548,9 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
         f"/api/animals/{doe}/move", json={"to_bucket": "RESTING"}, headers=owner
     )
     assert resp.status_code == 200, resp.text
-    br2 = await make_breeding(client, owner, doe, buck)
+    br2 = await make_breeding(
+        client, owner, doe, buck, breeding_date=iso(date.today() - timedelta(days=150))
+    )
     assert (await ultrasound(client, owner, br2, kid_count=1)).status_code == 200
     resp = await post_kidding(client, owner, br2, kids=[{"sex": "M"}])
     assert resp.status_code == 201, resp.text
@@ -552,7 +560,7 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
 
 async def test_kidding_closes_leftover_pregnancy_tasks(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    _, _, br_id = await breed_doe(client, owner)
+    _, _, br_id = await breed_doe(client, owner, bred_days_ago=150)
     assert (await ultrasound(client, owner, br_id, kid_count=1)).status_code == 200
     kids = [{"tag": "K-1", "sex": "M", "birth_weight": 2.5}]
     resp = await post_kidding(client, owner, br_id, kids=kids)
@@ -751,7 +759,7 @@ async def test_cull_flag_after_two_failed_cycles_route_level(client: httpx.Async
 
 async def test_abort_after_kidding_is_noop(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    doe, _, br_id = await breed_doe(client, owner)
+    doe, _, br_id = await breed_doe(client, owner, bred_days_ago=150)
     assert (await ultrasound(client, owner, br_id)).status_code == 200
     kids = [{"tag": "K-1", "sex": "M"}, {"tag": "K-2", "sex": "F"}]
     assert (await post_kidding(client, owner, br_id, kids=kids)).status_code == 201
@@ -764,7 +772,7 @@ async def test_abort_after_kidding_is_noop(client: httpx.AsyncClient) -> None:
 
 async def test_kidding_rejects_bad_dates_caps_and_weights(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    _, _, br_id = await breed_doe(client, owner)
+    _, _, br_id = await breed_doe(client, owner, bred_days_ago=150)
     assert (await ultrasound(client, owner, br_id)).status_code == 200
     bred_on = date.fromisoformat((await get_breeding(client, owner, br_id))["breeding_date"])
     too_early = iso(bred_on - timedelta(days=1))
@@ -783,9 +791,30 @@ async def test_kidding_rejects_bad_dates_caps_and_weights(client: httpx.AsyncCli
     assert len(await kidding_records(client, owner)) == 1
 
 
+# Gestation sanity window (services.record_kidding): goats kid at ~150 days
+# (SPEC window 145–155); the service accepts a generous 100–200 day band for
+# backdated record-keeping but rejects a "kidding" 1 day or 3 years
+# post-breeding as the data-entry error it is.
+@pytest.mark.parametrize(
+    ("gestation_days", "expected"),
+    [(99, 409), (201, 409), (100, 201), (150, 201), (200, 201)],
+)
+async def test_kidding_gestation_window(
+    client: httpx.AsyncClient, gestation_days: int, expected: int
+) -> None:
+    owner = await owner_with_farm(client)
+    _, _, br_id = await breed_doe(client, owner, bred_days_ago=gestation_days)
+    assert (await ultrasound(client, owner, br_id)).status_code == 200
+    resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M"}])
+    assert resp.status_code == expected, resp.text
+    if expected != 201:
+        assert "gestation" in resp.json()["detail"]
+        assert await kidding_records(client, owner) == []
+
+
 async def test_second_kidding_blank_tags_succeeds_and_uniquifies(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    doe, buck, br1 = await breed_doe(client, owner)
+    doe, buck, br1 = await breed_doe(client, owner, bred_days_ago=150)
     assert (await ultrasound(client, owner, br1)).status_code == 200
     resp = await post_kidding(client, owner, br1)  # blank tags → D-1-K1/K2
     assert resp.status_code == 201, resp.text
@@ -795,7 +824,9 @@ async def test_second_kidding_blank_tags_succeeds_and_uniquifies(client: httpx.A
         f"/api/animals/{doe}/move", json={"to_bucket": "RESTING"}, headers=owner
     )
     assert resp.status_code == 200, resp.text
-    br2 = await make_breeding(client, owner, doe, buck)  # doe is back in RESTING, ready again
+    br2 = await make_breeding(  # doe is back in RESTING, ready again
+        client, owner, doe, buck, breeding_date=iso(date.today() - timedelta(days=150))
+    )
     assert (await ultrasound(client, owner, br2)).status_code == 200
     resp = await post_kidding(client, owner, br2)  # must NOT silently fail
     assert resp.status_code == 201, resp.text

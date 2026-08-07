@@ -2,8 +2,9 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -41,10 +42,22 @@ router = APIRouter(prefix="/api/animals", tags=["animals"])
 NOT_FOUND = "Animal not found"
 
 
-async def _get_animal(db: AsyncSession, farm_id: int, animal_id: int) -> Animal:
+async def _get_animal(
+    db: AsyncSession, farm_id: int, animal_id: int, *, for_update: bool = False
+) -> Animal:
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
     # int32 DataError (500).
-    animal = await db.get(Animal, animal_id) if animal_id <= MAX_INT32_ID else None
+    animal: Animal | None
+    if animal_id > MAX_INT32_ID:
+        animal = None
+    elif for_update:
+        # SELECT ... FOR UPDATE: concurrent mutations (e.g. two sales) take
+        # the row lock in turn — the loser re-reads the committed row and
+        # fails the state check instead of double-applying side effects.
+        result = await db.execute(select(Animal).where(Animal.id == animal_id).with_for_update())
+        animal = result.scalar_one_or_none()
+    else:
+        animal = await db.get(Animal, animal_id)
     if animal is None or animal.farm_id != farm_id:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     return animal
@@ -70,6 +83,8 @@ async def list_animals(
     sex: Sex | None = None,
     status: AnimalStatusStr | None = None,
     q: str | None = None,
+    limit: Annotated[int | None, Query(ge=1, le=1000)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AnimalListOut:
     stmt = select(Animal).where(Animal.farm_id == farm.id)
     if bucket is not None:
@@ -82,9 +97,17 @@ async def list_animals(
         stmt = stmt.where(Animal.status == AnimalStatus.ACTIVE.value)
     if q and q.strip():
         stmt = stmt.where(Animal.tag_number.ilike(f"%{q.strip()}%"))
-    result = await db.execute(stmt.order_by(Animal.current_bucket, Animal.tag_number))
+    stmt = stmt.order_by(Animal.current_bucket, Animal.tag_number)
+    if limit is None and offset == 0:
+        # Default (unpaginated) behavior: the full filtered list, as always.
+        result = await db.execute(stmt)
+        animals = [AnimalOut.model_validate(a) for a in result.scalars()]
+        return AnimalListOut(animals=animals, total=len(animals))
+    # Paginated: `total` stays the full filtered count so clients can page.
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    result = await db.execute(stmt.offset(offset).limit(limit))
     animals = [AnimalOut.model_validate(a) for a in result.scalars()]
-    return AnimalListOut(animals=animals, total=len(animals))
+    return AnimalListOut(animals=animals, total=total)
 
 
 @router.post("", status_code=201)
@@ -125,27 +148,35 @@ async def create_animal(
         status=AnimalStatus.ACTIVE.value,
     )
     db.add(animal)
-    await db.flush()
-    db.add(
-        BucketMove(
-            animal_id=animal.id,
-            from_bucket=None,
-            to_bucket=payload.current_bucket,
-            reason="Initial entry",
-            created_by_id=user.id,
-        )
-    )
-    if payload.weight_kg is not None and payload.weight_kg > 0:
+    try:
+        await db.flush()
         db.add(
-            WeightRecord(
+            BucketMove(
                 animal_id=animal.id,
-                date=today(),
-                weight_kg=payload.weight_kg,
-                notes="Entry weight",
+                from_bucket=None,
+                to_bucket=payload.current_bucket,
+                reason="Initial entry",
                 created_by_id=user.id,
             )
         )
-    await db.commit()
+        if payload.weight_kg is not None and payload.weight_kg > 0:
+            db.add(
+                WeightRecord(
+                    animal_id=animal.id,
+                    date=today(),
+                    weight_kg=payload.weight_kg,
+                    notes="Entry weight",
+                    created_by_id=user.id,
+                )
+            )
+        await db.commit()
+    except IntegrityError:
+        # A concurrent insert won the tag race past the pre-check above
+        # (uq_animal_tag_per_farm) — answer exactly like the pre-check, never 500.
+        await db.rollback()
+        raise HTTPException(
+            status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
+        ) from None
     return await _animal_out(db, animal)
 
 
@@ -262,9 +293,10 @@ async def change_status(
     user: CurrentUser,
     _perms: Annotated[set[str], Depends(require_perm("animals.status"))],
 ) -> AnimalOut:
-    animal = await _get_animal(db, farm.id, animal_id)
+    animal = await _get_animal(db, farm.id, animal_id, for_update=True)
     # Only an ACTIVE animal can change status — replaying a sale on an
-    # already-SOLD animal must not book a second income transaction.
+    # already-SOLD animal must not book a second income transaction. The row
+    # lock makes two in-flight status changes serialize on this check.
     if animal.status != AnimalStatus.ACTIVE.value:
         raise HTTPException(
             status_code=400,

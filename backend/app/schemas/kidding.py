@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .breeding import BreedingRecordOut
-from .common import BoundedId, NonNegativeFloat
+from .common import BoundedId, NonNegativeWeightKgFloat
 
 KidStatusStr = Literal["ALIVE", "STILLBORN", "DIED"]
 # SPEC §KiddingRecord + models.KiddingEase: exactly these three (no CAESAREAN).
@@ -16,7 +16,7 @@ KiddingEaseStr = Literal["NORMAL", "ASSISTED", "DIFFICULT"]
 class KidIn(BaseModel):
     tag: str | None = Field(default=None, max_length=50)  # blank → auto tag
     sex: Literal["M", "F"]
-    birth_weight: NonNegativeFloat | None = None
+    birth_weight: NonNegativeWeightKgFloat | None = None
     status: KidStatusStr = "ALIVE"
 
 

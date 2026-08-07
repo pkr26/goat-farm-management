@@ -83,12 +83,21 @@ def _task_out(task: Task) -> TaskOut:
     return out
 
 
-async def _get_task(db: AsyncSession, farm: Farm, task_id: int) -> Task:
+async def _get_task(
+    db: AsyncSession, farm: Farm, task_id: int, *, for_update: bool = False
+) -> Task:
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
     # int32 DataError (500).
     if task_id > MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Task not found")
-    result = await db.execute(select(Task).options(*_TASK_LOADS).where(Task.id == task_id))
+    stmt = select(Task).options(*_TASK_LOADS).where(Task.id == task_id)
+    if for_update:
+        # SELECT ... FOR UPDATE: concurrent complete/skip/verify/reject calls
+        # serialize on the row — the loser re-reads the committed status and
+        # fails its state check instead of re-applying the side effects
+        # (bucket moves, spawned occurrences) a second time.
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
     task = result.scalar_one_or_none()
     if task is None or task.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -211,7 +220,7 @@ async def complete(
     membership: CurrentMembership,
     perms: COMPLETE,
 ) -> TaskOut:
-    task = await _get_task(db, farm, task_id)
+    task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Task is not pending")
     if not _visible_to(task, user, farm, membership):
@@ -239,12 +248,13 @@ async def skip(
     membership: CurrentMembership,
     perms: COMPLETE,
 ) -> TaskOut:
-    task = await _get_task(db, farm, task_id)
+    task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Task is not pending")
     if not _visible_to(task, user, farm, membership):
         raise HTTPException(status_code=403, detail="This duty is not assigned to you")
     task.status = TaskStatus.SKIPPED.value
+    task.skipped_by_id = user.id
     if task.recur_days:
         # A skipped occurrence must not kill the series.
         await spawn_next_occurrence(db, task)
@@ -256,7 +266,7 @@ async def skip(
 async def verify(
     task_id: int, db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: VERIFY
 ) -> TaskOut:
-    task = await _get_task(db, farm, task_id)
+    task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.DONE.value or not task.needs_verification:
         raise HTTPException(status_code=400, detail="Task is not awaiting verification")
     # Two-person rule: the worker who did the duty cannot verify his own
@@ -272,7 +282,7 @@ async def verify(
 async def reject(
     payload: TaskRejectIn, task_id: int, db: DbSession, farm: CurrentFarm, perms: VERIFY
 ) -> TaskOut:
-    task = await _get_task(db, farm, task_id)
+    task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.DONE.value or not task.needs_verification:
         raise HTTPException(status_code=400, detail="Task is not awaiting verification")
     await reject_task(db, task, (payload.note or "").strip())

@@ -153,7 +153,7 @@ class _CoreResult:
     equity: float
     npv: float
     irr: float | None
-    bcr: float
+    bcr: float | None
     dscr_per_year: list[float]
     avg_dscr: float
     min_dscr: float

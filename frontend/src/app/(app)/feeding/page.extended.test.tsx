@@ -5,7 +5,7 @@
  * manage control.
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -136,6 +136,34 @@ describe("FeedingPage plan table", () => {
     expect(within(row).getByTitle("MORNING 6:30 AM")).toHaveTextContent("6");
     expect(within(row).getByTitle("AFTERNOON 1:30 PM")).toHaveTextContent("3");
     expect(within(row).getByTitle("NIGHT 7:30 PM")).toHaveTextContent("6");
+  });
+
+  it("degrades malformed shift cells to placeholders instead of crashing", async () => {
+    server.use(
+      planHandler({
+        lines: [
+          {
+            ...LINE_BREEDING,
+            shifts: [
+              { shift: "MORNING", pct: 40, kg: 8, time: "6:30 AM" },
+              { bogus: true },
+              null,
+            ],
+          },
+        ],
+        records: [],
+      }),
+      recipesHandler(),
+    );
+    renderWithProviders(<FeedingPage />);
+
+    const row = (await screen.findByText("Lactating 60/40")).closest("tr") as HTMLElement;
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[5]).toHaveTextContent("8"); // the valid MORNING cell
+    // Malformed cells: fallback "?" label, zeroed kg, column positions kept.
+    expect(cells[6]).toHaveTextContent("0");
+    expect(cells[6]).toHaveAttribute("title", "? ");
+    expect(cells[7]).toHaveTextContent("0");
   });
 
   it("sums dispensed quantities per bucket and marks full rations done", async () => {
@@ -283,6 +311,24 @@ describe("FeedingPage dispense dialog", () => {
     await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "-3");
     await user.click(within(dialog).getByRole("button", { name: "Record" }));
     expect(await within(dialog).findByText("Quantity must be greater than 0")).toBeInTheDocument();
+    expect(dispenseCalls).toBe(0);
+  });
+
+  it("rejects a future date (typed input bypasses the max attribute)", async () => {
+    const { user, dialog } = await openDialog();
+
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
+    const d = String(tomorrow.getDate()).padStart(2, "0");
+    fireEvent.change(within(dialog).getByLabelText("Date"), {
+      target: { value: `${tomorrow.getFullYear()}-${m}-${d}` },
+    });
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "4");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+
+    expect(
+      await within(dialog).findByText("Date can't be in the future"),
+    ).toBeInTheDocument();
     expect(dispenseCalls).toBe(0);
   });
 

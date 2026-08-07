@@ -164,11 +164,12 @@ def build_metric_explanations(
                 f"outflows: {m.bcr:.2f}. Above 1.0 the project earns more than it costs "
                 f"(at the {_pct(fin.discount_rate_annual)} discount rate); banks typically "
                 f"look for 1.5 or better."
-                if m.bcr != float("inf")
-                else "Benefit-cost ratio is unbounded because the project has no discounted "
-                "outflows (fully subsidised and immediately cash-positive)."
+                if m.bcr is not None
+                else "Benefit-cost ratio is undefined because the project has no "
+                "discounted outflows (no costs at all — e.g. a fully subsidised, "
+                "immediately cash-positive setup)."
             ),
-            figures={"bcr": m.bcr if m.bcr != float("inf") else None},
+            figures={"bcr": m.bcr},
         )
     )
     debt_years = sum(1 for row in result.annual_pl if row.debt_service > 0.0)
@@ -432,7 +433,7 @@ def build_narrative_report(
     problems: list[str] = []
     if m.npv <= 0.0:
         problems.append("the NPV is negative")
-    if m.bcr < 1.0:
+    if m.bcr is not None and m.bcr < 1.0:
         problems.append("the benefit-cost ratio is below 1.0")
     if m.irr is None or m.irr < a.finance.discount_rate_annual:
         problems.append("the IRR is below your discount rate")
@@ -440,7 +441,7 @@ def build_narrative_report(
         problems.append("the weakest debt year has a DSCR below 1.0")
     if m.payback_month is None:
         problems.append("the equity is never paid back inside the horizon")
-    if m.npv <= 0.0 or m.bcr < 1.0:
+    if m.npv <= 0.0 or (m.bcr is not None and m.bcr < 1.0):
         verdict = "NOT VIABLE"
     elif problems:
         verdict = "VIABLE WITH CAUTION"
@@ -454,8 +455,11 @@ def build_narrative_report(
     if problems:
         paragraphs.append("Watch out: " + "; ".join(problems) + ".")
     else:
+        # bcr is None only when there are no outflows, which makes irr None
+        # too — so the "all checks pass" branch always has a real bcr.
         paragraphs.append(
-            f"All standard checks pass: NPV {_inr(m.npv)} is positive, BCR is {m.bcr:.2f}"
+            f"All standard checks pass: NPV {_inr(m.npv)} is positive, BCR is "
+            + (f"{m.bcr:.2f}" if m.bcr is not None else "undefined (no outflows)")
             + (f", IRR is {_pct(m.irr)}" if m.irr is not None else "")
             + f", and the equity is recovered in {_year_of(m.payback_month or 0)}."
         )

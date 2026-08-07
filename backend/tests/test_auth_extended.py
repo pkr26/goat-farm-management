@@ -314,13 +314,17 @@ async def test_register_unicode_password_roundtrip(client: httpx.AsyncClient) ->
 
 
 async def test_register_very_long_password(client: httpx.AsyncClient) -> None:
-    password = "g0at!" * 100  # 500 chars
+    password = "g0at!" * 25 + "x" * 3  # 128 chars — exactly the cap (B6)
     resp = await client.post(
         "/api/auth/register", json={"email": "longpw@farm.in", "password": password}
     )
     assert resp.status_code == 201, resp.text
     headers = await login(client, "longpw@farm.in", password)
     assert (await client.get("/api/auth/me", headers=headers)).status_code == 200
+    resp = await client.post(
+        "/api/auth/register", json={"email": "toolong@farm.in", "password": "g0at!" * 26}
+    )
+    assert resp.status_code == 422  # 130 chars — beyond the cap
 
 
 # ---------------------------------------------------------------------------

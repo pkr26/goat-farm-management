@@ -70,8 +70,11 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
 }
 
+/** Backend datetimes are naive UTC (no offset suffix) — parse as UTC, not
+ *  browser-local, then format in the viewer's locale. */
 function fmtDateTime(iso: string): string {
-  const d = new Date(iso);
+  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  const d = new Date(hasOffset ? iso : `${iso}Z`);
   return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 

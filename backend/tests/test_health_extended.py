@@ -22,6 +22,7 @@ import httpx
 from app.utils import add_months, today
 
 from .conftest import login, owner_with_farm
+from .test_tasks_extended import add_worker, login_user, make_custom_role, worker_headers
 
 WORKER_PW = "workerpass123"
 
@@ -262,9 +263,15 @@ async def test_record_event_huge_finite_cost(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
     events = await record_event(
-        client, headers, animal_id=animal["id"], type="TREATMENT", cost=1e15
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        cost=1e9,  # the ₹1e9 money cap
     )
-    assert events[0]["cost"] == 1e15
+    assert events[0]["cost"] == 1e9
+    resp = await post_event(client, headers, animal_id=animal["id"], type="TREATMENT", cost=1e15)
+    assert resp.status_code == 422  # beyond the cap — B2 float-overflow bound
 
 
 async def test_record_event_far_past_date_accepted(client: httpx.AsyncClient) -> None:
@@ -586,7 +593,7 @@ async def test_event_animal_id_just_below_db_range_is_400(client: httpx.AsyncCli
 async def test_event_future_date_422(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
-    future = today() + timedelta(days=1)
+    future = today() + timedelta(days=2)  # tomorrow is allowed (tz headroom)
     resp = await post_event(
         client, headers, animal_id=animal["id"], type="VACCINE", date=iso(future)
     )
@@ -807,6 +814,88 @@ async def test_event_with_nonexistent_task_id_still_records(client: httpx.AsyncC
     assert len(events) == 1
 
 
+async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient) -> None:
+    """The health form is not a backdoor around duty assignment: closing a
+    linked VACCINE/DEWORMING duty requires the same rule as the duties page
+    (_visible_to) — the acting user's role must be the duty's assigned role,
+    or the duty must be assigned to the user directly. Violations → 403 and
+    the event is not recorded."""
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers)
+    batch_id = detail["batch"]["id"]
+    ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])  # auto-assigned: VET role
+
+    # Worker holding health.manage via a custom role the duty is NOT assigned to.
+    floater_role = await make_custom_role(client, headers, "Floater", ["health.manage"])
+    await add_worker(client, headers, floater_role, "floater@farm.in")
+    floater, floater_id = await login_user(client, "floater@farm.in")
+    floater |= {"X-Farm-Id": headers["X-Farm-Id"]}
+
+    resp = await post_event(
+        client,
+        floater,
+        scope="batch",
+        purchase_batch_id=batch_id,
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=ppr_task["id"],
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "This duty is not assigned to you"
+    assert await list_events(client, headers) == []  # the event was not recorded
+    detail = await get_batch(client, headers, batch_id)
+    assert next(t for t in detail["tasks"] if t["id"] == ppr_task["id"])["status"] == "PENDING"
+
+    # The assigned role's worker (VET) closes it fine.
+    vet, vet_id = await worker_headers(client, headers, "VET", "vet@farm.in")
+    events = await record_event(
+        client,
+        vet,
+        scope="batch",
+        purchase_batch_id=batch_id,
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=ppr_task["id"],
+    )
+    assert len(events) == 2
+    detail = await get_batch(client, headers, batch_id)
+    done = next(t for t in detail["tasks"] if t["id"] == ppr_task["id"])
+    assert done["status"] == "DONE"
+    assert done["completed_by_id"] == vet_id
+
+    # Direct user assignment (no matching role) also satisfies the rule.
+    deworm_task = next(t for t in detail["tasks"] if t["category"] == "DEWORMING")
+    resp = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Extra deworm round",
+            "due_date": iso(today()),
+            "category": "DEWORMING",
+            "assigned_user_id": floater_id,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    manual_duty_id = resp.json()["id"]
+    events = await record_event(
+        client,
+        floater,
+        scope="batch",
+        purchase_batch_id=batch_id,
+        type="DEWORMING",
+        product_name="Albendazole",
+        task_id=manual_duty_id,
+    )
+    assert len(events) == 2
+    detail = await get_batch(client, headers, batch_id)
+    assert next(t for t in detail["tasks"] if t["id"] == deworm_task["id"])["status"] == "PENDING"
+    # ...while floater's own directly-assigned duty was closed and attributed.
+    resp = await client.get("/api/tasks", headers=headers)
+    manual = next(t for t in resp.json()["completed"] if t["id"] == manual_duty_id)
+    assert manual["status"] == "DONE"
+    assert manual["completed_by_id"] == floater_id
+
+
 # ---------------------------------------------------------------------------
 # Vaccination schedule endpoint
 # ---------------------------------------------------------------------------
@@ -984,6 +1073,29 @@ async def test_schedule_ignores_treatment_events(client: httpx.AsyncClient) -> N
     ppr = row_by_name(schedule, "PPR")
     assert ppr["last_done"] is None
     assert ppr["status"] == "OVERDUE"
+
+
+async def test_schedule_goat_pox_not_matched_by_generic_goat_product(
+    client: httpx.AsyncClient,
+) -> None:
+    """Regression: the old first-word match marked "Goat Pox" DONE from any
+    product/disease merely containing "goat". Matching is now on the full
+    normalized template name (plus the parenthesized abbreviation)."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    await record_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", product_name="Goat mineral drench"
+    )
+    schedule = await get_schedule(client, headers, animal["id"])
+    assert row_by_name(schedule, "Goat Pox")["last_done"] is None
+    # ...while the real vaccine, recorded by its full name, still matches.
+    await record_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", product_name="  goat  POX vaccine "
+    )
+    schedule = await get_schedule(client, headers, animal["id"])
+    row = row_by_name(schedule, "Goat Pox")
+    assert row["last_done"] == iso(today())
+    assert row["status"] == "DONE"
 
 
 async def test_schedule_nonexistent_animal_404(client: httpx.AsyncClient) -> None:
@@ -1294,13 +1406,16 @@ async def test_purchase_without_price_books_no_transaction(client: httpx.AsyncCl
     assert await transactions(client, headers) == []
 
 
-async def test_purchase_with_zero_price_books_no_transaction(client: httpx.AsyncClient) -> None:
+async def test_purchase_with_zero_price_books_zero_transaction(client: httpx.AsyncClient) -> None:
+    """An explicit ₹0 is a real (free) purchase: it books a ₹0 ANIMAL_PURCHASE
+    expense and a 0.00 per-head price — distinct from omitting the price
+    entirely, which books nothing (see the test above)."""
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=3, total_price=0)
-    assert await transactions(client, headers) == []
+    txns = await transactions(client, headers)
+    assert [(t["category"], t["amount"]) for t in txns] == [("ANIMAL_PURCHASE", 0.0)]
     detail = await get_batch(client, headers, batch["id"])
-    # and no per-head price is invented either
-    assert all(a["purchase_price"] is None for a in detail["animals"])
+    assert all(a["purchase_price"] == 0.0 for a in detail["animals"])
 
 
 # ---------------------------------------------------------------------------
@@ -1366,7 +1481,7 @@ async def test_batch_zero_weight_accepted(client: httpx.AsyncClient) -> None:
 
 async def test_batch_date_validation(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    future = today() + timedelta(days=1)
+    future = today() + timedelta(days=2)  # tomorrow is allowed (tz headroom)
     for bad in [iso(future), "1999-12-31", "01-01-2026", "not-a-date", "2026-02-30"]:
         resp = await _post_batch(client, headers, date=bad, count=1)
         assert resp.status_code == 422, bad

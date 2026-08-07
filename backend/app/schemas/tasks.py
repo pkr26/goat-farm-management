@@ -51,6 +51,7 @@ class TaskOut(BaseModel):
     verified_by_id: int | None
     verified_at: datetime | None
     verification_note: str | None
+    skipped_by_id: int | None
     # enriched for display
     assigned_role_name: str | None = None
     assigned_user_name: str | None = None

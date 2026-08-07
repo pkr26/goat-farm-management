@@ -423,6 +423,7 @@ async def test_create_response_shape(client: httpx.AsyncClient) -> None:
         "verified_by_id",
         "verified_at",
         "verification_note",
+        "skipped_by_id",
         "assigned_role_name",
         "assigned_user_name",
         "animal_tag",
@@ -1898,6 +1899,53 @@ async def test_manual_vaccine_duty_completed_via_health_form(client: httpx.Async
     assert done["status"] == "DONE"
     assert done["completed_by_id"] == owner_id
     assert done["id"] in {t["id"] for t in tabs["completed"]}
+
+
+async def test_ultrasound_form_stamps_task_attribution(client: httpx.AsyncClient) -> None:
+    """Closing the ULTRASOUND duty through the breeding form attributes the
+    completion (it used to go DONE with completed_by_id/completed_at NULL)."""
+    owner = await owner_with_farm(client)
+    _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
+    doe = await make_doe(client, owner)
+    buck = await make_buck(client, owner)
+    br = await make_breeding(client, owner, doe, buck, today() - timedelta(days=40))
+    await submit_ultrasound(client, owner, br["id"], pregnant=True)
+    us = next(t for t in all_tasks(await get_tabs(client, owner)) if t["category"] == "ULTRASOUND")
+    assert us["status"] == "DONE"
+    assert us["completed_by_id"] == owner_id
+    assert us["completed_at"] is not None
+
+
+async def test_kidding_form_stamps_task_attribution(client: httpx.AsyncClient) -> None:
+    """Same for the KIDDING_DUE duty closed through the kidding form."""
+    owner = await owner_with_farm(client)
+    _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
+    _doe, br = await make_pregnancy(client, owner, today() - timedelta(days=160))
+    await record_kidding(
+        client,
+        owner,
+        br,
+        date.fromisoformat(br["expected_kidding_date"]),
+        [{"tag": "K-1", "sex": "M", "birth_weight": 2.5, "status": "ALIVE"}],
+    )
+    kd = next(t for t in all_tasks(await get_tabs(client, owner)) if t["category"] == "KIDDING_DUE")
+    assert kd["status"] == "DONE"
+    assert kd["completed_by_id"] == owner_id
+    assert kd["completed_at"] is not None
+
+
+async def test_skip_stamps_skipped_by(client: httpx.AsyncClient) -> None:
+    """Skipping a duty is attributed (skipped_by_id), mirroring completed_by_id."""
+    owner = await owner_with_farm(client)
+    _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
+    duty = await make_duty(client, owner, "Job")
+    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "SKIPPED"
+    assert body["skipped_by_id"] == owner_id
+    skipped = find_task(await get_tabs(client, owner), duty["id"])
+    assert skipped["skipped_by_id"] == owner_id
 
 
 async def test_health_form_ignores_non_vaccine_task_id(client: httpx.AsyncClient) -> None:

@@ -13,4 +13,9 @@ bucket?: ListAnimalsApiAnimalsGetBucket;
 sex?: ListAnimalsApiAnimalsGetSex;
 status?: ListAnimalsApiAnimalsGetStatus;
 q?: string | null;
+limit?: number | null;
+/**
+ * @minimum 0
+ */
+offset?: number;
 };

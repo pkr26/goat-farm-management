@@ -4948,6 +4948,13 @@ export const getCreateWorkerApiTeamWorkersPostUrl = () => {
 }
 
 /**
+ * Add a worker: create a brand-new account, or enroll an existing one
+ * that owns no farm and belongs to no other farm's team. Accounts and
+ * passwords are global, so absorbing an account affiliated with another
+ * farm would hand this farm a cross-tenant takeover path (reset-password
+ * rewrites the global password). Residual limitation: there is no
+ * invitation/consent flow yet — an unaffiliated account is enrolled without
+ * the account holder's say-so.
  * @summary Create Worker
  */
 export const createWorkerApiTeamWorkersPost = async (workerCreateIn: WorkerCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createWorkerApiTeamWorkersPostResponse> => {
@@ -5219,6 +5226,12 @@ export const getResetPasswordApiTeamWorkersMembershipIdResetPasswordPostUrl = (m
 }
 
 /**
+ * Rewrite a worker's GLOBAL password. Restricted to accounts whose sole
+ * farm affiliation is this one (the accounts this farm created): resetting
+ * the password of an account tied to another farm would be a cross-tenant
+ * takeover. Residual limitation: without an invitation/consent flow, the
+ * farm-set password is the account's only credential — the worker cannot
+ * yet change it himself.
  * @summary Reset Password
  */
 export const resetPasswordApiTeamWorkersMembershipIdResetPasswordPost = async (membershipId: number,
@@ -6270,6 +6283,9 @@ export const getCompareScenariosApiSimulationScenariosCompareGetUrl = (params: C
 
 /**
  * Run 2+ stored scenarios deterministically side by side (``ids=1,2``).
+ *
+ * Duplicate ids are collapsed (a repeated id must not re-run a simulation);
+ * more than MAX_COMPARE_IDS distinct ids is a 400.
  * @summary Compare Scenarios
  */
 export const compareScenariosApiSimulationScenariosCompareGet = async (params: CompareScenariosApiSimulationScenariosCompareGetParams, options?: Parameters<typeof customInstance>[1]): Promise<compareScenariosApiSimulationScenariosCompareGetResponse> => {

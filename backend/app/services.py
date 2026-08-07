@@ -23,12 +23,15 @@ import re
 from datetime import date, timedelta
 from typing import Any, cast
 
-from sqlalchemy import Select, or_, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import (
+    GESTATION_DAYS,
     MAX_FAILED_CYCLES_BEFORE_CULL,
+    MAX_GESTATION_DAYS,
+    MIN_GESTATION_DAYS,
     SHIFT_SPLIT,
     WEANING_DAYS,
     Animal,
@@ -101,14 +104,24 @@ def move_animal(
 async def skip_pending_tasks_for_animal(db: AsyncSession, farm_id: int, animal_id: int) -> None:
     """Cancel an animal's pending tasks (death/sale/cull): a dead or sold
     animal must not keep generating work (vaccines, moves, kidding due)."""
-    for task in await _pending_tasks_for(db, farm_id, animal_id=animal_id):
-        task.status = TaskStatus.SKIPPED.value
+    for task in await _pending_tasks_for(db, farm_id, for_update=True, animal_id=animal_id):
+        # Re-check under the row lock: a concurrent completion that committed
+        # DONE while we waited must survive — never overwrite it to SKIPPED.
+        if task.status == TaskStatus.PENDING.value:
+            task.status = TaskStatus.SKIPPED.value
 
 
-async def _pending_tasks_for(db: AsyncSession, farm_id: int, **filters: object) -> list[Task]:
+async def _pending_tasks_for(
+    db: AsyncSession, farm_id: int, for_update: bool = False, **filters: object
+) -> list[Task]:
     stmt = select(Task).where(Task.farm_id == farm_id, Task.status == TaskStatus.PENDING.value)
     for key, value in filters.items():
         stmt = stmt.where(getattr(Task, key) == value)
+    if for_update:
+        # SELECT ... FOR UPDATE serializes against concurrent completions on
+        # the same rows (PostgreSQL re-checks the WHERE after the lock wait,
+        # so a task flipped non-PENDING meanwhile drops out of the result).
+        stmt = stmt.with_for_update()
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -272,10 +285,15 @@ async def create_breeding_record(
 
 
 async def record_ultrasound_result(
-    db: AsyncSession, br: BreedingRecord, pregnant: bool, kid_count: int | None = None
+    db: AsyncSession,
+    br: BreedingRecord,
+    pregnant: bool,
+    kid_count: int | None = None,
+    created_by_id: int | None = None,
 ) -> BreedingRecord:
     """Record ultrasound outcome. Pregnant → CONFIRMED_PREGNANT + 3 follow-up
     tasks + move to PREGNANCY_EARLY. Not pregnant → FAILED + cull check.
+    The closed ULTRASOUND duty is attributed to the acting user.
 
     Idempotent: only a PENDING record accepts a result — a double submission
     (or forged replay) must not spawn a second set of follow-up tasks."""
@@ -290,6 +308,8 @@ async def record_ultrasound_result(
         db, br.farm_id, breeding_record_id=br.id, category=TaskCategory.ULTRASOUND.value
     ):
         task.status = TaskStatus.DONE.value
+        task.completed_by_id = created_by_id
+        task.completed_at = utcnow()
 
     if pregnant:
         br.outcome = BreedingOutcome.CONFIRMED_PREGNANT.value
@@ -391,7 +411,10 @@ async def record_kidding(
     dam/sire linked, bucket=RECOVERY). Doe → RECOVERY; WEANING task at +60d.
 
     Only a confirmed, not-yet-kidded pregnancy of an ACTIVE doe can kidd:
-    a sold/dead doe must not "deliver" new stock onto the farm."""
+    a sold/dead doe must not "deliver" new stock onto the farm. The kidding
+    date must imply a plausible gestation (MIN/MAX_GESTATION_DAYS) — the SPEC
+    window is 145–155 days, so 100–200 accepts any real record while rejecting
+    absurd dates that would silently corrupt gestation statistics."""
     if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
         raise ValueError("Kidding requires a confirmed pregnancy")
     if await _kidding_record_of(db, br) is not None:
@@ -399,6 +422,13 @@ async def record_kidding(
     doe = await _load_doe(db, br)
     if doe.status != AnimalStatus.ACTIVE.value:
         raise ValueError(f"{doe.tag_number} is {doe.status.lower()} — cannot record a kidding")
+    gestation = (kidding_date - br.breeding_date).days
+    if not MIN_GESTATION_DAYS <= gestation <= MAX_GESTATION_DAYS:
+        raise ValueError(
+            f"Kidding date implies a {gestation}-day gestation — goats kid at "
+            f"~{GESTATION_DAYS} days (accepted window "
+            f"{MIN_GESTATION_DAYS}–{MAX_GESTATION_DAYS} days)"
+        )
     record = KiddingRecord(
         farm_id=farm.id,
         doe_id=doe.id,
@@ -412,7 +442,15 @@ async def record_kidding(
     await db.flush()
 
     alive_count = sum(1 for k in kids if k["status"] == KidStatus.ALIVE.value)
-    birth_type = {1: BirthType.SINGLE, 2: BirthType.TWIN, 3: BirthType.TRIPLET}.get(alive_count)
+    if alive_count >= 5:
+        birth_type: BirthType | None = BirthType.MULTIPLET
+    else:
+        birth_type = {
+            1: BirthType.SINGLE,
+            2: BirthType.TWIN,
+            3: BirthType.TRIPLET,
+            4: BirthType.QUADRUPLET,
+        }.get(alive_count)
 
     # Tags are unique per farm; auto tags ("<doe>-K<n>") collide on a doe's
     # second kidding, so uniquify instead of crashing on the constraint.
@@ -461,6 +499,7 @@ async def record_kidding(
                     from_bucket=None,
                     to_bucket=Bucket.RECOVERY.value,
                     reason="Born",
+                    created_by_id=created_by_id,
                 )
             )
             entry.tag = tag
@@ -473,14 +512,19 @@ async def record_kidding(
         db, farm.id, breeding_record_id=br.id, category=TaskCategory.KIDDING_DUE.value
     ):
         task.status = TaskStatus.DONE.value
+        task.completed_by_id = created_by_id
+        task.completed_at = utcnow()
     # Flush before the leftover query: sessions run autoflush=False, and the
     # DB-level PENDING filter below must see the DONE above (else it clobbers
     # the KIDDING_DUE task back to SKIPPED).
     await db.flush()
     # Leftover pre-kidding tasks (ET+TT vaccine, move to DELIVERY) are moot
     # once she has kidded — skip them so they don't linger as overdue noise.
-    for task in await _pending_tasks_for(db, farm.id, breeding_record_id=br.id):
-        task.status = TaskStatus.SKIPPED.value
+    # Locked + re-checked like skip_pending_tasks_for_animal: a concurrently
+    # committed completion must survive.
+    for task in await _pending_tasks_for(db, farm.id, for_update=True, breeding_record_id=br.id):
+        if task.status == TaskStatus.PENDING.value:
+            task.status = TaskStatus.SKIPPED.value
 
     await _add_task(
         db,
@@ -513,13 +557,18 @@ async def create_purchase_batch(
     notes: str,
     create_animals: bool,
     created_by_id: int | None = None,
+    sex: str = "F",
 ) -> PurchaseBatch:
     """Create a purchase batch, optionally stub N animals into QUARANTINE,
-    auto-generate the 45-day quarantine task schedule, and book the expense."""
+    auto-generate the 45-day quarantine task schedule, and book the expense.
+    Stub sex is explicit (a bought buck must not become a breeding-candidate
+    "doe"); an explicit ₹0 price books a ₹0 expense, None books nothing."""
     if count < 1:
         raise ValueError("Batch count must be at least 1")
     if count > MAX_BATCH_COUNT:
         raise ValueError(f"Batch count is capped at {MAX_BATCH_COUNT} per batch")
+    if sex not in ("M", "F"):
+        raise ValueError("Batch sex must be M or F")
     if total_price is not None and total_price < 0:
         raise ValueError("Total price cannot be negative")
     if avg_age_months is not None and not 0 <= avg_age_months <= MAX_AGE_MONTHS:
@@ -540,12 +589,12 @@ async def create_purchase_batch(
     await db.flush()
 
     if create_animals:
-        per_head = round(total_price / count, 2) if total_price else None
+        per_head = round(total_price / count, 2) if total_price is not None else None
         for i in range(1, count + 1):
             animal = Animal(
                 farm_id=farm.id,
                 tag_number=f"B{batch.id}-{i:03d}",
-                sex="F",
+                sex=sex,
                 source=AnimalSource.PURCHASED.value,
                 current_bucket=Bucket.QUARANTINE.value,
                 status=AnimalStatus.ACTIVE.value,
@@ -578,7 +627,7 @@ async def create_purchase_batch(
             purchase_batch_id=batch.id,
         )
 
-    if total_price:
+    if total_price is not None:  # an explicit ₹0 still books a ₹0 expense
         db.add(
             Transaction(
                 farm_id=farm.id,
@@ -843,18 +892,21 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
     )
     events = list(events_result.scalars().all())
 
+    def _normalize(text: str) -> str:
+        return " ".join(text.lower().split())
+
     def _matches(template_name: str, event: HealthEvent) -> bool:
-        haystack = f"{event.product_name or ''} {event.disease_target or ''}".lower()
-        key = template_name.split("(")[0].strip().lower()
-        first_word = key.split()[0] if key else ""
+        haystack = _normalize(f"{event.product_name or ''} {event.disease_target or ''}")
+        # Conservative substring on the FULL normalized template name (sans
+        # parenthetical): "PPR" matches an event recorded as "PPR vaccine",
+        # but "Goat Pox" no longer matches a product merely containing "goat".
+        key = _normalize(template_name.split("(")[0])
+        if key and key in haystack:
+            return True
         # "Enterotoxaemia (ET)" should also match an event recorded as "ET + TT".
         abbrev_match = re.search(r"\(([^)]+)\)", template_name)
         abbrev = abbrev_match.group(1).strip().lower() if abbrev_match else ""
-        return (
-            key in haystack
-            or (bool(first_word) and first_word in haystack)
-            or (bool(abbrev) and re.search(rf"\b{re.escape(abbrev)}\b", haystack) is not None)
-        )
+        return bool(abbrev) and re.search(rf"\b{re.escape(abbrev)}\b", haystack) is not None
 
     rows: list[dict[str, Any]] = []
     templates_result = await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.id))
@@ -910,20 +962,29 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
 # ---------------------------------------------------------------------------
 # Dashboard helpers
 # ---------------------------------------------------------------------------
-async def ready_to_move_suggestions(db: AsyncSession, farm: Farm) -> list[dict[str, Any]]:
-    """Bucket-move suggestions per SPEC thresholds."""
-    result = await db.execute(
-        select(Animal)
-        .options(
-            # is_breeding_ready / days_in_current_bucket / _gestation_days read
-            # these relationships.
-            selectinload(Animal.weight_records),
-            selectinload(Animal.bucket_moves),
-            selectinload(Animal.breedings_as_doe).selectinload(BreedingRecord.kidding_record),
+async def ready_to_move_suggestions(
+    db: AsyncSession, farm: Farm, animals: list[Animal] | None = None
+) -> list[dict[str, Any]]:
+    """Bucket-move suggestions per SPEC thresholds.
+
+    `animals` may supply the caller's already-loaded ACTIVE herd (the
+    dashboard counts the same rows anyway — one herd scan per request instead
+    of two). The relationships the thresholds read are ``lazy="selectin"``,
+    so any load of the herd carries them; the fallback query keeps the
+    explicit selectinloads for clarity."""
+    if animals is None:
+        result = await db.execute(
+            select(Animal)
+            .options(
+                # is_breeding_ready / days_in_current_bucket / _gestation_days read
+                # these relationships.
+                selectinload(Animal.weight_records),
+                selectinload(Animal.bucket_moves),
+                selectinload(Animal.breedings_as_doe).selectinload(BreedingRecord.kidding_record),
+            )
+            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
         )
-        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-    )
-    animals = list(result.scalars().all())
+        animals = list(result.scalars().all())
     suggestions: list[dict[str, Any]] = []
 
     def _gestation_days(animal: Animal) -> int | None:
@@ -1163,12 +1224,17 @@ async def mix_feed_batch(
 
     shortages = []
     planned: list[tuple[FeedInventory | None, float]] = []
-    for line in recipe.lines:
+    # Lock stock rows in a canonical order (ingredient name), not the recipe's
+    # line order: two recipes sharing ingredients in different orders would
+    # otherwise invert the FOR UPDATE order and deadlock under concurrent mixes.
+    for line in sorted(recipe.lines, key=lambda recipe_line: recipe_line.ingredient):
         needed = round(line.kg_per_100kg / 100.0 * batch_kg, 3)
+        # FOR UPDATE: concurrent mixes/restocks serialize on the stock row —
+        # the loser re-reads the committed balance instead of a lost update.
         item_result = await db.execute(
-            select(FeedInventory).where(
-                FeedInventory.farm_id == farm.id, FeedInventory.ingredient == line.ingredient
-            )
+            select(FeedInventory)
+            .where(FeedInventory.farm_id == farm.id, FeedInventory.ingredient == line.ingredient)
+            .with_for_update()
         )
         item = item_result.scalars().first()
         on_hand = item.qty_on_hand if item else 0.0
@@ -1245,21 +1311,37 @@ async def record_dispensing(
 # ---------------------------------------------------------------------------
 async def monthly_pnl(db: AsyncSession, farm: Farm, n_months: int = 12) -> list[dict[str, Any]]:
     """Income vs expense by month (and category) for the last n_months,
-    most recent first."""
-    result = await db.execute(select(Transaction).where(Transaction.farm_id == farm.id))
-    txns = list(result.scalars().all())
-    months: dict[str, dict[str, Any]] = {}
-    for txn in txns:
-        key = txn.date.strftime("%Y-%m")
-        row = months.setdefault(
-            key, {"month": key, "income": 0.0, "expense": 0.0, "categories": {}}
+    most recent first.
+
+    Aggregated in SQL (GROUP BY month/type/category) — the row-at-a-time
+    Python sum loaded every transaction into memory. Output shape and
+    rounding are unchanged: row totals rounded to 2dp, category sums raw.
+    Rows poisoned before the schema bounds existed (inf/nan amounts) are
+    excluded by the finite filter below — they can't serialize."""
+    month_col = func.to_char(Transaction.date, "YYYY-MM")
+    result = await db.execute(
+        select(month_col, Transaction.type, Transaction.category, func.sum(Transaction.amount))
+        .where(
+            Transaction.farm_id == farm.id,
+            # Finite filter: in PostgreSQL NaN = NaN is TRUE and NaN sorts
+            # ABOVE +inf, so `amount == amount` is a no-op kept only for
+            # documentation — the `< inf` bound is what actually excludes NaN
+            # (and ±inf fail the two bounds).
+            Transaction.amount == Transaction.amount,
+            Transaction.amount < math.inf,
+            Transaction.amount > -math.inf,
         )
-        if txn.type == TransactionType.INCOME.value:
-            row["income"] += txn.amount
-        else:
-            row["expense"] += txn.amount
-        cat = row["categories"].setdefault(txn.category, {"income": 0.0, "expense": 0.0})
-        cat["income" if txn.type == TransactionType.INCOME.value else "expense"] += txn.amount
+        .group_by(month_col, Transaction.type, Transaction.category)
+    )
+    months: dict[str, dict[str, Any]] = {}
+    for month, txn_type, category, total in result.all():
+        row = months.setdefault(
+            month, {"month": month, "income": 0.0, "expense": 0.0, "categories": {}}
+        )
+        kind = "income" if txn_type == TransactionType.INCOME.value else "expense"
+        row[kind] += total
+        cat = row["categories"].setdefault(category, {"income": 0.0, "expense": 0.0})
+        cat[kind] += total
 
     rows = sorted(months.values(), key=lambda r: r["month"], reverse=True)[:n_months]
     for row in rows:

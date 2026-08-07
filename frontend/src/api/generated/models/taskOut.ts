@@ -23,6 +23,7 @@ export interface TaskOut {
   verified_by_id: number | null;
   verified_at: string | null;
   verification_note: string | null;
+  skipped_by_id: number | null;
   assigned_role_name?: string | null;
   assigned_user_name?: string | null;
   animal_tag?: string | null;

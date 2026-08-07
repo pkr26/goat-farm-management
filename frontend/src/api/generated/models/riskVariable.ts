@@ -10,8 +10,14 @@
  */
 export interface RiskVariable {
   enabled?: boolean;
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 100
+     * @exclusiveMinimum 0
+     */
   low?: number;
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 100
+     * @exclusiveMinimum 0
+     */
   high?: number;
 }

@@ -1,5 +1,6 @@
 """Finance: transaction list with filters, add transaction, monthly P&L."""
 
+import math
 from datetime import datetime
 from typing import Annotated
 
@@ -57,7 +58,9 @@ async def list_transactions(
     result = await db.execute(
         query.order_by(Transaction.date.desc(), Transaction.id.desc()).limit(200)
     )
-    txns = list(result.scalars().all())
+    # Rows poisoned before the schema bounds existed (inf/nan amounts) are
+    # unserializable — never serve them.
+    txns = [txn for txn in result.scalars().all() if math.isfinite(txn.amount)]
 
     totals_result = await db.execute(
         select(Transaction.type, Transaction.amount).where(Transaction.farm_id == farm.id)
@@ -65,6 +68,8 @@ async def list_transactions(
     total_income = 0.0
     total_expense = 0.0
     for txn_type, amount in totals_result.all():
+        if not math.isfinite(amount):
+            continue  # skip poisoned legacy rows rather than poison the totals
         if txn_type == TransactionType.INCOME.value:
             total_income += amount
         else:

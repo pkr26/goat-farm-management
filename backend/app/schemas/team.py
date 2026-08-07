@@ -7,7 +7,7 @@ from .common import BoundedId
 
 class WorkerCreateIn(BaseModel):
     email: str
-    password: str | None = None  # required when the email is a new account
+    password: str | None = Field(default=None, max_length=128)  # required for a new account
     name: str | None = Field(default=None, max_length=120)
     role_id: BoundedId
 
@@ -17,7 +17,7 @@ class RoleChangeIn(BaseModel):
 
 
 class PasswordResetIn(BaseModel):
-    password: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class MembershipOut(BaseModel):

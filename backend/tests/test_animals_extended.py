@@ -12,9 +12,9 @@ Endpoints under test (backend/app/api/animals.py, backend/app/api/buckets.py):
                                         INCOME transaction, replay guarded)
 - GET  /api/buckets                     board: 10 seeded buckets with occupancy
 
-Note: the list endpoint has NO pagination parameters (SPEC does not ask for
-any); filter coverage is exhaustive instead and the "pagination" tests document
-that limit/offset-style params are silently ignored.
+Note: the list endpoint supports OPTIONAL limit/offset pagination (added in
+the hardening phase); the default (no params) still returns the full filtered
+list, and filter coverage is exhaustive.
 """
 
 from datetime import timedelta
@@ -658,7 +658,9 @@ async def test_create_seller_name_too_long_422(client: httpx.AsyncClient) -> Non
 async def test_create_future_dates_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     base = {"tag_number": "G-1", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"}
-    future = iso(today() + timedelta(days=1))
+    # +2 days: tomorrow itself is accepted (timezone headroom for clients
+    # east of UTC — see PastOrTodayDate), anything further out still 422s.
+    future = iso(today() + timedelta(days=2))
     for field in ["date_of_birth", "estimated_dob", "purchase_date"]:
         resp = await post_animal(client, owner, base | {field: future})
         assert resp.status_code == 422, field
@@ -701,8 +703,10 @@ async def test_create_birth_weight_boundaries(client: httpx.AsyncClient) -> None
         assert resp.status_code == 422, bad
     animal = await make_animal(client, owner, tag="G-2", birth_weight=0)
     assert animal["birth_weight"] == 0.0  # zero is non-negative → allowed
-    animal = await make_animal(client, owner, tag="G-3", birth_weight=1e6)
-    assert animal["birth_weight"] == 1e6
+    animal = await make_animal(client, owner, tag="G-3", birth_weight=1000)
+    assert animal["birth_weight"] == 1000.0  # exactly the 1000 kg weight cap
+    resp = await post_animal(client, owner, base | {"tag_number": "G-4", "birth_weight": 1e6})
+    assert resp.status_code == 422  # beyond the cap — B2 float-overflow bound
 
 
 async def test_create_purchase_price_boundaries(client: httpx.AsyncClient) -> None:
@@ -998,17 +1002,35 @@ async def test_list_includes_computed_fields(client: httpx.AsyncClient) -> None:
     assert animal["latest_weight_kg"] == 25.0
 
 
-async def test_list_ignores_pagination_params(client: httpx.AsyncClient) -> None:
-    """The list endpoint defines no pagination (SPEC asks for filters only):
-    limit/offset/page-style params are ignored and the full list comes back."""
+async def test_list_limit_offset_pagination(client: httpx.AsyncClient) -> None:
+    """Optional limit/offset page the (bucket, tag)-ordered list; `total`
+    stays the full filtered count. Omitting both keeps the all-rows default."""
     owner = await owner_with_farm(client)
     for i in range(5):
         await make_animal(client, owner, tag=f"P-{i}")
-    resp = await client.get(
-        "/api/animals", headers=owner, params={"limit": "1", "offset": "2", "page": "3"}
-    )
+    resp = await client.get("/api/animals", headers=owner)
+    full = resp.json()
+    assert full["total"] == len(full["animals"]) == 5  # default behavior unchanged
+
+    resp = await client.get("/api/animals", headers=owner, params={"limit": "2", "offset": "1"})
     assert resp.status_code == 200
-    assert resp.json()["total"] == 5
+    body = resp.json()
+    assert body["total"] == 5
+    assert [a["tag_number"] for a in body["animals"]] == ["P-1", "P-2"]
+
+    resp = await client.get("/api/animals", headers=owner, params={"limit": "1000"})
+    assert resp.status_code == 200 and len(resp.json()["animals"]) == 5
+    resp = await client.get("/api/animals", headers=owner, params={"offset": "4"})
+    assert [a["tag_number"] for a in resp.json()["animals"]] == ["P-4"]
+    resp = await client.get("/api/animals", headers=owner, params={"offset": "5"})
+    assert resp.json()["animals"] == [] and resp.json()["total"] == 5
+
+
+async def test_list_pagination_params_validated(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    for params in ({"limit": "0"}, {"limit": "1001"}, {"limit": "-1"}, {"offset": "-1"}):
+        resp = await client.get("/api/animals", headers=owner, params=params)
+        assert resp.status_code == 422, params
 
 
 async def test_breeding_ready_flag_in_list(client: httpx.AsyncClient) -> None:
@@ -1400,7 +1422,7 @@ async def test_weight_explicit_past_date_accepted(client: httpx.AsyncClient) -> 
 async def test_weight_future_date_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
-    future = iso(today() + timedelta(days=1))
+    future = iso(today() + timedelta(days=2))  # tomorrow is allowed (tz headroom)
     resp = await client.post(
         f"/api/animals/{animal['id']}/weight",
         json={"date": future, "weight_kg": 10},
@@ -1408,6 +1430,22 @@ async def test_weight_future_date_422(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 422
     assert (await get_profile(client, owner, animal["id"]))["weights"] == []
+
+
+async def test_weight_tomorrow_date_accepted(client: httpx.AsyncClient) -> None:
+    """UTC-tomorrow is a real "today" for clients east of UTC (IST is UTC+5:30,
+    so 00:00-05:30 IST is still tomorrow in UTC) — one day of headroom keeps
+    their same-day entries from 422ing."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner)
+    tomorrow = iso(today() + timedelta(days=1))
+    resp = await client.post(
+        f"/api/animals/{animal['id']}/weight",
+        json={"date": tomorrow, "weight_kg": 10},
+        headers=owner,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["date"] == tomorrow
 
 
 async def test_weight_zero_and_negative_422(client: httpx.AsyncClient) -> None:
@@ -1665,7 +1703,7 @@ async def test_status_future_date_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
     resp = await mark_status(
-        client, owner, animal["id"], "SOLD", date=iso(today() + timedelta(days=1))
+        client, owner, animal["id"], "SOLD", date=iso(today() + timedelta(days=2))
     )
     assert resp.status_code == 422
     assert (await get_animal(client, owner, animal["id"]))["status"] == "ACTIVE"

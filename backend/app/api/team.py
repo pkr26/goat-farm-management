@@ -128,6 +128,13 @@ async def team_page(db: DbSession, farm: CurrentFarm, perms: TEAM_PERM) -> TeamO
 async def create_worker(
     payload: WorkerCreateIn, db: DbSession, farm: CurrentFarm, perms: TEAM_PERM
 ) -> MembershipOut:
+    """Add a worker: create a brand-new account, or enroll an existing one
+    that owns no farm and belongs to no other farm's team. Accounts and
+    passwords are global, so absorbing an account affiliated with another
+    farm would hand this farm a cross-tenant takeover path (reset-password
+    rewrites the global password). Residual limitation: there is no
+    invitation/consent flow yet — an unaffiliated account is enrolled without
+    the account holder's say-so."""
     email = payload.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Enter a valid email address.")
@@ -164,6 +171,24 @@ async def create_worker(
         is not None
     ):
         raise HTTPException(status_code=400, detail="That person is already on this farm's team.")
+    if (
+        worker is not None
+        and (
+            await db.execute(
+                select(FarmMembership).where(
+                    FarmMembership.user_id == worker.id, FarmMembership.farm_id != farm.id
+                )
+            )
+        )
+        .scalars()
+        .first()
+        is not None
+    ):
+        # Any membership — active or inactive — on another farm ties this
+        # account to that farm's access; it may not be absorbed here.
+        raise HTTPException(
+            status_code=400, detail="That account already belongs to another farm's team."
+        )
 
     if worker is None:
         password = payload.password or ""
@@ -246,6 +271,12 @@ async def reset_password(
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> MembershipOut:
+    """Rewrite a worker's GLOBAL password. Restricted to accounts whose sole
+    farm affiliation is this one (the accounts this farm created): resetting
+    the password of an account tied to another farm would be a cross-tenant
+    takeover. Residual limitation: without an invitation/consent flow, the
+    farm-set password is the account's only credential — the worker cannot
+    yet change it himself."""
     membership = await _get_membership(db, farm, membership_id)
     if not membership.is_active:
         raise HTTPException(
@@ -261,6 +292,26 @@ async def reset_password(
         raise HTTPException(
             status_code=400,
             detail="That user owns a farm — owner passwords cannot be reset here.",
+        )
+    other_farm = (
+        (
+            await db.execute(
+                select(FarmMembership).where(
+                    FarmMembership.user_id == membership.user_id,
+                    FarmMembership.farm_id != farm.id,
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    if other_farm is not None:
+        # Any membership — active or inactive — on another farm means this
+        # account's access extends beyond this farm; its global password is
+        # not ours to rewrite.
+        raise HTTPException(
+            status_code=400,
+            detail="That account belongs to another farm's team — passwords can't be reset here.",
         )
     error = password_policy_error(payload.password)
     if error:

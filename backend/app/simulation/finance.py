@@ -81,9 +81,12 @@ def npv(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]
 def irr(flows: Sequence[float], times_years: Sequence[float]) -> float | None:
     """Internal rate of return by bisection on (-0.99, 10), 200 iterations.
 
-    Returns ``None`` when the NPV has the same sign at both bracket ends (no
-    root, e.g. all-positive or all-negative series).
+    Returns ``None`` when the series has no sign change (all-positive,
+    all-negative or all-zero flows have no meaningful IRR) or when the NPV
+    has the same sign at both bracket ends (no root inside the bracket).
     """
+    if not any(cf > 0.0 for cf in flows) or not any(cf < 0.0 for cf in flows):
+        return None  # no sign change (all-zero or one-sided) — IRR undefined
     lo, hi = -0.99, 10.0
     f_lo = npv(lo, flows, times_years)
     f_hi = npv(hi, flows, times_years)
@@ -101,8 +104,12 @@ def irr(flows: Sequence[float], times_years: Sequence[float]) -> float | None:
     return (lo + hi) / 2.0
 
 
-def bcr(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]) -> float:
-    """Benefit-cost ratio: PV of inflows / PV of outflows (``inf`` if no outflows)."""
+def bcr(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]) -> float | None:
+    """Benefit-cost ratio: PV of inflows / PV of outflows.
+
+    ``None`` when there are no outflows — the ratio is undefined, not
+    infinite (an inf would crash JSON serialization of the result).
+    """
     pv_in = sum(
         cf / _fpow(1.0 + rate_annual, t)
         for cf, t in zip(flows, times_years, strict=True)
@@ -114,7 +121,7 @@ def bcr(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]
         if cf < 0.0
     )
     if pv_out == 0.0:
-        return float("inf")
+        return None
     return pv_in / pv_out
 
 

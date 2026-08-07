@@ -1,8 +1,8 @@
 /**
  * Purchases page: batch list (dates, Indian ₹ prices, fallback dashes, open
- * task badges), new-batch dialog (count/age/weight/price/date validation +
- * payload mapping), per-batch detail dialog (created animals, open quarantine
- * tasks) and RBAC gating.
+ * task badges), new-batch dialog (count/age/weight/price/date validation, sex
+ * default/override + payload mapping), per-batch detail dialog (created
+ * animals, open quarantine tasks) and RBAC gating.
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -73,6 +73,7 @@ const TASK_PENDING = {
   verified_by_id: null,
   verified_at: null,
   verification_note: null,
+  skipped_by_id: null,
   action_url: null,
 };
 
@@ -350,6 +351,7 @@ describe("PurchasesPage new-batch dialog", () => {
       date: localToday(),
       supplier: null,
       count: 50,
+      sex: "F",
       avg_age_months: null,
       avg_weight_kg: null,
       total_price: null,
@@ -380,12 +382,27 @@ describe("PurchasesPage new-batch dialog", () => {
       date: "2026-01-05",
       supplier: "Sharma Goat Farm",
       count: 12,
+      sex: "F",
       avg_age_months: 8,
       avg_weight_kg: 18.5,
       total_price: 150000,
       notes: "foundation stock",
       create_animals: false,
     });
+  });
+
+  it("opens with Female preselected and POSTs sex M when Male is picked", async () => {
+    const { user, dialog } = await openDialog();
+
+    const sexTrigger = within(dialog).getByRole("combobox");
+    expect(sexTrigger).toHaveTextContent("Female");
+    await user.click(sexTrigger);
+    await user.click(await screen.findByRole("option", { name: "Male" }));
+    expect(sexTrigger).toHaveTextContent("Male");
+    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postBody).toMatchObject({ sex: "M" });
   });
 
   it("keeps the dialog open on a server error", async () => {

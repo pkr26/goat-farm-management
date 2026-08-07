@@ -23,7 +23,7 @@ Covered:
 - app/schemas/*: every input schema with valid, invalid and boundary inputs.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -116,6 +116,9 @@ from .conftest import owner_with_farm, register
 
 TODAY = today()
 TOMORROW = (TODAY + timedelta(days=1)).isoformat()
+# PastOrTodayDate tolerates one day of timezone headroom (clients east of
+# UTC), so "future" for the invalid pins below starts the day after tomorrow.
+DAY_AFTER_TOMORROW = (TODAY + timedelta(days=2)).isoformat()
 NAN = float("nan")
 INF = float("inf")
 
@@ -414,7 +417,7 @@ ENUM_CASES = [
     (AnimalStatus, {"ACTIVE", "SOLD", "DEAD", "CULLED"}),
     (AnimalSource, {"BORN", "PURCHASED"}),
     (Sex, {"M", "F"}),
-    (BirthType, {"SINGLE", "TWIN", "TRIPLET"}),
+    (BirthType, {"SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"}),
     (BreedingMethod, {"NATURAL"}),
     (BreedingOutcome, {"PENDING", "CONFIRMED_PREGNANT", "FAILED", "ABORTED"}),
     (KiddingEase, {"NORMAL", "ASSISTED", "DIFFICULT"}),  # SPEC §KiddingRecord
@@ -718,6 +721,30 @@ def test_days_in_current_bucket_no_move_no_created_at_is_zero() -> None:
     animal = make_animal_object(bucket_moves=[])
     animal.created_at = None
     assert animal.days_in_current_bucket == 0
+
+
+def test_today_is_the_utc_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stored datetimes are naive UTC, so today() must be the UTC date — not
+    the server-local date (the two differ for hours every day off-UTC, which
+    used to make days_in_current_bucket flaky by one day).
+
+    Pinned with a frozen clock instead of comparing today() against its own
+    implementation (a tautology that also flaked around UTC midnight): the
+    days_in_current_bucket tests above cover consumers of the clock but would
+    pass with a server-local today() on a UTC host, so the UTC anchoring
+    needs this direct pin."""
+    import app.utils as utils
+
+    fixed = datetime(2026, 3, 15, 23, 30, tzinfo=UTC)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            assert tz is UTC, "today() must anchor to the UTC clock"
+            return fixed
+
+    monkeypatch.setattr(utils, "datetime", FrozenDatetime)
+    assert today() == date(2026, 3, 15)
 
 
 @pytest.mark.parametrize(
@@ -1244,9 +1271,9 @@ def test_animal_create_accepts_every_bucket(bucket: str) -> None:
         ("weight_kg", -1.0),
         ("weight_kg", NAN),
         ("weight_kg", INF),
-        ("date_of_birth", TOMORROW),
-        ("estimated_dob", TOMORROW),
-        ("purchase_date", TOMORROW),
+        ("date_of_birth", DAY_AFTER_TOMORROW),
+        ("estimated_dob", DAY_AFTER_TOMORROW),
+        ("purchase_date", DAY_AFTER_TOMORROW),
         ("breed", "B" * 61),
         ("seller_name", "S" * 121),
     ],
@@ -1303,7 +1330,7 @@ def test_weight_in_valid(field: str, value: object) -> None:
         ("bcs", 0),
         ("bcs", 6),
         ("bcs", -1),
-        ("date", TOMORROW),
+        ("date", DAY_AFTER_TOMORROW),
     ],
 )
 def test_weight_in_invalid(field: str, value: object) -> None:
@@ -1351,7 +1378,7 @@ def test_status_change_valid(field: str, value: object) -> None:
         ("new_status", "LOST"),
         ("sale_price", -0.01),
         ("sale_price", NAN),
-        ("date", TOMORROW),
+        ("date", DAY_AFTER_TOMORROW),
         ("buyer_name", "B" * 121),
     ],
 )
@@ -1404,7 +1431,7 @@ def test_breeding_create_defaults_heat_cycle_to_1() -> None:
         ("doe_id", -3),
         ("doe_id", MAX_ID + 1),
         ("buck_id", 0),
-        ("breeding_date", TOMORROW),
+        ("breeding_date", DAY_AFTER_TOMORROW),
     ],
 )
 def test_breeding_create_invalid(field: str, value: object) -> None:
@@ -1579,7 +1606,7 @@ def test_health_event_valid(payload: dict) -> None:
         {"scope": "batch", "purchase_batch_id": 0, "type": "VACCINE"},
         {"scope": "animal", "animal_id": 1, "type": "MAGIC"},
         {"scope": "animal", "animal_id": 1, "type": "vaccine"},  # case-sensitive
-        {"scope": "animal", "animal_id": 1, "type": "VACCINE", "date": TOMORROW},
+        {"scope": "animal", "animal_id": 1, "type": "VACCINE", "date": DAY_AFTER_TOMORROW},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "cost": -0.01},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "cost": NAN},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "product_name": "P" * 121},
@@ -1637,7 +1664,7 @@ def test_dispense_valid(field: str, value: object) -> None:
         ("qty_kg", -1.0),
         ("qty_kg", NAN),
         ("qty_kg", INF),
-        ("date", TOMORROW),
+        ("date", DAY_AFTER_TOMORROW),
     ],
 )
 def test_dispense_invalid(field: str, value: object) -> None:
@@ -1779,7 +1806,7 @@ def test_transaction_valid(field: str, value: object) -> None:
         ("amount", -100.0),
         ("amount", NAN),
         ("amount", INF),
-        ("date", TOMORROW),
+        ("date", DAY_AFTER_TOMORROW),
         ("related_animal_id", 0),
         ("related_animal_id", MAX_ID + 1),
     ],
@@ -1842,7 +1869,7 @@ def test_purchase_batch_valid(field: str, value: object) -> None:
         ("total_price", -0.01),
         ("total_price", NAN),
         ("supplier", "S" * 121),
-        ("date", TOMORROW),
+        ("date", DAY_AFTER_TOMORROW),
         ("date", "1999-12-31"),  # _not_ancient guard
         ("date", "1900-06-15"),
     ],

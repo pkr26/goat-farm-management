@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .common import BoundedId, NonNegativeFloat, PastOrTodayDate
+from .common import BoundedId, NonNegativeMoneyFloat, PastOrTodayDate
 
 # Mirrors models.HealthEventType (v1 coerced anything else to TREATMENT;
 # the JSON API rejects unknown types with 422 instead).
@@ -64,7 +64,7 @@ class HealthEventIn(BaseModel):
     dose: str | None = Field(default=None, max_length=60)
     route: str | None = Field(default=None, max_length=20)  # health_events.route is String(20)
     vet_name: str | None = Field(default=None, max_length=120)
-    cost: NonNegativeFloat | None = None
+    cost: NonNegativeMoneyFloat | None = None
     next_due_date: dt.date | None = None
     notes: str | None = None
     task_id: BoundedId | None = None  # complete a linked VACCINE/DEWORMING task

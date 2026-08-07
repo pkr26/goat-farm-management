@@ -32,5 +32,6 @@ export interface SimulationAssumptions {
   costs?: CostsAssumptions;
   finance?: FinanceAssumptions;
   risk?: RiskAssumptions;
+  /** @maxItems 500 */
   events?: HerdEventAssumptions[];
 }

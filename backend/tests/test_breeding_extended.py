@@ -23,7 +23,10 @@ etc. fall where the API guards require them.
 from datetime import date, timedelta
 
 import httpx
+from sqlalchemy import select
 
+from app.db import get_sessionmaker
+from app.models import BucketMove, User
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, register
@@ -801,7 +804,7 @@ async def test_create_breeding_future_date(client: httpx.AsyncClient) -> None:
         headers,
         doe["id"],
         buck["id"],
-        breeding_date=iso(today() + timedelta(days=1)),
+        breeding_date=iso(today() + timedelta(days=2)),  # tomorrow is allowed (tz headroom)
     )
     assert resp.status_code == 422
 
@@ -1514,13 +1517,42 @@ async def test_kidding_birth_type_triplet(client: httpx.AsyncClient) -> None:
     assert [a["birth_type"] for a in born] == ["TRIPLET"] * 3
 
 
-async def test_kidding_four_alive_birth_type_null(client: httpx.AsyncClient) -> None:
+async def test_kidding_four_alive_birth_type_quadruplet(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}] * 4)
     born = [a for a in await list_animals(client, headers) if a["source"] == "BORN"]
     assert len(born) == 4
-    assert [a["birth_type"] for a in born] == [None] * 4
+    assert [a["birth_type"] for a in born] == ["QUADRUPLET"] * 4
+
+
+async def test_kidding_ten_alive_birth_type_multiplet(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}] * 10)  # schema caps kids at 10
+    born = [a for a in await list_animals(client, headers) if a["source"] == "BORN"]
+    assert len(born) == 10
+    assert [a["birth_type"] for a in born] == ["MULTIPLET"] * 10
+
+
+async def test_kidding_born_kid_bucket_moves_are_attributed(client: httpx.AsyncClient) -> None:
+    """Each born kid's initial RECOVERY BucketMove carries the recording
+    user's id, matching every other attributed move in the system."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    record = await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}, {"sex": "F"}])
+    kid_animal_ids = [k["animal_id"] for k in record["kids"]]
+    async with get_sessionmaker()() as db:
+        owner_id = (
+            (await db.execute(select(User).where(User.email == "owner@farm.in"))).scalar_one().id
+        )
+        moves = list(
+            (
+                await db.execute(select(BucketMove).where(BucketMove.animal_id.in_(kid_animal_ids)))
+            ).scalars()
+        )
+    assert len(moves) == 2
+    assert all(m.to_bucket == "RECOVERY" and m.created_by_id == owner_id for m in moves)
 
 
 async def test_kidding_stillborn_creates_no_animal(client: httpx.AsyncClient) -> None:
@@ -1741,7 +1773,9 @@ async def test_kidding_cross_farm_breeding_record(client: httpx.AsyncClient) -> 
 async def test_kidding_future_date(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    resp = await post_kidding(client, headers, br["id"], date=iso(today() + timedelta(days=1)))
+    # One day of timezone headroom is allowed (clients east of UTC); genuinely
+    # future dates are still rejected.
+    resp = await post_kidding(client, headers, br["id"], date=iso(today() + timedelta(days=2)))
     assert resp.status_code == 400
 
 

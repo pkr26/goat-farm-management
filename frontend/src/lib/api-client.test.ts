@@ -157,7 +157,7 @@ describe("apiFetch", () => {
     expect(headers.get("X-Farm-Id")).toBe("1");
   });
 
-  it("does not attempt a refresh for 401s on /api/auth/* paths", async () => {
+  it("does not attempt a refresh for a 401 on /api/auth/login", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(401, { detail: "Invalid email or password." }),
     );
@@ -169,5 +169,48 @@ describe("apiFetch", () => {
     expect(err.detail).toBe("Invalid email or password.");
     // Exactly one request: no /api/auth/refresh follow-up.
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["/api/auth/farms", "/api/auth/me"])(
+    "refreshes once and retries a 401 on %s",
+    async (path) => {
+      const seen = new Set<string>();
+      fetchMock.mockImplementation(async (input) => {
+        const url = String(input);
+        if (url === "/api/auth/refresh") {
+          return jsonResponse(200, { access_token: "new-token" });
+        }
+        if (!seen.has(url)) {
+          seen.add(url);
+          return jsonResponse(401, { detail: "Expired" });
+        }
+        return jsonResponse(200, [{ id: 1, name: "Farm One" }]);
+      });
+
+      const result = await apiFetch<unknown>(path);
+
+      expect(result).toEqual([{ id: 1, name: "Farm One" }]);
+      const calls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(calls.filter((u) => u === "/api/auth/refresh")).toHaveLength(1);
+      expect(calls.filter((u) => u === path)).toHaveLength(2);
+    },
+  );
+
+  it("retries only once — a second 401 surfaces without another refresh", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, { access_token: "new-token" });
+      }
+      return jsonResponse(401, { detail: "Still expired" });
+    });
+
+    const err = await catchApiError(apiFetch("/api/auth/farms"));
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(401);
+    const calls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(calls.filter((u) => u === "/api/auth/refresh")).toHaveLength(1);
+    expect(calls.filter((u) => u === "/api/auth/farms")).toHaveLength(2);
   });
 });

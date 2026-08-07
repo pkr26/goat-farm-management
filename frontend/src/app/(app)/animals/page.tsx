@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Controller, useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -108,8 +108,14 @@ type CreateValues = z.output<typeof createSchema>;
 
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
-function CreateAnimalDialog({ onCreated }: { onCreated: () => void }) {
-  const [open, setOpen] = useState(false);
+function CreateAnimalDialog({
+  onCreated,
+  startOpen = false,
+}: {
+  onCreated: () => void;
+  startOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(startOpen);
   const createMut = useCreateAnimalApiAnimalsPost();
   const {
     register,
@@ -336,12 +342,19 @@ function AnimalsPageContent() {
   const [sex, setSex] = useState(searchParams.get("sex") ?? ALL);
   const [status, setStatus] = useState(searchParams.get("status") ?? ALL);
   const [q, setQ] = useState(searchParams.get("q") ?? "");
+  // Debounce the search box (~300ms) so typing doesn't fire a request per
+  // keystroke; the input itself stays instant.
+  const [debouncedQ, setDebouncedQ] = useState(q);
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(handle);
+  }, [q]);
 
   const params: ListAnimalsApiAnimalsGetParams = {
     ...(bucket !== ALL && { bucket: bucket as ListAnimalsApiAnimalsGetBucket }),
     ...(sex !== ALL && { sex: sex as ListAnimalsApiAnimalsGetSex }),
     ...(status !== ALL && { status: status as ListAnimalsApiAnimalsGetStatus }),
-    ...(q.trim() && { q: q.trim() }),
+    ...(debouncedQ.trim() && { q: debouncedQ.trim() }),
   };
   const query = useListAnimalsApiAnimalsGet(params, { query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
@@ -361,7 +374,12 @@ function AnimalsPageContent() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Animals</h1>
-        {can("animals.create") && <CreateAnimalDialog onCreated={refresh} />}
+        {can("animals.create") && (
+          <CreateAnimalDialog
+            onCreated={refresh}
+            startOpen={searchParams.get("new") === "1"}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

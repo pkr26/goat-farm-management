@@ -57,6 +57,7 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
+    skipped_by_id: null,
     action_url: null,
     ...overrides,
   };

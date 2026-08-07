@@ -88,8 +88,27 @@ async function rawFetch(path: string, init: RequestInit = {}): Promise<Response>
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const resp = await apiResponse(path, init);
+  if (resp.status === 204) return undefined as T;
+  return (await resp.json()) as T;
+}
+
+/** The only /api/auth/* paths exempt from the 401→refresh retry: a 401 there
+ *  IS the answer (bad credentials / no refresh cookie), and retrying
+ *  /api/auth/refresh itself would recurse. Every other path — including
+ *  /api/auth/farms and /api/auth/me — gets one refresh + retry. */
+const NO_REFRESH_PATHS = new Set([
+  "/api/auth/login",
+  "/api/auth/register",
+  "/api/auth/refresh",
+  "/api/auth/logout",
+]);
+
+/** Shared core: fetch with at most one 401→refresh retry, then map any
+ *  remaining error to ApiError. Resolves to the raw (ok) Response. */
+async function apiResponse(path: string, init: RequestInit = {}): Promise<Response> {
   let resp = await rawFetch(path, init);
-  if (resp.status === 401 && !path.startsWith("/api/auth/")) {
+  if (resp.status === 401 && !NO_REFRESH_PATHS.has(path)) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       resp = await rawFetch(path, init);
@@ -107,6 +126,17 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     }
     throw new ApiError(resp.status, extractDetail(body, resp.statusText));
   }
-  if (resp.status === 204) return undefined as T;
-  return (await resp.json()) as T;
+  return resp;
+}
+
+/** apiFetch variant that keeps the real status and headers — the orval
+ *  custom instance wraps every generated call in this {data, status,
+ *  headers} envelope, and pages branch on the status. */
+export async function apiFetchEnvelope<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ data: T; status: number; headers: Headers }> {
+  const resp = await apiResponse(path, init);
+  const data = resp.status === 204 ? undefined : await resp.json();
+  return { data: data as T, status: resp.status, headers: resp.headers };
 }

@@ -15,10 +15,12 @@ import { renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
 
+const { navState } = vi.hoisted(() => ({ navState: { search: "" } }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/animals",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
 }));
 
@@ -62,6 +64,7 @@ describe("AnimalsPage", () => {
     postCalls = 0;
     postBody = null;
     postFarmHeader = null;
+    navState.search = "";
     server.use(
       http.get("/api/animals", ({ request }) => {
         listCalls += 1;
@@ -135,5 +138,13 @@ describe("AnimalsPage", () => {
     // Dialog closed and the list query was invalidated → refetched.
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
+  });
+
+  it("auto-opens the create dialog for /animals?new=1 (the /animals/new redirect)", async () => {
+    navState.search = "new=1";
+    await renderAndWaitForList();
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Add animal")).toBeInTheDocument();
   });
 });

@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { Controller, useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -17,6 +17,7 @@ import {
   useCreateBatchApiPurchasesNewPost,
   useListBatchesApiPurchasesGet,
 } from "@/api/generated/endpoints";
+import { PurchaseBatchInSex } from "@/api/generated/models";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +30,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -59,6 +67,13 @@ const optNum = (schema: z.ZodNumber) =>
     schema.optional(),
   );
 
+/** value → label map for the root `items` prop: without it, Base UI's
+ * Select.Value renders the raw value ("F") in the closed trigger. */
+const SEX_ITEMS: Record<string, string> = {
+  [PurchaseBatchInSex.F]: "Female",
+  [PurchaseBatchInSex.M]: "Male",
+};
+
 // Bounds mirror backend/app/schemas/purchases.py (count 1..1000, age 0..240, prices ≥ 0,
 // date year ≥ 2000 and not in the future).
 const batchSchema = z
@@ -70,6 +85,7 @@ const batchSchema = z
       .int("Count must be a whole number")
       .min(1, "At least 1 animal")
       .max(1000, "At most 1000 animals"),
+    sex: z.enum([PurchaseBatchInSex.F, PurchaseBatchInSex.M]),
     avg_age_months: optNum(z.number().min(0, "Cannot be negative").max(240, "At most 240 months")),
     avg_weight_kg: optNum(z.number().min(0, "Cannot be negative")),
     total_price: optNum(z.number().min(0, "Cannot be negative")),
@@ -210,7 +226,12 @@ export default function PurchasesPage() {
     formState: { errors, isSubmitting },
   } = useForm<BatchInput, unknown, BatchValues>({
     resolver: zodResolver(batchSchema),
-    defaultValues: { date: localToday(), count: 50, create_animals: true },
+    defaultValues: {
+      date: localToday(),
+      count: 50,
+      sex: PurchaseBatchInSex.F,
+      create_animals: true,
+    },
   });
   const wCreateAnimals = useWatch({ control, name: "create_animals" });
 
@@ -221,6 +242,7 @@ export default function PurchasesPage() {
           date: values.date,
           supplier: values.supplier?.trim() ? values.supplier.trim() : null,
           count: values.count,
+          sex: values.sex,
           avg_age_months: values.avg_age_months ?? null,
           avg_weight_kg: values.avg_weight_kg ?? null,
           total_price: values.total_price ?? null,
@@ -261,7 +283,12 @@ export default function PurchasesPage() {
         {canManage && (
           <Button
             onClick={() => {
-              reset({ date: localToday(), count: 50, create_animals: true });
+              reset({
+                date: localToday(),
+                count: 50,
+                sex: PurchaseBatchInSex.F,
+                create_animals: true,
+              });
               setOpen(true);
             }}
           >
@@ -347,6 +374,24 @@ export default function PurchasesPage() {
                 <Label htmlFor="count">Count *</Label>
                 <Input id="count" type="number" min="1" max="1000" {...register("count")} />
                 {errors.count && <p className="text-sm text-destructive">{errors.count.message}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <Label>Sex *</Label>
+                <Controller
+                  control={control}
+                  name="sex"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange} items={SEX_ITEMS}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={PurchaseBatchInSex.F}>Female</SelectItem>
+                        <SelectItem value={PurchaseBatchInSex.M}>Male</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="avg_age_months">Avg age (months)</Label>

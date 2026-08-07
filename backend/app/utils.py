@@ -6,11 +6,15 @@ from datetime import UTC, date, datetime
 
 
 def today() -> date:
-    return date.today()
+    """ "Today" is the UTC date: every stored datetime is naive UTC (see
+    utcnow), so comparing server-local `date.today()` against them drifts
+    by one day whenever the local and UTC dates differ (any non-UTC host).
+    """
+    return datetime.now(UTC).date()
 
 
 def utcnow() -> datetime:
-    """Naive UTC timestamp (SQLite stores naive datetimes). Replaces the
+    """Naive UTC timestamp (all stored datetimes are naive UTC). Replaces the
     deprecated datetime.utcnow()."""
     return datetime.now(UTC).replace(tzinfo=None)
 

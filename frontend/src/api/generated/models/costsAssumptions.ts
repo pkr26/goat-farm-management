@@ -9,9 +9,15 @@
  * Recurring and capital costs (₹).
  */
 export interface CostsAssumptions {
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   vet_per_animal_per_year?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   labour_per_month?: number;
   /** @minimum 1 */
   labour_per_head_threshold?: number;
@@ -20,10 +26,19 @@ export interface CostsAssumptions {
      * @maximum 0.25
      */
   insurance_pct_stock_value_annual?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   misc_overhead_per_month?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   shed_cost_per_animal_place?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   equipment_cost_per_animal?: number;
 }

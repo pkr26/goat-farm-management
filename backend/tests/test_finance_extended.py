@@ -280,11 +280,21 @@ async def test_create_amount_one_paisa(client: httpx.AsyncClient) -> None:
     assert txn["amount"] == 0.01
 
 
-@pytest.mark.parametrize("amount", [1e12, 9_999_999_999.99, 1e308])
-async def test_create_amount_huge(client: httpx.AsyncClient, amount: float) -> None:
+@pytest.mark.parametrize(
+    ("amount", "expected"),
+    [
+        (1e9, 201),  # exactly the ₹1e9 money cap (B2 float-overflow bound)
+        (1e12, 422),
+        (9_999_999_999.99, 422),
+        (1e308, 422),
+    ],
+)
+async def test_create_amount_huge(client: httpx.AsyncClient, amount: float, expected: int) -> None:
     owner = await owner_with_farm(client)
-    txn = await add_txn(client, owner, amount=amount)
-    assert txn["amount"] == amount
+    resp = await client.post("/api/finance/new", json=txn_payload(amount=amount), headers=owner)
+    assert resp.status_code == expected, resp.text
+    if expected == 201:
+        assert resp.json()["amount"] == amount
 
 
 async def test_create_date_far_past(client: httpx.AsyncClient) -> None:
@@ -432,7 +442,9 @@ async def test_create_amount_wrong_type(client: httpx.AsyncClient, amount: objec
     assert resp.status_code == 422, resp.text
 
 
-@pytest.mark.parametrize("days_ahead", [1, 365, 36500])
+# PastOrTodayDate allows one day of timezone headroom (clients east of UTC
+# entering their local "today"); genuinely future dates are still 422.
+@pytest.mark.parametrize("days_ahead", [2, 365, 36500])
 async def test_create_future_date_rejected(client: httpx.AsyncClient, days_ahead: int) -> None:
     owner = await owner_with_farm(client)
     future = today() + timedelta(days=days_ahead)

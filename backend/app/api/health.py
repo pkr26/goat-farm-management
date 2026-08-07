@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import Select, select
 from sqlalchemy.orm import selectinload
 
-from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
+from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import (
     Animal,
     AnimalStatus,
@@ -23,6 +23,7 @@ from ..schemas.common import MAX_INT32_ID
 from ..schemas.health import HealthEventIn, HealthEventOut, ScheduleOut, ScheduleRowOut
 from ..services import complete_task, record_health_event, vaccination_schedule_for_animal
 from ..utils import today
+from .tasks import _visible_to
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -53,7 +54,12 @@ async def list_events(db: DbSession, farm: CurrentFarm, perms: VIEW) -> list[Hea
 
 @router.post("/events", status_code=201)
 async def record_event(
-    payload: HealthEventIn, db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: MANAGE
+    payload: HealthEventIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    membership: CurrentMembership,
+    perms: MANAGE,
 ) -> list[HealthEventOut]:
     """One HealthEvent row per targeted ACTIVE animal; the total cost is
     split evenly inside record_health_event (first animal absorbs the
@@ -115,6 +121,11 @@ async def record_event(
             and task.status == TaskStatus.PENDING.value
             and task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)
         ):
+            # Same assignment rule as the duties page — the record form is not
+            # a backdoor around task RBAC. The 403 aborts the request before
+            # commit, so the event itself is not persisted either.
+            if not _visible_to(task, user, farm, membership):
+                raise HTTPException(status_code=403, detail="This duty is not assigned to you")
             await complete_task(db, task, user)
     await db.commit()
     outs = []

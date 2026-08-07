@@ -767,7 +767,7 @@ async def test_dispense_explicit_today_and_past_dates(client: httpx.AsyncClient)
 
 async def test_dispense_future_date_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    future = today() + timedelta(days=1)
+    future = today() + timedelta(days=2)  # tomorrow is allowed (tz headroom)
     resp = await dispense(client, headers, date=future.isoformat())
     assert resp.status_code == 422
 
@@ -960,9 +960,11 @@ async def test_dispense_tiny_and_huge_qty_boundaries(client: httpx.AsyncClient) 
     resp = await dispense(client, headers, qty_kg=0.001)
     assert resp.status_code == 201, resp.text
     assert resp.json()["qty_kg"] == pytest.approx(0.001)
-    resp = await dispense(client, headers, qty_kg=1e12)
+    resp = await dispense(client, headers, qty_kg=1e6)  # exactly the 1e6 kg quantity cap
     assert resp.status_code == 201, resp.text
-    assert resp.json()["qty_kg"] == pytest.approx(1e12)
+    assert resp.json()["qty_kg"] == pytest.approx(1e6)
+    resp = await dispense(client, headers, qty_kg=1e12)  # beyond the cap — B2 bound
+    assert resp.status_code == 422
 
 
 async def test_dispense_unknown_extra_field_ignored(client: httpx.AsyncClient) -> None:
@@ -1556,9 +1558,11 @@ async def test_add_stock_tiny_and_huge_quantities(client: httpx.AsyncClient) -> 
     resp = await add_stock(client, headers, item["id"], 0.001)
     assert resp.status_code == 200, resp.text
     assert resp.json()["qty_on_hand"] == pytest.approx(0.001)
-    resp = await add_stock(client, headers, item["id"], 1e9)
+    resp = await add_stock(client, headers, item["id"], 1e6)  # exactly the 1e6 kg quantity cap
     assert resp.status_code == 200, resp.text
-    assert resp.json()["qty_on_hand"] == pytest.approx(1e9 + 0.001)
+    assert resp.json()["qty_on_hand"] == pytest.approx(1e6 + 0.001)
+    resp = await add_stock(client, headers, item["id"], 1e9)  # beyond the cap — B2 bound
+    assert resp.status_code == 422
 
 
 async def test_add_stock_qty_rounded_to_three_decimals(client: httpx.AsyncClient) -> None:

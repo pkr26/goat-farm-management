@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .common import BoundedId, PastOrTodayDate, PositiveFloat
+from .common import BoundedId, MoneyFloat, PastOrTodayDate
 
 TransactionTypeStr = Literal["INCOME", "EXPENSE"]
 # Mirrors models.TransactionCategory exactly (v1 validated against the enum).
@@ -27,7 +27,7 @@ class TransactionIn(BaseModel):
     date: PastOrTodayDate
     type: TransactionTypeStr
     category: TransactionCategoryStr
-    amount: PositiveFloat
+    amount: MoneyFloat
     notes: str | None = Field(default=None, max_length=255)  # transactions.notes String(255)
     related_animal_id: BoundedId | None = None  # cross-farm ids are stripped
 

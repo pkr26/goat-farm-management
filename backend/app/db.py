@@ -24,7 +24,16 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        _engine = create_async_engine(get_settings().database_url)
+        settings = get_settings()
+        _engine = create_async_engine(
+            settings.database_url,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_timeout=settings.db_pool_timeout,
+            connect_args={
+                "server_settings": {"statement_timeout": str(settings.db_statement_timeout_ms)}
+            },
+        )
     return _engine
 
 

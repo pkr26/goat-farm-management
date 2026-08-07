@@ -110,7 +110,9 @@ async def create_kidding(
     # a forged request against a PENDING/FAILED/ABORTED breeding is rejected.
     if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
         raise HTTPException(status_code=400, detail="Kidding requires a confirmed pregnancy")
-    if payload.date > today():
+    # Same one-day timezone headroom as PastOrTodayDate: a client east of UTC
+    # recording its local "today" must not be rejected as a future date.
+    if payload.date > today() + timedelta(days=1):
         raise HTTPException(status_code=400, detail="Kidding date cannot be in the future")
     if payload.date < br.breeding_date:
         raise HTTPException(

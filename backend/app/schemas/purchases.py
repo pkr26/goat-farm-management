@@ -1,11 +1,12 @@
 """Pydantic schemas for the purchases module."""
 
 import datetime as dt
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .animals import AnimalOut
-from .common import NonNegativeFloat, PastOrTodayDate
+from .common import NonNegativeMoneyFloat, NonNegativeWeightKgFloat, PastOrTodayDate
 from .tasks import TaskOut
 
 MAX_BATCH_COUNT = 1000  # mirrors services caps
@@ -16,9 +17,10 @@ class PurchaseBatchIn(BaseModel):
     date: PastOrTodayDate
     supplier: str | None = Field(default=None, max_length=120)
     count: int = Field(ge=1, le=MAX_BATCH_COUNT)
+    sex: Literal["M", "F"] = "F"  # stub-animal sex (a bought buck is not a doe)
     avg_age_months: float | None = Field(default=None, ge=0, le=MAX_AGE_MONTHS)
-    avg_weight_kg: NonNegativeFloat | None = None
-    total_price: NonNegativeFloat | None = None
+    avg_weight_kg: NonNegativeWeightKgFloat | None = None
+    total_price: NonNegativeMoneyFloat | None = None
     notes: str | None = None
     create_animals: bool = True
 

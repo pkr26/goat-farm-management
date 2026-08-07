@@ -5,7 +5,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -83,7 +83,10 @@ const kidSchema = z.object({
   status: z.enum(KID_STATUSES),
 });
 const kiddingSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date"),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
+    .refine((s) => s <= localToday(), "Date can't be in the future"),
   ease: z.enum(EASES),
   notes: z.string().optional(),
   kids: z.array(kidSchema).min(1, "At least one kid").max(MAX_KIDS, "At most 10 kids"),
@@ -342,6 +345,22 @@ export default function KiddingPage() {
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const [recordFor, setRecordFor] = useState<BreedingRecordOut | null>(null);
+  const [prefillDone, setPrefillDone] = useState(false);
+
+  // /kidding/new?breeding_id=… redirects here: auto-open the record dialog
+  // for that breeding record once the list has loaded.
+  useEffect(() => {
+    if (!canManage || !payload || prefillDone) return;
+    const breedingId = new URLSearchParams(window.location.search).get("breeding_id");
+    if (!breedingId) return;
+    // One-time initialization from URL params — runs once, not reactive.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrefillDone(true);
+    const record = [...payload.overdue, ...payload.upcoming].find(
+      (r) => String(r.id) === breedingId,
+    );
+    if (record) setRecordFor(record);
+  }, [canManage, payload, prefillDone]);
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: getKiddingListApiKiddingGetQueryKey() });

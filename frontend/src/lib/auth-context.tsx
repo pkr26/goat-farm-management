@@ -6,6 +6,7 @@
  * selected farm persists in localStorage and is sent as X-Farm-Id.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
@@ -59,12 +60,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = useQueryClient();
 
-  const selectFarm = useCallback((id: number) => {
-    setFarmIdState(id);
-    setCurrentFarmId(String(id));
-    localStorage.setItem(FARM_STORAGE_KEY, String(id));
-  }, []);
+  const selectFarm = useCallback(
+    (id: number) => {
+      // Drop every cached query first: cache keys are URL-only (no farm id),
+      // so stale entries would render the previous farm's data (and perms).
+      queryClient.clear();
+      setFarmIdState(id);
+      setCurrentFarmId(String(id));
+      localStorage.setItem(FARM_STORAGE_KEY, String(id));
+    },
+    [queryClient],
+  );
 
   const signOut = useCallback(async () => {
     try {
@@ -72,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       /* cookie may already be gone */
     }
+    queryClient.clear();
     setAccessToken(null);
     setCurrentFarmId(null);
     localStorage.removeItem(FARM_STORAGE_KEY);
@@ -79,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFarms([]);
     setFarmIdState(null);
     router.push("/login");
-  }, [router]);
+  }, [router, queryClient]);
 
   const refreshFarms = useCallback(async () => {
     const list = await apiFetch<FarmEntry[]>("/api/auth/farms");

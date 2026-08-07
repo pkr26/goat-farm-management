@@ -10,32 +10,65 @@ import type { HerdAssumptionsFoundationFlockState } from './herdAssumptionsFound
  * Starting stock and replacement/purchase policy.
  */
 export interface HerdAssumptions {
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   does?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   bucks?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   female_growers?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   male_growers?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   female_weaners?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   male_weaners?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   female_kids?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   male_kids?: number;
   /**
      * @minimum 0
      * @maximum 1
      */
   female_retention_fraction?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   max_breeding_does?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   doe_purchase_price?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   buck_purchase_price?: number;
   auto_purchase_bucks?: boolean;
   foundation_flock_state?: HerdAssumptionsFoundationFlockState;

@@ -5,12 +5,18 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .common import BoundedId, NonNegativeFloat, PastOrTodayDate, PositiveFloat
+from .common import (
+    BoundedId,
+    NonNegativeMoneyFloat,
+    NonNegativeWeightKgFloat,
+    PastOrTodayDate,
+    WeightKgFloat,
+)
 
 Sex = Literal["M", "F"]
 AnimalSourceStr = Literal["BORN", "PURCHASED"]
 AnimalStatusStr = Literal["ACTIVE", "SOLD", "DEAD", "CULLED"]
-BirthTypeStr = Literal["SINGLE", "TWIN", "TRIPLET"]
+BirthTypeStr = Literal["SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"]
 BucketStr = Literal[
     "QUARANTINE",
     "FOUNDATION",
@@ -35,11 +41,11 @@ class AnimalCreateIn(BaseModel):
     date_of_birth: PastOrTodayDate | None = None
     estimated_dob: PastOrTodayDate | None = None
     birth_type: BirthTypeStr | None = None
-    birth_weight: NonNegativeFloat | None = None
+    birth_weight: NonNegativeWeightKgFloat | None = None
     purchase_date: PastOrTodayDate | None = None
-    purchase_price: NonNegativeFloat | None = None
+    purchase_price: NonNegativeMoneyFloat | None = None
     seller_name: str | None = Field(default=None, max_length=120)
-    weight_kg: PositiveFloat | None = None  # optional entry weight record
+    weight_kg: WeightKgFloat | None = None  # optional entry weight record
     notes: str | None = None
 
 
@@ -83,7 +89,7 @@ class AnimalListOut(BaseModel):
 
 class WeightIn(BaseModel):
     date: PastOrTodayDate | None = None  # defaults to today
-    weight_kg: PositiveFloat
+    weight_kg: WeightKgFloat
     bcs: int | None = Field(default=None, ge=1, le=5)
     notes: str | None = Field(default=None, max_length=255)  # weight_records.notes String(255)
 
@@ -116,7 +122,7 @@ class BucketMoveOut(BaseModel):
 class StatusChangeIn(BaseModel):
     new_status: Literal["SOLD", "DEAD", "CULLED"]
     date: PastOrTodayDate | None = None  # defaults to today
-    sale_price: NonNegativeFloat | None = None
+    sale_price: NonNegativeMoneyFloat | None = None
     buyer_name: str | None = Field(default=None, max_length=120)
     notes: str | None = Field(default=None, max_length=255)  # animals.status_notes String(255)
 

@@ -12,4 +12,6 @@ export const AnimalCreateInBirthType = {
   SINGLE: 'SINGLE',
   TWIN: 'TWIN',
   TRIPLET: 'TRIPLET',
+  QUADRUPLET: 'QUADRUPLET',
+  MULTIPLET: 'MULTIPLET',
 } as const;

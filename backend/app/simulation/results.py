@@ -93,7 +93,7 @@ class ViabilityMetrics(BaseModel):
     equity: float  # month-0 promoter outflow
     npv: float  # ₹ at finance.discount_rate_annual
     irr: float | None  # None when the cash-flow series has no sign change root
-    bcr: float  # PV(inflows) / PV(outflows); inf when there are no outflows
+    bcr: float | None  # PV(inflows) / PV(outflows); None when there are no outflows
     dscr_per_year: list[float]  # 0 for years without debt service
     avg_dscr: float  # over years with debt service > 0 (0 if none)
     min_dscr: float

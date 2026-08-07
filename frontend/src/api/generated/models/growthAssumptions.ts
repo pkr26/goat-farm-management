@@ -14,13 +14,26 @@
  * ~2 kg/month pre-yearling gain) per ICAR/NBAGR breed descriptors.
  */
 export interface GrowthAssumptions {
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 1000
+     * @exclusiveMinimum 0
+     */
   birth_weight_kg?: number;
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 1000
+     * @exclusiveMinimum 0
+     */
   adult_weight_doe_kg?: number;
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 1000
+     * @exclusiveMinimum 0
+     */
   adult_weight_buck_kg?: number;
-  /** @minItems 13 */
+  /**
+     * @minItems 13
+     * @maxItems 1200
+     * @items.maximum 1000
+     */
   weight_by_age_months?: number[];
   /**
      * @minimum 6

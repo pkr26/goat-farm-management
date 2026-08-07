@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .animals import BucketStr
-from .common import PastOrTodayDate, PositiveFloat
+from .common import MoneyFloat, PastOrTodayDate, QuantityKgFloat
 
 ShiftStr = Literal["MORNING", "AFTERNOON", "NIGHT"]
 
@@ -15,23 +15,23 @@ class DispenseIn(BaseModel):
     bucket: BucketStr
     shift: ShiftStr
     recipe_code: str | None = None  # validated against FeedRecipe when given
-    qty_kg: PositiveFloat
+    qty_kg: QuantityKgFloat
     date: PastOrTodayDate | None = None  # defaults to today
 
 
 class MixIn(BaseModel):
     recipe_code: str = Field(min_length=1)
-    batch_kg: PositiveFloat
+    batch_kg: QuantityKgFloat
 
 
 class StockAddIn(BaseModel):
-    qty_kg: PositiveFloat
-    price_per_kg: PositiveFloat | None = None
+    qty_kg: QuantityKgFloat
+    price_per_kg: MoneyFloat | None = None
 
 
 class FeedSettingIn(BaseModel):
     bucket: BucketStr
-    daily_kg_per_head: PositiveFloat
+    daily_kg_per_head: QuantityKgFloat
 
 
 class FeedInventoryOut(BaseModel):

@@ -7,7 +7,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 
 import {
@@ -135,9 +135,10 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
-/** Ratio with a fixed precision; non-finite (e.g. BCR = inf) → "—". */
-function formatRatio(value: number, digits = 2): string {
-  return Number.isFinite(value) ? value.toFixed(digits) : "—";
+/** Ratio with a fixed precision; non-finite (e.g. BCR = inf) or null → "—". */
+function formatRatio(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
 }
 
 /** IRR is a fraction (0.18 → "18.0%"); null → "—". */
@@ -171,6 +172,67 @@ function StatCard({
         )}
       </div>
     </div>
+  );
+}
+
+type NumberInputProps = Omit<
+  ComponentProps<typeof Input>,
+  "type" | "value" | "onChange" | "onBlur"
+> &
+  (
+    | {
+        value: number;
+        nullable?: false;
+        onCommit: (value: number) => void;
+      }
+    | {
+        value: number | null;
+        nullable: true;
+        onCommit: (value: number | null) => void;
+      }
+  );
+
+/** Numeric input for the assumptions/events editors: commits only finite
+ *  numbers, so NaN (or a silent 0) can never reach the assumptions object.
+ *  Blank leaves the stored value unchanged — or commits null when `nullable`
+ *  (e.g. price per head = auto); unparseable text shows an inline error. The
+ *  draft is local while the field is being edited, so external updates
+ *  (defaults / scenario loads) still flow through otherwise. */
+function NumberInput(props: NumberInputProps) {
+  const { value, onCommit, nullable = false, ...inputProps } = props;
+  const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  return (
+    <>
+      <Input
+        type="number"
+        step="any"
+        aria-invalid={invalid || undefined}
+        {...inputProps}
+        value={draft ?? (value === null ? "" : String(value))}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setDraft(raw);
+          if (raw === "") {
+            setInvalid(false);
+            if (nullable) (onCommit as (v: number | null) => void)(null);
+            return;
+          }
+          const n = Number(raw);
+          if (!Number.isFinite(n)) {
+            setInvalid(true);
+            return;
+          }
+          setInvalid(false);
+          (onCommit as (v: number) => void)(n);
+        }}
+        onBlur={() => {
+          setDraft(null);
+          setInvalid(false);
+        }}
+      />
+      {invalid && <p className="text-sm text-destructive">Enter a valid number.</p>}
+    </>
   );
 }
 
@@ -495,15 +557,10 @@ export default function SimulationPage() {
       return (
         <div key={id} className="space-y-1.5">
           <Label htmlFor={id}>{humanize(key)}</Label>
-          <Input
+          <NumberInput
             id={id}
-            type="number"
-            step="any"
             value={value}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              updateField(section, key, Number.isNaN(n) ? 0 : n);
-            }}
+            onCommit={(n) => updateField(section, key, n)}
           />
         </div>
       );
@@ -583,15 +640,10 @@ export default function SimulationPage() {
       return (
         <div key={id} className="space-y-1.5">
           <Label htmlFor={id}>{humanize(subKey)}</Label>
-          <Input
+          <NumberInput
             id={id}
-            type="number"
-            step="any"
             value={value}
-            onChange={(e) => {
-              const n = Number(e.target.value);
-              updateNestedField(section, key, subKey, Number.isNaN(n) ? 0 : n);
-            }}
+            onCommit={(n) => updateNestedField(section, key, subKey, n)}
           />
         </div>
       );
@@ -1091,19 +1143,13 @@ export default function SimulationPage() {
                 {events.map((event, index) => (
                   <TableRow key={index}>
                     <TableCell>
-                      <Input
+                      <NumberInput
                         aria-label="Month"
-                        type="number"
                         min={1}
                         max={horizonMonths}
                         className="w-20"
                         value={event.month}
-                        onChange={(e) => {
-                          const n = Number(e.target.value);
-                          updateEvent(index, {
-                            month: Number.isNaN(n) ? 0 : n,
-                          });
-                        }}
+                        onCommit={(n) => updateEvent(index, { month: n })}
                       />
                     </TableCell>
                     <TableCell>
@@ -1151,35 +1197,23 @@ export default function SimulationPage() {
                       </Select>
                     </TableCell>
                     <TableCell>
-                      <Input
+                      <NumberInput
                         aria-label="Count"
-                        type="number"
                         min={1}
                         className="w-20"
                         value={event.count}
-                        onChange={(e) => {
-                          const n = Number(e.target.value);
-                          updateEvent(index, {
-                            count: Number.isNaN(n) ? 0 : n,
-                          });
-                        }}
+                        onCommit={(n) => updateEvent(index, { count: n })}
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
+                      <NumberInput
                         aria-label="Price per head"
-                        type="number"
                         min={0}
-                        step="any"
                         placeholder="auto"
                         className="w-24"
-                        value={event.price_per_head ?? ""}
-                        onChange={(e) =>
-                          updateEvent(index, {
-                            price_per_head:
-                              e.target.value === "" ? null : Number(e.target.value),
-                          })
-                        }
+                        nullable
+                        value={event.price_per_head ?? null}
+                        onCommit={(n) => updateEvent(index, { price_per_head: n })}
                       />
                     </TableCell>
                     <TableCell>
@@ -1338,6 +1372,7 @@ export default function SimulationPage() {
                           <Button
                             variant="destructive"
                             size="sm"
+                            disabled={deleteMutation.isPending}
                             onClick={() => void onDeleteScenario(scenario)}
                           >
                             Delete

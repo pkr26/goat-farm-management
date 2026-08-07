@@ -145,7 +145,7 @@ async def dashboard(
             )
         ).scalars()
     )
-    suggestions = await ready_to_move_suggestions(db, farm)
+    suggestions = await ready_to_move_suggestions(db, farm, active_animals)
 
     recent_weights = list(
         (

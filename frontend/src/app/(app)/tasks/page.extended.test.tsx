@@ -71,6 +71,7 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
+    skipped_by_id: null,
     action_url: null,
     ...overrides,
   };
@@ -292,7 +293,14 @@ describe("TasksPage (extended)", () => {
     const awaitingRow = rowOf("Deep-clean kidding pen");
     expect(within(awaitingRow).getByText("DONE")).toBeInTheDocument();
     expect(within(awaitingRow).getByText("awaiting")).toBeInTheDocument();
-    expect(within(awaitingRow).getByText("05-08 14:07")).toBeInTheDocument();
+    // completed_at is naive UTC: the cell renders that instant in local time
+    // (was: the naive string passed off as browser-local).
+    const expectedCompletedAt = (() => {
+      const d = new Date("2026-08-05T14:07:00Z");
+      const p = (n: number) => String(n).padStart(2, "0");
+      return `${p(d.getDate())}-${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    })();
+    expect(within(awaitingRow).getByText(expectedCompletedAt)).toBeInTheDocument();
 
     const verifiedRow = rowOf("Weekly sweep");
     expect(within(verifiedRow).getByText("VERIFIED")).toBeInTheDocument();

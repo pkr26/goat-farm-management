@@ -12,7 +12,7 @@ import enum
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -23,6 +23,12 @@ from .utils import today, utcnow
 # ---------------------------------------------------------------------------
 GESTATION_DAYS = 150
 KIDDING_WINDOW_DAYS = (145, 155)
+# Sanity band for RECORDING a kidding (services.record_kidding): the SPEC
+# window above drives planning (expected dates, due lists); for after-the-fact
+# record-keeping any plausible gestation is accepted, but a "kidding" days or
+# years post-breeding is a data-entry error, not an event.
+MIN_GESTATION_DAYS = 100
+MAX_GESTATION_DAYS = 200
 ULTRASOUND_AFTER_BREEDING_DAYS = 32
 MIN_BREEDING_AGE_MONTHS = 10
 MIN_BREEDING_WEIGHT_KG = 22.0
@@ -71,6 +77,8 @@ class BirthType(str, enum.Enum):
     SINGLE = "SINGLE"
     TWIN = "TWIN"
     TRIPLET = "TRIPLET"
+    QUADRUPLET = "QUADRUPLET"
+    MULTIPLET = "MULTIPLET"  # 5+ live kids (schema caps a kidding at 10)
 
 
 class BreedingMethod(str, enum.Enum):
@@ -247,7 +255,7 @@ class FarmMembership(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"))
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
@@ -278,10 +286,12 @@ class Animal(Base):
     purchase_date: Mapped[date | None]
     purchase_price: Mapped[float | None]
     seller_name: Mapped[str | None] = mapped_column(String(120))
-    purchase_batch_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_batches.id"))
+    purchase_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("purchase_batches.id"), index=True
+    )
 
     # Born animals
-    dam_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
+    dam_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)
     sire_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
     birth_weight: Mapped[float | None]
 
@@ -439,11 +449,26 @@ class PurchaseBatch(Base):
 # ---------------------------------------------------------------------------
 class BreedingRecord(Base):
     __tablename__ = "breeding_records"
+    # One open (PENDING) breeding per doe at the DB level: every record is
+    # born PENDING, so this partial unique index serializes concurrent
+    # double-submits that race past create_breeding_record's pre-check. A
+    # CONFIRMED_PREGNANT row must NOT be covered here — record_kidding
+    # resolves a pregnancy by adding the KiddingRecord row, not by changing
+    # the outcome, so covering CONFIRMED would bar a doe from ever being
+    # re-bred after her first kidding.
+    __table_args__ = (
+        Index(
+            "uq_breeding_open_pregnancy",
+            "doe_id",
+            unique=True,
+            postgresql_where=text("outcome = 'PENDING'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
-    buck_id: Mapped[int] = mapped_column(ForeignKey("animals.id"))
+    doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
+    buck_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
     breeding_date: Mapped[date]
     method: Mapped[str] = mapped_column(String(10), default=BreedingMethod.NATURAL.value)
     heat_cycle_number: Mapped[int] = mapped_column(default=1)
@@ -490,7 +515,7 @@ class KidEntry(Base):
     __tablename__ = "kid_entries"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    kidding_record_id: Mapped[int] = mapped_column(ForeignKey("kidding_records.id"))
+    kidding_record_id: Mapped[int] = mapped_column(ForeignKey("kidding_records.id"), index=True)
     tag: Mapped[str | None] = mapped_column(String(50))
     sex: Mapped[str] = mapped_column(String(1))
     birth_weight: Mapped[float | None]
@@ -509,7 +534,9 @@ class HealthEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))  # null = batch event
+    animal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("animals.id"), index=True
+    )  # null = batch event
     purchase_batch_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_batches.id"))
     date: Mapped[date] = mapped_column(default=today)
     type: Mapped[str] = mapped_column(String(12))  # HealthEventType enum
@@ -559,7 +586,7 @@ class FeedRecipeLine(Base):
     __tablename__ = "feed_recipe_lines"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    recipe_id: Mapped[int] = mapped_column(ForeignKey("feed_recipes.id"))
+    recipe_id: Mapped[int] = mapped_column(ForeignKey("feed_recipes.id"), index=True)
     ingredient: Mapped[str] = mapped_column(String(120))
     kg_per_100kg: Mapped[float]
     category: Mapped[str] = mapped_column(String(20))  # IngredientCategory enum
@@ -569,6 +596,11 @@ class FeedRecipeLine(Base):
 
 class FeedInventory(Base):
     __tablename__ = "feed_inventory"
+    # One stock row per (farm, ingredient) — mix_feed_batch/add_feed_stock
+    # look the row up by that pair, so a duplicate would split the balance.
+    __table_args__ = (
+        UniqueConstraint("farm_id", "ingredient", name="uq_feed_inventory_farm_ingredient"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
@@ -601,7 +633,7 @@ class Transaction(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    date: Mapped[date] = mapped_column(default=today)
+    date: Mapped[date] = mapped_column(default=today, index=True)
     type: Mapped[str] = mapped_column(String(10))  # TransactionType enum
     category: Mapped[str] = mapped_column(String(20))  # TransactionCategory enum
     amount: Mapped[float]
@@ -621,9 +653,9 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     title: Mapped[str] = mapped_column(String(200))
-    due_date: Mapped[date]
-    status: Mapped[str] = mapped_column(String(10), default=TaskStatus.PENDING.value)
-    animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
+    due_date: Mapped[date] = mapped_column(index=True)
+    status: Mapped[str] = mapped_column(String(10), default=TaskStatus.PENDING.value, index=True)
+    animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)
     purchase_batch_id: Mapped[int | None] = mapped_column(ForeignKey("purchase_batches.id"))
     breeding_record_id: Mapped[int | None] = mapped_column(ForeignKey("breeding_records.id"))
     category: Mapped[str] = mapped_column(String(15), default=TaskCategory.OTHER.value)
@@ -631,8 +663,8 @@ class Task(Base):
 
     # Duty assignment (RBAC): a role, a specific worker, or both null
     # (owner-visible only).
-    assigned_role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"))
-    assigned_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    assigned_role_id: Mapped[int | None] = mapped_column(ForeignKey("roles.id"), index=True)
+    assigned_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
 
     # Attribution + verification trail ("everyone's job is noted and digitized").
     completed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
@@ -640,6 +672,9 @@ class Task(Base):
     verified_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     verified_at: Mapped[datetime | None]
     verification_note: Mapped[str | None] = mapped_column(String(255))  # reason when rejected
+    # Who manually skipped the duty (service-side skips — abort, kidding
+    # leftovers, death/sale — stay NULL: no single user made that call).
+    skipped_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     # Recurring duty: on completion the next occurrence is spawned this many
     # days after the current due_date (e.g. 1 = daily cleaning).
@@ -651,6 +686,7 @@ class Task(Base):
     assigned_user: Mapped[User | None] = relationship(foreign_keys="Task.assigned_user_id")
     completed_by: Mapped[User | None] = relationship(foreign_keys="Task.completed_by_id")
     verified_by: Mapped[User | None] = relationship(foreign_keys="Task.verified_by_id")
+    skipped_by: Mapped[User | None] = relationship(foreign_keys="Task.skipped_by_id")
 
     @property
     def needs_verification(self) -> bool:

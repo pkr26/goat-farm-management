@@ -22,7 +22,10 @@ export interface HerdEventAssumptions {
   month: number;
   kind: HerdEventAssumptionsKind;
   animal_class: HerdEventAssumptionsAnimalClass;
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 100000
+     * @exclusiveMinimum 0
+     */
   count: number;
   price_per_head?: number | null;
 }

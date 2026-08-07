@@ -15,13 +15,14 @@ class _EmailMixin(BaseModel):
 
 class RegisterIn(_EmailMixin):
     email: str
-    password: str = Field(min_length=1)
+    # max_length: no unbounded input into the (deliberately expensive) Argon2 hasher.
+    password: str = Field(min_length=1, max_length=128)
     name: str | None = Field(default=None, max_length=120)  # users.name is String(120)
 
 
 class LoginIn(_EmailMixin):
     email: str
-    password: str
+    password: str = Field(max_length=128)
 
 
 class UserOut(BaseModel):

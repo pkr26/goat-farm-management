@@ -11,6 +11,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .api import (
     animals,
@@ -76,6 +77,12 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    trusted = [h.strip() for h in get_settings().trusted_proxy_hosts.split(",") if h.strip()]
+    if trusted:
+        # Only honor X-Forwarded-For when it arrives from a configured proxy;
+        # with the default (trust nothing) a client can spoof the header but
+        # it is ignored, so it can't steer the auth rate limiter.
+        app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
     app.include_router(auth.router)
     app.include_router(animals.router)
     app.include_router(buckets.router)

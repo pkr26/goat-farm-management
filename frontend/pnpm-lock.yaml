@@ -41,9 +41,6 @@ importers:
       react-hook-form:
         specifier: ^7.84.0
         version: 7.84.0(react@19.2.8)
-      shadcn:
-        specifier: ^4.16.1
-        version: 4.16.1(typescript@5.9.3)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -99,6 +96,9 @@ importers:
       orval:
         specifier: ^8.23.0
         version: 8.23.0(typescript@5.9.3)
+      shadcn:
+        specifier: ^4.16.1
+        version: 4.16.1(typescript@5.9.3)
       tailwindcss:
         specifier: ^4
         version: 4.3.3

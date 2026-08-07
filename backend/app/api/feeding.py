@@ -148,7 +148,15 @@ async def add_stock(
     perms: FeedingManage,
 ) -> FeedInventoryOut:
     """Purchase stock: bump qty on hand, update last price, book a FEED expense."""
-    item = await db.get(FeedInventory, item_id) if 1 <= item_id <= MAX_INT32_ID else None
+    if not 1 <= item_id <= MAX_INT32_ID:
+        item = None
+    else:
+        # FOR UPDATE: a concurrent mix or restock must not overwrite this
+        # read-modify-write of the balance (lost update).
+        result = await db.execute(
+            select(FeedInventory).where(FeedInventory.id == item_id).with_for_update()
+        )
+        item = result.scalar_one_or_none()
     if item is None or item.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Feed inventory item not found")
     try:

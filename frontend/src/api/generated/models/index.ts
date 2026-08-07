@@ -99,6 +99,7 @@ export * from './pnlRowOutCategories';
 export * from './projectCostBreakdown';
 export * from './purchaseBatchDetailOut';
 export * from './purchaseBatchIn';
+export * from './purchaseBatchInSex';
 export * from './purchaseBatchOut';
 export * from './recipeListOut';
 export * from './registerIn';

@@ -9,7 +9,10 @@
  * Project financing (NABARD refinance structure).
  */
 export interface FinanceAssumptions {
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   initial_stock_cost?: number;
   /**
      * @minimum 0

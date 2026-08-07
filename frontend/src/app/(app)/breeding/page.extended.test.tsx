@@ -7,10 +7,10 @@
  * flow (window.confirm guard, POST, refetch).
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AnimalOut, BreedingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -396,6 +396,23 @@ describe("BreedingPage", () => {
     expect(breedingPostBody).toBeNull();
   });
 
+  it("rejects a future breeding date (typed input bypasses the max attribute)", async () => {
+    const { user, dialog } = await openNewDialog();
+    await within(dialog).findByText("Select doe"); // animals loaded
+    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
+    await pickOption(user, buckTrigger, /G-020 — 24 mo/);
+    fireEvent.change(within(dialog).getByLabelText(/breeding date/i), {
+      target: { value: localISO(new Date(Date.now() + 86_400_000)) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
+
+    expect(
+      await within(dialog).findByText("Date can't be in the future"),
+    ).toBeInTheDocument();
+    expect(breedingPostBody).toBeNull();
+  });
+
   it("posts numeric ids with the date, closes, and refetches the list", async () => {
     const { user, dialog } = await openNewDialog();
     await within(dialog).findByText("Select doe");
@@ -543,5 +560,29 @@ describe("BreedingPage", () => {
     await waitFor(() => expect(failedAbortCalls).toBe(1));
     expect(listCalls).toBe(1); // no refresh on failure
     expect(screen.getAllByText("CONFIRMED PREGNANT")).toHaveLength(2);
+  });
+
+  // ---------- URL prefill (/breeding/{id}/ultrasound redirect) ----------
+
+  describe("URL prefill from /breeding?ultrasound_id=…", () => {
+    afterEach(() => {
+      window.history.replaceState({}, "", "/breeding");
+    });
+
+    it("auto-opens the ultrasound dialog for the linked PENDING record", async () => {
+      window.history.replaceState({}, "", "/breeding?ultrasound_id=1");
+      renderWithProviders(<BreedingPage />);
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Ultrasound result")).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/Doe G-010 · bred 1 Jul 2026 by G-020/),
+      ).toBeInTheDocument();
+    });
+
+    it("opens no dialog when the linked record is not PENDING", async () => {
+      window.history.replaceState({}, "", "/breeding?ultrasound_id=2");
+      await renderLoaded();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

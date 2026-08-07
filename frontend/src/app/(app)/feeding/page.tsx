@@ -57,6 +57,20 @@ const NONE = "none";
 
 type ShiftCell = { shift: string; pct: number; kg: number; time: string };
 
+/** The generated PlanLineOutShiftsItem is schema-less ({[key: string]:
+ *  unknown}), so validate the fields the plan table renders instead of
+ *  casting. Malformed cells degrade to visible placeholders rather than
+ *  crashing the row or shifting the Morning/Afternoon/Night columns. */
+function toShiftCell(raw: unknown): ShiftCell {
+  const cell = (raw ?? {}) as Record<string, unknown>;
+  return {
+    shift: typeof cell.shift === "string" ? cell.shift : "?",
+    pct: typeof cell.pct === "number" ? cell.pct : 0,
+    kg: typeof cell.kg === "number" ? cell.kg : 0,
+    time: typeof cell.time === "string" ? cell.time : "",
+  };
+}
+
 function localToday(): string {
   const now = new Date();
   const m = String(now.getMonth() + 1).padStart(2, "0");
@@ -179,7 +193,10 @@ const dispenseSchema = z.object({
   shift: z.enum(["MORNING", "AFTERNOON", "NIGHT"]),
   recipe_code: z.string().optional(),
   qty_kg: z.coerce.number().positive("Quantity must be greater than 0"),
-  date: z.string().min(1, "Date is required"),
+  date: z
+    .string()
+    .min(1, "Date is required")
+    .refine((s) => s <= localToday(), "Date can't be in the future"),
 });
 type DispenseInput = z.input<typeof dispenseSchema>;
 type DispenseValues = z.output<typeof dispenseSchema>;
@@ -307,7 +324,7 @@ export default function FeedingPage() {
             </TableHeader>
             <TableBody>
               {payload.lines.map((line) => {
-                const shifts = line.shifts as unknown as ShiftCell[];
+                const shifts = line.shifts.map(toShiftCell);
                 const dispensed = dispensedByBucket.get(line.bucket) ?? 0;
                 return (
                   // One bucket can appear on several lines (split by recipe).

@@ -40,8 +40,10 @@ automatically at startup and farm creation.
 
 Configuration is via `GOATFARM_*` env vars (`backend/app/core/config.py`):
 `GOATFARM_DATABASE_URL`, JWT TTLs, Argon2 parameters, `GOATFARM_CORS_ORIGINS`,
-`GOATFARM_COOKIE_SECURE` (set `true` behind HTTPS). RS256 key pairs are
-auto-generated into `backend/keys/` on first run (gitignored).
+`GOATFARM_COOKIE_SECURE` (set `true` behind HTTPS), `GOATFARM_AUTH_RATE_LIMIT_*`
+(login/register throttling), `GOATFARM_MAX_FARMS_PER_USER`, and the
+`GOATFARM_DB_POOL_*` / `GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards. RS256 key
+pairs are auto-generated into `backend/keys/` on first run (gitignored).
 
 ## Auth & tenancy model
 
@@ -56,6 +58,14 @@ auto-generated into `backend/keys/` on first run (gitignored).
   caller's effective set for the active farm; the nav and buttons mirror it.
 - Legacy pbkdf2 password hashes (pre-migration users) verify transparently
   and are upgraded to Argon2id on first login.
+- Login and register are rate-limited (failed attempts for login, keyed per
+  client IP + email; all register attempts per client IP) and farm ownership
+  is capped per user. Behind a reverse proxy, set
+  `GOATFARM_TRUSTED_PROXY_HOSTS` so real client IPs key the limiter.
+- Team consent guards: an account that already belongs to another farm's
+  team (active or not) cannot be absorbed into yours, and worker password
+  resets apply only to accounts whose sole farm affiliation is yours —
+  passwords are global, so cross-farm resets are refused.
 
 ## Data migration from v1 (SQLite → PostgreSQL)
 
@@ -76,7 +86,7 @@ verifies per-table counts (532 rows for the archived demo DB, incl.
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 2168 tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 2315 tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
@@ -84,8 +94,8 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test            # 602 Vitest + MSW tests
-pnpm exec playwright test   # 16 browser e2e tests across 9 specs (starts dev servers if needed)
+pnpm test            # 649 Vitest + MSW tests
+pnpm exec playwright test   # 22 browser e2e tests across 11 specs (starts dev servers if needed)
 pnpm build           # strict typecheck + production build
 ```
 
@@ -130,7 +140,8 @@ and the whole quarantine schedule.
 ## Domain reference (see SPEC.md for detail)
 
 - Gestation **150 days** (kidding window 145–155); ultrasound scan at
-  breeding + 32 days; heat cycle 21 days.
+  breeding + 32 days; heat cycle 21 days. Kidding records are accepted only
+  within 100–200 days of the breeding date.
 - Breeding-ready doe: female, ≥10 months, ≥22 kg, not pregnant, in
   FOUNDATION / FEMALE_KIDS / RESTING. Two consecutive failed cycles →
   cull candidate.
@@ -164,7 +175,7 @@ backend/
                      feeding, finance, purchases, dashboard (incl. reports), team
   alembic/           Migrations (single head: initial schema)
   scripts/           export_openapi.py, migrate_sqlite_to_pg.py
-  tests/             2168 tests (logic, RBAC, adversarial) on real PostgreSQL
+  tests/             2315 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout
@@ -191,6 +202,10 @@ frontend/
 
 ## Notes
 
+- All datetimes are stored naive UTC and "today" is the UTC date everywhere
+  (`backend/app/utils.py`). Date-only inputs accept one day of "future"
+  headroom so clients east of UTC (India is UTC+5:30) can enter their local
+  today during 00:00–05:30 local; genuinely future dates are still rejected.
 - Passkeys are a **future amendment** (see SPEC): neither `webauthn` nor
   `@simplewebauthn/browser` is installed in this release.
 - The refresh cookie is `Secure`-flaggable via `GOATFARM_COOKIE_SECURE=true`

@@ -1,10 +1,12 @@
 /**
  * Simulation page: horizon quick presets, the herd events editor (add /
- * remove / validation / payload wiring / scenario load) and the monthly
- * projection "Events" column.
+ * remove / validation / payload wiring / scenario load), the monthly
+ * projection "Events" column, the numeric-input guards (blank never becomes
+ * 0, NaN never reaches the assumptions object), null-safe IRR/BCR rendering,
+ * and the Delete-scenario pending state.
  */
 
-import { screen } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -125,6 +127,7 @@ interface RunBody {
 function registerApiHandlers(options: {
   scenarios?: unknown[];
   onRun?: (body: RunBody) => void;
+  runResult?: unknown;
 } = {}) {
   server.use(
     permissionsHandler(MANAGE_PERMS),
@@ -137,7 +140,7 @@ function registerApiHandlers(options: {
     ),
     http.post("/api/simulation/run", async ({ request }) => {
       options.onRun?.((await request.json()) as RunBody);
-      return HttpResponse.json(RESULT);
+      return HttpResponse.json(options.runResult ?? RESULT);
     }),
   );
 }
@@ -283,5 +286,139 @@ describe("SimulationPage herd events", () => {
     expect(
       await screen.findByText("Purchased 10 doe(s) at ₹8,000/head (₹80,000)"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("SimulationPage numeric input guards", () => {
+  it("clearing an assumptions number keeps the stored value instead of writing 0", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
+
+    const rateInput = screen.getByLabelText("Interest Rate Annual");
+    expect(rateInput).toHaveValue(0.12);
+
+    await user.clear(rateInput);
+    // Blank while editing — the stored 0.12 is untouched (was: silent 0).
+    expect(rateInput).toHaveValue(null);
+    // On blur the field snaps back to the stored value.
+    await user.tab();
+    expect(rateInput).toHaveValue(0.12);
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    const finance = (
+      captured.body?.assumptions as {
+        finance?: { interest_rate_annual?: number };
+      }
+    ).finance;
+    expect(finance?.interest_rate_annual).toBe(0.12);
+  });
+
+  it("clearing an event month keeps the stored month and stays runnable", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    const monthInput = screen.getByLabelText("Month");
+    await user.clear(monthInput);
+
+    expect(monthInput).toHaveValue(null);
+    // No phantom validation error from a coerced 0.
+    expect(screen.queryByText(/Event 1: month must/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect(captured.body?.assumptions.events?.[0]).toMatchObject({ month: 12 });
+  });
+
+  it("clears price per head back to null (auto) instead of storing 0", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    const priceInput = screen.getByLabelText("Price per head");
+    await user.type(priceInput, "2500");
+    await user.clear(priceInput);
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect(captured.body?.assumptions.events?.[0]).toMatchObject({
+      price_per_head: null,
+    });
+  });
+});
+
+describe("SimulationPage results and scenario management", () => {
+  it("renders a dash for null IRR/BCR (backend contract change)", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      runResult: {
+        ...RESULT,
+        metrics: { ...RESULT.metrics, irr: null, bcr: null },
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+
+    // NPV still formats; IRR/BCR fall back to the dash placeholder.
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    for (const label of ["IRR", "BCR"]) {
+      const card = screen.getByText(label).closest("div.rounded-xl");
+      expect(card).not.toBeNull();
+      expect(within(card as HTMLElement).getByText("—")).toBeInTheDocument();
+    }
+  });
+
+  it("disables the Delete button while the delete mutation is in flight", async () => {
+    let deleteCalls = 0;
+    let resolveDelete: (() => void) | null = null;
+    server.use(
+      http.delete(
+        "/api/simulation/scenarios/:scenarioId",
+        () =>
+          new Promise((resolve) => {
+            deleteCalls += 1;
+            resolveDelete = () =>
+              resolve(new HttpResponse(null, { status: 204 }));
+          }),
+      ),
+    );
+    const scenario = {
+      id: 7,
+      farm_id: 1,
+      name: "Old plan",
+      notes: "",
+      assumptions: DEFAULTS,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    const deleteButton = await screen.findByRole("button", { name: "Delete" });
+    await user.click(deleteButton);
+
+    // Mutation in flight: a second click can't fire a duplicate DELETE.
+    expect(deleteButton).toBeDisabled();
+
+    resolveDelete!();
+    await waitFor(() => expect(deleteCalls).toBe(1));
+    await waitFor(() => expect(deleteButton).toBeEnabled());
   });
 });

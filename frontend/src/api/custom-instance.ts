@@ -4,17 +4,17 @@
  *
  * Orval's react-query client types every response as {data, status, headers}
  * and pages unwrap via `query.data?.status === 200 ? query.data.data : …`,
- * so the raw body from apiFetch is wrapped into that envelope here.
+ * so apiFetchEnvelope repackages the parsed body with the response's REAL
+ * status (201/204 included) and headers.
  */
 
-import { apiFetch } from "@/lib/api-client";
+import { apiFetchEnvelope } from "@/lib/api-client";
 
 export const customInstance = async <T>(
   url: string,
   options?: RequestInit,
 ): Promise<T> => {
-  const data = await apiFetch<unknown>(url, options);
-  return { data, status: 200, headers: new Headers() } as T;
+  return (await apiFetchEnvelope(url, options)) as T;
 };
 
 export type ErrorType<Error> = Error;

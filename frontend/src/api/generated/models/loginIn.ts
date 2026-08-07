@@ -7,5 +7,6 @@
 
 export interface LoginIn {
   email: string;
+  /** @maxLength 128 */
   password: string;
 }

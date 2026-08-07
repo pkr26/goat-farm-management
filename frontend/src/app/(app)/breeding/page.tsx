@@ -5,7 +5,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -84,7 +84,10 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
 const breedingSchema = z.object({
   doe_id: z.string().min(1, "Select a doe"),
   buck_id: z.string().min(1, "Select a buck"),
-  breeding_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date"),
+  breeding_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
+    .refine((s) => s <= localToday(), "Date can't be in the future"),
 });
 type BreedingValues = z.infer<typeof breedingSchema>;
 
@@ -356,6 +359,22 @@ export default function BreedingPage() {
 
   const [newOpen, setNewOpen] = useState(false);
   const [ultrasoundFor, setUltrasoundFor] = useState<BreedingRecordOut | null>(null);
+  const [prefillDone, setPrefillDone] = useState(false);
+
+  // /breeding/{id}/ultrasound redirects to /breeding?ultrasound_id=…: auto-open
+  // the ultrasound dialog for that record once the list has loaded.
+  useEffect(() => {
+    if (!canManage || !payload || prefillDone) return;
+    const recordId = new URLSearchParams(window.location.search).get("ultrasound_id");
+    if (!recordId) return;
+    // One-time initialization from URL params — runs once, not reactive.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrefillDone(true);
+    const record = payload.records.find(
+      (r) => String(r.id) === recordId && r.outcome === "PENDING",
+    );
+    if (record) setUltrasoundFor(record);
+  }, [canManage, payload, prefillDone]);
   const abortMutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
 
   function refresh() {

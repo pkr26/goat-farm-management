@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -142,6 +143,7 @@ async def create_breeding(
             status_code=400,
             detail="Doe is not eligible for breeding, or the buck is not an active male",
         )
+    doe_tag = doe.tag_number  # capture pre-rollback: rollback expires ORM attrs
     try:
         br = await create_breeding_record(
             db,
@@ -158,6 +160,14 @@ async def create_breeding(
         # Doe already has an unresolved breeding/pregnancy (raced/forged request).
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    except IntegrityError:
+        # A concurrent create raced the pre-check into the
+        # uq_breeding_open_pregnancy partial UNIQUE (one PENDING per doe).
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"{doe_tag} already has an unresolved breeding/pregnancy",
+        ) from None
     # Re-fetch with eager loads: the fresh row has no relationships loaded, and
     # async sessions forbid the lazy load a response build would trigger.
     refreshed = await db.execute(
@@ -177,6 +187,7 @@ async def submit_ultrasound(
     record_id: int,
     payload: UltrasoundIn,
     db: DbSession,
+    user: CurrentUser,
     farm: CurrentFarm,
     perms: Annotated[set[str], Depends(require_perm("breeding.manage"))],
 ) -> BreedingRecordOut:
@@ -185,7 +196,9 @@ async def submit_ultrasound(
         # Result already recorded — no replays (the service would no-op anyway).
         raise HTTPException(status_code=409, detail="Ultrasound result already recorded")
     # kid_count is ignored unless pregnant — the service nulls it otherwise.
-    await record_ultrasound_result(db, br, payload.pregnant, payload.kid_count)
+    await record_ultrasound_result(
+        db, br, payload.pregnant, payload.kid_count, created_by_id=user.id
+    )
     await db.commit()
     return _breeding_out(br)
 

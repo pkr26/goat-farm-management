@@ -504,6 +504,86 @@ async def test_weaning_completion_moves_kids_by_sex(client: httpx.AsyncClient) -
     assert doe_after["current_bucket"] == "RESTING"
 
 
+async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_lists(
+    client: httpx.AsyncClient,
+) -> None:
+    """A bought buck batch must stub MALE animals — hardcoded sex="F" used to
+    turn purchased bucks into breeding-candidate does."""
+    headers = await owner_with_farm(client)
+    batch_date = (today() - timedelta(days=50)).isoformat()  # all protocol tasks due
+    resp = await client.post(
+        "/api/purchases/new",
+        json={"date": batch_date, "count": 2, "create_animals": True},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    default_batch_id = resp.json()["id"]
+    resp = await client.post(
+        "/api/purchases/new",
+        json={"date": batch_date, "count": 2, "create_animals": True, "sex": "M"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    buck_batch_id = resp.json()["id"]
+
+    resp = await client.get(f"/api/purchases/{default_batch_id}", headers=headers)
+    assert {a["sex"] for a in resp.json()["animals"]} == {"F"}  # default unchanged
+    resp = await client.get(f"/api/purchases/{buck_batch_id}", headers=headers)
+    buck_stubs = resp.json()["animals"]
+    assert {a["sex"] for a in buck_stubs} == {"M"}
+
+    # Release the buck batch from quarantine (day-45 task) and confirm the
+    # stubs surface as bucks, never as candidate does.
+    detail = resp.json()
+    release = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
+    resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert all(
+        a["current_bucket"] == "FOUNDATION"
+        for a in (await client.get(f"/api/purchases/{buck_batch_id}", headers=headers)).json()[
+            "animals"
+        ]
+    )
+    resp = await client.get("/api/breeding", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    stub_ids = {a["id"] for a in buck_stubs}
+    assert stub_ids.isdisjoint(body["candidate_doe_ids"])
+    assert stub_ids <= set(body["active_buck_ids"])
+
+
+async def test_purchase_batch_explicit_zero_price_books_zero_expense(
+    client: httpx.AsyncClient,
+) -> None:
+    """An explicit ₹0 batch books a ₹0 ANIMAL_PURCHASE expense; omitting
+    total_price books nothing (previously `if total_price:` skipped both)."""
+    headers = await owner_with_farm(client)
+    resp = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 2,
+            "total_price": 0,
+            "create_animals": False,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = await client.get("/api/finance", headers=headers)
+    purchases = [t for t in resp.json()["transactions"] if t["category"] == "ANIMAL_PURCHASE"]
+    assert [t["amount"] for t in purchases] == [0.0]
+
+    resp = await client.post(
+        "/api/purchases/new",
+        json={"date": today().isoformat(), "count": 1, "create_animals": False},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = await client.get("/api/finance", headers=headers)
+    purchases = [t for t in resp.json()["transactions"] if t["category"] == "ANIMAL_PURCHASE"]
+    assert len(purchases) == 1  # still only the explicit-zero one
+
+
 # ---------------------------------------------------------------------------
 # Phase 3: feeding + finance tests
 # ---------------------------------------------------------------------------

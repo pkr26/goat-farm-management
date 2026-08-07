@@ -94,19 +94,34 @@ export interface FeedAssumptions {
      * @exclusiveMinimum 0
      */
   concentrate_dm_pct?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   green_price_per_kg?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   dry_price_per_kg?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   concentrate_price_per_kg?: number;
   /**
      * @minimum 0
      * @maximum 1
      */
   grazing_dm_fraction?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000
+     */
   cultivated_fodder_acres?: number;
-  /** @exclusiveMinimum 0 */
+  /**
+     * @maximum 1000
+     * @exclusiveMinimum 0
+     */
   fodder_yield_t_dm_per_acre_year?: number;
 }

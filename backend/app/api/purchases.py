@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -88,10 +89,21 @@ async def create_batch(
             (payload.notes or "").strip(),
             payload.create_animals,
             created_by_id=user.id,
+            sex=payload.sex,
         )
     except ValueError as exc:  # backstop — the schema re-checks the same invariants
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except IntegrityError:
+        # A generated tag B{batch}-{i:03d} collided with an existing animal
+        # tag on this farm (uq_animal_tag_per_farm) — e.g. a manually created
+        # "B1-001". The batch is rolled back wholesale; a retry gets a fresh
+        # batch id and collision-free tags.
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="A generated animal tag already exists on this farm — please retry.",
+        ) from None
     await db.commit()
     return (await _batch_out(db, [batch]))[0]
 

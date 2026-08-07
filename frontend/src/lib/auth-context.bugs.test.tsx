@@ -10,8 +10,16 @@
 // manifested only as the unhandled rejection vitest reports against this
 // file. The bootstrap now has a catch; these tests confirm both the
 // functional path and the absence of the rejection.
+//
+// Second bug pinned below: cross-tenant cache leak. React Query cache keys
+// are URL-only (no farm id) and selectFarm/signOut never touched the
+// QueryClient, so switching farms kept rendering the previous farm's cached
+// data (permissions included) and a sign-out → sign-in as another user
+// leaked the previous user's data. Both actions now call
+// queryClient.clear(); the tests seed the cache and assert it is emptied.
 
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +43,8 @@ function Probe() {
     <div>
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="user">{auth.user ? auth.user.email : "none"}</span>
+      <button onClick={() => auth.selectFarm(2)}>select-2</button>
+      <button onClick={() => void auth.signOut()}>sign-out</button>
     </div>
   );
 }
@@ -80,5 +90,56 @@ describe("AuthProvider bootstrap — refresh throws (suspected unhandled rejecti
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     expect(pushMock).toHaveBeenCalledWith("/login");
     // BUG: same root cause — resp.json() throws inside the try with no catch.
+  });
+});
+
+describe("AuthProvider — query cache cleared on farm switch / sign-out", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("selectFarm drops every cached query from the previous farm", async () => {
+    const { queryClient } = renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+
+    // Stale entries keyed by bare URL, exactly like the real pages leave them.
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+    queryClient.setQueryData(["/api/auth/permissions"], {
+      is_owner: true,
+      permissions: [],
+    });
+    expect(queryClient.getQueryCache().getAll()).not.toHaveLength(0);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "select-2" }));
+
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("signOut leaves the query cache empty for the next user", async () => {
+    server.use(
+      http.post("/api/auth/logout", () => HttpResponse.json({ ok: true })),
+    );
+    const { queryClient } = renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "owner@goatfarm.test",
+      ),
+    );
+
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+    expect(queryClient.getQueryCache().getAll()).not.toHaveLength(0);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
   });
 });

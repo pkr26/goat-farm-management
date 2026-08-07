@@ -6,11 +6,19 @@ able to log in; their hash is transparently upgraded to Argon2id on success.
 
 JWTs are RS256 (PyJWT + cryptography). The dev keypair is generated on first
 use into backend/keys/ (gitignored); production supplies real keys via
-GOATFARM_JWT_PRIVATE_KEY_PATH / GOATFARM_JWT_PUBLIC_KEY_PATH.
+GOATFARM_JWT_PRIVATE_KEY_PATH / GOATFARM_JWT_PUBLIC_KEY_PATH. Key text is
+read from disk once and cached in memory (thread-safe); first-boot
+generation writes temp files and os.replaces them into place so concurrent
+readers never see a half-written key, and holds an flock on a sibling lock
+file so two first-booting PROCESSES can't interleave writes into a
+mismatched keypair (which would 401 every token).
 """
 
+import fcntl
 import hashlib
 import hmac
+import os
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -86,31 +94,71 @@ def verify_password(password: str, stored: str) -> tuple[bool, bool]:
 # ---------------------------------------------------------------------------
 # JWT
 # ---------------------------------------------------------------------------
+# Guards first-boot keypair generation and the read-once cache below.
+_key_lock = threading.Lock()
+_key_cache: dict[Path, str] = {}
+
+
+def _write_atomic(path: Path, data: bytes, mode: int | None = None) -> None:
+    """Temp file + os.replace: readers only ever see the old or the new file,
+    never a half-written one. Permissions are set before the rename so the
+    private key never exists at its final path with a looser mode."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    if mode is not None:
+        tmp.chmod(mode)
+    os.replace(tmp, path)
+
+
+def _generate_keypair(priv: Path, pub: Path) -> None:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    _write_atomic(
+        priv,
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ),
+        mode=0o600,
+    )
+    _write_atomic(
+        pub,
+        key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        ),
+    )
+
+
 def _ensure_keypair() -> None:
+    """Generate the dev keypair on first use. Caller must hold _key_lock."""
     s = get_settings()
     priv, pub = s.jwt_private_key_path, s.jwt_public_key_path
     if priv.exists() and pub.exists():
         return
     priv.parent.mkdir(parents=True, exist_ok=True)
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    priv.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
-    )
-    priv.chmod(0o600)
-    pub.write_bytes(
-        key.public_key().public_bytes(
-            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-    )
+    # _key_lock is per-process: two first-booting PROCESSES could still
+    # interleave the atomic writes and leave a mismatched pair on disk (every
+    # token would then fail verification). Serialize generation across
+    # processes with an exclusive flock on a sibling lock file, and re-check
+    # under it so the loser adopts the winner's pair instead of regenerating.
+    lock_path = priv.parent / ".jwt_keygen.lock"
+    with lock_path.open("w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        if not (priv.exists() and pub.exists()):
+            _generate_keypair(priv, pub)
 
 
 def _read(path: Path) -> str:
-    _ensure_keypair()
-    return path.read_text()
+    """Key text, read from disk once and cached in memory (thread-safe):
+    signing and verification must not hit the filesystem per token."""
+    cached = _key_cache.get(path)
+    if cached is not None:
+        return cached
+    with _key_lock:
+        if path not in _key_cache:  # re-check under the lock
+            _ensure_keypair()
+            _key_cache[path] = path.read_text()
+        return _key_cache[path]
 
 
 def issue_token(subject: int, kind: str, ttl_seconds: int) -> str:

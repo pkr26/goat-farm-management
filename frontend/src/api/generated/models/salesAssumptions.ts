@@ -9,11 +9,20 @@
  * Prices and non-meat revenue streams (₹).
  */
 export interface SalesAssumptions {
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   meat_price_per_kg?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   cull_doe_price_per_kg?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   cull_buck_price_per_kg?: number;
   /**
      * @minimum 0
@@ -25,10 +34,19 @@ export interface SalesAssumptions {
      * @maximum 2
      */
   eid_price_uplift?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   milk_price_per_litre?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
   lactation_milk_litres?: number;
-  /** @minimum 0 */
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   manure_income_per_adult_per_year?: number;
 }

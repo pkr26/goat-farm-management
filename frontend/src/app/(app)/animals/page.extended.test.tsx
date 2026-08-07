@@ -253,6 +253,18 @@ describe("AnimalsPage extended", () => {
       await waitFor(() => expect(seenParams.at(-1)?.get("q")).toBeNull());
     });
 
+    it("debounces the search: one request after typing stops, none per keystroke", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      await user.type(screen.getByPlaceholderText("Search tag or name…"), "G-9");
+      // No request has carried a q yet (debounce window still open)…
+      expect(seenParams.some((p) => p.get("q") !== null)).toBe(false);
+      // …then exactly one request fires with the settled value.
+      await waitFor(() => expect(seenParams.at(-1)?.get("q")).toBe("G-9"));
+      const qValues = seenParams.map((p) => p.get("q")).filter((v) => v !== null);
+      expect(qValues).toEqual(["G-9"]);
+    });
+
     it("sends the chosen bucket filter", async () => {
       const user = userEvent.setup();
       await renderLoaded();

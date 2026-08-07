@@ -10,7 +10,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -291,6 +291,18 @@ describe("KiddingPage", () => {
     expect(postBody).toBeNull();
   });
 
+  it("rejects a future kidding date (typed input bypasses the max attribute)", async () => {
+    const { user, dialog } = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText(/kidding date/i), {
+      target: { value: daysFromToday(1) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+    expect(
+      await within(dialog).findByText("Date can't be in the future"),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
   it("rejects a kid tag longer than 50 characters", async () => {
     const { user, dialog } = await openDialog();
     fireEvent.change(within(dialog).getAllByPlaceholderText("auto")[0], {
@@ -383,5 +395,29 @@ describe("KiddingPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(postBody).toBeNull();
+  });
+
+  // ---------- URL prefill (/kidding/new?breeding_id=… redirect) ----------
+
+  describe("URL prefill from /kidding/new?breeding_id=…", () => {
+    afterEach(() => {
+      window.history.replaceState({}, "", "/kidding");
+    });
+
+    it("auto-opens the record dialog for the linked breeding record", async () => {
+      window.history.replaceState({}, "", "/kidding?breeding_id=12");
+      renderWithProviders(<KiddingPage />);
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Record kidding")).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/Doe G-010 · due .+ \(2 detected\)/),
+      ).toBeInTheDocument();
+    });
+
+    it("opens no dialog for an unknown breeding_id", async () => {
+      window.history.replaceState({}, "", "/kidding?breeding_id=999");
+      await renderLoaded();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 });

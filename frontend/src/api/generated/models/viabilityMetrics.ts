@@ -15,7 +15,7 @@ export interface ViabilityMetrics {
   equity: number;
   npv: number;
   irr: number | null;
-  bcr: number;
+  bcr: number | null;
   dscr_per_year: number[];
   avg_dscr: number;
   min_dscr: number;

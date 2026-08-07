@@ -441,6 +441,35 @@
             }
           },
           {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 1000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
             "name": "x-farm-id",
             "in": "header",
             "required": false,
@@ -1195,22 +1224,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -1224,6 +1237,22 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3262,6 +3291,7 @@
           "team"
         ],
         "summary": "Create Worker",
+        "description": "Add a worker: create a brand-new account, or enroll an existing one\nthat owns no farm and belongs to no other farm's team. Accounts and\npasswords are global, so absorbing an account affiliated with another\nfarm would hand this farm a cross-tenant takeover path (reset-password\nrewrites the global password). Residual limitation: there is no\ninvitation/consent flow yet \u2014 an unaffiliated account is enrolled without\nthe account holder's say-so.",
         "operationId": "create_worker_api_team_workers_post",
         "parameters": [
           {
@@ -3495,6 +3525,7 @@
           "team"
         ],
         "summary": "Reset Password",
+        "description": "Rewrite a worker's GLOBAL password. Restricted to accounts whose sole\nfarm affiliation is this one (the accounts this farm created): resetting\nthe password of an account tied to another farm would be a cross-tenant\ntakeover. Residual limitation: without an invitation/consent flow, the\nfarm-set password is the account's only credential \u2014 the worker cannot\nyet change it himself.",
         "operationId": "reset_password_api_team_workers__membership_id__reset_password_post",
         "parameters": [
           {
@@ -4249,7 +4280,7 @@
           "simulation"
         ],
         "summary": "Compare Scenarios",
-        "description": "Run 2+ stored scenarios deterministically side by side (``ids=1,2``).",
+        "description": "Run 2+ stored scenarios deterministically side by side (``ids=1,2``).\n\nDuplicate ids are collapsed (a repeated id must not re-run a simulation);\nmore than MAX_COMPARE_IDS distinct ids is a 400.",
         "operationId": "compare_scenarios_api_simulation_scenarios_compare_get",
         "parameters": [
           {
@@ -4765,7 +4796,9 @@
                 "enum": [
                   "SINGLE",
                   "TWIN",
-                  "TRIPLET"
+                  "TRIPLET",
+                  "QUADRUPLET",
+                  "MULTIPLET"
                 ]
               },
               {
@@ -4777,7 +4810,8 @@
           "birth_weight": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000
               },
               {
                 "type": "null"
@@ -4800,7 +4834,8 @@
           "purchase_price": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000000000
               },
               {
                 "type": "null"
@@ -4823,7 +4858,8 @@
           "weight_kg": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000
               },
               {
                 "type": "null"
@@ -5735,12 +5771,14 @@
         "properties": {
           "vet_per_animal_per_year": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Vet Per Animal Per Year",
             "default": 250.0
           },
           "labour_per_month": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Labour Per Month",
             "default": 10000.0
@@ -5760,18 +5798,21 @@
           },
           "misc_overhead_per_month": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Misc Overhead Per Month",
             "default": 2000.0
           },
           "shed_cost_per_animal_place": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Shed Cost Per Animal Place",
             "default": 4500.0
           },
           "equipment_cost_per_animal": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Equipment Cost Per Animal",
             "default": 500.0
@@ -5951,7 +5992,8 @@
           },
           "qty_kg": {
             "type": "number",
-            "title": "Qty Kg"
+            "title": "Qty Kg",
+            "le": 1000000
           },
           "date": {
             "anyOf": [
@@ -6165,18 +6207,21 @@
           },
           "green_price_per_kg": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Green Price Per Kg",
             "default": 1.0
           },
           "dry_price_per_kg": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Dry Price Per Kg",
             "default": 5.0
           },
           "concentrate_price_per_kg": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Concentrate Price Per Kg",
             "default": 25.0
@@ -6190,12 +6235,14 @@
           },
           "cultivated_fodder_acres": {
             "type": "number",
+            "maximum": 1000000.0,
             "minimum": 0.0,
             "title": "Cultivated Fodder Acres",
             "default": 0.0
           },
           "fodder_yield_t_dm_per_acre_year": {
             "type": "number",
+            "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Fodder Yield T Dm Per Acre Year",
             "default": 6.0
@@ -6349,7 +6396,8 @@
           },
           "daily_kg_per_head": {
             "type": "number",
-            "title": "Daily Kg Per Head"
+            "title": "Daily Kg Per Head",
+            "le": 1000000
           }
         },
         "type": "object",
@@ -6484,6 +6532,7 @@
         "properties": {
           "initial_stock_cost": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Initial Stock Cost",
             "default": 0.0
@@ -6581,27 +6630,32 @@
         "properties": {
           "birth_weight_kg": {
             "type": "number",
+            "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Birth Weight Kg",
             "default": 2.5
           },
           "adult_weight_doe_kg": {
             "type": "number",
+            "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Adult Weight Doe Kg",
             "default": 32.0
           },
           "adult_weight_buck_kg": {
             "type": "number",
+            "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Adult Weight Buck Kg",
             "default": 34.0
           },
           "weight_by_age_months": {
             "items": {
-              "type": "number"
+              "type": "number",
+              "maximum": 1000.0
             },
             "type": "array",
+            "maxItems": 1200,
             "minItems": 13,
             "title": "Weight By Age Months"
           },
@@ -6778,7 +6832,8 @@
           "cost": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000000000
               },
               {
                 "type": "null"
@@ -6982,48 +7037,56 @@
         "properties": {
           "does": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Does",
             "default": 50
           },
           "bucks": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Bucks",
             "default": 2
           },
           "female_growers": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Female Growers",
             "default": 0
           },
           "male_growers": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Male Growers",
             "default": 0
           },
           "female_weaners": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Female Weaners",
             "default": 0
           },
           "male_weaners": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Male Weaners",
             "default": 0
           },
           "female_kids": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Female Kids",
             "default": 0
           },
           "male_kids": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Male Kids",
             "default": 0
@@ -7037,18 +7100,21 @@
           },
           "max_breeding_does": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Max Breeding Does",
             "default": 50
           },
           "doe_purchase_price": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Doe Purchase Price",
             "default": 8000.0
           },
           "buck_purchase_price": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Buck Purchase Price",
             "default": 12000.0
@@ -7104,6 +7170,7 @@
           },
           "count": {
             "type": "number",
+            "maximum": 100000.0,
             "exclusiveMinimum": 0.0,
             "title": "Count"
           },
@@ -7111,6 +7178,7 @@
             "anyOf": [
               {
                 "type": "number",
+                "maximum": 1000000000.0,
                 "minimum": 0.0
               },
               {
@@ -7269,7 +7337,8 @@
           "birth_weight": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000
               },
               {
                 "type": "null"
@@ -7458,6 +7527,7 @@
           },
           "password": {
             "type": "string",
+            "maxLength": 128,
             "title": "Password"
           }
         },
@@ -7602,7 +7672,8 @@
           },
           "batch_kg": {
             "type": "number",
-            "title": "Batch Kg"
+            "title": "Batch Kg",
+            "le": 1000000
           }
         },
         "type": "object",
@@ -8032,6 +8103,7 @@
         "properties": {
           "password": {
             "type": "string",
+            "maxLength": 128,
             "minLength": 1,
             "title": "Password"
           }
@@ -8302,6 +8374,15 @@
             "minimum": 1.0,
             "title": "Count"
           },
+          "sex": {
+            "type": "string",
+            "enum": [
+              "M",
+              "F"
+            ],
+            "title": "Sex",
+            "default": "F"
+          },
           "avg_age_months": {
             "anyOf": [
               {
@@ -8318,7 +8399,8 @@
           "avg_weight_kg": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000
               },
               {
                 "type": "null"
@@ -8329,7 +8411,8 @@
           "total_price": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000000000
               },
               {
                 "type": "null"
@@ -8487,6 +8570,7 @@
           },
           "password": {
             "type": "string",
+            "maxLength": 128,
             "minLength": 1,
             "title": "Password"
           },
@@ -8710,12 +8794,14 @@
           },
           "low": {
             "type": "number",
+            "maximum": 100.0,
             "exclusiveMinimum": 0.0,
             "title": "Low",
             "default": 0.8
           },
           "high": {
             "type": "number",
+            "maximum": 100.0,
             "exclusiveMinimum": 0.0,
             "title": "High",
             "default": 1.2
@@ -8857,18 +8943,21 @@
         "properties": {
           "meat_price_per_kg": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Meat Price Per Kg",
             "default": 350.0
           },
           "cull_doe_price_per_kg": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Cull Doe Price Per Kg",
             "default": 180.0
           },
           "cull_buck_price_per_kg": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Cull Buck Price Per Kg",
             "default": 200.0
@@ -8889,18 +8978,21 @@
           },
           "milk_price_per_litre": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Milk Price Per Litre",
             "default": 30.0
           },
           "lactation_milk_litres": {
             "type": "number",
+            "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Lactation Milk Litres",
             "default": 0.0
           },
           "manure_income_per_adult_per_year": {
             "type": "number",
+            "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Manure Income Per Adult Per Year",
             "default": 900.0
@@ -9218,6 +9310,7 @@
               "$ref": "#/components/schemas/HerdEventAssumptions"
             },
             "type": "array",
+            "maxItems": 500,
             "title": "Events"
           }
         },
@@ -9335,7 +9428,8 @@
           "sale_price": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000000000
               },
               {
                 "type": "null"
@@ -9378,12 +9472,14 @@
         "properties": {
           "qty_kg": {
             "type": "number",
-            "title": "Qty Kg"
+            "title": "Qty Kg",
+            "le": 1000000
           },
           "price_per_kg": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "le": 1000000000
               },
               {
                 "type": "null"
@@ -9625,6 +9721,17 @@
             ],
             "title": "Verification Note"
           },
+          "skipped_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped By Id"
+          },
           "assigned_role_name": {
             "anyOf": [
               {
@@ -9693,7 +9800,8 @@
           "completed_at",
           "verified_by_id",
           "verified_at",
-          "verification_note"
+          "verification_note",
+          "skipped_by_id"
         ],
         "title": "TaskOut"
       },
@@ -9858,7 +9966,8 @@
           },
           "amount": {
             "type": "number",
-            "title": "Amount"
+            "title": "Amount",
+            "le": 1000000000
           },
           "notes": {
             "anyOf": [
@@ -10094,7 +10203,14 @@
             "title": "Irr"
           },
           "bcr": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Bcr"
           },
           "dscr_per_year": {
@@ -10169,7 +10285,8 @@
           },
           "weight_kg": {
             "type": "number",
-            "title": "Weight Kg"
+            "title": "Weight Kg",
+            "le": 1000
           },
           "bcs": {
             "anyOf": [
@@ -10260,7 +10377,8 @@
           "password": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 128
               },
               {
                 "type": "null"
