@@ -30,7 +30,10 @@ Documented v1 approximations:
   total always equals the pooled doe count.
 - Working capital is ``working_capital_months`` x the average monthly opex of
   simulation year 1 (excluding scheduled event purchases).
-- No depreciation and no terminal/herd-salvage value in v1.
+- No depreciation and no terminal/herd-salvage value in v1. Symmetrically,
+  when the loan term outlives the horizon, the balance still owed at the end
+  is charged against the final month's cash flow (terminal debt without a
+  terminal asset would overstate every return metric).
 """
 
 import math
@@ -679,9 +682,15 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
 
     months: list[MonthlyRow] = []
     cumulative = -equity
+    # If the loan outlives the horizon, the balance still owed at the end is a
+    # real claim on the promoter; with no terminal asset value (v1), it is
+    # charged against the final month's cash flow.
+    terminal_balance = schedule[horizon - 1].closing_balance if horizon < len(schedule) else 0.0
     for rec in records:
         debt_service = schedule[rec.month - 1].payment if rec.month <= len(schedule) else 0.0
         net_cash = rec.revenue - rec.opex - debt_service
+        if rec.month == horizon:
+            net_cash -= terminal_balance
         cumulative += net_cash
         months.append(
             MonthlyRow(

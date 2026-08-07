@@ -1,0 +1,805 @@
+"""Financial audit test suite for the simulation engine.
+
+Independent verification written from first principles (a lender's/modeler's
+view), complementing the golden unit tests in test_simulation_engine.py:
+
+1. Financing validation — equity can never go negative (loan + subsidy <= 1)
+   and the moratorium must be shorter than the loan term, otherwise the
+   principal silently vanishes from every cash flow.
+2. Terminal debt — when the loan outlives the horizon, the outstanding
+   balance is charged against the final month (no terminal asset value in v1,
+   so terminal debt must not be dropped either).
+3. Herd mass balance — animals are conserved across a grid of scenarios:
+   herd_t == herd_{t-1} + births + purchases - deaths - sales - culls.
+4. Accounting identities — monthly rows sum to the annual P&L, EBITDA and
+   debt-service decompositions hold, and the amortization schedule chains.
+5. Metric correctness — NPV at the returned IRR is ~0, the break-even meat
+   price really zeroes NPV, DSCR/payback are consistent with the cash flows.
+6. Biological sanity — conception/sex-ratio/stillbirth/max-age-cull/buck
+   rotation edge behaviours and the steady-state kidding cadence.
+"""
+
+import math
+from itertools import pairwise
+
+import httpx
+import pytest
+from pydantic import ValidationError
+
+from app.simulation import (
+    HerdAssumptions,
+    MetaAssumptions,
+    MonthlyRow,
+    SimulationAssumptions,
+    amortization_schedule,
+    npv,
+    run_monte_carlo,
+    run_sensitivity,
+    run_simulation,
+)
+from app.simulation.assumptions import FinanceAssumptions, HerdEventAssumptions
+from app.simulation.montecarlo import _DRAW_ORDER, _apply_draws
+
+from .conftest import owner_with_farm
+
+S_ADULT = 0.95 ** (1.0 / 12.0)  # monthly adult survival, default 5% annual
+
+MONTH_FLOAT_FIELDS = [
+    "f_kids",
+    "f_weaners",
+    "f_growers",
+    "open_does",
+    "pregnant_does",
+    "lactating_does",
+    "m_kids",
+    "m_weaners",
+    "m_growers",
+    "bucks",
+    "total_herd",
+    "births",
+    "deaths",
+    "sales_head",
+    "sales_revenue",
+    "culls_head",
+    "cull_revenue",
+    "milk_revenue",
+    "manure_revenue",
+    "purchases_head",
+    "purchase_cost",
+    "feed_green_kg",
+    "feed_dry_kg",
+    "feed_concentrate_kg",
+    "feed_cost",
+    "vet_cost",
+    "labour_cost",
+    "insurance_cost",
+    "misc_cost",
+    "debt_service",
+    "net_cash_flow",
+    "cumulative_cash_flow",
+    "fodder_surplus_kg",
+]
+
+
+def toy(**herd_overrides: object) -> SimulationAssumptions:
+    """10 open does, no bucks, no purchases (golden-derivation herd)."""
+    herd = {
+        "does": 10,
+        "bucks": 0,
+        "auto_purchase_bucks": False,
+        "foundation_flock_state": "open",
+        **herd_overrides,
+    }
+    return SimulationAssumptions(herd=HerdAssumptions(**herd))  # type: ignore[arg-type]
+
+
+def initial_herd(a: SimulationAssumptions) -> float:
+    h = a.herd
+    return float(
+        h.does
+        + h.bucks
+        + h.female_kids
+        + h.male_kids
+        + h.female_weaners
+        + h.male_weaners
+        + h.female_growers
+        + h.male_growers
+    )
+
+
+def revenue_of(row: MonthlyRow) -> float:
+    return row.sales_revenue + row.cull_revenue + row.milk_revenue + row.manure_revenue
+
+
+def opex_of(row: MonthlyRow) -> float:
+    return (
+        row.feed_cost
+        + row.vet_cost
+        + row.labour_cost
+        + row.insurance_cost
+        + row.misc_cost
+        + row.purchase_cost
+    )
+
+
+def assert_mass_balance(a: SimulationAssumptions) -> None:
+    """Animals are conserved month over month and never go negative/NaN."""
+    res = run_simulation(a, with_break_even=False)
+    prev = initial_herd(a)
+    for row in res.months:
+        expected = (
+            prev + row.births + row.purchases_head - row.deaths - row.sales_head - row.culls_head
+        )
+        assert row.total_herd == pytest.approx(expected, abs=1e-6), (
+            f"mass balance broken in month {row.month}"
+        )
+        for field_name in MONTH_FLOAT_FIELDS:
+            value = getattr(row, field_name)
+            assert math.isfinite(value), f"{field_name} not finite in month {row.month}"
+            if field_name != "fodder_surplus_kg" and field_name not in (
+                "net_cash_flow",
+                "cumulative_cash_flow",
+            ):
+                assert value >= 0.0, f"{field_name} negative in month {row.month}"
+        prev = row.total_herd
+
+
+# ---------------------------------------------------------------------------
+# 1. Financing validation
+# ---------------------------------------------------------------------------
+def test_loan_plus_subsidy_above_one_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="equity cannot be negative"):
+        FinanceAssumptions(loan_fraction_of_project_cost=0.6, subsidy_fraction=0.5)
+    with pytest.raises(ValidationError, match="equity cannot be negative"):
+        FinanceAssumptions(loan_fraction_of_project_cost=0.85, subsidy_fraction=0.9)
+
+
+def test_loan_plus_subsidy_exactly_one_is_full_financing() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        finance=FinanceAssumptions(loan_fraction_of_project_cost=0.75, subsidy_fraction=0.25),
+    )
+    res = run_simulation(a, with_break_even=False)
+    m = res.metrics
+    assert m.equity == pytest.approx(0.0, abs=1e-6)
+    assert m.loan_amount + m.subsidy_amount == pytest.approx(m.project_cost)
+
+
+def test_moratorium_covering_the_term_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="never repaid"):
+        FinanceAssumptions(loan_term_months=12, moratorium_months=12)
+    with pytest.raises(ValidationError, match="never repaid"):
+        FinanceAssumptions(loan_term_months=36, moratorium_months=60)
+
+
+def test_moratorium_one_short_of_term_repays_in_full() -> None:
+    schedule = amortization_schedule(100000.0, 0.12, 12, 11)
+    # A single EMI month: the whole balance is cleared in the final payment.
+    assert schedule[-1].closing_balance == pytest.approx(0.0, abs=1e-6)
+    assert sum(row.principal for row in schedule) == pytest.approx(100000.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# 2. Terminal debt when the loan outlives the horizon
+# ---------------------------------------------------------------------------
+def test_terminal_balance_charged_in_final_month() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        finance=FinanceAssumptions(loan_term_months=120, moratorium_months=12),
+    )
+    res = run_simulation(a, with_break_even=False)
+    balance_at_24 = res.amortization[23].closing_balance
+    assert balance_at_24 > 0.0  # 96 scheduled payments remain after the horizon
+    final = res.months[-1]
+    assert final.net_cash_flow == pytest.approx(
+        revenue_of(final) - opex_of(final) - final.debt_service - balance_at_24
+    )
+    # Non-final months carry only scheduled debt service.
+    mid = res.months[-2]
+    assert mid.net_cash_flow == pytest.approx(revenue_of(mid) - opex_of(mid) - mid.debt_service)
+
+
+def test_terminal_balance_reaches_npv_and_cumulative_cash() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        finance=FinanceAssumptions(loan_term_months=120, moratorium_months=12),
+    )
+    res = run_simulation(a, with_break_even=False)
+    m = res.metrics
+    flows = [-m.equity, res.annual_pl[0].net_cash_flow, res.annual_pl[1].net_cash_flow]
+    times = [0.0, 1.0, 2.0]
+    assert m.npv == pytest.approx(npv(a.finance.discount_rate_annual, flows, times))
+    assert res.months[-1].cumulative_cash_flow == pytest.approx(
+        -m.equity + sum(row.net_cash_flow for row in res.months)
+    )
+
+
+def test_no_terminal_charge_when_loan_ends_within_horizon() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        finance=FinanceAssumptions(loan_term_months=24, moratorium_months=12),
+    )
+    res = run_simulation(a, with_break_even=False)
+    assert res.amortization[-1].closing_balance == pytest.approx(0.0, abs=1e-6)
+    final = res.months[-1]
+    assert final.net_cash_flow == pytest.approx(
+        revenue_of(final) - opex_of(final) - final.debt_service
+    )
+
+
+def test_no_terminal_charge_for_default_run() -> None:
+    # 72-month loan inside a 120-month horizon: behaviour unchanged.
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    final = res.months[-1]
+    assert final.debt_service == 0.0
+    assert final.net_cash_flow == pytest.approx(revenue_of(final) - opex_of(final))
+
+
+# ---------------------------------------------------------------------------
+# 3. Herd mass balance across a scenario grid
+# ---------------------------------------------------------------------------
+def test_mass_balance_default_run() -> None:
+    assert_mass_balance(SimulationAssumptions())
+
+
+def test_mass_balance_toy_open_flock() -> None:
+    assert_mass_balance(toy())
+
+
+def test_mass_balance_no_grower_chains() -> None:
+    a = toy()
+    a.reproduction.age_at_first_breeding_months = 6
+    a.growth.sale_age_months = 6
+    assert_mass_balance(a)
+
+
+def test_mass_balance_empty_herd_with_events() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        herd=HerdAssumptions(does=0, bucks=0, auto_purchase_bucks=False),
+        events=[HerdEventAssumptions(month=3, kind="sale", animal_class="doe", count=5)],
+    )
+    assert_mass_balance(a)
+
+
+def test_mass_balance_extreme_mortality() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=36))
+    a.mortality.kid_pre_weaning = 0.9
+    a.mortality.kid_post_weaning = 0.9
+    a.mortality.grower = 0.9
+    a.mortality.adult = 0.9
+    assert_mass_balance(a)
+
+
+def test_mass_balance_unbounded_growth() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=36))
+    a.mortality.kid_pre_weaning = 0.0
+    a.mortality.kid_post_weaning = 0.0
+    a.mortality.grower = 0.0
+    a.mortality.adult = 0.0
+    a.culling.doe_cull_rate_annual = 0.0
+    a.herd.female_retention_fraction = 1.0
+    a.herd.max_breeding_does = 0  # unlimited
+    res = run_simulation(a, with_break_even=False)
+    # Nothing dies or leaves involuntarily: the herd never shrinks.
+    for prev_row, row in pairwise(res.months):
+        assert row.total_herd >= prev_row.total_herd - 1e-9
+    assert_mass_balance(a)
+
+
+def test_mass_balance_events_every_class() -> None:
+    a = toy()
+    a.meta.horizon_months = 36
+    a.events = [
+        HerdEventAssumptions(month=6, kind="purchase", animal_class=cls, count=3)
+        for cls in (
+            "doe",
+            "buck",
+            "female_kid",
+            "male_kid",
+            "female_weaner",
+            "male_weaner",
+            "female_grower",
+            "male_grower",
+        )
+    ] + [
+        HerdEventAssumptions(month=18, kind="sale", animal_class=cls, count=1)
+        for cls in (
+            "doe",
+            "buck",
+            "female_kid",
+            "male_kid",
+            "female_weaner",
+            "male_weaner",
+            "female_grower",
+            "male_grower",
+        )
+    ]
+    assert_mass_balance(a)
+
+
+def test_mass_balance_semi_intensive_milk_breed() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=36))
+    a.sales.lactation_milk_litres = 110.0
+    a.feed.grazing_dm_fraction = 0.3
+    assert_mass_balance(a)
+
+
+def test_mass_balance_max_horizon() -> None:
+    assert_mass_balance(SimulationAssumptions(meta=MetaAssumptions(horizon_months=240)))
+
+
+def test_mass_balance_huge_herd_stays_finite() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        herd=HerdAssumptions(does=100_000, bucks=4_000),
+    )
+    assert_mass_balance(a)
+
+
+# ---------------------------------------------------------------------------
+# 4. Accounting identities
+# ---------------------------------------------------------------------------
+def test_monthly_rows_sum_to_annual_pl() -> None:
+    res = run_simulation(
+        SimulationAssumptions(meta=MetaAssumptions(horizon_months=130)), with_break_even=False
+    )
+    assert len(res.annual_pl) == 11  # 10 full years + a 10-month stub
+    for start in range(0, 130, 12):
+        block = res.months[start : start + 12]
+        row = res.annual_pl[start // 12]
+        assert row.year == start // 12 + 1
+        assert row.meat_revenue == pytest.approx(sum(m.sales_revenue for m in block))
+        assert row.cull_revenue == pytest.approx(sum(m.cull_revenue for m in block))
+        assert row.milk_revenue == pytest.approx(sum(m.milk_revenue for m in block))
+        assert row.manure_revenue == pytest.approx(sum(m.manure_revenue for m in block))
+        assert row.feed_cost == pytest.approx(sum(m.feed_cost for m in block))
+        assert row.vet_cost == pytest.approx(sum(m.vet_cost for m in block))
+        assert row.labour_cost == pytest.approx(sum(m.labour_cost for m in block))
+        assert row.insurance_cost == pytest.approx(sum(m.insurance_cost for m in block))
+        assert row.misc_cost == pytest.approx(sum(m.misc_cost for m in block))
+        assert row.stock_purchases == pytest.approx(sum(m.purchase_cost for m in block))
+        assert row.debt_service == pytest.approx(sum(m.debt_service for m in block))
+        assert row.net_cash_flow == pytest.approx(sum(m.net_cash_flow for m in block))
+        # Decomposition identities inside the annual row itself.
+        assert row.total_revenue == pytest.approx(
+            row.meat_revenue + row.cull_revenue + row.milk_revenue + row.manure_revenue
+        )
+        assert row.total_opex == pytest.approx(
+            row.feed_cost
+            + row.vet_cost
+            + row.labour_cost
+            + row.insurance_cost
+            + row.misc_cost
+            + row.stock_purchases
+        )
+        assert row.ebitda == pytest.approx(row.total_revenue - row.total_opex)
+        assert row.debt_service == pytest.approx(row.interest + row.principal)
+
+
+def test_amortization_schedule_chains() -> None:
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    schedule = res.amortization
+    assert len(schedule) == 72
+    for prev, row in pairwise(schedule):
+        assert row.opening_balance == pytest.approx(prev.closing_balance, abs=1e-6)
+    for row in schedule:
+        assert row.payment == pytest.approx(row.interest + row.principal, abs=1e-6)
+        assert row.closing_balance == pytest.approx(row.opening_balance - row.principal, abs=1e-6)
+    assert sum(row.principal for row in schedule) == pytest.approx(res.metrics.loan_amount)
+    assert schedule[-1].closing_balance == pytest.approx(0.0, abs=1e-6)
+    # Moratorium year: interest-only, balance flat at the loan amount.
+    for row in schedule[:12]:
+        assert row.principal == 0.0
+        assert row.opening_balance == pytest.approx(res.metrics.loan_amount)
+
+
+def test_zero_loan_schedule_is_all_zero() -> None:
+    schedule = amortization_schedule(0.0, 0.12, 24, 12)
+    assert all(row.payment == 0.0 and row.closing_balance == 0.0 for row in schedule)
+
+
+def test_project_cost_split_is_exact() -> None:
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    m = res.metrics
+    b = res.project_cost_breakdown
+    assert b.shed_cost + b.equipment_cost + b.stock_cost + b.working_capital == pytest.approx(
+        m.project_cost
+    )
+    assert m.loan_amount + m.subsidy_amount + m.equity == pytest.approx(m.project_cost)
+
+
+def test_cumulative_cash_chain() -> None:
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    running = -res.metrics.equity
+    for row in res.months:
+        running += row.net_cash_flow
+        assert row.cumulative_cash_flow == pytest.approx(running)
+
+
+# ---------------------------------------------------------------------------
+# 5. Metric correctness
+# ---------------------------------------------------------------------------
+def npv_at_returned_irr(a: SimulationAssumptions) -> float | None:
+    """Recompute NPV at the engine's own IRR from the result's annual flows."""
+    res = run_simulation(a, with_break_even=False)
+    irr_value = res.metrics.irr
+    if irr_value is None:
+        return None
+    flows = [-res.metrics.equity, *[row.net_cash_flow for row in res.annual_pl]]
+    times = [0.0, *[(i + 1) * 1.0 for i in range(len(res.annual_pl))]]
+    return npv(irr_value, flows, times)
+
+
+def test_irr_zeroes_npv_default_run() -> None:
+    value = npv_at_returned_irr(SimulationAssumptions())
+    assert value is not None
+    assert value == pytest.approx(0.0, abs=1e-3)
+
+
+def test_irr_zeroes_npv_profitable_run() -> None:
+    a = SimulationAssumptions()
+    a.sales.meat_price_per_kg = 500.0
+    value = npv_at_returned_irr(a)
+    assert value is not None
+    assert value == pytest.approx(0.0, abs=1e-3)
+
+
+def test_irr_zeroes_npv_milk_breed() -> None:
+    a = SimulationAssumptions()
+    a.sales.lactation_milk_litres = 175.0
+    a.sales.meat_price_per_kg = 450.0
+    value = npv_at_returned_irr(a)
+    assert value is not None
+    assert value == pytest.approx(0.0, abs=1e-3)
+
+
+def test_break_even_price_zeroes_npv() -> None:
+    a = SimulationAssumptions()
+    res = run_simulation(a)  # break-even bisection enabled
+    break_even = res.metrics.break_even_meat_price_per_kg
+    assert break_even is not None and break_even > 0.0
+    variant = a.model_copy(deep=True)
+    variant.sales.meat_price_per_kg = break_even
+    assert run_simulation(variant, with_break_even=False).metrics.npv == pytest.approx(0.0, abs=1.0)
+
+
+def test_break_even_none_when_5x_price_cannot_save() -> None:
+    a = SimulationAssumptions()
+    a.costs.labour_per_month = 1_000_000.0  # structural loss, price cannot fix it
+    res = run_simulation(a)
+    assert res.metrics.break_even_meat_price_per_kg is None
+
+
+def test_dscr_consistency() -> None:
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    active = [row for row in res.annual_pl if row.debt_service > 0.0]
+    assert active  # the default 72-month loan has 6 debt years
+    for row, dscr in zip(res.annual_pl, res.metrics.dscr_per_year, strict=True):
+        expected = row.ebitda / row.debt_service if row.debt_service > 0.0 else 0.0
+        assert dscr == pytest.approx(expected)
+    expected_series = [row.ebitda / row.debt_service for row in active]
+    assert res.metrics.avg_dscr == pytest.approx(sum(expected_series) / len(expected_series))
+    assert res.metrics.min_dscr == pytest.approx(min(expected_series))
+    # Debt years are exactly the first 6 (72-month term from month 1).
+    assert [row.year for row in active] == [1, 2, 3, 4, 5, 6]
+
+
+def test_payback_matches_cumulative_series() -> None:
+    a = SimulationAssumptions()
+    a.sales.meat_price_per_kg = 500.0  # profitable: payback exists
+    res = run_simulation(a, with_break_even=False)
+    payback = res.metrics.payback_month
+    assert payback is not None
+    assert res.months[payback - 1].cumulative_cash_flow >= 0.0
+    if payback > 1:
+        assert res.months[payback - 2].cumulative_cash_flow < 0.0
+
+
+def test_npv_bcr_sign_agreement_across_grid() -> None:
+    """NPV > 0 must always coincide with BCR > 1 (same flows, same split)."""
+    for meat_price in (200.0, 300.0, 350.0, 450.0, 600.0):
+        a = SimulationAssumptions()
+        a.sales.meat_price_per_kg = meat_price
+        m = run_simulation(a, with_break_even=False).metrics
+        assert m.bcr is not None
+        assert (m.npv > 0.0) == (m.bcr > 1.0), meat_price
+
+
+# ---------------------------------------------------------------------------
+# 6. Biological sanity
+# ---------------------------------------------------------------------------
+def test_zero_conception_means_no_births_and_declining_herd() -> None:
+    # "open" foundation flock: no initial pregnancies, and with conception at
+    # zero no doe ever conceives — the herd only declines.
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=36))
+    a.reproduction.conception_rate = 0.0
+    a.herd.auto_purchase_bucks = False
+    a.herd.foundation_flock_state = "open"
+    res = run_simulation(a, with_break_even=False)
+    assert all(row.births == 0.0 for row in res.months)
+    assert all(row.f_kids == 0.0 and row.m_kids == 0.0 for row in res.months)
+    prev = math.inf
+    for row in res.months:
+        assert row.total_herd <= prev + 1e-9
+        prev = row.total_herd
+
+
+def test_all_female_sex_ratio_produces_no_males() -> None:
+    a = toy()
+    a.reproduction.sex_ratio_female = 1.0
+    res = run_simulation(a, with_break_even=False)
+    for row in res.months:
+        assert row.m_kids == 0.0 and row.m_weaners == 0.0 and row.m_growers == 0.0
+    assert any(row.f_kids > 0.0 for row in res.months)
+
+
+def test_all_male_sex_ratio_produces_no_females() -> None:
+    a = toy()
+    a.reproduction.sex_ratio_female = 0.0
+    res = run_simulation(a, with_break_even=False)
+    for row in res.months:
+        assert row.f_kids == 0.0 and row.f_weaners == 0.0 and row.f_growers == 0.0
+    assert any(row.m_kids > 0.0 for row in res.months)
+
+
+def test_stillbirth_halves_live_births() -> None:
+    a = toy()
+    a.reproduction.stillbirth_rate = 0.5
+    res = run_simulation(a, with_break_even=False)
+    expected = 8.5 * S_ADULT**5 * 1.6 * 0.5
+    assert res.months[5].births == pytest.approx(expected, abs=1e-6)
+
+
+def test_max_age_cull_empties_synchronized_foundation_herd() -> None:
+    """Foundation does placed at age 24 with a 36-month cap are all culled in
+    month 13 (rate-based cull disabled, no replacements before month 18)."""
+    a = toy()
+    a.meta.horizon_months = 24
+    a.culling.doe_cull_rate_annual = 0.0
+    a.culling.max_doe_age_months = 36
+    res = run_simulation(a, with_break_even=False)
+    m13 = res.months[12]
+    assert m13.culls_head == pytest.approx(10.0 * S_ADULT**13, abs=1e-6)
+    does = m13.open_does + m13.pregnant_does + m13.lactating_does
+    assert does == pytest.approx(0.0, abs=1e-9)
+    assert all(
+        (row.open_does + row.pregnant_does + row.lactating_does) > 5.0 for row in res.months[:12]
+    )
+
+
+def test_buck_rotation_culls_and_restaffs() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=48))
+    res = run_simulation(a, with_break_even=False)
+    m36 = res.months[35]  # 3-year rotation fires at month 36
+    surviving_bucks = 2.0 * S_ADULT**36
+    does = m36.open_does + m36.pregnant_does + m36.lactating_does
+    assert m36.culls_head >= surviving_bucks - 1e-6
+    assert m36.cull_revenue >= surviving_bucks * 200.0 * 34.0 - 1e-6
+    assert m36.bucks == pytest.approx(math.ceil(does / 25))
+
+
+def test_auto_buck_purchase_scales_with_doe_count() -> None:
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        herd=HerdAssumptions(does=51, bucks=0),
+    )
+    res = run_simulation(a, with_break_even=False)
+    m1 = res.months[0]
+    # ceil(51 x survival / 25) = 3 bucks bought in month 1 at ₹12,000 each.
+    assert m1.purchases_head == pytest.approx(3.0)
+    assert m1.purchase_cost == pytest.approx(3.0 * 12000.0)
+    assert m1.bucks == pytest.approx(3.0)
+
+
+def test_steady_state_kidding_cadence() -> None:
+    """50 capped does kid about every 10 months (5 gestation + 3 lactation +
+    2 open) at ~85% conception: steady-state live births cluster near
+    50 x 12/10 x 1.6 x 0.98 = 94/year."""
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    steady_births = [
+        sum(row.births for row in res.months[y * 12 : (y + 1) * 12]) for y in range(6, 10)
+    ]
+    for yearly in steady_births:
+        assert 60.0 <= yearly <= 130.0
+
+
+def test_kid_pipeline_timing_matches_biology() -> None:
+    """Conception month 1 -> kidding month 6 -> male sale at age 12 in month 18
+    (born at age 0 in month 6; reaches sale age 12 eleven graduations later,
+    matching the existing golden test where sale age 9 sells in month 15)."""
+    a = toy()
+    a.meta.horizon_months = 24
+    res = run_simulation(a, with_break_even=False)
+    assert all(row.births == 0.0 for row in res.months[:5])
+    assert res.months[5].births > 0.0
+    first_sale = next(row.month for row in res.months if row.sales_head > 0.0)
+    assert first_sale == 18  # month 6 birth + 12 months to reach age 12
+
+
+# ---------------------------------------------------------------------------
+# 7. Feed identities
+# ---------------------------------------------------------------------------
+def test_feed_dm_conservation_identity() -> None:
+    """As-fed quantities convert back to the purchased DM requirement."""
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
+    a.feed.grazing_dm_fraction = 0.3
+    res = run_simulation(a, with_break_even=False)
+    feed = a.feed
+    for row in res.months:
+        dm_back = (
+            row.feed_green_kg * feed.green_dm_pct
+            + row.feed_dry_kg * feed.dry_dm_pct
+            + row.feed_concentrate_kg * feed.concentrate_dm_pct
+        )
+        assert dm_back > 0.0
+        # Cost is the as-fed kg times the as-fed prices.
+        assert row.feed_cost == pytest.approx(
+            row.feed_green_kg * feed.green_price_per_kg
+            + row.feed_dry_kg * feed.dry_price_per_kg
+            + row.feed_concentrate_kg * feed.concentrate_price_per_kg
+        )
+
+
+def test_full_grazing_means_zero_feed_cost() -> None:
+    a = toy()
+    a.feed.grazing_dm_fraction = 1.0
+    res = run_simulation(a, with_break_even=False)
+    for row in res.months:
+        assert row.feed_cost == 0.0
+        assert row.feed_green_kg == 0.0
+        assert row.feed_dry_kg == 0.0
+        assert row.feed_concentrate_kg == 0.0
+    assert res.feed_summary.fodder_deficit_months == 0
+    assert res.feed_summary.land_requirement_acres == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 8. Degenerate and boundary configs
+# ---------------------------------------------------------------------------
+def test_zero_price_zero_cost_run_is_all_zero() -> None:
+    a = SimulationAssumptions(
+        herd=HerdAssumptions(does=0, bucks=0, max_breeding_does=0, auto_purchase_bucks=False)
+    )
+    a.costs.vet_per_animal_per_year = 0.0
+    a.costs.labour_per_month = 0.0
+    a.costs.insurance_pct_stock_value_annual = 0.0
+    a.costs.misc_overhead_per_month = 0.0
+    a.costs.shed_cost_per_animal_place = 0.0
+    a.costs.equipment_cost_per_animal = 0.0
+    a.finance.loan_fraction_of_project_cost = 0.0
+    a.finance.working_capital_months = 0
+    res = run_simulation(a, with_break_even=False)
+    m = res.metrics
+    assert m.project_cost == 0.0
+    assert m.npv == 0.0
+    assert m.bcr is None
+    assert m.irr is None
+    assert all(row.net_cash_flow == 0.0 for row in res.months)
+
+
+def test_horizon_240_runs_finite() -> None:
+    res = run_simulation(
+        SimulationAssumptions(meta=MetaAssumptions(horizon_months=240)), with_break_even=False
+    )
+    assert len(res.months) == 240
+    assert len(res.annual_pl) == 20
+    assert math.isfinite(res.metrics.npv)
+    assert math.isfinite(res.months[-1].total_herd)
+
+
+def test_calendar_wraps_across_year_boundary() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=14, start_year_month="2026-12"))
+    res = run_simulation(a, with_break_even=False)
+    assert [row.calendar_month for row in res.months[:3]] == [12, 1, 2]
+    assert res.months[12].calendar_month == 12  # month 13 wraps to December again
+
+
+def test_eid_uplift_follows_calendar_not_simulation_month() -> None:
+    """Start 2026-12, Eid in calendar month 1: the uplift hits simulation
+    month 2, verified with a scheduled young-stock sale that month."""
+
+    def revenue_with_eid(eid_month: int) -> float:
+        a = toy(male_weaners=10)
+        a.meta = MetaAssumptions(horizon_months=12, start_year_month="2026-12")
+        a.sales.eid_month = eid_month
+        a.sales.eid_price_uplift = 0.30
+        a.events = [HerdEventAssumptions(month=2, kind="sale", animal_class="male_weaner", count=5)]
+        return run_simulation(a, with_break_even=False).months[1].sales_revenue
+
+    assert revenue_with_eid(1) / revenue_with_eid(0) == pytest.approx(1.30, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# 9. Monte Carlo / sensitivity robustness
+# ---------------------------------------------------------------------------
+def test_mc_litter_size_capped_at_schema_max() -> None:
+    a = SimulationAssumptions()
+    a.reproduction.litter_size = 3.9
+    draws = dict.fromkeys(_DRAW_ORDER, 1.0)
+    draws["litter_size"] = 2.0  # 3.9 x 2 = 7.8 without the cap
+    variant = _apply_draws(a, draws)
+    assert variant.reproduction.litter_size == 4.0
+
+
+def test_mc_survives_extreme_spreads() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+    a.risk.monte_carlo_runs = 10
+    for var in (
+        a.risk.meat_price,
+        a.risk.feed_price,
+        a.risk.adult_mortality,
+        a.risk.kid_mortality,
+        a.risk.litter_size,
+        a.risk.conception_rate,
+    ):
+        var.low, var.high = 0.5, 100.0
+    mc = run_monte_carlo(a)
+    assert mc.runs == 10
+    assert sum(mc.npv_histogram_counts) == 10
+    for value in (mc.npv_mean, mc.npv_std, mc.npv_p5, mc.npv_p50, mc.npv_p95):
+        assert math.isfinite(value)
+    for month_idx in range(24):
+        assert math.isfinite(mc.herd_percentiles.p50[month_idx])
+        assert math.isfinite(mc.cash_percentiles.p95[month_idx])
+
+
+def test_sensitivity_at_sale_age_bounds() -> None:
+    for sale_age in (6, 24):
+        a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+        a.growth.sale_age_months = sale_age
+        items = run_sensitivity(a)
+        assert len(items) == 8
+        assert all(
+            math.isfinite(i.delta_npv_low) and math.isfinite(i.delta_npv_high) for i in items
+        )
+
+
+# ---------------------------------------------------------------------------
+# 10. API surface: the new financing guards are 422, not 500
+# ---------------------------------------------------------------------------
+async def test_api_rejects_negative_equity_financing(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.get("/api/simulation/defaults", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assumptions = resp.json()
+    assumptions["meta"]["horizon_months"] = 12
+    assumptions["finance"]["loan_fraction_of_project_cost"] = 0.9
+    assumptions["finance"]["subsidy_fraction"] = 0.2
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_api_rejects_moratorium_covering_term(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.get("/api/simulation/defaults", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assumptions = resp.json()
+    assumptions["meta"]["horizon_months"] = 12
+    assumptions["finance"]["loan_term_months"] = 12
+    assumptions["finance"]["moratorium_months"] = 12
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 422, resp.text
+
+
+async def test_api_accepts_boundary_financing(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.get("/api/simulation/defaults", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assumptions = resp.json()
+    assumptions["meta"]["horizon_months"] = 24
+    # loan + subsidy == 1.0 (zero equity) and moratorium one short of the term.
+    assumptions["finance"]["loan_fraction_of_project_cost"] = 0.75
+    assumptions["finance"]["subsidy_fraction"] = 0.25
+    assumptions["finance"]["loan_term_months"] = 12
+    assumptions["finance"]["moratorium_months"] = 11
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    metrics = resp.json()["metrics"]
+    assert metrics["equity"] == pytest.approx(0.0, abs=1e-6)

@@ -57,7 +57,10 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
         0.9, variant.mortality.kid_post_weaning * draws["kid_mortality"]
     )
     variant.mortality.adult = min(0.9, variant.mortality.adult * draws["adult_mortality"])
-    variant.reproduction.litter_size *= draws["litter_size"]
+    # Litter size is capped at the schema maximum even under extreme draws.
+    variant.reproduction.litter_size = min(
+        4.0, variant.reproduction.litter_size * draws["litter_size"]
+    )
     # Conception rate is capped at 0.98 even under favourable draws.
     variant.reproduction.conception_rate = min(
         0.98, variant.reproduction.conception_rate * draws["conception_rate"]

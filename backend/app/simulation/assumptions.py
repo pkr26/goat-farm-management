@@ -261,6 +261,26 @@ class FinanceAssumptions(_Group):
     # Months of operating cost held as working capital inside the project cost.
     working_capital_months: int = Field(default=3, ge=0, le=24)
 
+    @model_validator(mode="after")
+    def _financing_is_coherent(self) -> "FinanceAssumptions":
+        # Loan + subsidy above 100% of the project cost makes the equity
+        # negative — the promoter is paid to take the project, which inverts
+        # every return metric (month-0 inflow, garbage IRR, instant payback).
+        if self.loan_fraction_of_project_cost + self.subsidy_fraction > 1.0:
+            raise ValueError(
+                "loan_fraction_of_project_cost + subsidy_fraction must be <= 1.0 "
+                "(equity cannot be negative)"
+            )
+        # A moratorium covering the whole term leaves zero EMI months: the
+        # schedule pays interest only and the principal silently vanishes from
+        # every cash flow.
+        if self.moratorium_months >= self.loan_term_months:
+            raise ValueError(
+                "moratorium_months must be shorter than loan_term_months "
+                "(otherwise the principal is never repaid)"
+            )
+        return self
+
 
 class RiskVariable(_Group):
     """Triangular spread (multiplier on the base value) for one Monte Carlo variable."""
