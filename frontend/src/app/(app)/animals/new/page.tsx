@@ -1,6 +1,6 @@
 "use client";
 
-/** v1's /animals/new form is a dialog on /animals now, so bounce over —
+/** v1's /animals/new form is a dialog on /animals now, so redirect there —
  *  ?new=1 makes the animals page auto-open the create dialog. */
 
 import { useRouter } from "next/navigation";

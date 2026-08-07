@@ -154,7 +154,7 @@ async def test_herd_counts_are_capped(client: httpx.AsyncClient) -> None:
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )
     assert resp.status_code == 422
-    # control: a big-but-legit herd still runs
+    # control: a big-but-legitimate herd still runs
     assumptions = await default_assumptions(client, headers)
     assumptions["herd"]["does"] = 500
     resp = await client.post(

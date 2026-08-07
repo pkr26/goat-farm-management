@@ -1,4 +1,4 @@
-/** /breeding/{id}/ultrasound shim (backend task action_url): bounces to
+/** /breeding/{id}/ultrasound shim (backend task action_url): redirects to
  *  /breeding?ultrasound_id={id}, which auto-opens the ultrasound dialog. */
 
 import { render, waitFor } from "@testing-library/react";

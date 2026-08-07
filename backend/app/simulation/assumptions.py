@@ -202,8 +202,8 @@ class FeedAssumptions(_Group):
     dmi_buck: FiniteFloat = Field(default=0.035, gt=0.0, le=0.10)
     # Per-class concentrate share of DM (ICAR feeding standards / TNAU rations);
     # the remainder is green:dry fodder in a fixed 2:1 DM ratio, so each class's
-    # shares sum to 1. Creep feed is mostly concentrate; dry/mtenance does get
-    # almost none.
+    # shares sum to 1. Creep feed is mostly concentrate; dry/maintenance does
+    # get almost none.
     concentrate_share_kid_creep: FiniteFloat = Field(default=0.60, ge=0.0, le=1.0)
     concentrate_share_weaner: FiniteFloat = Field(default=0.20, ge=0.0, le=1.0)
     concentrate_share_grower: FiniteFloat = Field(default=0.20, ge=0.0, le=1.0)

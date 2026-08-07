@@ -1,6 +1,6 @@
 "use client";
 
-/** Entry hub: send the user where they belong based on auth state. */
+/** Entry hub: redirect the user based on auth state. */
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";

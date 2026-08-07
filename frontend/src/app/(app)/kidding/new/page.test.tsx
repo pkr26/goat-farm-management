@@ -1,4 +1,4 @@
-/** /kidding/new?breeding_id=… shim: bounces to /kidding preserving the query
+/** /kidding/new?breeding_id=… shim: redirects to /kidding preserving the query
  *  string (the kidding page auto-opens the record dialog from breeding_id). */
 
 import { render, waitFor } from "@testing-library/react";

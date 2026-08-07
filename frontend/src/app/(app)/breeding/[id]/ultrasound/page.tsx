@@ -2,7 +2,7 @@
 
 /** Backend task action_urls still point at v1's /breeding/{id}/ultrasound
  *  path. The new UI records ultrasound results in a dialog on /breeding, so
- *  bounce over — the breeding page auto-opens the dialog for the record. */
+ *  redirect there — the breeding page auto-opens the dialog for the record. */
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect } from "react";

@@ -1,4 +1,4 @@
-/** /animals/new shim: bounces to /animals?new=1, which auto-opens the
+/** /animals/new shim: redirects to /animals?new=1, which auto-opens the
  *  create-animal dialog. */
 
 import { render, waitFor } from "@testing-library/react";

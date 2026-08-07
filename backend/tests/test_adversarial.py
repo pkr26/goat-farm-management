@@ -716,7 +716,7 @@ async def test_death_skips_pending_tasks_and_clears_cull_flag(client: httpx.Asyn
     skipped = [
         t for t in all_tasks(tabs) if t["breeding_record_id"] == br3 and t["status"] == "SKIPPED"
     ]
-    assert len(skipped) == 1  # ultrasound task cancelled — no work for a corpse
+    assert len(skipped) == 1  # ultrasound task cancelled — no pending work for a dead animal
 
 
 async def test_ultrasound_rejects_garbage_pregnant_and_bad_kid_count(
@@ -927,7 +927,7 @@ async def test_recur_days_cap_and_skip_spawns_next(client: httpx.AsyncClient) ->
         json={"title": "Daily", "due_date": iso(date.today()), "recur_days": 999999999},
         headers=owner,
     )
-    assert resp.status_code == 422  # capped, no bricked series
+    assert resp.status_code == 422  # capped — the series stays usable
     assert all_tasks(await task_tabs(client, owner)) == []
     resp = await client.post(
         "/api/tasks",

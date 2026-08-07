@@ -380,7 +380,8 @@ async def mark_aborted(db: AsyncSession, br: BreedingRecord) -> BreedingRecord:
     """Pregnancy lost → outcome ABORTED, doe to RESTING, open pregnancy tasks skipped.
     Only a live confirmed pregnancy can abort: a PENDING/FAILED record is a
     no-op, and a pregnancy that already kidded can never be 'aborted' after
-    the fact (that falsifies stats and rips the doe out of RECOVERY)."""
+    the fact (that falsifies stats and wrongly removes the doe from
+    RECOVERY)."""
     if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
         return br
     if await _kidding_record_of(db, br) is not None:
