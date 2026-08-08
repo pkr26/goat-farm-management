@@ -13,9 +13,9 @@ async function loadDefaultsWithTenYearHorizon(page: Page) {
   return horizonInput;
 }
 
-/** The collapsible monthly projection table inside the results. */
+/** The monthly projection table inside the results. */
 function monthlyTable(page: Page) {
-  return page.locator("details", {
+  return page.locator("table", {
     has: page.getByRole("columnheader", { name: "Events" }),
   });
 }
@@ -98,7 +98,6 @@ test.describe("simulation", () => {
     await expect(explainDialog).toBeHidden();
 
     // The monthly table logs the two events at their months.
-    await page.getByText("Monthly projection (120 months)").click();
     await expect(monthlyTable(page).getByRole("row", { name: /^14\b/ })).toContainText(
       "Purchased 10 doe(s)",
     );

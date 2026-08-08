@@ -46,10 +46,10 @@ test.describe("feeding and finance", () => {
     await signIn(page);
     await page.goto("/finance");
 
-    // Stat card: the value sits in the div before the "Total expense" label.
+    // Stat card: the value <p> sits below the "Total expense" label <p>.
     const expenseValue = page
       .getByText("Total expense", { exact: true })
-      .locator("xpath=preceding-sibling::div[1]");
+      .locator("xpath=following-sibling::p[1]");
     await expect(expenseValue).toBeVisible();
 
     await page.getByRole("button", { name: "New transaction" }).click();
@@ -82,7 +82,7 @@ test.describe("feeding and finance", () => {
     await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
     await expect(page.getByText(/Herd summary \(\d+ active\)/)).toBeVisible();
     await expect(page.getByText("Breeding performance")).toBeVisible();
-    await expect(page.getByText("Mortality")).toBeVisible();
+    await expect(page.getByText("Mortality", { exact: true })).toBeVisible();
     await expect(page.getByText("Could not load the reports.")).toHaveCount(0);
   });
 });

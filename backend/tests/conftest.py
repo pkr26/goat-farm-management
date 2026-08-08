@@ -6,6 +6,7 @@ wired to the ASGI app. Async throughout (pytest-asyncio auto mode)."""
 import asyncio
 import os
 import subprocess
+import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -54,8 +55,10 @@ def _admin_sql(sql: str) -> None:
 def _database():
     _admin_sql(f'DROP DATABASE IF EXISTS "{TEST_DB}" WITH (FORCE)')
     _admin_sql(f'CREATE DATABASE "{TEST_DB}"')
+    # Invoke alembic via the current interpreter so this works both under
+    # a local `.venv` and CI's system-level `pip install -e '.[dev]'`.
     subprocess.run(
-        [str(BACKEND_DIR / ".venv/bin/alembic"), "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND_DIR,
         env=os.environ.copy(),
         check=True,

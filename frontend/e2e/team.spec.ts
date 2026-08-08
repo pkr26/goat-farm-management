@@ -12,8 +12,8 @@ test.describe("team management", () => {
     await page.goto("/team");
 
     await expect(page.getByRole("heading", { name: "Team", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Workers" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Roles" })).toBeVisible();
+    await expect(page.getByText("Workers", { exact: true })).toBeVisible();
+    await expect(page.getByText("Roles", { exact: true })).toBeVisible();
 
     // Add a worker (new account, so a password is required) with the
     // Veterinarian preset role.
@@ -23,7 +23,8 @@ test.describe("team management", () => {
     await dialog.getByLabel("Name").fill("E2E Worker");
     await dialog.getByLabel("Email *").fill(email);
     await dialog.getByLabel(/Password/).fill("e2e-password-1");
-    await pickSelectOption(dialog, "Role *", "Veterinarian");
+    // The Add-worker dialog shows "role — description" per option, so match by regex.
+    await pickSelectOption(dialog, "Role *", /^Veterinarian\b/);
     await dialog.getByRole("button", { name: "Add worker" }).click();
     await expect(page.getByText("Worker added.")).toBeVisible();
     await expect(dialog).toBeHidden();

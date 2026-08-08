@@ -59,6 +59,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Guards the forced-logout path: N concurrent 401s with a failed refresh
   // must run the cleanup once, not N times.
   const forcedLogout = useRef(false);
+  // React 19 Strict Mode fires the mount effect twice in dev; refresh tokens
+  // are one-time-use, so the second /api/auth/refresh would 401 and its
+  // finally block would flip loading=false before the first call's
+  // refreshFarms had a chance to set farmId — misfiring the /farm-select
+  // redirect. Guard the initial refresh to at most one in-flight call.
+  const initialRefreshStarted = useRef(false);
 
   const selectFarm = useCallback(
     (id: number) => {
@@ -130,6 +136,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearSession();
       router.push("/login");
     });
+    if (initialRefreshStarted.current) return;
+    initialRefreshStarted.current = true;
     (async () => {
       try {
         const resp = await fetch("/api/auth/refresh", {

@@ -81,7 +81,9 @@ function selectTrigger(scope: Locator, label: string): Locator {
 
 /**
  * Open a base-ui Select inside `scope` identified by its field label and pick
- * an option. `option` null picks the first available option.
+ * an option. String matches by accessible name exactly (a substring match
+ * silently picks e.g. "Female" for `"Male"`); pass a RegExp for fuzzy
+ * matching. `option` null picks the first available option.
  */
 export async function pickSelectOption(
   scope: Locator,
@@ -90,11 +92,12 @@ export async function pickSelectOption(
 ): Promise<void> {
   const page = scope.page();
   await selectTrigger(scope, label).click();
-  const options = page.getByRole("option");
   if (option === null) {
-    await options.first().click();
+    await page.getByRole("option").first().click();
+  } else if (typeof option === "string") {
+    await page.getByRole("option", { name: option, exact: true }).first().click();
   } else {
-    await options.filter({ hasText: option }).first().click();
+    await page.getByRole("option").filter({ hasText: option }).first().click();
   }
 }
 
@@ -162,7 +165,7 @@ export async function createBreeding(
   breedingDate?: string,
 ): Promise<void> {
   await page.goto("/breeding");
-  await page.getByRole("button", { name: "+ Add breeding" }).click();
+  await page.getByRole("button", { name: "Add breeding" }).click();
   let dialog = page.getByRole("dialog", { name: "Add breeding" });
   // The form only renders once the animal pickers have loaded.
   await expect(dialog.getByText("Buck *", { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -172,7 +175,7 @@ export async function createBreeding(
     await expect(dialog).toBeHidden();
     await createAnimal(page, { tag: uniqueTag("E2E-BUCK"), sex: "M" });
     await page.goto("/breeding");
-    await page.getByRole("button", { name: "+ Add breeding" }).click();
+    await page.getByRole("button", { name: "Add breeding" }).click();
     dialog = page.getByRole("dialog", { name: "Add breeding" });
     await expect(dialog.getByText("Buck *", { exact: true })).toBeVisible({ timeout: 20_000 });
   }

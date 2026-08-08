@@ -13,7 +13,7 @@ test.describe("purchases", () => {
 
     // Record a batch of 3 animals; "Create animal stubs in QUARANTINE" stays
     // checked (the default).
-    await page.getByRole("button", { name: "+ New batch" }).click();
+    await page.getByRole("button", { name: "New batch" }).click();
     const dialog = page.getByRole("dialog", { name: "New purchase batch" });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel("Supplier").fill(supplier);

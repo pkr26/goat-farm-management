@@ -36,8 +36,10 @@ test.describe("registration", () => {
     await expect(page.getByText("Active animals")).toBeVisible();
 
     // The empty-state CTA exercises the /animals/new → /animals?new=1 shim.
+    // The animals page strips ?new=1 as soon as the dialog opens, so accept
+    // either form of the URL rather than racing the strip.
     await page.getByRole("link", { name: "Add your first animal" }).click();
-    await expect(page).toHaveURL(/\/animals\?new=1$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/animals(\?new=1)?$/, { timeout: 15_000 });
     await expect(page.getByRole("dialog", { name: "Add animal" })).toBeVisible({
       timeout: 15_000,
     });
