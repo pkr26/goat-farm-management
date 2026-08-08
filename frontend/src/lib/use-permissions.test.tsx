@@ -142,7 +142,7 @@ describe("usePermissions — no active farm", () => {
 
     renderWithProviders(<Probe codes={["animals.view"]} />);
 
-    // Settled signal, not a wall-clock sleep (audit 10-L8): auth-loading
+    // Settled signal, not a wall-clock sleep: auth-loading
     // flips false only after the whole bootstrap (refresh + farms fetch +
     // farm selection) has finished. With no farms the active farm stays null
     // forever, so the permissions query can never become enabled afterwards.
@@ -185,7 +185,7 @@ describe("usePermissions — loading and error states", () => {
     expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
   });
 
-  it("flags isError when the endpoint fails (audit 7-6 — not silent 'no access')", async () => {
+  it("flags isError when the endpoint fails", async () => {
     server.use(
       http.get("/api/auth/permissions", () =>
         HttpResponse.json({ detail: "boom" }, { status: 500 }),

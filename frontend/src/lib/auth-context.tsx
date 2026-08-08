@@ -28,7 +28,7 @@ import {
 } from "@/lib/api-client";
 
 // Derived from the generated contract models so backend schema drift breaks
-// tsc here instead of silently diverging (audit 8-2).
+// tsc here instead of silently diverging.
 export type SessionUser = UserOut;
 /** /api/auth/farms entries always carry `role` (null = owner). */
 export type FarmEntry = FarmOut & { role: string | null };
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
   // Guards the forced-logout path: N concurrent 401s with a failed refresh
-  // must run the cleanup once, not N times (audit 6-3).
+  // must run the cleanup once, not N times.
   const forcedLogout = useRef(false);
 
   const selectFarm = useCallback(
@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Cancel in-flight queries BEFORE clearing: cache keys are URL-only
       // (no farm id), so any request that was already on the wire with the
       // OLD X-Farm-Id header would otherwise resolve into the fresh cache
-      // and briefly render previous-farm data (audit 2026-08-08, frontend MED).
+      // and briefly render previous-farm data.
       queryClient.cancelQueries();
       queryClient.clear();
       setFarmIdState(id);
@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   /** Full local session teardown — shared by signOut and the forced-logout
    *  (refresh rejected, e.g. a rotated/reused refresh token now 401s) path so
-   *  both behave identically (audit 6-1/6-3). */
+   *  both behave identically. */
   const clearSession = useCallback(() => {
     queryClient.clear();
     setAccessToken(null);

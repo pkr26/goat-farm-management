@@ -292,7 +292,7 @@ export default function FeedingPage() {
   // One bucket can be split across several plan lines (one per recipe), each
   // with its own daily_kg — the "done" badge must compare the bucket-wide
   // dispensed total against the SUM of that bucket's lines, never against a
-  // single line (audit 7-3).
+  // single line.
   const plannedByBucket = new Map<string, number>();
   for (const l of payload.lines) {
     plannedByBucket.set(l.bucket, (plannedByBucket.get(l.bucket) ?? 0) + l.daily_kg);

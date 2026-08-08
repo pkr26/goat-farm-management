@@ -1516,7 +1516,7 @@ async def test_add_stock_bad_price_422(client: httpx.AsyncClient) -> None:
 
 
 async def test_add_stock_zero_price_is_accepted(client: httpx.AsyncClient) -> None:
-    """AUDIT 3-6: an explicit ₹0 restock is real data — it books a ₹0 expense
+    """An explicit ₹0 restock is real data — it books a ₹0 expense
     and zeroes the last price instead of 422ing."""
     headers = await owner_with_farm(client)
     item = await inv_item(client, headers, "DORB")
@@ -1649,7 +1649,7 @@ async def test_missing_farm_header_gets_422(client: httpx.AsyncClient) -> None:
     auth_only = {"Authorization": headers["Authorization"]}
     for method, url, body in ENDPOINTS:
         resp = await _hit(client, method, url, body, auth_only)
-        # LOW 8-4: the header is required by the contract (422, not 400).
+        # The header is required by the contract (422, not 400).
         assert resp.status_code == 422, url
         assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
@@ -1684,7 +1684,7 @@ async def test_non_member_farm_gets_404(client: httpx.AsyncClient) -> None:
     intruder = {"Authorization": owner_b["Authorization"], "X-Farm-Id": owner_a["X-Farm-Id"]}
     for method, url, body in ENDPOINTS:
         resp = await _hit(client, method, url, body, intruder)
-        # LOW 0-7: forbidden farms answer exactly like unknown ones.
+        # Forbidden farms answer exactly like unknown ones.
         assert resp.status_code == 404, url
         assert resp.json()["detail"] == "Farm not found"
 
@@ -1819,7 +1819,7 @@ async def test_full_feeding_day_flow(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-6 — an explicit ₹0/kg restock is a real price, not "no price"
+# — an explicit ₹0/kg restock is a real price, not "no price"
 # ---------------------------------------------------------------------------
 # add_feed_stock used `if price_per_kg:`, dropping an explicit 0: no ₹0
 # expense was booked and last_purchase_price_per_kg kept its stale value —

@@ -78,7 +78,7 @@ async def record_health_event(
         )
         db.add(event)
         events.append(event)
-    # Book the health-event spend in the ledger (audit 2026-08-08 N1). Without
+    # Book the health-event spend in the ledger. Without
     # this, monthly P&L reports ₹0 medicine/vet spend even when HealthEvent
     # rows carry a cost — a farmer's monthly loss would be understated for
     # every vaccination round. One aggregated Transaction per record_health_event
@@ -113,7 +113,7 @@ def _health_transaction_note(
     return f"{label} {head}"
 
 
-# Common trade names / aliases for the seeded vaccine templates (AUDIT 3-1):
+# Common trade names / aliases for the seeded vaccine templates:
 # matching is otherwise a conservative substring on the template name, so an
 # event recorded by drug brand with a blank disease target would never match.
 # Keyed by the NORMALIZED (lowercase) template name sans parenthetical;

@@ -776,7 +776,7 @@ def test_project_cost_breakdown_sums_and_ignores_events() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (j) Schema floors and cross-field guards (audit 9-1 / 9-2)
+# (j) Schema floors and cross-field guards
 # ---------------------------------------------------------------------------
 def test_max_doe_age_floor_36_and_boundary_run() -> None:
     """9-1: max_doe_age_months in [24, 35] used to make the foundation age
@@ -828,9 +828,9 @@ def test_afb_must_not_exceed_max_doe_age() -> None:
 def test_herd_cohorts_bucketing() -> None:
     animals = [
         ("F", 1),
-        ("M", 2),  # kids (0-2 m)
+        ("M", 2),  # kids
         ("F", 4),
-        ("M", 3),  # weaners (3-5 m)
+        ("M", 3),  # weaners
         ("F", 8),
         ("M", 10),  # growers (6 m up to breeding age)
         ("F", 12),

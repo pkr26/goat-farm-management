@@ -1,17 +1,14 @@
 # FIXED — regression suite
-#
 # Bug 1 — POST /api/finance/new used to accept any `notes` length at the
 # schema layer (TransactionIn.notes had no max_length) while the
 # `transactions.notes` column is VARCHAR(255) → over-long notes raised
 # StringDataRightTruncationError during commit → 500. Fixed: the schema is
 # capped at 255 → 422.
-#
 # Bug 2 — schemas.common.BoundedId allows ids up to 2**62 while `animals.id`
 # is a PostgreSQL INTEGER (int32). A `related_animal_id` above 2**31 - 1
 # passed validation, then the `db.get(Animal, ...)` lookup in api/finance.py
 # crashed with asyncpg DataError → 500. Fixed: lookups treat ids above the
 # int4 ceiling as unknown (the documented strip → 201), never binding them.
-#
 # Bug 3 — POST /api/finance/new with a non-finite amount (raw JSON `NaN` /
 # `Infinity`): pydantic's FiniteFloat validator correctly raised, but
 # FastAPI's default RequestValidationError handler failed to SERIALIZE the
@@ -19,7 +16,6 @@
 # json.dumps runs with allow_nan=False) → crashed request. Fixed: a custom
 # handler in app/main.py sanitizes non-finite/non-JSON-safe values before
 # returning the standard 422 shape.
-#
 # Why these contradict the project contract:
 # - tests/test_adversarial.py's own module docstring states the standard:
 #   "malformed input must never produce a 500".

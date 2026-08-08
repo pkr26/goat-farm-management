@@ -4,7 +4,7 @@ Revision ID: d8f2b6a41e90
 Revises: c4b72167db86
 Create Date: 2026-08-07 04:55:34.000000+00:00
 
-Schema hygiene from the adversarial audit (B4/B9):
+Schema hygiene for concurrent writes:
 
 - uq_breeding_open_pregnancy: partial UNIQUE on breeding_records(doe_id)
   WHERE outcome = 'PENDING'. Every breeding row is born PENDING, so this

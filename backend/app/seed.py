@@ -243,7 +243,7 @@ async def seed_reference_data(db: AsyncSession) -> None:
     INSERT ... ON CONFLICT DO NOTHING (not bare count-then-insert): two
     first-booting uvicorn workers both see empty reference tables, and
     without the conflict guard the loser crashes on the code/name UNIQUE
-    constraints (AUDIT 2-10). The count checks stay as the steady-state
+    constraints. The count checks stay as the steady-state
     fast path so a normal boot writes nothing."""
     if await _count(db, BucketDefinition) == 0:
         await db.execute(
@@ -385,7 +385,7 @@ async def backfill_task_assignments(db: AsyncSession, farm_id: int) -> None:
 async def seed_startup(db: AsyncSession) -> None:
     """App-startup seeding: reference data + per-farm presets/backfills.
 
-    O(1) queries, not O(farms) (AUDIT 5-L5): role codes for every farm come
+    O(1) queries, not O(farms): role codes for every farm come
     in one bulk select, and the task backfill runs only for farms that
     actually have orphan auto-generated tasks (a steady-state farm never
     does, so routine boots issue no per-farm queries at all)."""

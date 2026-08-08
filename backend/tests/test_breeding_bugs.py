@@ -3,8 +3,8 @@
 This module used to pin the ACCEPTANCE of kiddings recorded far outside
 the gestation window (a 0-day or 100-day "gestation" returned 201),
 because the pre-existing suite relied on same-day kiddings and real farm
-record-keeping is backdated. Phase 3 of the hardening audit (B8.1) reversed
-that decision: `services.record_kidding` now enforces a generous
+record-keeping is backdated. That decision was reversed:
+`services.record_kidding` now enforces a generous
 100–200 day gestation sanity band (150-day gestation, window 145–155) — wide
 enough for any plausible backdated entry, tight enough that a "kidding"
 recorded 1 day or 3 years post-breeding is rejected as a data-entry error.
@@ -68,7 +68,7 @@ async def test_kidding_on_breeding_date_rejected(client: httpx.AsyncClient) -> N
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-2 — selling/culling a confirmed-pregnant doe ends the pregnancy
+# — selling/culling a confirmed-pregnant doe ends the pregnancy
 # ---------------------------------------------------------------------------
 # change_status used to skip the doe's pending tasks but leave her
 # BreedingRecord CONFIRMED_PREGNANT forever: record_kidding rejects a
@@ -134,7 +134,7 @@ async def test_due_lists_exclude_legacy_phantom_pregnancies(client: httpx.AsyncC
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-3 — the DELIVERY-move duty also accepts PREGNANCY_EARLY
+# — the DELIVERY-move duty also accepts PREGNANCY_EARLY
 # ---------------------------------------------------------------------------
 # The EARLY→LATE transition is only a dashboard suggestion, so a doe whose
 # owner skipped it saw her "Move to DELIVERY" duty go green while she stayed
@@ -159,7 +159,7 @@ async def test_delivery_move_task_moves_doe_from_pregnancy_early(
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-4 — no ultrasound result for a sold/dead doe's PENDING breeding
+# — no ultrasound result for a sold/dead doe's PENDING breeding
 # ---------------------------------------------------------------------------
 # Selling skips pending tasks but left the BreedingRecord PENDING, and
 # submit_ultrasound never checked the doe: recording "pregnant" spawned the

@@ -689,7 +689,7 @@ def rate_limit_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.mark.usefixtures("rate_limit_on")
 async def test_refresh_is_rate_limited_per_ip(client: httpx.AsyncClient) -> None:
-    """MEDIUM 1-1: /refresh was unthrottled — token-grinding attempts from one
+    """/refresh was unthrottled — token-grinding attempts from one
     IP now trip the same sliding-window limiter as login/register."""
     for _ in range(3):
         set_refresh_cookie(client, "garbage")
@@ -844,7 +844,7 @@ async def test_refresh_after_logout_is_401(client: httpx.AsyncClient) -> None:
 
 
 async def test_logout_revokes_the_presented_session(client: httpx.AsyncClient) -> None:
-    """HIGH 0-1: logout is server-side, not just a cookie delete — replaying
+    """Logout is server-side, not just a cookie delete — replaying
     the exfiltrated refresh token afterwards is refused."""
     await register(client, "out3@farm.in")
     stolen = client.cookies.get(COOKIE)
@@ -861,7 +861,7 @@ async def test_logout_revokes_the_presented_session(client: httpx.AsyncClient) -
 async def test_change_password_happy_path_revokes_other_sessions(
     client: httpx.AsyncClient,
 ) -> None:
-    """LOW 0-6 + 0-1: a change needs the current password, rotates the hash,
+    """A change needs the current password, rotates the hash,
     and kills every outstanding refresh session; the changing device gets a
     fresh pair in the response."""
     headers = await register(client, "chg@farm.in")
@@ -1062,7 +1062,7 @@ async def test_permissions_without_auth_is_401(client: httpx.AsyncClient) -> Non
 async def test_permissions_without_farm_header_is_422(client: httpx.AsyncClient) -> None:
     headers = await register(client, "nofarm@farm.in")
     resp = await client.get("/api/auth/permissions", headers=headers)
-    # LOW 8-4: the header is required by the contract (422, not 400).
+    # The header is required by the contract (422, not 400).
     assert resp.status_code == 422
     assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
@@ -1096,7 +1096,7 @@ async def test_permissions_other_users_farm_is_404(client: httpx.AsyncClient) ->
     resp = await client.get(
         "/api/auth/permissions", headers=headers_b | {"X-Farm-Id": owner_a["X-Farm-Id"]}
     )
-    # LOW 0-7: forbidden farms answer exactly like unknown ones.
+    # Forbidden farms answer exactly like unknown ones.
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"
 
@@ -1109,7 +1109,7 @@ async def test_permissions_deactivated_worker_loses_access(client: httpx.AsyncCl
     resp = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.get("/api/auth/permissions", headers=worker)
-    # membership no longer active → 404 like any unknown farm (LOW 0-7)
+    # membership no longer active → 404 like any unknown farm
     assert resp.status_code == 404
 
 
@@ -1462,8 +1462,7 @@ def test_decode_token_rejects_wrong_kind() -> None:
 
 
 def test_decode_token_rejects_expired() -> None:
-    # jwt.decode is called with leeway=60 s (audit 2026-08-08 LOW: absorbs
-    # reasonable clock skew between the API server and any LB/companion),
+    # jwt.decode is called with leeway=60 s,
     # so a token more than 60 s past exp is needed to hit the reject path.
     token = issue_token(1, "access", ttl_seconds=-120)
     assert decode_token(token, "access") is None

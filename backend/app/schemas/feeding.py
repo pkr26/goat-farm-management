@@ -27,7 +27,7 @@ class MixIn(BaseModel):
 class StockAddIn(BaseModel):
     qty_kg: QuantityKgFloat
     # Non-negative (not positive): an explicit ₹0 restock is real data — the
-    # service books a ₹0 expense and zeroes the last price (AUDIT 3-6).
+    # service books a ₹0 expense and zeroes the last price.
     price_per_kg: NonNegativeMoneyFloat | None = None
 
 

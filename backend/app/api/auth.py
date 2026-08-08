@@ -54,7 +54,7 @@ logger = logging.getLogger("goatfarm.auth")
 ALREADY_REGISTERED = "That email is already registered."
 TOO_MANY_ATTEMPTS = "Too many attempts — please try again later."
 
-# MEDIUM 0-3: the composite (IP, email) failure budget is the base ceiling;
+# The composite (IP, email) failure budget is the base ceiling;
 # the IP-agnostic per-email ceiling (distributed guessing against ONE account
 # from rotating addresses) and the email-agnostic per-IP ceiling (password
 # spraying across MANY accounts from one address) are multiples of it, so
@@ -65,7 +65,6 @@ IP_LIMIT_MULTIPLIER = 10
 # Lazily built (Argon2 needs the settings and costs real CPU at first use).
 # create_app() calls prime_dummy_password_hash() at startup so the first
 # unknown-email login is not measurably slower than any subsequent one
-# (audit 2026-08-08 LOW).
 _DUMMY_PASSWORD_HASH: str | None = None
 
 
@@ -110,7 +109,7 @@ def _login_blocked(request: Request, email: str) -> bool:
         )
     )
     if blocked:
-        # Security audit trail (AUDIT 4-H2): throttling must be observable.
+        # Security audit trail: throttling must be observable.
         logger.info("login throttled (ip=%s)", _client_key(request))
     return blocked
 
@@ -193,7 +192,7 @@ async def register(
     error = password_policy_error(payload.password)
     if error:
         raise HTTPException(status_code=400, detail=error)
-    # LOW 0-4: hash BEFORE the existence check so a duplicate email doesn't
+    # Hash BEFORE the existence check so a duplicate email doesn't
     # return measurably earlier than a fresh one (timing half of the register
     # enumeration oracle). The explicit 400 remains — without email
     # verification there is no accept-and-notify path, and the per-IP
@@ -234,7 +233,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
     ok, needs_rehash = verify_password(payload.password, user.password_hash)
     if not ok:
         if user.password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-            # LOW 0-5: a failed legacy pbkdf2 verify is far cheaper than
+            # A failed legacy pbkdf2 verify is far cheaper than
             # Argon2, which would distinguish "unknown email" from "known
             # pre-migration account". Top up with dummy Argon2 work.
             verify_password(payload.password, _dummy_password_hash())
@@ -251,7 +250,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
 
 @router.post("/refresh")
 async def refresh(request: Request, response: Response, db: DbSession) -> TokenOut:
-    # MEDIUM 1-1: refresh was unthrottled; cap attempts per client IP.
+    # Refresh was unthrottled; cap attempts per client IP.
     rate_key = _client_key(request)
     if _rate_limited("refresh", rate_key):
         raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
@@ -271,7 +270,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
     if session is None:
         raise invalid  # predates session tracking, or never issued here
     if session.revoked_at is not None or session.consumed_at is not None:
-        # MEDIUM 0-2: reuse of a rotated-away/revoked token — theft signal.
+        # Reuse of a rotated-away/revoked token — theft signal.
         await revoke_session_family(db, session.family_id)
         await db.commit()
         logger.warning(
@@ -293,7 +292,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
 
 @router.post("/logout", status_code=204)
 async def logout(request: Request, response: Response, db: DbSession) -> Response:
-    # HIGH 0-1: revoke the presented session server-side — deleting the
+    # Revoke the presented session server-side — deleting the
     # cookie alone leaves an exfiltrated token fully usable.
     token = request.cookies.get(get_settings().refresh_cookie_name)
     claims = decode_refresh_claims(token) if token else None
@@ -320,13 +319,13 @@ class ChangePasswordIn(BaseModel):
 async def change_password(
     payload: ChangePasswordIn, response: Response, db: DbSession, user: CurrentUser
 ) -> TokenOut:
-    """LOW 0-6: self-service password change. Requires the current password,
-    revokes EVERY outstanding refresh session (0-1 logout-everywhere), then
+    """Self-service password change. Requires the current password,
+    revokes EVERY outstanding refresh session, then
     issues a fresh pair so the current device stays signed in."""
     ok, _needs_rehash = verify_password(payload.current_password, user.password_hash)
     if not ok:
         if user.password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-            # Same legacy-timing equalization as login (LOW 0-5).
+            # Same legacy-timing equalization as login.
             verify_password(payload.current_password, _dummy_password_hash())
         raise HTTPException(status_code=400, detail="Current password is incorrect.")
     error = password_policy_error(payload.new_password)

@@ -6,8 +6,8 @@
  *
  * `isError`/`error` distinguish "the permissions call failed" from a genuine
  * empty set — pages must render an error state instead of "no access"
- * (audit 7-6). `isOwner` mirrors the backend's owner exemption (e.g. owners
- * may verify their own completions, audit 7-4).
+ *. `isOwner` mirrors the backend's owner exemption (e.g. owners
+ * may verify their own completions,).
  */
 
 import { usePermissionsApiAuthPermissionsGet } from "@/api/generated/endpoints";

@@ -79,7 +79,7 @@ class Role(Base):
         try:
             return {p for p in json.loads(self.permissions or "[]") if isinstance(p, str)}
         except ValueError:
-            # Fail-closed is right, but not silently (AUDIT 4-L1): a corrupt
+            # Fail-closed is right, but not silently: a corrupt
             # row locks the role's workers out of everything.
             logger.warning("Role id=%s has corrupt permissions JSON — treating as empty", self.id)
             return set()

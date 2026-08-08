@@ -117,7 +117,7 @@ async def list_animals(
     else:  # v1 default: the herd list shows ACTIVE animals unless asked otherwise
         stmt = stmt.where(Animal.status == AnimalStatus.ACTIVE.value)
     if q and q.strip():
-        # Escape LIKE wildcards (AUDIT 4-L3): a literal "%"/"_" in the query
+        # Escape LIKE wildcards: a literal "%"/"_" in the query
         # must match itself, not act as a pattern metacharacter.
         escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         stmt = stmt.where(Animal.tag_number.ilike(f"%{escaped}%", escape="\\"))
@@ -386,9 +386,9 @@ async def change_status(
         # Move any of this doe's kids still in RECOVERY (i.e. still on her
         # lactating recipe) into their weaning bucket — otherwise they linger
         # in RECOVERY forever, keep drawing the lactating ration and never
-        # get a fresh WEANING task since hers was just skipped
-        # (audit 2026-08-08 N2). Move-by-sex mirrors the natural weaning
-        # transition in complete_task (WEANING).
+        # get a fresh WEANING task since hers was just skipped.
+        # Move-by-sex mirrors the natural weaning transition in
+        # complete_task (WEANING).
         orphans_result = await db.execute(
             select(Animal).where(
                 Animal.farm_id == farm.id,

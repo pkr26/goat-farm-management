@@ -68,7 +68,7 @@ async def revoke_session_family(db: AsyncSession, family_id: str) -> None:
 
 async def purge_expired_refresh_sessions(db: AsyncSession, older_than_days: int = 30) -> int:
     """Delete refresh_sessions rows whose expiry is more than N days in the
-    past (audit 2026-08-08 MED). The jti is useless without the signing
+    past. The jti is useless without the signing
     key, so long-expired rows are pure table bloat. Returns rowcount. The
     caller commits."""
     from datetime import timedelta
@@ -113,7 +113,7 @@ async def accessible_farms(db: AsyncSession, user: User) -> list[tuple[Farm, str
 async def current_farm(
     db: DbSession,
     user: CurrentUser,
-    # Required in the OpenAPI contract (LOW 8-4): the runtime always rejected
+    # Required in the OpenAPI contract: the runtime always rejected
     # a missing header, but `Header() = None` declared it optional, lying to
     # every generated client. Missing now fails request validation (422)
     # before this dependency runs.
@@ -128,7 +128,7 @@ async def current_farm(
     # Above the int4 PK ceiling no farm can exist — 404, never an asyncpg
     # int32 DataError (500).
     farm = await db.get(Farm, farm_id) if farm_id <= MAX_INT32_ID else None
-    # LOW 0-7: unknown and forbidden farms share ONE 404 — answering 403 for
+    # Unknown and forbidden farms share ONE 404 — answering 403 for
     # an existing-but-forbidden id lets any authenticated user enumerate
     # sequential farm ids.
     if farm is None or (
@@ -176,7 +176,7 @@ def require_perm(code: str) -> Callable[[set[str]], Awaitable[set[str]]]:
 
     async def dependency(perms: CurrentPerms) -> set[str]:
         if code not in perms:
-            # Security audit trail (AUDIT 4-H2): denials must be observable.
+            # Security audit trail: denials must be observable.
             logger.info("RBAC denial: missing permission %s", code)
             raise HTTPException(status_code=403, detail=f"Missing permission: {code}")
         return perms

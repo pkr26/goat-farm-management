@@ -327,7 +327,7 @@ function TaskTable({
                     canComplete={canComplete}
                     canVerify={
                       // The API 409s self-verification for non-owners — don't
-                      // offer the action (audit 7-4).
+                      // offer the action.
                       canVerify && (isOwner || t.completed_by_id !== currentUserId)
                     }
                     today={today}
@@ -381,7 +381,7 @@ function TasksPageContent() {
 
   const searchParams = useSearchParams();
   // Honor ?tab= deep links (the dashboard links to /tasks?tab=overdue etc.);
-  // unknown values fall back to "today" (audit 7-1).
+  // unknown values fall back to "today".
   const [tab, setTab] = useState(() => {
     const requested = searchParams.get("tab");
     return requested && VALID_TABS.has(requested) ? requested : "today";
@@ -485,7 +485,7 @@ function TasksPageContent() {
   }
 
   // Comparisons use the backend's UTC today, not the browser's local date
-  // (off-by-one in the IST 00:00–05:30 window, audit 7-5).
+  // (off-by-one in the IST 00:00–05:30 window,).
   const today = utcToday();
   const visibleTabs: { value: string; label: string; tasks: TaskOut[] }[] = [
     { value: "today", label: `Today (${payload.today.length})`, tasks: payload.today },

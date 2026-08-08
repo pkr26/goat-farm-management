@@ -1,4 +1,4 @@
-"""Query-performance audit (Lens 5) regression tests.
+"""Query-performance regression tests.
 
 - 5-H2: GET /api/dashboard/reports aggregates in SQL — a golden test compares
   every number against the old Python-side algorithm computed straight from

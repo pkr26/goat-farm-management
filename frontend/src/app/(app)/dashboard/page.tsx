@@ -236,7 +236,7 @@ export default function DashboardPage() {
                     <TableCell>due {formatDate(r.expected_kidding_date)}</TableCell>
                     <TableCell className="text-right">
                       {/* Recording needs kidding.manage — without it the link
-                          lands on an access-denied page (audit 7-7). */}
+                          lands on an access-denied page. */}
                       {can("kidding.manage") && (
                         <Link
                           href={`/kidding/new?breeding_id=${r.id}`}

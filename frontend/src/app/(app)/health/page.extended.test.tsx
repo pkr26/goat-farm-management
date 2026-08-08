@@ -556,7 +556,7 @@ describe("HealthPage", () => {
     });
   });
 
-  it("prefills the disease target from a vaccine duty's title (audit 3-1)", async () => {
+  it("prefills the disease target from a vaccine duty's title", async () => {
     tasks = [
       makeTask({
         id: 9,
@@ -581,7 +581,7 @@ describe("HealthPage", () => {
     });
   });
 
-  it("prefills product and target from a deworming duty's title (audit 3-1)", async () => {
+  it("prefills product and target from a deworming duty's title", async () => {
     tasks = [
       makeTask({
         id: 10,
@@ -609,7 +609,7 @@ describe("HealthPage", () => {
     });
   });
 
-  it("switching the linked duty back to '— none —' reverts the prefills (audit 7-11)", async () => {
+  it("switching the linked duty back to '— none —' reverts the prefills", async () => {
     tasks = [DEWORM_BATCH_TASK];
     const { user, dialog } = await openDialog();
     const combos = within(dialog).getAllByRole("combobox");

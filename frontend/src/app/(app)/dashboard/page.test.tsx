@@ -30,7 +30,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 /** UTC-relative fixture dates: the page compares due dates against
- * utcToday() (audit 7-5), so fixtures built from browser-local dates drift
+ * utcToday(), so fixtures built from browser-local dates drift
  * one day whenever the local and UTC dates differ. */
 const TODAY = utcToday();
 const THREE_DAYS_AGO = addDays(TODAY, -3);
@@ -294,7 +294,7 @@ describe("DashboardPage — populated aggregates", () => {
     );
   });
 
-  it("hides the Record shortcut without kidding.manage (audit 7-7)", async () => {
+  it("hides the Record shortcut without kidding.manage", async () => {
     server.use(permissionsHandler(["dashboard.view"]), dashboardHandler(POPULATED));
     renderWithProviders(<DashboardPage />);
 

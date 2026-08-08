@@ -23,7 +23,7 @@ class KidIn(BaseModel):
 class KiddingCreateIn(BaseModel):
     breeding_record_id: BoundedId
     # PastOrTodayDate covers "not in the future" incl. the one-day timezone
-    # headroom (AUDIT 4-L6); >= the breeding date is checked in the router.
+    # headroom; >= the breeding date is checked in the router.
     date: PastOrTodayDate
     ease: KiddingEaseStr = "NORMAL"
     notes: str | None = None

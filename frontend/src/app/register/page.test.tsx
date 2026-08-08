@@ -4,7 +4,7 @@
  * chars), the submit contract (blank name → null in the POST body, token
  * stored via signIn, navigation to /farm-select), and server-error
  * surfacing (any ApiError's detail is shown; only a network failure gets
- * the generic fallback — audit 7-2/8-3).
+ * the generic fallback —).
  *
  * Note: the page has no confirm-password field, so mismatch validation
  * does not exist to test.
@@ -299,7 +299,7 @@ describe("RegisterPage", () => {
       ).not.toBeInTheDocument();
     });
 
-    it("surfaces the rate-limit detail on a 429 (audit 7-2/8-3)", async () => {
+    it("surfaces the rate-limit detail on a 429", async () => {
       server.use(
         http.post("/api/auth/register", () =>
           HttpResponse.json(

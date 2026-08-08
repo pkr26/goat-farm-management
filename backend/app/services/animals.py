@@ -52,7 +52,7 @@ TAG_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # digits+uppercase minus 0/O/
 
 
 async def _tag_exists(db: AsyncSession, farm_id: int, tag: str) -> bool:
-    """Existence probe against uq_animal_tag_per_farm (AUDIT 5-L2): scanning the
+    """Existence probe against uq_animal_tag_per_farm: scanning the
     farm's whole tag column per insert was O(herd size) rows per write."""
     result = await db.execute(
         select(Animal.id).where(Animal.farm_id == farm_id, Animal.tag_number == tag)

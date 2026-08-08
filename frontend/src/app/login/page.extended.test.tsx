@@ -240,7 +240,7 @@ describe("LoginPage — server error handling", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("surfaces the rate-limit detail on a 429 instead of 'backend running?' (audit 6-4/7-2)", async () => {
+  it("surfaces the rate-limit detail on a 429 instead of 'backend running?'", async () => {
     server.use(
       http.post("/api/auth/login", () =>
         HttpResponse.json(

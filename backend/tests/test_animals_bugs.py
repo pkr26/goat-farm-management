@@ -96,7 +96,7 @@ async def test_status_notes_over_255_chars_not_500(client: httpx.AsyncClient) ->
     assert resp.status_code in (200, 422)
 
 
-# FIXED — regression test (AUDIT 2-8)
+# FIXED — regression test
 # create_animal's auto-tag retry branch was dead code: after the collision
 # rollback every ORM object is expired, so the retry's `farm.id` access was a
 # forbidden sync refresh on the AsyncSession (MissingGreenlet → 500) instead

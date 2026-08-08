@@ -1,4 +1,4 @@
-"""Contract-drift guard (AUDIT 10-M3 + AUDIT-2026-08-08 testing HIGH).
+"""Contract-drift guard.
 
 `shared/openapi.json` is the Orval input for the frontend's generated
 client; before CI existed nothing failed when it went stale. Two tests:

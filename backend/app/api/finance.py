@@ -62,7 +62,7 @@ async def list_transactions(
     # unserializable — never serve them.
     txns = [txn for txn in result.scalars().all() if math.isfinite(txn.amount)]
 
-    # All-time totals aggregated in SQL (AUDIT 5-M2); the finite filter drops
+    # All-time totals aggregated in SQL; the finite filter drops
     # legacy poisoned rows (NaN fails `amount < inf` in PostgreSQL since NaN
     # sorts above +inf) instead of poisoning the sums.
     totals_result = await db.execute(

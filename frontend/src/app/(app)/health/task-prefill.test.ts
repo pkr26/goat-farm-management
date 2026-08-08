@@ -1,5 +1,5 @@
 /**
- * taskPrefill (audit 3-1): product/disease hints parsed from a linked duty's
+ * taskPrefill: product/disease hints parsed from a linked duty's
  * title, so recorded health events match the vaccination templates instead
  * of leaving both optional fields blank.
  */

@@ -168,7 +168,7 @@
           "auth"
         ],
         "summary": "Change Password",
-        "description": "LOW 0-6: self-service password change. Requires the current password,\nrevokes EVERY outstanding refresh session (0-1 logout-everywhere), then\nissues a fresh pair so the current device stays signed in.",
+        "description": "Self-service password change. Requires the current password,\nrevokes EVERY outstanding refresh session, then\nissues a fresh pair so the current device stays signed in.",
         "operationId": "change_password_api_auth_change_password_post",
         "parameters": [
           {
@@ -3003,7 +3003,7 @@
           "dashboard"
         ],
         "summary": "Reports",
-        "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL\n(AUDIT 5-H2); only the cull-candidate list is hydrated as ORM rows.",
+        "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL;\nonly the cull-candidate list is hydrated as ORM rows.",
         "operationId": "reports_api_dashboard_reports_get",
         "parameters": [
           {
@@ -3120,7 +3120,7 @@
           "team"
         ],
         "summary": "Create Worker",
-        "description": "Add a worker: create a brand-new account, or enroll an existing one\nthat owns no farm and belongs to no other farm's team. Accounts and\npasswords are global, so absorbing an account affiliated with another\nfarm would hand this farm a cross-tenant takeover path (reset-password\nrewrites the global password). Cross-farm refusals share ONE generic\nmessage (LOW 1-4) so probing arbitrary emails can't reveal other farms'\nroster state. Residual limitation: there is no invitation/consent flow\nyet \u2014 an unaffiliated account is enrolled without the account holder's\nsay-so.",
+        "description": "Add a worker: create a brand-new account, or enroll an existing one\nthat owns no farm and belongs to no other farm's team. Accounts and\npasswords are global, so absorbing an account affiliated with another\nfarm would hand this farm a cross-tenant takeover path (reset-password\nrewrites the global password). Cross-farm refusals share ONE generic\nmessage so probing arbitrary emails can't reveal other farms'\nroster state. Residual limitation: there is no invitation/consent flow\nyet \u2014 an unaffiliated account is enrolled without the account holder's\nsay-so.",
         "operationId": "create_worker_api_team_workers_post",
         "parameters": [
           {
@@ -3664,7 +3664,7 @@
           "simulation"
         ],
         "summary": "Breed Defaults",
-        "description": "Default assumptions for a breed + production system (400 on unknown breed;\n422 on an unknown system \u2014 the Literal query type validates it, AUDIT 4-L2).\n\nGlobal reference data: any authenticated user, no farm context needed.",
+        "description": "Default assumptions for a breed + production system.\n\nGlobal reference data: any authenticated user, no farm context needed.",
         "operationId": "breed_defaults_api_simulation_defaults_get",
         "parameters": [
           {

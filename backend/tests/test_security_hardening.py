@@ -1,4 +1,4 @@
-"""Security-hardening regression tests (third adversarial audit wave).
+"""Security-hardening regression tests.
 
 B1 (critical): cross-tenant account takeover — `POST /api/team/workers`
     absorbed ANY registered account without consent and
@@ -83,7 +83,7 @@ async def test_worker_of_another_farm_cannot_be_absorbed(client: httpx.AsyncClie
 
     resp = await _add_worker(client, owner_a, "victim@farm.in", password="pwnedpass123")
     assert resp.status_code == 400
-    # LOW 1-4: one generic refusal — distinct messages leaked other farms'
+    # One generic refusal — distinct messages leaked other farms'
     # roster state to anyone probing arbitrary emails.
     assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
@@ -211,7 +211,7 @@ async def test_login_unknown_email_takes_the_hashing_path(
 async def test_login_legacy_hash_wrong_password_still_pays_argon2_cost(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """LOW 0-5: a legacy pbkdf2 account with a wrong password returns after a
+    """A legacy pbkdf2 account with a wrong password returns after a
     fast pbkdf2 verify — measurably earlier than both the unknown-email and
     Argon2 paths, exposing "email exists, pre-migration". A failed legacy
     verify is now topped up with dummy Argon2 work."""
@@ -419,7 +419,7 @@ def rate_limit_one(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 async def test_login_per_email_ceiling_across_rotating_ips(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MEDIUM 0-3(a): rotating source IPs must not reset the attack budget
+    """Rotating source IPs must not reset the attack budget
     against ONE account — the IP-agnostic per-email counter (3× the composite
     budget) caps distributed brute force even when every (IP, email) pair is
     fresh."""
@@ -450,7 +450,7 @@ async def test_login_per_email_ceiling_across_rotating_ips(
 async def test_login_per_ip_ceiling_across_sprayed_emails(
     client: httpx.AsyncClient,
 ) -> None:
-    """MEDIUM 0-3(b): from one IP, spraying DISTINCT accounts must hit the
+    """From one IP, spraying DISTINCT accounts must hit the
     email-agnostic per-IP counter (10× the composite budget) — each pair below
     is fresh, so only the global per-IP cap can stop it."""
     for i in range(10):

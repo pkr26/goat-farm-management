@@ -88,7 +88,7 @@ function localToday(): string {
 
 /** Product/disease hints parsed from a linked duty's title, so recorded
  *  events match the vaccination templates instead of leaving both blank
- *  (audit 3-1: a blank-target deworming event never matched the template). */
+ *. */
 export function taskPrefill(task: TaskOut): {
   product_name?: string;
   disease_target?: string;
@@ -118,7 +118,7 @@ export function taskPrefill(task: TaskOut): {
 }
 
 /** Next-due date cell: red tint when overdue, amber when due within a week.
- *  Comparisons use the backend's UTC today (audit 7-5). */
+ *  Comparisons use the backend's UTC today. */
 function NextDue({ date }: { date: string }) {
   const overdue = date < utcToday();
   const dueSoon = !overdue && date <= addDays(utcToday(), 7);
@@ -284,7 +284,7 @@ export default function HealthPage() {
 
   /** Values the last linked duty prefilled — used to revert them when the
    *  user switches back to "— none —" without clobbering manual edits
-   *  (audit 7-11). */
+   *. */
   const appliedPrefillRef = useRef<{
     scope?: EventValues["scope"];
     type?: EventValues["type"];
@@ -293,7 +293,7 @@ export default function HealthPage() {
   } | null>(null);
 
   /** Prefill scope/target/type/product from a linked VACCINE/DEWORMING duty
-   *  (v1 behaviour + audit 3-1 product/disease hints). */
+   *  (v1 behaviour + product/disease hints). */
   function applyTask(taskIdStr: string) {
     setValue("task_id", taskIdStr);
     if (taskIdStr === NONE) {
@@ -333,7 +333,7 @@ export default function HealthPage() {
       applied.type = task.category;
       setValue("type", task.category);
       // Prefill product/disease from the duty title so the recorded event
-      // matches the vaccination templates (audit 3-1). Don't overwrite text
+      // matches the vaccination templates. Don't overwrite text
       // the user already typed.
       const hints = taskPrefill(task);
       if (hints.product_name && !(getValues("product_name") ?? "").trim()) {

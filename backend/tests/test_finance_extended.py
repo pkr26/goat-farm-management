@@ -519,7 +519,7 @@ async def test_finance_invalid_token_rejected(client: httpx.AsyncClient) -> None
 
 async def test_finance_missing_farm_header(client: httpx.AsyncClient) -> None:
     auth = await register(client)
-    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    # Required contract header: missing fails validation (422).
     assert (await client.get("/api/finance", headers=auth)).status_code == 422
     assert (
         await client.post("/api/finance/new", json=txn_payload(), headers=auth)
@@ -544,7 +544,7 @@ async def test_finance_other_users_farm_not_found(client: httpx.AsyncClient) -> 
     owner = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
     stranger = await register(client, email="stranger@farm.in")
     headers = stranger | {"X-Farm-Id": owner["X-Farm-Id"]}
-    # AUDIT 0-7: forbidden farms answer 404, same as nonexistent ones.
+    # Forbidden farms answer 404, same as nonexistent ones.
     assert (await client.get("/api/finance", headers=headers)).status_code == 404
     assert (
         await client.post("/api/finance/new", json=txn_payload(), headers=headers)
@@ -1211,7 +1211,7 @@ async def test_dashboard_requires_auth(client: httpx.AsyncClient) -> None:
 
 async def test_dashboard_missing_farm_header(client: httpx.AsyncClient) -> None:
     auth = await register(client)
-    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    # Required contract header: missing fails validation (422).
     assert (await client.get("/api/dashboard", headers=auth)).status_code == 422
 
 
@@ -1219,7 +1219,7 @@ async def test_dashboard_other_users_farm_not_found(client: httpx.AsyncClient) -
     owner = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
     stranger = await register(client, email="stranger@farm.in")
     headers = stranger | {"X-Farm-Id": owner["X-Farm-Id"]}
-    # AUDIT 0-7: forbidden farms answer 404, same as nonexistent ones.
+    # Forbidden farms answer 404, same as nonexistent ones.
     assert (await client.get("/api/dashboard", headers=headers)).status_code == 404
 
 
@@ -1489,7 +1489,7 @@ async def test_reports_requires_auth(client: httpx.AsyncClient) -> None:
 
 async def test_reports_missing_farm_header(client: httpx.AsyncClient) -> None:
     auth = await register(client)
-    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    # Required contract header: missing fails validation (422).
     assert (await client.get("/api/dashboard/reports", headers=auth)).status_code == 422
 
 
@@ -1497,7 +1497,7 @@ async def test_reports_other_users_farm_not_found(client: httpx.AsyncClient) -> 
     owner = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
     stranger = await register(client, email="stranger@farm.in")
     headers = stranger | {"X-Farm-Id": owner["X-Farm-Id"]}
-    # AUDIT 0-7: forbidden farms answer 404, same as nonexistent ones.
+    # Forbidden farms answer 404, same as nonexistent ones.
     assert (await client.get("/api/dashboard/reports", headers=headers)).status_code == 404
 
 

@@ -13,7 +13,7 @@ export function formatMoney(value: number | null | undefined): string {
 
 /** YYYY-MM-DD of today in UTC — the backend's "today" everywhere. Use this
  *  for overdue/due-soon/late-by comparisons; browser-local today disagrees
- *  with the server during the IST 00:00–05:30 window (audit 7-5). Date-only
+ *  with the server during the IST 00:00–05:30 window. Date-only
  *  *writes* keep the local date — the backend accepts one day of headroom. */
 export function utcToday(): string {
   return new Date().toISOString().slice(0, 10);

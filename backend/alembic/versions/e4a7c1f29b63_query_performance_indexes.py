@@ -4,14 +4,14 @@ Revision ID: e4a7c1f29b63
 Revises: b3e91c47a2f5
 Create Date: 2026-08-07 19:45:00.000000+00:00
 
-Missing indexes from the DB/query-performance audit (Lens 5):
+Missing indexes for query performance:
 
-- ix_tasks_purchase_batch_id (5-M4): Task.purchase_batch_id is queried with
+- ix_tasks_purchase_batch_id: Task.purchase_batch_id is queried with
   ``IN (...)`` on every purchases list and batch detail; ``tasks`` is
   ever-growing, so the seq scan worsened with age.
-- ix_tasks_breeding_record_id (5-L3): filtered by _pending_tasks_for on every
+- ix_tasks_breeding_record_id: filtered by _pending_tasks_for on every
   ultrasound/kidding/abort flow.
-- ix_farms_owner_id (5-L3): accessible_farms / farm-list lookups on every
+- ix_farms_owner_id: accessible_farms / farm-list lookups on every
   login-adjacent request.
 
 Model-side ``index=True`` on the matching columns lands in the same commit.

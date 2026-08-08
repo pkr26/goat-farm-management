@@ -1552,7 +1552,7 @@ async def test_garbage_and_wrong_scheme_tokens_401(client: httpx.AsyncClient) ->
 # X-Farm-Id header — missing/malformed/foreign
 # ---------------------------------------------------------------------------
 async def test_missing_farm_header_422(client: httpx.AsyncClient) -> None:
-    """X-Farm-Id is a required header in the contract (AUDIT 8-4) — a
+    """X-Farm-Id is a required header in the contract — a
     missing one now fails request validation (422) before deps run."""
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
@@ -1594,7 +1594,7 @@ async def test_nonexistent_farm_404(client: httpx.AsyncClient) -> None:
 
 
 async def test_foreign_farm_header_404(client: httpx.AsyncClient) -> None:
-    """AUDIT 0-7: unknown and forbidden farms share one 404 — a 403 here
+    """Unknown and forbidden farms share one 404 — a 403 here
     would let any authenticated user enumerate sequential farm ids."""
     owner_a = await owner_with_farm(client, "a@farm.in", "Farm A")
     owner_b = await owner_with_farm(client, "b@farm.in", "Farm B")
@@ -1929,14 +1929,14 @@ async def test_two_batches_have_independent_counts(client: httpx.AsyncClient) ->
 
 
 # ---------------------------------------------------------------------------
-# AUDIT-2026-08-08 N1: health event costs must land in the ledger.
+# N1: health event costs must land in the ledger.
 # ---------------------------------------------------------------------------
 async def test_health_event_with_cost_creates_expense_transaction(
     client: httpx.AsyncClient,
 ) -> None:
     """Recording a health event with cost must book a matching EXPENSE
     Transaction — otherwise monthly P&L reads ₹0 medicine/vet spend even
-    when HealthEvent.cost is set (audit 2026-08-08 N1)."""
+    when HealthEvent.cost is set."""
     headers = await owner_with_farm(client)
     # Two animals in the same bucket → scope=bucket exercises the
     # multi-animal cost-split branch.

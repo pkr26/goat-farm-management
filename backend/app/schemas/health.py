@@ -77,7 +77,7 @@ class HealthEventIn(BaseModel):
             raise ValueError("bucket is required for bucket scope")
         if self.scope == "batch" and self.purchase_batch_id is None:
             raise ValueError("purchase_batch_id is required for batch scope")
-        # AUDIT 4-L9: reject cross-scope target ids instead of silently
+        # Reject cross-scope target ids instead of silently
         # ignoring them (v1 dropped a stray animal_id sent with batch scope).
         if self.scope != "animal" and self.animal_id is not None:
             raise ValueError("animal_id only applies to animal scope")

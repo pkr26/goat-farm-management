@@ -46,7 +46,7 @@ async def breeding_candidate_does(db: AsyncSession, farm: Farm) -> list[Animal]:
         .order_by(Animal.tag_number)
     )
     does = list(does_result.scalars().all())
-    # Only the doe ids matter — a scalar join, not full ORM rows (AUDIT 5-M5).
+    # Only the doe ids matter — a scalar join, not full ORM rows.
     open_result = await db.execute(
         select(BreedingRecord.doe_id, BreedingRecord.outcome, KiddingRecord.id)
         .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
@@ -67,7 +67,7 @@ async def breeding_candidate_does(db: AsyncSession, farm: Farm) -> list[Animal]:
 
 def is_breeding_candidate(doe: Animal, *, has_open_breeding: bool) -> bool:
     """One-doe form of the candidate predicate, shared by the picker query
-    above and create_breeding's targeted membership check (AUDIT 4-L4)."""
+    above and create_breeding's targeted membership check."""
     if has_open_breeding:
         return False
     return bool(

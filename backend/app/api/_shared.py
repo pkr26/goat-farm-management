@@ -1,4 +1,4 @@
-"""Out-builders and visibility helpers shared by the API routers (AUDIT 4-M3).
+"""Out-builders and visibility helpers shared by the API routers.
 
 These lived as near-verbatim private copies in `tasks.py` / `dashboard.py` /
 `breeding.py` and were imported across routers (`kidding.py`, `health.py`).

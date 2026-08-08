@@ -190,7 +190,7 @@ async def test_animals_endpoints_require_auth(client: httpx.AsyncClient) -> None
 async def test_missing_farm_header_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     auth_only = {"Authorization": headers["Authorization"]}
-    # LOW 8-4: the header is required by the contract — missing fails request
+    # The header is required by the contract — missing fails request
     # validation (422) before the farm dependency runs.
     resp = await client.get("/api/animals", headers=auth_only)
     assert resp.status_code == 422
@@ -227,8 +227,7 @@ async def test_nonexistent_farm_header_404(client: httpx.AsyncClient) -> None:
 async def test_other_users_farm_not_found(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
-    # B's token against A's farm → 404 like any unknown farm (LOW 0-7: no
-    # farm-id existence oracle), never data
+    # B's token against A's farm → 404 like any unknown farm, never data
     headers = owner_b | {"X-Farm-Id": owner_a["X-Farm-Id"]}
     for method, url in [("GET", "/api/animals"), ("GET", "/api/buckets"), ("POST", "/api/animals")]:
         resp = await client.request(method, url, headers=headers)
@@ -2019,7 +2018,7 @@ async def test_cleaner_forbidden_on_all_animal_endpoints(client: httpx.AsyncClie
 
 
 # ---------------------------------------------------------------------------
-# AUDIT-2026-08-08 N2: selling/killing a lactating doe must not orphan kids
+# N2: selling/killing a lactating doe must not orphan kids
 # in RECOVERY (they'd stay on the lactating recipe forever with no new
 # WEANING task since hers gets skipped).
 # ---------------------------------------------------------------------------
@@ -2056,7 +2055,7 @@ async def _make_kid(
 
 async def test_selling_lactating_doe_moves_recovery_kids_out(client: httpx.AsyncClient) -> None:
     """Doe SOLD while she has ACTIVE kids in RECOVERY → each kid moves to
-    MALE_KIDS/FEMALE_KIDS by sex (audit 2026-08-08 N2)."""
+    MALE_KIDS/FEMALE_KIDS by sex."""
     headers = await owner_with_farm(client)
     doe_resp = await client.post(
         "/api/animals",

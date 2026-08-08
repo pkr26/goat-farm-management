@@ -140,7 +140,7 @@ async def feeding_plan(
         key = (animal.current_bucket, recipe_for_animal(animal, ref))
         groups[key] = groups.get(key, 0) + 1
 
-    # Two bulk queries (AUDIT 5-L1), then join in Python — no per-bucket awaits.
+    # Two bulk queries, then join in Python — no per-bucket awaits.
     definitions = list((await db.execute(select(BucketDefinition))).scalars())
     order = {d.code: d.sort_order for d in definitions}
     kg_per_head_by_bucket = {d.code: d.daily_kg_per_head for d in definitions}

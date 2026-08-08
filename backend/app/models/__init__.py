@@ -1,6 +1,6 @@
 """Full data model. All entities defined up-front per SPEC.
 
-Split into per-domain submodules (audit 4-M1); this package re-exports every
+Split into per-domain submodules; this package re-exports every
 name so existing ``from app.models import ...`` / ``from ..models import ...``
 importers keep working unchanged.
 """

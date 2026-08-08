@@ -1,4 +1,4 @@
-"""Concurrency regression tests (B4/B5 from the fourth adversarial audit wave).
+"""Concurrency regression tests.
 
 Check-then-act flows used to run with no row locks and no backing constraint,
 so two in-flight requests could both pass the pre-check and double-apply the
@@ -188,7 +188,7 @@ async def test_double_breeding_blocked_insert_rejected_cleanly(
 ) -> None:
     """Deterministic race path: an uncommitted PENDING row already holds the
     doe's slot — and, via the FK, a key-share lock on the doe row itself.
-    create_breeding locks the doe FOR UPDATE before inserting (AUDIT 2-9),
+    create_breeding locks the doe FOR UPDATE before inserting,
     so the request blocks on THAT lock (not on uq_breeding_open_pregnancy as
     before the lock existed), re-reads the committed PENDING row after the
     holder commits, and fails eligibility with the same 400 a sequential
@@ -505,7 +505,7 @@ async def test_skip_never_overwrites_a_committed_completion(
 
 
 # ---------------------------------------------------------------------------
-# Shared breeding-flow helpers for the AUDIT lens-2 races below
+# Shared breeding-flow helpers for the pregnancy state-machine races below
 # ---------------------------------------------------------------------------
 async def bred_doe_with_record(
     client: httpx.AsyncClient,

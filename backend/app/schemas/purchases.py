@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..models import MAX_AGE_MONTHS, MAX_BATCH_COUNT  # single source (AUDIT 4-M4)
+from ..models import MAX_AGE_MONTHS, MAX_BATCH_COUNT  # single source
 from .animals import AnimalOut
 from .common import NonNegativeMoneyFloat, NonNegativeWeightKgFloat, PastOrTodayDate
 from .tasks import TaskOut

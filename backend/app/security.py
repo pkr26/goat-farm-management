@@ -70,7 +70,7 @@ def hash_password(password: str) -> str:
 def prime_dummy_password_hash() -> str:
     """Compute the throwaway Argon2 hash the login path uses to equalize
     unknown-email timing. Called from create_app() at boot so the first
-    unknown-email login pays no cold-start cost (audit 2026-08-08 LOW)."""
+    unknown-email login pays no cold-start cost."""
     return hash_password("dummy-password-for-timing-equalization")
 
 

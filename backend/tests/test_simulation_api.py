@@ -564,7 +564,7 @@ async def test_stale_scenario_row_never_500s(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AUDIT-2026-08-08 N6: sensitivity mutator must not crash on schema-valid inputs.
+# N6: sensitivity mutator must not crash on schema-valid inputs.
 # ---------------------------------------------------------------------------
 async def test_sensitivity_clamps_kid_pre_weaning_at_ceiling(client: httpx.AsyncClient) -> None:
     """Base kid_pre_weaning=0.9 (schema max). Sensitivity used to multiply by
@@ -604,7 +604,7 @@ async def test_sensitivity_clamps_litter_size_at_ceiling(client: httpx.AsyncClie
 
 async def test_adult_weight_below_yearling_curve_is_422(client: httpx.AsyncClient) -> None:
     """adult_weight_doe_kg < max(weight_by_age_months[:13]) would yield a
-    monotonically DECREASING weight curve past age 12 — audit 2026-08-08 MED."""
+    monotonically DECREASING weight curve past age 12 — MED."""
     headers = await owner_with_farm(client)
     assumptions = await default_assumptions(client, headers)
     assumptions["growth"]["adult_weight_doe_kg"] = 1.0  # far below the yearling weight

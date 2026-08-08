@@ -699,7 +699,7 @@ async def test_monthly_pnl_aggregation(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-9 — a 0-month average age means newborn, not "unknown age"
+# — a 0-month average age means newborn, not "unknown age"
 # ---------------------------------------------------------------------------
 # create_purchase_batch used `if avg_age_months`, so purchased newborn kids
 # (avg 0 months) got estimated_dob=None instead of the batch date, breaking
@@ -725,7 +725,7 @@ async def test_purchase_batch_zero_age_months_sets_dob_to_batch_date(
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-10 — per-head purchase prices sum back to the booked total
+# — per-head purchase prices sum back to the booked total
 # ---------------------------------------------------------------------------
 # total/count rounded to 2dp per animal could drift from the ledger by up to
 # count × ₹0.005; the first animal now absorbs the paise remainder (same

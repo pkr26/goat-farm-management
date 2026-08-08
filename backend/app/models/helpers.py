@@ -49,7 +49,7 @@ QUARANTINE_PROTOCOL = [
 
 
 class QuarantineTaskSpec(TypedDict):
-    """One auto-generated quarantine task (AUDIT 4-L2: replaces dict[str, object])."""
+    """One auto-generated quarantine task."""
 
     due_date: date
     category: str

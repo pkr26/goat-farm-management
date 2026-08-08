@@ -24,7 +24,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 /** UTC-relative fixture dates: the page compares against utcToday()
- * (audit 7-5), so browser-local fixtures drift a day near midnight. */
+ *, so browser-local fixtures drift a day near midnight. */
 const TODAY = utcToday();
 const TOMORROW = addDays(TODAY, 1);
 

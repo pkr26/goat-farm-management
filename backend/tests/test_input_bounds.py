@@ -1,4 +1,4 @@
-"""Input-bounds regression tests (B2 from the third adversarial audit wave).
+"""Input-bounds regression tests.
 
 Money/quantity fields were unbounded positives: `1e308 * 1e308` overflows to
 `inf` inside derived values (feed-purchase qty × price) and the poisoned row

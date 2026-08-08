@@ -20,7 +20,7 @@ MEAT_SALE_AGE_MONTHS = (8, 9)
 MEAT_SALE_WEIGHT_KG = (24.0, 28.0)
 MAX_FAILED_CYCLES_BEFORE_CULL = 2
 
-# Input sanity caps — single source of truth (AUDIT 4-M4): services enforce
+# Input sanity caps — single source of truth: services enforce
 # them in the domain layer, schemas mirror them as Field bounds, and the
 # parity test (tests/test_schema_parity.py) keeps all three in lockstep.
 MAX_BATCH_COUNT = 1000  # SPEC plans ~50 animals/batch; cap runaway row creation

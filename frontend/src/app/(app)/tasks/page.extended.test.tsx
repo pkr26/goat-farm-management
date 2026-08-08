@@ -44,7 +44,7 @@ beforeAll(() => {
 });
 
 /** UTC-relative fixture dates: the page compares against utcToday()
- * (audit 7-5), so browser-local fixtures drift a day near midnight. */
+ *, so browser-local fixtures drift a day near midnight. */
 const TODAY = utcToday();
 
 /** Browser-local today — matches the create form's write-side date default
@@ -331,7 +331,7 @@ describe("TasksPage (extended)", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows an error state, not 'no access', when the permissions call fails (audit 7-6)", async () => {
+  it("shows an error state, not 'no access', when the permissions call fails", async () => {
     server.use(
       http.get("/api/auth/permissions", () =>
         HttpResponse.json({ detail: "boom" }, { status: 500 }),

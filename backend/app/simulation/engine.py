@@ -3,7 +3,7 @@
 All animal counts are expected values (floats); nothing is rounded inside the
 loop. The female pipeline is::
 
-    f_kid (0-2 m) -> f_weaner (3-5 m) -> f_grower (6 m .. first-breeding age-1)
+    f_kid -> f_weaner -> f_grower (6 m .. first-breeding age-1)
     -> open does -> pregnant (gestation months) -> lactating -> open ...
 
 Males follow f/m kid -> weaner -> grower and are sold for meat at

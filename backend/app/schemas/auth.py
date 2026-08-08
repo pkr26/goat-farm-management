@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EmailMixin(BaseModel):
-    """Shared strip/lower + shape check for email inputs (AUDIT 4-L6)."""
+    """Shared strip/lower + shape check for email inputs."""
 
     @field_validator("email", check_fields=False)
     @classmethod

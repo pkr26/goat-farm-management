@@ -42,7 +42,7 @@ beforeAll(() => {
 });
 
 /** UTC-relative fixture dates: the page compares against utcToday()
- * (audit 7-5), so browser-local fixtures drift a day near midnight. */
+ *, so browser-local fixtures drift a day near midnight. */
 const TODAY = utcToday();
 
 /** Browser-local today — matches the forms' write-side date defaults (the

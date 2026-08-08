@@ -1,22 +1,21 @@
-"""audit hardening: FK ondelete, composite indices, CHECK constraints
+"""FK ondelete, composite indices, CHECK constraints
 
 Revision ID: f5b1a09c8d7e
 Revises: e4a7c1f29b63
 Create Date: 2026-08-08 12:00:00.000000+00:00
 
-Consolidated schema hardening from AUDIT-2026-08-08.md:
+Schema hardening:
 
-- FK ondelete policies (Lens 5, MED): FarmMembership.user_id/farm_id/role_id
-  cascade with the parent; Farm.owner_id is restricted (owner must be
-  transferred before deletion); Animal.dam_id/sire_id set NULL (lineage
-  disappears but the child stays).
-- Composite index (farm_id, status, due_date) on tasks (Lens 5, MED): every
+- FK ondelete policies: FarmMembership.user_id/farm_id/role_id cascade
+  with the parent; Farm.owner_id is restricted (owner must be transferred
+  before deletion); Animal.dam_id/sire_id set NULL (lineage disappears
+  but the child stays).
+- Composite index (farm_id, status, due_date) on tasks: every
   dashboard/tab query filters exactly that trio.
-- Partial index on active animals (Lens 5, MED / N5): the hottest predicate.
-- CHECK constraints on money/weight/BCS (N3, partial): DB-level guards
-  against negatives — the full Numeric conversion is deferred, this is the
-  contained subset that catches the common corruption paths.
-- Hot-column indices for order-by/range queries (Lens 5, LOW).
+- Partial index on active animals: the hottest predicate.
+- CHECK constraints on money/weight/BCS: DB-level guards against
+  negatives. Full Numeric conversion is a separate, larger change.
+- Hot-column indices for order-by/range queries.
 """
 
 from collections.abc import Sequence
@@ -90,7 +89,7 @@ def upgrade() -> None:
     )
     # Partial index: 95%+ of Animal queries filter status='ACTIVE'.
     op.execute("CREATE INDEX ix_animals_farm_active ON animals(farm_id) WHERE status = 'ACTIVE'")
-    # Order-by / range predicate targets (Lens 5 LOW).
+    # Order-by / range predicate targets.
     op.create_index("ix_weight_records_date", "weight_records", ["date"], unique=False)
     op.create_index("ix_health_events_date", "health_events", ["date"], unique=False)
     op.create_index(

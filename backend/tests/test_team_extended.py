@@ -640,7 +640,7 @@ async def test_permissions_requires_auth_and_farm(client: httpx.AsyncClient) -> 
     assert (await client.get("/api/auth/permissions")).status_code == 401
     auth_only = {k: v for k, v in owner.items() if k == "Authorization"}
     resp = await client.get("/api/auth/permissions", headers=auth_only)
-    # LOW 8-4: the header is required by the contract (422, not 400).
+    # The header is required by the contract (422, not 400).
     assert resp.status_code == 422
     assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
@@ -791,7 +791,7 @@ async def test_create_worker_invalid_email_rejected(client: httpx.AsyncClient, e
     owner = await owner_with_farm(client)
     rid = await role_id(client, owner, "CLEANER")
     resp = await add_worker(client, owner, rid, email)
-    # EmailMixin schema validation (AUDIT 4-L6): malformed emails 422 before
+    # EmailMixin schema validation: malformed emails 422 before
     # the router runs.
     assert resp.status_code == 422, resp.text
 
@@ -1084,8 +1084,7 @@ async def test_deactivation_revokes_all_access(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
-    # every perm he had is gone: farm itself is now inaccessible (LOW 0-7:
-    # a deactivated member's farm answers 404 like an unknown farm)
+    # every perm he had is gone: farm itself is now inaccessible
     for url in ["/api/tasks", "/api/animals", "/api/dashboard", "/api/auth/permissions"]:
         resp = await client.get(url, headers=mover)
         assert resp.status_code == 404, url
@@ -1249,7 +1248,7 @@ async def test_reset_password_membership_not_found(client: httpx.AsyncClient) ->
 
 
 async def test_reset_password_revokes_worker_sessions(client: httpx.AsyncClient) -> None:
-    """HIGH 0-1 / 1-1: the owner's reset is the incident-response tool for a
+    """The owner's reset is the incident-response tool for a
     compromised worker account — it must kill the worker's live refresh
     sessions, not just rewrite the hash."""
     owner = await owner_with_farm(client)
@@ -1275,7 +1274,7 @@ async def test_reset_password_revokes_worker_sessions(client: httpx.AsyncClient)
 
 
 async def test_toggle_deactivation_revokes_worker_sessions(client: httpx.AsyncClient) -> None:
-    """HIGH 0-1: deactivating a membership ends the worker's sessions too;
+    """Deactivating a membership ends the worker's sessions too;
     reactivation lets him sign in fresh."""
     owner = await owner_with_farm(client)
     await worker_headers(client, owner, "CLEANER", "w@farm.in")
@@ -1689,7 +1688,7 @@ async def _second_team_manager(client: httpx.AsyncClient, owner: dict) -> tuple[
 
 
 async def test_team_manager_cannot_act_on_peer_manager(client: httpx.AsyncClient) -> None:
-    """LOW 1-3: horizontal control among team.manage holders is owner-only —
+    """Horizontal control among team.manage holders is owner-only —
     a manager may not demote, deactivate, or password-reset a peer manager
     (insider lockout/hijack only the owner could undo)."""
     owner = await owner_with_farm(client)
@@ -1755,7 +1754,7 @@ async def test_team_endpoints_require_farm_header(
     owner = await owner_with_farm(client)
     auth_only = {"Authorization": owner["Authorization"]}
     resp = await client.request(method, url, json={}, headers=auth_only)
-    # LOW 8-4: the header is required by the contract (422, not 400).
+    # The header is required by the contract (422, not 400).
     assert resp.status_code == 422, f"{method} {url} → {resp.status_code}"
     assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
@@ -1786,7 +1785,7 @@ async def test_farm_header_values(
 async def test_team_endpoints_reject_non_member(
     client: httpx.AsyncClient, method: str, url: str
 ) -> None:
-    """A valid user with no membership on the farm gets 404 everywhere (LOW 0-7)."""
+    """A valid user with no membership on the farm gets 404 everywhere."""
     owner = await owner_with_farm(client)
     stranger = await register(client, email="stranger@farm.in", password="strangerpass1")
     headers = stranger | {"X-Farm-Id": owner["X-Farm-Id"]}
@@ -1821,6 +1820,6 @@ async def test_cross_farm_worker_cannot_peek_team(client: httpx.AsyncClient) -> 
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     worker_b = await worker_headers(client, owner_b, "MOVER", "w@farm.in")
     resp = await client.get("/api/team", headers=worker_b | {"X-Farm-Id": owner_a["X-Farm-Id"]})
-    # LOW 0-7: forbidden farms answer exactly like unknown ones.
+    # Forbidden farms answer exactly like unknown ones.
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"

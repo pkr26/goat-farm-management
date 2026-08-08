@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..models import MAX_RECUR_DAYS  # single source of truth (AUDIT 4-M4)
+from ..models import MAX_RECUR_DAYS  # single source of truth
 from .common import BoundedId
 
 TaskCategoryStr = Literal[

@@ -45,7 +45,7 @@ describe("RootPage redirect hub", () => {
     renderWithProviders(<RootPage />);
     await screen.findByText("Loading…");
 
-    // Settled signal, not a wall-clock sleep (audit 10-L8): once the
+    // Settled signal, not a wall-clock sleep: once the
     // bootstrap's refresh request has fired and is still pending, no effect
     // can have reached the redirect — loading never settles without it.
     await waitFor(() => expect(refreshRequested).toBe(true));

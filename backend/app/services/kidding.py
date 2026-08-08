@@ -31,7 +31,7 @@ from .animals import _tag_exists, move_animal
 
 
 class KidSpec(TypedDict):
-    """One kid in a kidding record (AUDIT 4-L2: replaces dict[str, Any])."""
+    """One kid in a kidding record."""
 
     tag: str  # the router fills the auto "<doe>-K<n>" tag when left blank
     sex: str
@@ -99,7 +99,7 @@ async def record_kidding(
 
     # Tags are unique per farm; auto tags ("<doe>-K<n>") collide on a doe's
     # second kidding, so uniquify instead of crashing on the constraint. Probe
-    # per candidate (AUDIT 5-L2) instead of scanning the farm's whole tag
+    # per candidate instead of scanning the farm's whole tag
     # column; `assigned_tags` covers tags taken by kids earlier in THIS request.
     assigned_tags: set[str] = set()
 

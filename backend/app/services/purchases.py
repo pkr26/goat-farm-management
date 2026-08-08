@@ -1,6 +1,6 @@
 """Purchases & quarantine."""
 
-# MAX_BATCH_COUNT / MAX_AGE_MONTHS live in models.py (AUDIT 4-M4).
+# MAX_BATCH_COUNT / MAX_AGE_MONTHS live in models.py.
 
 from datetime import date
 

@@ -1,6 +1,6 @@
 /**
- * Tasks page deep links (audit 7-1) and the self-verification guard (audit
- * 7-4): /tasks?tab=… selects the initial tab (unknown values fall back to
+ * Tasks page deep links and the self-verification guard:
+ * /tasks?tab=… selects the initial tab (unknown values fall back to
  * "today"), and Verify/Reject are hidden on duties the current user
  * completed themselves — unless they own the farm (the backend exempts the
  * owner from the two-person rule).
@@ -25,7 +25,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-/** UTC YYYY-MM-DD (the page compares against utcToday now, audit 7-5). */
+/** UTC YYYY-MM-DD (the page compares against utcToday now,). */
 function utcISO(d: Date): string {
   return d.toISOString().slice(0, 10);
 }

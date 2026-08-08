@@ -1,5 +1,5 @@
 /**
- * Feeding plan "done" badge (audit 7-3): a bucket split across several
+ * Feeding plan "done" badge: a bucket split across several
  * recipe lines (each with its own daily_kg) must only show "done" once the
  * dispensed total covers the SUM of that bucket's lines — never when a
  * single line's daily_kg is reached.

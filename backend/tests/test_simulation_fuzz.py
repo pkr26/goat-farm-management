@@ -1,8 +1,7 @@
-"""Simulation input-fuzz regression tests (B3 from the fourth adversarial
-audit wave).
+"""Simulation input-fuzz regression tests.
 
-Every crash vector the audit confirmed must now fail at validation (422) or
-as a documented 400 — never a 500: a bare-string ``meta.start_year_month``
+Every known crash vector must now fail at validation (422) or as a
+documented 400 — never a 500: a bare-string ``meta.start_year_month``
 crashed ``int(split("-")[1])``, NaN/inf numerics poisoned runs until JSON
 serialization exploded, unbounded herd counts overflowed float arithmetic,
 degenerate zero-flow runs emitted ``bcr = inf`` / a bogus bisection-floor
@@ -170,7 +169,7 @@ async def test_herd_counts_are_capped(client: httpx.AsyncClient) -> None:
 async def test_extreme_magnitudes_are_422(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     cases: list[tuple[str, str, float]] = [
-        ("sales", "meat_price_per_kg", 1e308),  # the exact audit vector
+        ("sales", "meat_price_per_kg", 1e308),  # the exact crash vector
         ("sales", "milk_price_per_litre", 1e308),
         ("sales", "lactation_milk_litres", 1e308),
         ("herd", "doe_purchase_price", 1e308),

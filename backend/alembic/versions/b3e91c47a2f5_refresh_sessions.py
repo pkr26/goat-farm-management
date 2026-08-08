@@ -4,7 +4,7 @@ Revision ID: b3e91c47a2f5
 Revises: 91a712b0367b
 Create Date: 2026-08-07 16:30:00.000000+00:00
 
-Audit findings HIGH 0-1 / MEDIUM 0-2 / MEDIUM 1-1: refresh tokens were
+Refresh tokens were
 stateless JWTs with no server-side record, so logout, owner-initiated worker
 password resets, and rotation itself terminated nothing, and a stolen
 pre-rotation token kept working for the full 14-day TTL. Persist one row per

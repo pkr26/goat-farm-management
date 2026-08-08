@@ -47,7 +47,7 @@ COMPLETE = Annotated[set[str], Depends(require_perm("tasks.complete"))]
 VERIFY = Annotated[set[str], Depends(require_perm("tasks.verify"))]
 
 # Display enrichment loads (TASK_LOADS), task_action_url, task_out and
-# visible_to live in `._shared` (AUDIT 4-M3) — single source of truth shared
+# visible_to live in `._shared` — single source of truth shared
 # with the dashboard/breeding/kidding/health routers.
 
 
@@ -99,7 +99,7 @@ async def list_tasks(
         await db.execute(pending.where(Task.due_date > now).order_by(Task.due_date, Task.id))
     ).scalars()
     # Awaiting verification: DONE + a verification-required category (CLEANING)
-    # — filtered in SQL (AUDIT 5-M3), not by loading the whole DONE pile.
+    # — filtered in SQL, not by loading the whole DONE pile.
     awaiting = list(
         (
             await db.execute(

@@ -1,4 +1,4 @@
-"""Exhaustive RBAC coverage (AUDIT-2026-08-08 testing HIGH).
+"""Exhaustive RBAC coverage.
 
 `test_rbac.py` samples 3 preset roles × 4-ish endpoints. This test walks
 EVERY (path, method) that uses `require_perm(...)` and confirms a
@@ -155,7 +155,7 @@ async def test_every_require_perm_route_403s_for_a_zero_permission_worker(
         resp = await request_method(method, url, **kwargs)
         # 403 is the correct answer. 422 is acceptable ONLY when the
         # dependency chain rejects the body before hitting require_perm,
-        # which would be a lens 1 finding; we treat it as a failure here to
+        # which would be a classification; we treat it as a failure here to
         # catch it.
         if resp.status_code != 403:
             failures.append(

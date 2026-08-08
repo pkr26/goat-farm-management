@@ -1537,7 +1537,7 @@ def test_mix_invalid(field: str, value: object) -> None:
         ("qty_kg", 0.001),
         ("price_per_kg", None),
         ("price_per_kg", 0.001),
-        ("price_per_kg", 0.0),  # AUDIT 3-6: an explicit ₹0 restock is accepted
+        ("price_per_kg", 0.0),  # an explicit ₹0 restock is accepted
     ],
 )
 def test_stock_add_valid(field: str, value: object) -> None:

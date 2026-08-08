@@ -96,7 +96,7 @@ describe("AuthProvider bootstrap — valid session", () => {
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("1");
   });
 
-  it("never puts the access token in localStorage or sessionStorage (audit 2026-08-08)", async () => {
+  it("never puts the access token in localStorage or sessionStorage", async () => {
     // The api-client's core XSS mitigation: the access token lives in memory
     // only. A future refactor that starts persisting it silently regresses
     // that invariant — this test locks it in.
@@ -361,7 +361,7 @@ describe("AuthProvider actions", () => {
     expect(pushMock).toHaveBeenCalledWith("/login");
   });
 
-  it("forced logout runs the same cleanup as signOut, once per transition (audit 6-3)", async () => {
+  it("forced logout runs the same cleanup as signOut, once per transition", async () => {
     server.use(
       http.get("/api/animals", () =>
         HttpResponse.json({ detail: "Expired" }, { status: 401 }),
@@ -379,7 +379,7 @@ describe("AuthProvider actions", () => {
       queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
 
       // The refresh cookie is rejected (expired/revoked/reused token); two
-      // concurrent 401s must share ONE forced logout, not two (audit 6-1/6-3).
+      // concurrent 401s must share ONE forced logout, not two.
       rejectRefresh();
       pushMock.mockClear();
       await act(async () => {

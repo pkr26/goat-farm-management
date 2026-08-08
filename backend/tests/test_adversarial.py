@@ -634,7 +634,7 @@ async def test_health_form_cannot_recomplete_a_done_task(client: httpx.AsyncClie
 
 
 # ---------------------------------------------------------------------------
-# 5. Wave 2 — regressions for the second adversarial audit
+# 5. Wave 2 regressions
 #    (non-finite numbers, lifecycle guards, state machine, RBAC hardening)
 # ---------------------------------------------------------------------------
 async def test_sale_price_nonfinite_and_negative_rejected(client: httpx.AsyncClient) -> None:
@@ -780,7 +780,7 @@ async def test_kidding_rejects_bad_dates_caps_and_weights(client: httpx.AsyncCli
     resp = await post_kidding(client, owner, br_id, date_str=too_early)
     assert resp.status_code == 400
     resp = await post_kidding(client, owner, br_id, date_str=future)
-    assert resp.status_code == 422  # PastOrTodayDate schema guard (AUDIT 4-L6)
+    assert resp.status_code == 422  # PastOrTodayDate schema guard
     resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M"}] * 11)
     assert resp.status_code == 422
     resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M", "birth_weight": "-3"}])

@@ -4,7 +4,7 @@ Every function takes an AsyncSession and farm-scoped entities; callers commit.
 All business data is farm-scoped by construction (farm_id copied from the
 parent entities).
 
-Split into per-domain submodules (audit 4-M1); this package re-exports every
+Split into per-domain submodules; this package re-exports every
 name so existing ``from app.services import ...`` / ``from ..services import
 ...`` importers keep working unchanged.
 

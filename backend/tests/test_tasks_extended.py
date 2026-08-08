@@ -670,7 +670,7 @@ async def test_list_missing_farm_header_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     headers = {"Authorization": owner["Authorization"]}
     resp = await client.get("/api/tasks", headers=headers)
-    # LOW 8-4: the header is required by the contract — missing fails request
+    # The header is required by the contract — missing fails request
     # validation (422) before the farm dependency runs.
     assert resp.status_code == 422
     assert "x-farm-id" in str(resp.json()["detail"]).lower()
@@ -707,7 +707,7 @@ async def test_non_member_farm_list_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     resp = await client.get("/api/tasks", headers=owner_b | {"X-Farm-Id": owner_a["X-Farm-Id"]})
-    # LOW 0-7: forbidden farms answer exactly like unknown ones (no farm-id
+    # Forbidden farms answer exactly like unknown ones (no farm-id
     # existence oracle).
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"

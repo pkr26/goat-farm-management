@@ -353,7 +353,7 @@ function AnimalsPageContent() {
   const [status, setStatus] = useState(searchParams.get("status") ?? ALL);
   const [q, setQ] = useState(searchParams.get("q") ?? "");
   // Same-route client navigations (e.g. a dashboard bucket link while already
-  // on /animals) change the params — re-sync the filters (audit 7-8). Keyed
+  // on /animals) change the params — re-sync the filters. Keyed
   // off the param STRING: useSearchParams' object identity isn't stable.
   const paramsKey = searchParams.toString();
   useEffect(() => {
@@ -365,7 +365,7 @@ function AnimalsPageContent() {
     setQ(params.get("q") ?? "");
   }, [paramsKey]);
   // ?new=1 opens the create dialog once; strip it so a reload doesn't reopen
-  // the dialog (audit 7-8).
+  // the dialog.
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
     if (params.get("new") !== "1") return;

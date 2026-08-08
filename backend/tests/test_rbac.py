@@ -273,7 +273,7 @@ async def test_worker_landing_and_deactivation(client: httpx.AsyncClient) -> Non
     assert resp.json()["is_active"] is False
 
     resp = await client.get("/api/tasks", headers=cleaner)
-    # LOW 0-7: a deactivated member's farm answers 404 like an unknown farm.
+    # A deactivated member's farm answers 404 like an unknown farm.
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"
     resp = await client.get("/api/auth/farms", headers=cleaner)
@@ -335,8 +335,7 @@ async def test_cross_tenant_isolation(client: httpx.AsyncClient) -> None:
 
     worker, _ = await worker_headers(client, owner_a, "MOVER", "mover@farm.in")
 
-    # cannot work inside farm B — 404 like any unknown farm (LOW 0-7: no
-    # farm-id existence oracle; v1: the farm-switch attempt bounced back)
+    # cannot work inside farm B — 404 like any unknown farm
     resp = await client.get("/api/animals", headers=worker | {"X-Farm-Id": str(fid_b)})
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"

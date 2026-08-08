@@ -174,8 +174,8 @@ async def dashboard(
 
 @router.get("/reports")
 async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> ReportsOut:
-    """Herd summary, breeding performance, mortality — all aggregated in SQL
-    (AUDIT 5-H2); only the cull-candidate list is hydrated as ORM rows."""
+    """Herd summary, breeding performance, mortality — all aggregated in SQL;
+    only the cull-candidate list is hydrated as ORM rows."""
 
     # --- herd summary -------------------------------------------------------
     defs = list(

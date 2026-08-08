@@ -1,5 +1,5 @@
 /**
- * utcToday/addDays (audit 7-5): comparisons against server due dates must
+ * utcToday/addDays: comparisons against server due dates must
  * use the backend's UTC "today", not the browser's local date.
  */
 

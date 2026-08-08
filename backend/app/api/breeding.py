@@ -31,13 +31,13 @@ router = APIRouter(prefix="/api/breeding", tags=["breeding"])
 
 NOT_FOUND = "Breeding record not found"
 
-# History is newest-first and capped (AUDIT 5-M5): the unbounded list grew by
+# History is newest-first and capped: the unbounded list grew by
 # ~2 cycles/doe/year. The picker payloads (candidate does, active bucks) ride
 # along unchanged.
 BREEDING_HISTORY_LIMIT = 100
 
 
-# breeding_out lives in `._shared` (AUDIT 4-M3).
+# breeding_out lives in `._shared`.
 
 
 async def _get_breeding_record(
@@ -174,7 +174,7 @@ async def create_breeding(
         raise HTTPException(status_code=404, detail="Doe or buck not found")
     # Same eligibility rules as v1's doe/buck pickers — a forged request
     # cannot breed a male, a sold doe, or an already-pregnant doe. Targeted
-    # one-doe check (AUDIT 4-L4): no full candidate-set build per create.
+    # one-doe check: no full candidate-set build per create.
     if (
         not is_breeding_candidate(doe, has_open_breeding=await doe_has_open_breeding(db, doe.id))
         or buck.sex != "M"

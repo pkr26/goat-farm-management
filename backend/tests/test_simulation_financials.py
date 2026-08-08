@@ -1,4 +1,4 @@
-"""Financial audit test suite for the simulation engine.
+"""Financial correctness tests for the simulation engine.
 
 Independent verification written from first principles (a lender's/modeler's
 view), complementing the golden unit tests in test_simulation_engine.py:
@@ -225,7 +225,7 @@ def test_terminal_balance_reaches_annual_pl_and_dscr() -> None:
     # The interest+principal decomposition identity survives the balloon.
     assert final_year.debt_service == pytest.approx(final_year.interest + final_year.principal)
     # DSCR of the terminal year reflects the balloon — materially below the
-    # figure that excluded it (the audit measured 0.19 vs a reported 1.20).
+    # figure that would exclude it (0.19 vs a reported 1.20 without it).
     assert res.metrics.dscr_per_year[-1] == pytest.approx(
         final_year.ebitda / final_year.debt_service
     )

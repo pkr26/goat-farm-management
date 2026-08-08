@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/team", tags=["team"])
 
 TEAM_PERM = Annotated[set[str], Depends(require_perm("team.manage"))]
 
-# LOW 1-4: generic refusal for cross-farm-affiliated accounts in create_worker
+# Generic refusal for cross-farm-affiliated accounts in create_worker
 # (see the comment at the raise sites).
 CANT_ADD_TO_TEAM = "That email can't be added to this farm's team."
 
@@ -86,7 +86,7 @@ async def _get_role(db: AsyncSession, farm: Farm, role_id: int) -> Role:
 
 
 def _guard_peer_manager(membership: FarmMembership, user: User, farm: Farm) -> None:
-    """LOW 1-3: a non-owner team.manage holder may not act on a peer whose
+    """A non-owner team.manage holder may not act on a peer whose
     role ALSO grants team.manage — otherwise one manager could demote,
     deactivate, or password-reset another (insider lockout/account hijack
     only the owner can undo). The owner is exempt; targets without
@@ -152,7 +152,7 @@ async def create_worker(
     passwords are global, so absorbing an account affiliated with another
     farm would hand this farm a cross-tenant takeover path (reset-password
     rewrites the global password). Cross-farm refusals share ONE generic
-    message (LOW 1-4) so probing arbitrary emails can't reveal other farms'
+    message so probing arbitrary emails can't reveal other farms'
     roster state. Residual limitation: there is no invitation/consent flow
     yet — an unaffiliated account is enrolled without the account holder's
     say-so."""
@@ -171,7 +171,7 @@ async def create_worker(
         if worker is not None
         else None
     )
-    # LOW 1-4: one generic refusal for every cross-farm affiliation — the
+    # One generic refusal for every cross-farm affiliation — the
     # distinct messages ("owns a farm" / "belongs to another farm's team")
     # let any farm owner probe arbitrary emails and learn other farms'
     # roster state. Passwords/accounts are global, so absorbing an account
@@ -283,7 +283,7 @@ async def toggle_worker(
     _guard_peer_manager(membership, user, farm)
     membership.is_active = not membership.is_active
     if not membership.is_active:
-        # HIGH 0-1: deactivation must end the worker's live sessions too, not
+        # Deactivation must end the worker's live sessions too, not
         # just block farm data on the next request.
         await revoke_user_sessions(db, membership.user_id)
     await db.commit()
@@ -435,7 +435,7 @@ async def delete_role(role_id: int, db: DbSession, farm: CurrentFarm, perms: TEA
     try:
         await db.commit()
     except IntegrityError:
-        # LOW 2-11: a worker was assigned this role between the member-count
+        # A worker was assigned this role between the member-count
         # check above and the DELETE (FK violation) — answer like the
         # pre-check instead of 500ing.
         await db.rollback()

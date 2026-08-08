@@ -20,7 +20,7 @@ from ..permissions import TASK_CATEGORY_ROLE_MAP
 # Explicit eager loads for every Animal whose rows serialize through AnimalOut
 # (or feed the computed properties behind it: latest_weight_kg,
 # days_in_current_bucket, is_currently_pregnant, is_breeding_ready). Mapper-level
-# lazy="selectin" used to guarantee these on every load (AUDIT 5-H1); now each
+# lazy="selectin" used to guarantee these on every load; now each
 # read path opts in, so plain db.get()/write paths stay lean.
 ANIMAL_OUT_LOADS = (
     selectinload(Animal.weight_records),

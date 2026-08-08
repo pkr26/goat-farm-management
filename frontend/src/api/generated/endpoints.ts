@@ -723,8 +723,8 @@ export const getChangePasswordApiAuthChangePasswordPostUrl = () => {
 }
 
 /**
- * LOW 0-6: self-service password change. Requires the current password,
- * revokes EVERY outstanding refresh session (0-1 logout-everywhere), then
+ * Self-service password change. Requires the current password,
+ * revokes EVERY outstanding refresh session, then
  * issues a fresh pair so the current device stays signed in.
  * @summary Change Password
  */
@@ -5031,8 +5031,8 @@ export const getReportsApiDashboardReportsGetUrl = () => {
 }
 
 /**
- * Herd summary, breeding performance, mortality — all aggregated in SQL
- * (AUDIT 5-H2); only the cull-candidate list is hydrated as ORM rows.
+ * Herd summary, breeding performance, mortality — all aggregated in SQL;
+ * only the cull-candidate list is hydrated as ORM rows.
  * @summary Reports
  */
 export const reportsApiDashboardReportsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<reportsApiDashboardReportsGetResponse> => {
@@ -5278,7 +5278,7 @@ export const getCreateWorkerApiTeamWorkersPostUrl = () => {
  * passwords are global, so absorbing an account affiliated with another
  * farm would hand this farm a cross-tenant takeover path (reset-password
  * rewrites the global password). Cross-farm refusals share ONE generic
- * message (LOW 1-4) so probing arbitrary emails can't reveal other farms'
+ * message so probing arbitrary emails can't reveal other farms'
  * roster state. Residual limitation: there is no invitation/consent flow
  * yet — an unaffiliated account is enrolled without the account holder's
  * say-so.
@@ -6049,8 +6049,7 @@ export const getBreedDefaultsApiSimulationDefaultsGetUrl = (params?: BreedDefaul
 }
 
 /**
- * Default assumptions for a breed + production system (400 on unknown breed;
- * 422 on an unknown system — the Literal query type validates it, AUDIT 4-L2).
+ * Default assumptions for a breed + production system.
  *
  * Global reference data: any authenticated user, no farm context needed.
  * @summary Breed Defaults

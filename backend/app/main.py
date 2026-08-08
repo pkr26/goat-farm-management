@@ -76,13 +76,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # idempotent reference data, role presets and task backfills.
     logger.info("startup (environment=%s)", get_settings().environment)
     # Warm the timing-equalization dummy hash so the first unknown-email
-    # login pays no cold-start cost (audit 2026-08-08 LOW).
+    # login pays no cold-start cost.
     prime_dummy_password_hash()
     try:
         async with get_sessionmaker()() as db:
             await seed_startup(db)
             # Sweep expired refresh sessions on boot so the table doesn't
-            # accumulate 14-day-old rows forever (audit 2026-08-08 MED).
+            # accumulate 14-day-old rows forever.
             # Restarts happen regularly enough that on-boot is sufficient
             # until a proper scheduler is introduced.
             removed = await purge_expired_refresh_sessions(db)

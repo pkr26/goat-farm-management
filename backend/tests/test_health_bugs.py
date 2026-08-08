@@ -139,7 +139,7 @@ async def test_batch_infinite_price_should_422_not_500(client: httpx.AsyncClient
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-1 — deworming recorded by drug name matches the Deworming template
+# — deworming recorded by drug name matches the Deworming template
 # ---------------------------------------------------------------------------
 # The schedule matcher used to match templates purely by substring over
 # product_name + disease_target. The natural deworming entry (type=DEWORMING,
@@ -192,7 +192,7 @@ async def test_trade_name_vaccine_matches_template(client: httpx.AsyncClient) ->
 
 
 # ---------------------------------------------------------------------------
-# AUDIT 3-5 — a missed booster no longer shows DONE
+# — a missed booster no longer shows DONE
 # ---------------------------------------------------------------------------
 # Status only looked at first/last dose + repeat interval: a first-dose-only
 # animal showed DONE even with the booster window lapsed. One matching event

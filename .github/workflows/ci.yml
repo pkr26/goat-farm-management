@@ -108,8 +108,7 @@ jobs:
         run: pnpm audit
 
   # End-to-end: Playwright drives the real SPA against a live FastAPI +
-  # PostgreSQL (previously never ran in CI — the 16 e2e spec files were
-  # documentation only, audit 2026-08-08 N7).
+  # PostgreSQL.
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -184,7 +183,7 @@ jobs:
           retention-days: 7
 
   # Sanity-check the Dockerfile still builds so a broken image doesn't
-  # land on main unnoticed (audit 2026-08-08 LOW ops).
+  # land on main unnoticed.
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 15

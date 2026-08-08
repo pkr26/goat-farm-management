@@ -1,4 +1,4 @@
-"""Schema/model parity guards (AUDIT 4-M4).
+"""Schema/model parity guards.
 
 The Pydantic ``Literal`` aliases in ``app/schemas/`` re-declare the string
 enums in ``app/models.py`` (Pydantic v2 can't derive a JSON-schema enum from

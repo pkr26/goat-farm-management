@@ -73,7 +73,7 @@ export default function RegisterPage() {
     } catch (err) {
       // Surface the server's own message for every API error (400 duplicate
       // email, 429 rate limit, 422 password policy, 5xx) — only a network
-      // failure gets the fallback (audit 6-4/7-2/8-3).
+      // failure gets the fallback.
       setServerError(
         err instanceof ApiError ? err.detail : "Could not register — is the backend running?",
       );

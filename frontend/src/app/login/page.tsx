@@ -69,7 +69,7 @@ export default function LoginPage() {
     } catch (err) {
       // Surface the server's own message for every API error (429 rate
       // limit, 422 password policy, 5xx) — only a network failure gets the
-      // "is the backend running?" fallback (audit 6-4/7-2/8-3).
+      // "is the backend running?" fallback.
       setServerError(
         err instanceof ApiError
           ? err.status === 401

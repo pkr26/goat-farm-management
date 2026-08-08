@@ -2,7 +2,6 @@
 # Single backend replica on purpose — the auth rate limiter is in-memory and
 # the container CMD hard-codes --workers 1.
 # The frontend is served separately (Next.js), see frontend/README or `pnpm dev`.
-#
 # Credentials come from .env (copy .env.example to .env for defaults).
 services:
   db:

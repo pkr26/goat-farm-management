@@ -59,7 +59,7 @@ class Animal(Base):
 
     farm: Mapped[Farm] = relationship(back_populates="animals")
     purchase_batch: Mapped[PurchaseBatch | None] = relationship(back_populates="animals")
-    # History collections are NOT eager-loaded at the mapper level (AUDIT 5-H1):
+    # History collections are NOT eager-loaded at the mapper level:
     # a mapper-level lazy="selectin" would fire on every Animal load — including
     # db.get() for simple writes. Read paths that serialize AnimalOut's computed
     # fields (latest_weight_kg, days_in_current_bucket, is_currently_pregnant,

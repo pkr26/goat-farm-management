@@ -32,7 +32,7 @@ async def buckets_board(
     for animal in active_result.scalars():
         by_bucket.setdefault(animal.current_bucket, []).append(animal)
 
-    # One bulk query for the farm's feed-setting overrides (AUDIT 5-L1), then
+    # One bulk query for the farm's feed-setting overrides, then
     # join in Python — no per-bucket await of get_daily_kg_per_head.
     settings_result = await db.execute(
         select(BucketFeedSetting).where(BucketFeedSetting.farm_id == farm.id)

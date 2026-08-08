@@ -151,7 +151,7 @@ async def _run_offloaded(
 # One in-flight run per farm (keyed by farm id). A worst-case run holds a CPU
 # core for ~12 s; without this a worker holding only simulation.view could
 # keep every threadpool worker busy by firing max-size runs repeatedly.
-# Locks are dropped when no one holds them (audit 2026-08-08 LOW-4): a bare
+# Locks are dropped when no one holds them: a bare
 # dict grew one lock per farm ever seen; sweeping unheld locks caps memory
 # while keeping the "one run per farm" guarantee for concurrent requests.
 _farm_run_locks: dict[int, asyncio.Lock] = {}
@@ -200,8 +200,7 @@ async def list_breeds(user: CurrentUser) -> BreedsOut:
 async def breed_defaults(
     user: CurrentUser, breed: str = "osmanabadi", system: System = "stall_fed"
 ) -> SimulationAssumptions:
-    """Default assumptions for a breed + production system (400 on unknown breed;
-    422 on an unknown system — the Literal query type validates it, AUDIT 4-L2).
+    """Default assumptions for a breed + production system.
 
     Global reference data: any authenticated user, no farm context needed."""
     try:

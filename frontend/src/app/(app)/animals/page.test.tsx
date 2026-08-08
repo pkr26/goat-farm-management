@@ -157,7 +157,7 @@ describe("AnimalsPage", () => {
     expect(within(dialog).getByText("Add animal")).toBeInTheDocument();
   });
 
-  it("strips ?new=1 after opening the dialog so a reload doesn't reopen it (audit 7-8)", async () => {
+  it("strips ?new=1 after opening the dialog so a reload doesn't reopen it", async () => {
     replaceMock.mockClear();
     navState.search = "new=1";
     await renderAndWaitForList();

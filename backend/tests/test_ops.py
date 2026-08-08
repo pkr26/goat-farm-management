@@ -1,4 +1,4 @@
-"""Ops readiness tests (audit 10-H2, 11-H1, 11-H3, 11-M9): unauthenticated
+"""Ops readiness tests: unauthenticated
 health/readiness probes, request-ID correlation, production-boot safety
 validation, docs gating, the GOATFARM_TEST_DB footgun guard, and direct
 coverage of seed_startup / backfill_task_assignments (the lifespan path the

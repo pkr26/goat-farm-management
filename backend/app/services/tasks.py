@@ -1,6 +1,6 @@
 """Tasks / duties."""
 
-# MAX_RECUR_DAYS lives in models.py (AUDIT 4-M4).
+# MAX_RECUR_DAYS lives in models.py.
 
 from datetime import date, timedelta
 
@@ -47,7 +47,7 @@ async def complete_task(db: AsyncSession, task: Task, user: User | None = None) 
     if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
         batch_result = await db.execute(
             select(Animal).where(
-                # farm_id defense-in-depth (LOW 1-2): task.animal_id /
+                # farm_id defense-in-depth: task.animal_id /
                 # purchase_batch_id are server-assigned today, but a future
                 # client-influenced link must never move cross-farm animals.
                 Animal.farm_id == task.farm_id,
@@ -66,7 +66,7 @@ async def complete_task(db: AsyncSession, task: Task, user: User | None = None) 
         # duty go green while she silently stays in PREGNANCY_EARLY.
         if (
             linked_animal
-            and linked_animal.farm_id == task.farm_id  # LOW 1-2 farm guard
+            and linked_animal.farm_id == task.farm_id  # farm guard
             and linked_animal.current_bucket
             in (
                 Bucket.PREGNANCY_LATE.value,
@@ -77,7 +77,7 @@ async def complete_task(db: AsyncSession, task: Task, user: User | None = None) 
 
     elif task.category == TaskCategory.WEANING.value and task.animal_id:
         doe = await db.get(Animal, task.animal_id)
-        if doe and doe.farm_id == task.farm_id:  # LOW 1-2 farm guard
+        if doe and doe.farm_id == task.farm_id:  # farm guard
             kids_result = await db.execute(
                 select(Animal).where(
                     Animal.farm_id == task.farm_id,
@@ -109,7 +109,7 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
         return task  # absurd recurrence (legacy data): don't explode date math
     # Anchor the next occurrence on max(due, today): otherwise a worker who
     # catches up 10 daily-cleaning tasks after leave spawns 10 already-overdue
-    # rows in a cascade, one per completion (audit 2026-08-08, MED).
+    # rows in a cascade, one per completion.
     due = max(task.due_date, today()) + timedelta(days=task.recur_days)
     result = await db.execute(
         select(Task).where(
@@ -145,7 +145,7 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
 
 async def skip_task(db: AsyncSession, task: Task, user: User) -> Task:
     """User skips a PENDING duty → SKIPPED, attributed; a recurring duty's
-    series continues (AUDIT 4-M5: every task transition lives in services)."""
+    series continues."""
     task.status = TaskStatus.SKIPPED.value
     task.skipped_by_id = user.id
     if task.recur_days:
