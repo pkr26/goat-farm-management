@@ -132,9 +132,18 @@ export default function LoginPage() {
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
                 <div className="space-y-1.5">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" autoComplete="email" {...register("email")} />
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    aria-invalid={!!errors.email}
+                    aria-describedby={errors.email ? "email-error" : undefined}
+                    {...register("email")}
+                  />
                   {errors.email && (
-                    <p className="text-sm text-destructive">{errors.email.message}</p>
+                    <p id="email-error" role="alert" className="text-sm text-destructive">
+                      {errors.email.message}
+                    </p>
                   )}
                 </div>
                 <div className="space-y-1.5">
@@ -143,13 +152,21 @@ export default function LoginPage() {
                     id="password"
                     type="password"
                     autoComplete="current-password"
+                    aria-invalid={!!errors.password}
+                    aria-describedby={errors.password ? "password-error" : undefined}
                     {...register("password")}
                   />
                   {errors.password && (
-                    <p className="text-sm text-destructive">{errors.password.message}</p>
+                    <p id="password-error" role="alert" className="text-sm text-destructive">
+                      {errors.password.message}
+                    </p>
                   )}
                 </div>
-                {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+                {serverError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {serverError}
+                  </p>
+                )}
                 <Button type="submit" className="w-full" disabled={isSubmitting}>
                   {isSubmitting ? "Signing in…" : "Sign in"}
                 </Button>

@@ -7,8 +7,28 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Animal, Farm, HealthEvent, HealthEventType, VaccineTemplate
+from ..models import (
+    Animal,
+    Farm,
+    HealthEvent,
+    HealthEventType,
+    Transaction,
+    TransactionCategory,
+    TransactionType,
+    VaccineTemplate,
+)
 from ..utils import add_months, today
+
+# HealthEvent.type → TransactionCategory: what P&L bucket the spend belongs in.
+# TREATMENT/FOOTBATH/VITAMIN → VET (vet consultation, hoof care, tonics).
+# VACCINE/DEWORMING → MEDICINE (the actual drug/vaccine spend).
+_HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
+    HealthEventType.VACCINE.value: TransactionCategory.MEDICINE.value,
+    HealthEventType.DEWORMING.value: TransactionCategory.MEDICINE.value,
+    HealthEventType.TREATMENT.value: TransactionCategory.VET.value,
+    HealthEventType.FOOTBATH.value: TransactionCategory.VET.value,
+    HealthEventType.VITAMIN.value: TransactionCategory.MEDICINE.value,
+}
 
 
 async def record_health_event(
@@ -58,8 +78,39 @@ async def record_health_event(
         )
         db.add(event)
         events.append(event)
+    # Book the health-event spend in the ledger (audit 2026-08-08 N1). Without
+    # this, monthly P&L reports ₹0 medicine/vet spend even when HealthEvent
+    # rows carry a cost — a farmer's monthly loss would be understated for
+    # every vaccination round. One aggregated Transaction per record_health_event
+    # call (matches how the user entered it in the UI: one form, one total).
+    if total_cost is not None and animals:
+        db.add(
+            Transaction(
+                farm_id=farm.id,
+                date=event_date,
+                type=TransactionType.EXPENSE.value,
+                category=_HEALTH_TYPE_TO_TX_CATEGORY.get(
+                    event_type, TransactionCategory.MEDICINE.value
+                ),
+                amount=total_cost,
+                related_animal_id=animals[0].id if len(animals) == 1 else None,
+                notes=_health_transaction_note(
+                    event_type, product_name, disease_target, len(animals)
+                ),
+                created_by_id=created_by_id,
+            )
+        )
     await db.flush()
     return events
+
+
+def _health_transaction_note(
+    event_type: str, product_name: str, disease_target: str, animal_count: int
+) -> str:
+    """Human-readable ledger note for a health-event Transaction."""
+    label = (product_name or disease_target or event_type).strip() or event_type
+    head = f"for {animal_count} animal" + ("" if animal_count == 1 else "s")
+    return f"{label} {head}"
 
 
 # Common trade names / aliases for the seeded vaccine templates (AUDIT 3-1):

@@ -28,7 +28,11 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: "../backend/.venv/bin/uvicorn app.main:app --port 8000",
+      // In CI the backend is pip-installed at the system level (no .venv);
+      // locally `.venv/bin/uvicorn` is the convention. `E2E_UVICORN` overrides both.
+      command:
+        process.env.E2E_UVICORN
+        ?? (process.env.CI ? "uvicorn app.main:app --port 8000" : "../backend/.venv/bin/uvicorn app.main:app --port 8000"),
       cwd: "../backend",
       url: "http://localhost:8000/openapi.json",
       reuseExistingServer: true,

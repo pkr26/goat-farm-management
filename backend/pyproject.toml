@@ -61,3 +61,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
+# --strict-markers: an undeclared @pytest.mark.<x> becomes an error, not a
+# silent no-op. --strict-config: any misspelled config key fails the run.
+addopts = ["--strict-markers", "--strict-config"]

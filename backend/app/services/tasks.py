@@ -19,7 +19,7 @@ from ..models import (
     TaskStatus,
     User,
 )
-from ..utils import utcnow
+from ..utils import today, utcnow
 from .animals import move_animal
 
 
@@ -107,7 +107,10 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
     parallel series stay independent."""
     if not task.recur_days or task.recur_days > MAX_RECUR_DAYS:
         return task  # absurd recurrence (legacy data): don't explode date math
-    due = task.due_date + timedelta(days=task.recur_days)
+    # Anchor the next occurrence on max(due, today): otherwise a worker who
+    # catches up 10 daily-cleaning tasks after leave spawns 10 already-overdue
+    # rows in a cascade, one per completion (audit 2026-08-08, MED).
+    due = max(task.due_date, today()) + timedelta(days=task.recur_days)
     result = await db.execute(
         select(Task).where(
             Task.farm_id == task.farm_id,

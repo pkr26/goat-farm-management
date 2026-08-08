@@ -122,7 +122,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   if (loading || !user || !farmId) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p className="text-muted-foreground">Loading…</p>
+        <p role="status" aria-live="polite" className="text-muted-foreground">
+          Loading…
+        </p>
       </main>
     );
   }
@@ -196,9 +198,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <div className="flex-1 bg-muted/40">
-          <div className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+          <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
             {children}
-          </div>
+          </main>
         </div>
       </SidebarInset>
     </SidebarProvider>

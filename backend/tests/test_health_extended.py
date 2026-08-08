@@ -1926,3 +1926,73 @@ async def test_two_batches_have_independent_counts(client: httpx.AsyncClient) ->
     assert batches[detail_a["batch"]["id"]]["animals_created"] == 2
     assert batches[batch_b["id"]]["open_tasks"] == 8  # untouched by A's completion
     assert batches[batch_b["id"]]["animals_created"] == 5
+
+
+# ---------------------------------------------------------------------------
+# AUDIT-2026-08-08 N1: health event costs must land in the ledger.
+# ---------------------------------------------------------------------------
+async def test_health_event_with_cost_creates_expense_transaction(
+    client: httpx.AsyncClient,
+) -> None:
+    """Recording a health event with cost must book a matching EXPENSE
+    Transaction — otherwise monthly P&L reads ₹0 medicine/vet spend even
+    when HealthEvent.cost is set (audit 2026-08-08 N1)."""
+    headers = await owner_with_farm(client)
+    # Two animals in the same bucket → scope=bucket exercises the
+    # multi-animal cost-split branch.
+    await make_animal(client, headers, tag="HE-A1", bucket="RESTING")
+    await make_animal(client, headers, tag="HE-A2", bucket="RESTING")
+    await record_event(
+        client,
+        headers,
+        scope="bucket",
+        bucket="RESTING",
+        type="VACCINE",
+        product_name="PPR",
+        cost=500.0,
+    )
+    fin = (await client.get("/api/finance", headers=headers)).json()
+    med_txns = [
+        t for t in fin["transactions"] if t["category"] == "MEDICINE" and t["type"] == "EXPENSE"
+    ]
+    assert len(med_txns) == 1
+    assert med_txns[0]["amount"] == 500.0
+    # Multi-animal round: cost is not attributable to one animal.
+    assert med_txns[0]["related_animal_id"] is None
+    assert fin["total_expense"] >= 500.0
+
+    solo = await make_animal(client, headers, tag="HE-A3")
+    await record_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=solo["id"],
+        type="TREATMENT",
+        product_name="Meloxicam",
+        cost=150.0,
+    )
+    fin = (await client.get("/api/finance", headers=headers)).json()
+    vet_txns = [t for t in fin["transactions"] if t["category"] == "VET" and t["amount"] == 150.0]
+    assert len(vet_txns) == 1
+    # Single-animal record: transaction is attributed to that animal.
+    assert vet_txns[0]["related_animal_id"] == solo["id"]
+
+
+async def test_health_event_without_cost_creates_no_transaction(
+    client: httpx.AsyncClient,
+) -> None:
+    """Skipping the cost input (owner just wants an event log entry) must
+    NOT create a phantom ₹0 transaction."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="HE-B1")
+    await record_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD",
+        # cost omitted
+    )
+    fin = (await client.get("/api/finance", headers=headers)).json()
+    assert not any(t["category"] in {"MEDICINE", "VET"} for t in fin["transactions"])

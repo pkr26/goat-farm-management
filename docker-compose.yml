@@ -1,32 +1,38 @@
 # Optional local/self-hosted stack: Postgres + backend (builds ./Dockerfile).
-# Single backend replica on purpose — the auth rate limiter is in-memory.
+# Single backend replica on purpose — the auth rate limiter is in-memory and
+# the container CMD hard-codes --workers 1.
 # The frontend is served separately (Next.js), see frontend/README or `pnpm dev`.
+#
+# Credentials come from .env (copy .env.example to .env for defaults).
 services:
   db:
     image: postgres:16
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: goatfarm
-      POSTGRES_USER: goatfarm
-      POSTGRES_PASSWORD: goatfarm
+      POSTGRES_DB: ${POSTGRES_DB:-goatfarm}
+      POSTGRES_USER: ${POSTGRES_USER:-goatfarm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-goatfarm}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U goatfarm -d goatfarm"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-goatfarm} -d ${POSTGRES_DB:-goatfarm}"]
       interval: 5s
       timeout: 3s
       retries: 20
 
   backend:
     build: .
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
-      GOATFARM_DATABASE_URL: postgresql+asyncpg://goatfarm:goatfarm@db:5432/goatfarm
+      GOATFARM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-goatfarm}:${POSTGRES_PASSWORD:-goatfarm}@db:5432/${POSTGRES_DB:-goatfarm}
       # Local stack on plain HTTP: stays "development". A real deployment sets
       # GOATFARM_ENVIRONMENT=production + GOATFARM_COOKIE_SECURE=true +
-      # non-localhost GOATFARM_CORS_ORIGINS (validated fail-closed at boot).
-      GOATFARM_ENVIRONMENT: development
+      # non-localhost GOATFARM_CORS_ORIGINS + GOATFARM_DB_SSLMODE=require
+      # (validated fail-closed at boot).
+      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
     ports:
       - "8000:8000"
 

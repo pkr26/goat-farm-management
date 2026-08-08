@@ -41,6 +41,7 @@ from ..security import (
     issue_access_token,
     issue_refresh_token,
     password_policy_error,
+    prime_dummy_password_hash,
     verify_password,
 )
 from ..seed import seed_new_farm
@@ -62,6 +63,9 @@ EMAIL_LIMIT_MULTIPLIER = 3
 IP_LIMIT_MULTIPLIER = 10
 
 # Lazily built (Argon2 needs the settings and costs real CPU at first use).
+# create_app() calls prime_dummy_password_hash() at startup so the first
+# unknown-email login is not measurably slower than any subsequent one
+# (audit 2026-08-08 LOW).
 _DUMMY_PASSWORD_HASH: str | None = None
 
 
@@ -71,7 +75,7 @@ def _dummy_password_hash() -> str:
     time can't reveal whether the email exists (user-enumeration oracle)."""
     global _DUMMY_PASSWORD_HASH
     if _DUMMY_PASSWORD_HASH is None:
-        _DUMMY_PASSWORD_HASH = hash_password("dummy-password-for-timing-equalization")
+        _DUMMY_PASSWORD_HASH = prime_dummy_password_hash()
     return _DUMMY_PASSWORD_HASH
 
 

@@ -13,6 +13,7 @@ from ..models import (
     AnimalStatus,
     BreedingOutcome,
     BreedingRecord,
+    Bucket,
     BucketMove,
     HealthEvent,
     Transaction,
@@ -366,9 +367,12 @@ async def change_status(
         for br in open_result.scalars():
             await mark_aborted(db, br)
             if br.outcome == BreedingOutcome.ABORTED.value:
-                # Move-history note: the auto-resolution is visible on the
-                # animal's profile trail (from == to: no bucket change — the
-                # doe stays put, only the pregnancy ends).
+                # mark_aborted calls move_animal → RESTING, but move_animal
+                # short-circuits on non-ACTIVE animals (she's already
+                # SOLD/DEAD/CULLED at this point). Without an explicit
+                # BucketMove the auto-abort would leave no marker on the
+                # animal's profile trail. from == to reflects that the
+                # doe's bucket did not change — only the pregnancy ended.
                 db.add(
                     BucketMove(
                         animal_id=animal.id,
@@ -378,6 +382,25 @@ async def change_status(
                         created_by_id=user.id,
                     )
                 )
+
+        # Move any of this doe's kids still in RECOVERY (i.e. still on her
+        # lactating recipe) into their weaning bucket — otherwise they linger
+        # in RECOVERY forever, keep drawing the lactating ration and never
+        # get a fresh WEANING task since hers was just skipped
+        # (audit 2026-08-08 N2). Move-by-sex mirrors the natural weaning
+        # transition in complete_task (WEANING).
+        orphans_result = await db.execute(
+            select(Animal).where(
+                Animal.farm_id == farm.id,
+                Animal.dam_id == animal.id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+                Animal.current_bucket == Bucket.RECOVERY.value,
+            )
+        )
+        orphan_reason = f"Dam marked {payload.new_status.lower()} — early wean"
+        for kid in orphans_result.scalars():
+            target = Bucket.MALE_KIDS.value if kid.sex == "M" else Bucket.FEMALE_KIDS.value
+            move_animal(db, kid, target, orphan_reason, created_by_id=user.id)
 
     await skip_pending_tasks_for_animal(db, farm.id, animal.id)
 

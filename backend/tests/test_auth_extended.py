@@ -1462,7 +1462,10 @@ def test_decode_token_rejects_wrong_kind() -> None:
 
 
 def test_decode_token_rejects_expired() -> None:
-    token = issue_token(1, "access", ttl_seconds=-30)
+    # jwt.decode is called with leeway=60 s (audit 2026-08-08 LOW: absorbs
+    # reasonable clock skew between the API server and any LB/companion),
+    # so a token more than 60 s past exp is needed to hit the reject path.
+    token = issue_token(1, "access", ttl_seconds=-120)
     assert decode_token(token, "access") is None
 
 

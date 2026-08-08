@@ -38,6 +38,7 @@ import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatDate, utcToday } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
+import { safeAppPath } from "@/lib/utils";
 
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalOut): string {
@@ -61,9 +62,10 @@ function TaskLink({
   fallbackHref: string;
   label?: string;
 }) {
-  if (task.action_url) {
+  const safeAction = safeAppPath(task.action_url);
+  if (safeAction) {
     return (
-      <Link href={task.action_url} className={buttonVariants({ variant: "outline", size: "sm" })}>
+      <Link href={safeAction} className={buttonVariants({ variant: "outline", size: "sm" })}>
         {label}
       </Link>
     );

@@ -151,11 +151,25 @@ async def _run_offloaded(
 # One in-flight run per farm (keyed by farm id). A worst-case run holds a CPU
 # core for ~12 s; without this a worker holding only simulation.view could
 # keep every threadpool worker busy by firing max-size runs repeatedly.
+# Locks are dropped when no one holds them (audit 2026-08-08 LOW-4): a bare
+# dict grew one lock per farm ever seen; sweeping unheld locks caps memory
+# while keeping the "one run per farm" guarantee for concurrent requests.
 _farm_run_locks: dict[int, asyncio.Lock] = {}
 
 
 def _farm_run_lock(farm_id: int) -> asyncio.Lock:
-    return _farm_run_locks.setdefault(farm_id, asyncio.Lock())
+    lock = _farm_run_locks.get(farm_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _farm_run_locks[farm_id] = lock
+    return lock
+
+
+def _release_farm_run_lock(farm_id: int) -> None:
+    """Drop the lock if no one else holds it (memory hygiene)."""
+    lock = _farm_run_locks.get(farm_id)
+    if lock is not None and not lock.locked():
+        _farm_run_locks.pop(farm_id, None)
 
 
 async def _run_for_farm(
@@ -168,8 +182,11 @@ async def _run_for_farm(
             status_code=429,
             detail="A simulation run is already in progress for this farm; wait for it to finish.",
         )
-    async with lock:
-        return await _run_offloaded(assumptions, monte_carlo, sensitivity)
+    try:
+        async with lock:
+            return await _run_offloaded(assumptions, monte_carlo, sensitivity)
+    finally:
+        _release_farm_run_lock(farm_id)
 
 
 @router.get("/defaults/breeds")

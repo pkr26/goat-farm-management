@@ -162,12 +162,19 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
         (
             "kid_pre_weaning_mortality",
             lambda v: setattr(v.mortality, "kid_pre_weaning", v.mortality.kid_pre_weaning * 0.8),
-            lambda v: setattr(v.mortality, "kid_pre_weaning", v.mortality.kid_pre_weaning * 1.2),
+            # Clamp at 0.9 (schema ceiling): a base > 0.833 × 1.2 overshoots 1.0
+            # and monthly_mortality_rate(1 - >1) → math.pow(negative, 1/12) 500s.
+            lambda v: setattr(
+                v.mortality, "kid_pre_weaning", min(0.9, v.mortality.kid_pre_weaning * 1.2)
+            ),
         ),
         (
             "litter_size",
             lambda v: setattr(v.reproduction, "litter_size", v.reproduction.litter_size * 0.8),
-            lambda v: setattr(v.reproduction, "litter_size", v.reproduction.litter_size * 1.2),
+            # Clamp at 4.0 (schema ceiling); mirrors _apply_draws' Monte Carlo clamp.
+            lambda v: setattr(
+                v.reproduction, "litter_size", min(4.0, v.reproduction.litter_size * 1.2)
+            ),
         ),
         (
             "conception_rate",

@@ -86,8 +86,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _production_safety(self) -> Settings:
         """Fail-closed: refuse to boot a production deployment that is
-        trivially insecure — an HTTP refresh-cookie or localhost CORS origins
-        are always operator mistakes, never valid production config."""
+        trivially insecure — an HTTP refresh-cookie, localhost CORS origins,
+        or a plaintext database connection are always operator mistakes,
+        never valid production config."""
         if self.environment != "production":
             return self
         problems: list[str] = []
@@ -102,6 +103,16 @@ class Settings(BaseSettings):
         if localhost:
             problems.append(
                 f"GOATFARM_CORS_ORIGINS must not include dev origins in production: {localhost}"
+            )
+        if not self.cors_origins:
+            problems.append(
+                "GOATFARM_CORS_ORIGINS must not be empty in production "
+                "(the credentialed SPA needs at least one HTTPS origin)"
+            )
+        if self.db_sslmode in {"disable", "allow", "prefer"}:
+            problems.append(
+                f"GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe in production — "
+                "use 'require', 'verify-ca', or 'verify-full'"
             )
         if problems:
             raise ValueError("Refusing to boot: " + "; ".join(problems))

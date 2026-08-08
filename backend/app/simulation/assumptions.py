@@ -385,3 +385,25 @@ class SimulationAssumptions(_Group):
                 "reproduction.age_at_first_breeding_months must be <= culling.max_doe_age_months"
             )
         return self
+
+    @model_validator(mode="after")
+    def _adult_weight_above_yearling_curve(self) -> "SimulationAssumptions":
+        # weight_at_age linearly interpolates from weight_by_age_months[12]
+        # toward the adult weight over ages 13-23; an adult weight BELOW the
+        # yearling weight yields a monotonically DECREASING curve past age 12
+        # (a 26.5 kg yearling shrinks to a 1 kg adult) — no crash, but every
+        # feed/sale/insurance figure for that class becomes nonsensical.
+        table = self.growth.weight_by_age_months
+        if len(table) > 12:
+            yearling = max(table[:13])
+            if self.growth.adult_weight_doe_kg < yearling:
+                raise ValueError(
+                    f"growth.adult_weight_doe_kg ({self.growth.adult_weight_doe_kg}) "
+                    f"must be >= the max weight in weight_by_age_months[0..12] ({yearling})"
+                )
+            if self.growth.adult_weight_buck_kg < yearling:
+                raise ValueError(
+                    f"growth.adult_weight_buck_kg ({self.growth.adult_weight_buck_kg}) "
+                    f"must be >= the max weight in weight_by_age_months[0..12] ({yearling})"
+                )
+        return self

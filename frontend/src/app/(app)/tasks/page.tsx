@@ -58,7 +58,7 @@ import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatDate, utcToday } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
-import { cn } from "@/lib/utils";
+import { cn, safeAppPath } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TaskCreateInCategory);
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
@@ -122,8 +122,8 @@ function RowActions({
     const lockedFutureAuto = task.auto_generated && task.due_date > today;
     return (
       <div className="flex flex-wrap items-center gap-2">
-        {task.action_url ? (
-          <Link href={task.action_url} className={buttonVariants({ size: "sm" })}>
+        {safeAppPath(task.action_url) ? (
+          <Link href={safeAppPath(task.action_url)!} className={buttonVariants({ size: "sm" })}>
             Open form
           </Link>
         ) : (

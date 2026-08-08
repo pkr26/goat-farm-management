@@ -67,6 +67,13 @@ def hash_password(password: str) -> str:
     return _password_hasher().hash(password)
 
 
+def prime_dummy_password_hash() -> str:
+    """Compute the throwaway Argon2 hash the login path uses to equalize
+    unknown-email timing. Called from create_app() at boot so the first
+    unknown-email login pays no cold-start cost (audit 2026-08-08 LOW)."""
+    return hash_password("dummy-password-for-timing-equalization")
+
+
 def _verify_legacy_pbkdf2(password: str, stored: str) -> bool:
     """v1 hashes: 'pbkdf2_sha256$iterations$salt_hex$digest_hex'."""
     try:
@@ -198,8 +205,11 @@ class RefreshClaims(NamedTuple):
 def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
     s = get_settings()
     try:
+        # leeway=60s: absorb reasonable clock skew between the API server and
+        # any load balancer / auth companion — a token issued microseconds ago
+        # must not 401 because our clock ticked backwards by 200 ms.
         payload: dict[str, Any] = jwt.decode(
-            token, _read(s.jwt_public_key_path), algorithms=[s.jwt_algorithm]
+            token, _read(s.jwt_public_key_path), algorithms=[s.jwt_algorithm], leeway=60
         )
     except jwt.PyJWTError:
         return None

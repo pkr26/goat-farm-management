@@ -561,3 +561,54 @@ async def test_stale_scenario_row_never_500s(client: httpx.AsyncClient) -> None:
     assert patched.status_code == 200, patched.text
     deleted = await client.delete(f"/api/simulation/scenarios/{stale['id']}", headers=headers)
     assert deleted.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# AUDIT-2026-08-08 N6: sensitivity mutator must not crash on schema-valid inputs.
+# ---------------------------------------------------------------------------
+async def test_sensitivity_clamps_kid_pre_weaning_at_ceiling(client: httpx.AsyncClient) -> None:
+    """Base kid_pre_weaning=0.9 (schema max). Sensitivity used to multiply by
+    1.2 → 1.08 → monthly_mortality_rate(-0.08) → math.pow(negative, 1/12) →
+    ValueError → 500. Clamped at 0.9 in the mutator; run must return 200."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["mortality"]["kid_pre_weaning"] = 0.9
+    assumptions["meta"]["horizon_months"] = 12
+    resp = await client.post(
+        "/api/simulation/run",
+        json={"assumptions": assumptions, "sensitivity": True},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    # Sensitivity output must still contain the kid_pre_weaning entry
+    # (clamped, not skipped).
+    assert any(
+        item["parameter"] == "kid_pre_weaning_mortality" for item in resp.json()["sensitivity"]
+    )
+
+
+async def test_sensitivity_clamps_litter_size_at_ceiling(client: httpx.AsyncClient) -> None:
+    """Base litter_size=4.0 (schema max). Sensitivity used to multiply by
+    1.2 → 4.8 (exceeded the biological ceiling). Clamped at 4.0."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["reproduction"]["litter_size"] = 4.0
+    assumptions["meta"]["horizon_months"] = 12
+    resp = await client.post(
+        "/api/simulation/run",
+        json={"assumptions": assumptions, "sensitivity": True},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_adult_weight_below_yearling_curve_is_422(client: httpx.AsyncClient) -> None:
+    """adult_weight_doe_kg < max(weight_by_age_months[:13]) would yield a
+    monotonically DECREASING weight curve past age 12 — audit 2026-08-08 MED."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["growth"]["adult_weight_doe_kg"] = 1.0  # far below the yearling weight
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 422, resp.text

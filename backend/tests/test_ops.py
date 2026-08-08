@@ -67,6 +67,7 @@ def test_production_refuses_insecure_cookie() -> None:
             environment="production",
             cookie_secure=False,
             cors_origins=["https://app.example.com"],
+            db_sslmode="require",
         )
 
 
@@ -76,6 +77,27 @@ def test_production_refuses_localhost_cors() -> None:
             environment="production",
             cookie_secure=True,
             cors_origins=["http://localhost:3000"],
+            db_sslmode="require",
+        )
+
+
+def test_production_refuses_empty_cors() -> None:
+    with pytest.raises(ValidationError, match="must not be empty"):
+        Settings(
+            environment="production",
+            cookie_secure=True,
+            cors_origins=[],
+            db_sslmode="require",
+        )
+
+
+def test_production_refuses_plaintext_db_sslmode() -> None:
+    with pytest.raises(ValidationError, match="GOATFARM_DB_SSLMODE"):
+        Settings(
+            environment="production",
+            cookie_secure=True,
+            cors_origins=["https://app.example.com"],
+            db_sslmode="disable",
         )
 
 
@@ -84,6 +106,7 @@ def test_production_accepts_valid_config() -> None:
         environment="production",
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
+        db_sslmode="require",
     )
     assert settings.environment == "production"
 
@@ -92,6 +115,7 @@ def test_docs_gated_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_ENVIRONMENT", "production")
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
+    monkeypatch.setenv("GOATFARM_DB_SSLMODE", "require")
     get_settings.cache_clear()
     try:
         app = create_app()

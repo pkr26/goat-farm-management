@@ -62,8 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const selectFarm = useCallback(
     (id: number) => {
-      // Drop every cached query first: cache keys are URL-only (no farm id),
-      // so stale entries would render the previous farm's data (and perms).
+      // Cancel in-flight queries BEFORE clearing: cache keys are URL-only
+      // (no farm id), so any request that was already on the wire with the
+      // OLD X-Farm-Id header would otherwise resolve into the fresh cache
+      // and briefly render previous-farm data (audit 2026-08-08, frontend MED).
+      queryClient.cancelQueries();
       queryClient.clear();
       setFarmIdState(id);
       setCurrentFarmId(String(id));

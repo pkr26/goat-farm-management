@@ -36,6 +36,8 @@ from .api import (
 )
 from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
+from .deps import purge_expired_refresh_sessions
+from .security import prime_dummy_password_hash
 from .seed import seed_startup
 
 logger = logging.getLogger("goatfarm")
@@ -73,9 +75,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Schema is owned by Alembic (alembic upgrade head); startup seeds are
     # idempotent reference data, role presets and task backfills.
     logger.info("startup (environment=%s)", get_settings().environment)
+    # Warm the timing-equalization dummy hash so the first unknown-email
+    # login pays no cold-start cost (audit 2026-08-08 LOW).
+    prime_dummy_password_hash()
     try:
         async with get_sessionmaker()() as db:
             await seed_startup(db)
+            # Sweep expired refresh sessions on boot so the table doesn't
+            # accumulate 14-day-old rows forever (audit 2026-08-08 MED).
+            # Restarts happen regularly enough that on-boot is sufficient
+            # until a proper scheduler is introduced.
+            removed = await purge_expired_refresh_sessions(db)
+            if removed:
+                logger.info("purged %d expired refresh_sessions rows", removed)
+            await db.commit()
     except Exception:
         logger.critical("startup seeding failed; refusing to serve", exc_info=True)
         raise

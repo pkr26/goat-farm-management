@@ -2016,3 +2016,135 @@ async def test_cleaner_forbidden_on_all_animal_endpoints(client: httpx.AsyncClie
         f"/api/animals/{animal['id']}/move", json={"to_bucket": "BREEDING"}, headers=cleaner
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# AUDIT-2026-08-08 N2: selling/killing a lactating doe must not orphan kids
+# in RECOVERY (they'd stay on the lactating recipe forever with no new
+# WEANING task since hers gets skipped).
+# ---------------------------------------------------------------------------
+async def _make_kid(
+    client: httpx.AsyncClient, headers: dict, tag: str, dam_id: int, sex: str
+) -> dict:
+    """Directly create an ACTIVE kid in RECOVERY with dam_id set — simulates
+    the state after a kidding was recorded."""
+    resp = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": tag,
+            "sex": sex,
+            "source": "BORN",
+            "current_bucket": "RECOVERY",
+            "date_of_birth": iso(today() - timedelta(days=15)),
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    kid = resp.json()
+    # dam_id is set by the kidding flow, not by create; patch it on the model
+    # directly via a SQLAlchemy update using an internal test helper.
+    from sqlalchemy import update as sa_update
+
+    from app.db import get_sessionmaker
+    from app.models import Animal
+
+    async with get_sessionmaker()() as db:
+        await db.execute(sa_update(Animal).where(Animal.id == kid["id"]).values(dam_id=dam_id))
+        await db.commit()
+    return kid
+
+
+async def test_selling_lactating_doe_moves_recovery_kids_out(client: httpx.AsyncClient) -> None:
+    """Doe SOLD while she has ACTIVE kids in RECOVERY → each kid moves to
+    MALE_KIDS/FEMALE_KIDS by sex (audit 2026-08-08 N2)."""
+    headers = await owner_with_farm(client)
+    doe_resp = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "DAM-1",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "RECOVERY",
+        },
+        headers=headers,
+    )
+    doe = doe_resp.json()
+    kid_f = await _make_kid(client, headers, "K-F", doe["id"], "F")
+    kid_m = await _make_kid(client, headers, "K-M", doe["id"], "M")
+
+    resp = await client.post(
+        f"/api/animals/{doe['id']}/status",
+        json={"new_status": "SOLD", "sale_price": 3000},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    kid_f_after = (await client.get(f"/api/animals/{kid_f['id']}", headers=headers)).json()
+    kid_m_after = (await client.get(f"/api/animals/{kid_m['id']}", headers=headers)).json()
+    assert kid_f_after["animal"]["current_bucket"] == "FEMALE_KIDS"
+    assert kid_m_after["animal"]["current_bucket"] == "MALE_KIDS"
+
+
+async def test_dead_doe_moves_recovery_kids_out(client: httpx.AsyncClient) -> None:
+    """Same behavior for the DEAD status transition — mother lost, kids get
+    an early wean rather than lingering in RECOVERY."""
+    headers = await owner_with_farm(client)
+    doe = (
+        await client.post(
+            "/api/animals",
+            json={
+                "tag_number": "DAM-2",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": "RECOVERY",
+            },
+            headers=headers,
+        )
+    ).json()
+    kid = await _make_kid(client, headers, "K-D", doe["id"], "F")
+
+    resp = await client.post(
+        f"/api/animals/{doe['id']}/status", json={"new_status": "DEAD"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    after = (await client.get(f"/api/animals/{kid['id']}", headers=headers)).json()
+    assert after["animal"]["current_bucket"] == "FEMALE_KIDS"
+
+
+async def test_kids_not_in_recovery_are_untouched_when_dam_sold(client: httpx.AsyncClient) -> None:
+    """A kid that already left RECOVERY (weaned earlier) stays where it is —
+    the orphan sweep is narrowly scoped to the RECOVERY bucket."""
+    headers = await owner_with_farm(client)
+    doe = (
+        await client.post(
+            "/api/animals",
+            json={
+                "tag_number": "DAM-3",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": "RECOVERY",
+            },
+            headers=headers,
+        )
+    ).json()
+    kid = await _make_kid(client, headers, "K-W", doe["id"], "F")
+    # Move the kid out of RECOVERY (as complete_task WEANING would).
+    move = await client.post(
+        f"/api/animals/{kid['id']}/move",
+        json={"to_bucket": "FEMALE_KIDS", "reason": "Weaned"},
+        headers=headers,
+    )
+    assert move.status_code == 200, move.text
+
+    resp = await client.post(
+        f"/api/animals/{doe['id']}/status",
+        json={"new_status": "SOLD", "sale_price": 3000},
+        headers=headers,
+    )
+    assert resp.status_code == 200
+    after = (await client.get(f"/api/animals/{kid['id']}", headers=headers)).json()
+    # Still in FEMALE_KIDS; the orphan sweep didn't move her again.
+    assert after["animal"]["current_bucket"] == "FEMALE_KIDS"
+    # And no phantom "Dam marked sold — early wean" BucketMove landed on her.
+    reasons = [m["reason"] for m in after["moves"]]
+    assert "Dam marked sold — early wean" not in reasons

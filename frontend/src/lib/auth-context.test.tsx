@@ -96,6 +96,25 @@ describe("AuthProvider bootstrap — valid session", () => {
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBe("1");
   });
 
+  it("never puts the access token in localStorage or sessionStorage (audit 2026-08-08)", async () => {
+    // The api-client's core XSS mitigation: the access token lives in memory
+    // only. A future refactor that starts persisting it silently regresses
+    // that invariant — this test locks it in.
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+
+    const tokenNeedles = [TEST_ACCESS_TOKEN, "Bearer", "access_token"];
+    const allValues = [
+      ...Object.keys(localStorage).flatMap((k) => [k, localStorage.getItem(k) ?? ""]),
+      ...Object.keys(sessionStorage).flatMap((k) => [k, sessionStorage.getItem(k) ?? ""]),
+    ];
+    for (const v of allValues) {
+      for (const needle of tokenNeedles) {
+        expect(v).not.toContain(needle);
+      }
+    }
+  });
+
   it("sends the selected farm as X-Farm-Id on subsequent API calls", async () => {
     let farmHeader: string | null = null;
     server.use(

@@ -66,6 +66,22 @@ async def revoke_session_family(db: AsyncSession, family_id: str) -> None:
     )
 
 
+async def purge_expired_refresh_sessions(db: AsyncSession, older_than_days: int = 30) -> int:
+    """Delete refresh_sessions rows whose expiry is more than N days in the
+    past (audit 2026-08-08 MED). The jti is useless without the signing
+    key, so long-expired rows are pure table bloat. Returns rowcount. The
+    caller commits."""
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    cutoff = utcnow() - timedelta(days=older_than_days)
+    result = await db.execute(delete(RefreshSession).where(RefreshSession.expires_at < cutoff))
+    # `rowcount` is populated on DELETE/UPDATE cursors but the union type
+    # `Result[Any]` doesn't advertise it; `getattr` keeps mypy strict happy.
+    return int(getattr(result, "rowcount", 0) or 0)
+
+
 async def active_membership(db: AsyncSession, user_id: int, farm_id: int) -> FarmMembership | None:
     result = await db.execute(
         select(FarmMembership)
