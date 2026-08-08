@@ -12,6 +12,9 @@ generation writes temp files and os.replaces them into place so concurrent
 readers never see a half-written key, and holds an flock on a sibling lock
 file so two first-booting PROCESSES can't interleave writes into a
 mismatched keypair (which would 401 every token).
+
+Platform note: flock makes this module Unix-only (Linux/macOS); Windows
+contributors would need an msvcrt fallback — not needed for deployment.
 """
 
 import fcntl
@@ -22,6 +25,7 @@ import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import jwt
 from argon2 import PasswordHasher
@@ -161,13 +165,13 @@ def _read(path: Path) -> str:
         return _key_cache[path]
 
 
-def issue_token(subject: int, kind: str, ttl_seconds: int) -> str:
+def issue_token(subject: int, kind: str, ttl_seconds: int, jti: str | None = None) -> str:
     s = get_settings()
     now = datetime.now(UTC)
     payload = {
         "sub": str(subject),
         "kind": kind,
-        "jti": uuid.uuid4().hex,
+        "jti": jti or uuid.uuid4().hex,
         "iat": now,
         "exp": now + timedelta(seconds=ttl_seconds),
     }
@@ -178,20 +182,56 @@ def issue_access_token(user_id: int) -> str:
     return issue_token(user_id, "access", get_settings().access_token_ttl_seconds)
 
 
-def issue_refresh_token(user_id: int) -> str:
-    return issue_token(user_id, "refresh", get_settings().refresh_token_ttl_seconds)
+def issue_refresh_token(user_id: int, jti: str | None = None) -> str:
+    # The caller picks the jti when it must persist it (refresh_sessions row).
+    return issue_token(user_id, "refresh", get_settings().refresh_token_ttl_seconds, jti=jti)
+
+
+class RefreshClaims(NamedTuple):
+    """Decoded, verified refresh-token claims needed for session tracking."""
+
+    user_id: int
+    jti: str
+    expires_at: datetime  # naive UTC, like every stored datetime
+
+
+def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
+    s = get_settings()
+    try:
+        payload: dict[str, Any] = jwt.decode(
+            token, _read(s.jwt_public_key_path), algorithms=[s.jwt_algorithm]
+        )
+    except jwt.PyJWTError:
+        return None
+    if payload.get("kind") != expected_kind:
+        return None
+    return payload
 
 
 def decode_token(token: str, expected_kind: str) -> int | None:
     """Return the user id, or None when invalid/expired/wrong kind."""
-    s = get_settings()
-    try:
-        payload = jwt.decode(token, _read(s.jwt_public_key_path), algorithms=[s.jwt_algorithm])
-    except jwt.PyJWTError:
-        return None
-    if payload.get("kind") != expected_kind:
+    payload = _decode_payload(token, expected_kind)
+    if payload is None:
         return None
     try:
         return int(payload["sub"])
     except (KeyError, TypeError, ValueError):
         return None
+
+
+def decode_refresh_claims(token: str) -> RefreshClaims | None:
+    """Refresh-token user id + jti + expiry, or None when invalid/expired.
+
+    jwt.decode already rejects expired tokens; expires_at comes back for the
+    session row's expiry cross-check.
+    """
+    payload = _decode_payload(token, "refresh")
+    if payload is None:
+        return None
+    try:
+        user_id = int(payload["sub"])
+        jti = str(payload["jti"])
+        expires_at = datetime.fromtimestamp(float(payload["exp"]), UTC).replace(tzinfo=None)
+    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+        return None
+    return RefreshClaims(user_id=user_id, jti=jti, expires_at=expires_at)

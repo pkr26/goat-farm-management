@@ -15,10 +15,13 @@ import { renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
 
-const { navState } = vi.hoisted(() => ({ navState: { search: "" } }));
+const { navState, replaceMock } = vi.hoisted(() => ({
+  navState: { search: "" },
+  replaceMock: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => "/animals",
   useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
@@ -152,5 +155,25 @@ describe("AnimalsPage", () => {
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Add animal")).toBeInTheDocument();
+  });
+
+  it("strips ?new=1 after opening the dialog so a reload doesn't reopen it (audit 7-8)", async () => {
+    replaceMock.mockClear();
+    navState.search = "new=1";
+    await renderAndWaitForList();
+
+    await screen.findByRole("dialog");
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/animals"));
+  });
+
+  it("keeps other params when stripping ?new=1", async () => {
+    replaceMock.mockClear();
+    navState.search = "bucket=QUARANTINE&new=1";
+    await renderAndWaitForList();
+
+    await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(replaceMock).toHaveBeenCalledWith("/animals?bucket=QUARANTINE"),
+    );
   });
 });

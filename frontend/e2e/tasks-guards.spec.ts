@@ -73,11 +73,11 @@ test.describe("tasks guards", () => {
     await expect(awaitingRow).toBeVisible({ timeout: 15_000 });
 
     // Two-person rule: the completer cannot verify their own work — but the
-    // backend exempts the farm owner (backend/app/api/tasks.py:261), and
-    // demo@goatfarm.in owns Demo Osmanabadi Farm. So the UI keeps the Verify button visible
-    // and the self-verify succeeds. The 409 path ("Someone else must verify
-    // this duty") only applies to non-owner members, which the seeded dev DB
-    // does not have.
+    // backend exempts the farm owner (backend/app/api/tasks.py:261), and the
+    // e2e user provisioned by globalSetup owns this farm. So the UI keeps the
+    // Verify button visible and the self-verify succeeds. The 409 path
+    // ("Someone else must verify this duty") only applies to non-owner
+    // members, which this fresh farm does not have.
     await awaitingRow.getByRole("button", { name: "Verify" }).click();
     await expect(page.getByText("Task verified.")).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(dutyTitle) })).toHaveCount(0);

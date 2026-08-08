@@ -9,9 +9,8 @@ DB-length limits; lengths the schema admits beyond those limits live in
 tests/test_unit_bugs.py).
 
 Covered:
-- app/utils.py: parse_date/parse_float/parse_int/finite, add_months (leap
-  years, month-end clamping, out-of-range), format_date, Indian digit
-  grouping, format_money precision/sign/non-finite.
+- app/utils.py: add_months (leap years, month-end clamping, out-of-range),
+  today/utcnow naivety.
 - app/permissions.py: catalog/group/preset/role-map internal consistency.
 - app/models.py: enum exhaustiveness, breed constants, computed properties
   (age_months day-boundary, latest_weight tie-breaks, days_in_current_bucket
@@ -79,11 +78,9 @@ from app.permissions import (
     PERMISSIONS,
     ROLE_PRESETS,
     TASK_CATEGORY_ROLE_MAP,
-    permission_label,
 )
 from app.schemas.animals import (
     AnimalCreateIn,
-    AnimalIdsIn,
     MoveIn,
     StatusChangeIn,
     WeightIn,
@@ -99,18 +96,7 @@ from app.schemas.purchases import PurchaseBatchIn
 from app.schemas.tasks import TaskCreateIn, TaskRejectIn
 from app.schemas.team import PasswordResetIn, RoleIn, WorkerCreateIn
 from app.services import move_animal, recipe_for_animal
-from app.utils import (
-    _indian_grouping,
-    add_months,
-    finite,
-    format_date,
-    format_money,
-    parse_date,
-    parse_float,
-    parse_int,
-    today,
-    utcnow,
-)
+from app.utils import add_months, today, utcnow
 
 from .conftest import owner_with_farm, register
 
@@ -121,97 +107,6 @@ TOMORROW = (TODAY + timedelta(days=1)).isoformat()
 DAY_AFTER_TOMORROW = (TODAY + timedelta(days=2)).isoformat()
 NAN = float("nan")
 INF = float("inf")
-
-
-# ---------------------------------------------------------------------------
-# app.utils — defensive parsers
-# ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("2026-01-15", date(2026, 1, 15)),
-        ("  2026-01-15  ", date(2026, 1, 15)),  # surrounding whitespace tolerated
-        ("2026-1-5", date(2026, 1, 5)),  # strptime accepts unpadded fields
-        ("2024-02-29", date(2024, 2, 29)),  # leap day
-        (None, None),
-        ("", None),
-        ("   ", None),
-        ("15-01-2026", None),  # DD-MM-YYYY is display-only, not parsed
-        ("2026/01/15", None),
-        ("2026-13-01", None),
-        ("2026-02-30", None),
-        ("2023-02-29", None),  # not a leap year
-        ("not-a-date", None),
-    ],
-)
-def test_parse_date(raw: str | None, expected: date | None) -> None:
-    assert parse_date(raw) == expected
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("1.5", 1.5),
-        ("0", 0.0),
-        ("-3.25", -3.25),
-        ("  2.5 ", 2.5),
-        ("1e3", 1000.0),
-        ("1_000", 1000.0),  # Python numeric literal underscores parse
-        ("+2", 2.0),
-        (".5", 0.5),
-        (None, None),
-        ("", None),
-        ("   ", None),
-        ("abc", None),
-        ("1,000", None),  # grouped input is not a float
-        ("nan", None),
-        ("NaN", None),
-        ("inf", None),
-        ("-inf", None),
-        ("Infinity", None),
-        ("1e999", None),  # overflows to inf → treated as malformed
-    ],
-)
-def test_parse_float(raw: str | None, expected: float | None) -> None:
-    assert parse_float(raw) == expected
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("42", 42),
-        ("-7", -7),
-        ("0", 0),
-        (" 10 ", 10),
-        ("+5", 5),
-        ("007", 7),
-        (None, None),
-        ("", None),
-        ("   ", None),
-        ("1.5", None),
-        ("abc", None),
-        ("1e3", None),
-    ],
-)
-def test_parse_int(raw: str | None, expected: int | None) -> None:
-    assert parse_int(raw) == expected
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        (1.5, 1.5),
-        (0.0, 0.0),
-        (-2.5, -2.5),
-        (1e308, 1e308),
-        (None, None),
-        (NAN, None),
-        (INF, None),
-        (-INF, None),
-    ],
-)
-def test_finite_guard(value: float | None, expected: float | None) -> None:
-    assert finite(value) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -253,68 +148,6 @@ def test_add_months_out_of_range_raises(start: date, months: float) -> None:
         add_months(start, months)
 
 
-# ---------------------------------------------------------------------------
-# app.utils — formatting (dates DD-MM-YYYY, money with Indian grouping)
-# ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        (None, "—"),
-        (date(2026, 3, 5), "05-03-2026"),
-        (datetime(2026, 3, 5, 14, 30), "05-03-2026"),  # datetimes show the date part
-        (date(2024, 2, 29), "29-02-2024"),
-        ("already-a-string", "already-a-string"),  # non-dates pass through str()
-    ],
-)
-def test_format_date(value: object, expected: str) -> None:
-    assert format_date(value) == expected
-
-
-@pytest.mark.parametrize(
-    ("digits", "expected"),
-    [
-        ("0", "0"),
-        ("5", "5"),
-        ("99", "99"),
-        ("999", "999"),
-        ("1000", "1,000"),
-        ("12345", "12,345"),
-        ("123456", "1,23,456"),
-        ("1234567", "12,34,567"),
-        ("12345678", "1,23,45,678"),
-        ("123456789", "12,34,56,789"),
-        ("1234567890", "1,23,45,67,890"),
-    ],
-)
-def test_indian_grouping(digits: str, expected: str) -> None:
-    assert _indian_grouping(digits) == expected
-
-
-@pytest.mark.parametrize(
-    ("amount", "expected"),
-    [
-        (None, "—"),
-        (0, "₹0"),
-        (500, "₹500"),
-        (1000, "₹1,000"),
-        (100000, "₹1,00,000"),  # lakh boundary: Indian, not Western, grouping
-        (1234567, "₹12,34,567"),
-        (1234.5, "₹1,234.50"),
-        (0.5, "₹0.50"),
-        (999.99, "₹999.99"),
-        (0.001, "₹0.00"),  # sub-paisa rounds to zero paise
-        (-1000, "-₹1,000"),
-        (-0.5, "-₹0.50"),
-        (-0.0, "₹0"),  # negative zero is not negative
-        (NAN, "—"),  # corrupt stored data must not crash a page
-        (INF, "—"),
-        (-INF, "—"),
-    ],
-)
-def test_format_money(amount: float | None, expected: str) -> None:
-    assert format_money(amount) == expected
-
-
 def test_today_returns_plain_date() -> None:
     assert type(today()) is date
 
@@ -344,14 +177,10 @@ def test_permission_groups_cover_catalog_exactly() -> None:
     assert len(grouped) == len(set(grouped))  # no code listed in two groups
 
 
-@pytest.mark.parametrize(("code", "_label"), PERMISSIONS)
-def test_every_permission_has_distinct_label(code: str, _label: str) -> None:
-    assert permission_label(code) == _label
-    assert _label.strip() != ""
-
-
-def test_permission_label_falls_back_to_code() -> None:
-    assert permission_label("nonexistent.perm") == "nonexistent.perm"
+def test_every_permission_has_distinct_nonempty_label() -> None:
+    labels = [_label for _, _label in PERMISSIONS]
+    assert all(label.strip() for label in labels)
+    assert len(set(labels)) == len(labels)
 
 
 def test_role_preset_codes_unique() -> None:
@@ -1393,17 +1222,6 @@ def test_status_change_invalid(field: str, value: object) -> None:
         StatusChangeIn(**({"new_status": "SOLD"} | {field: value}))
 
 
-@pytest.mark.parametrize("ids", [[1], [], [1, 2, 3], [MAX_ID]])
-def test_animal_ids_valid(ids: list[int]) -> None:
-    assert AnimalIdsIn(ids=ids).ids == ids
-
-
-@pytest.mark.parametrize("ids", [[0], [-1], [MAX_ID + 1], ["abc"], [None]])
-def test_animal_ids_invalid(ids: list) -> None:
-    with pytest.raises(ValidationError):
-        AnimalIdsIn(ids=ids)
-
-
 # ---------------------------------------------------------------------------
 # app.schemas — breeding
 # ---------------------------------------------------------------------------
@@ -1719,6 +1537,7 @@ def test_mix_invalid(field: str, value: object) -> None:
         ("qty_kg", 0.001),
         ("price_per_kg", None),
         ("price_per_kg", 0.001),
+        ("price_per_kg", 0.0),  # AUDIT 3-6: an explicit ₹0 restock is accepted
     ],
 )
 def test_stock_add_valid(field: str, value: object) -> None:
@@ -1731,7 +1550,6 @@ def test_stock_add_valid(field: str, value: object) -> None:
         ("qty_kg", 0.0),
         ("qty_kg", -1.0),
         ("qty_kg", NAN),
-        ("price_per_kg", 0.0),
         ("price_per_kg", -1.0),
         ("price_per_kg", NAN),
     ],

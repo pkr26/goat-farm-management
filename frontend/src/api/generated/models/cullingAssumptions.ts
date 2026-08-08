@@ -15,7 +15,7 @@ export interface CullingAssumptions {
      */
   doe_cull_rate_annual?: number;
   /**
-     * @minimum 24
+     * @minimum 36
      * @maximum 180
      */
   max_doe_age_months?: number;

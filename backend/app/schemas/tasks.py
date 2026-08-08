@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..models import MAX_RECUR_DAYS  # single source of truth (AUDIT 4-M4)
 from .common import BoundedId
 
 TaskCategoryStr = Literal[
@@ -19,7 +20,6 @@ TaskCategoryStr = Literal[
     "CLEANING",
     "OTHER",
 ]
-MAX_RECUR_DAYS = 3650  # mirrors services.MAX_RECUR_DAYS
 
 
 class TaskCreateIn(BaseModel):

@@ -2,11 +2,6 @@ import { expect, test } from "@playwright/test";
 
 import { pickSelectOption, signIn, uniqueTag } from "./helpers";
 
-/** Parse the app's Indian-grouped money format ("₹1,23,456.78") to a number. */
-function parseMoney(text: string | null): number {
-  return Number((text ?? "").replace(/[^0-9.-]/g, ""));
-}
-
 test.describe("feeding and finance", () => {
   test("feeding plan shows the 40/20/40 shift split and records a dispense", async ({
     page,
@@ -24,11 +19,8 @@ test.describe("feeding and finance", () => {
     await expect(page.getByRole("columnheader", { name: "Night 40%" })).toBeVisible();
 
     // Record a morning dispense; pick the bucket explicitly so the log row is
-    // identifiable. Leftover dispenses from earlier runs mean we assert the
-    // row count growing by one rather than a unique row.
-    const logRows = page.getByRole("row", { name: /MORNING QUARANTINE/ });
-    const logCountBefore = await logRows.count();
-
+    // identifiable. globalSetup gives every run a fresh farm, so the log is
+    // empty beforehand and the new row is identifiable by its contents.
     await page.getByRole("button", { name: "Record dispensing" }).click();
     const dialog = page.getByRole("dialog", { name: "Record dispensing" });
     await expect(dialog).toBeVisible();
@@ -39,12 +31,14 @@ test.describe("feeding and finance", () => {
     await expect(page.getByText("Dispensing recorded.")).toBeVisible();
     await expect(dialog).toBeHidden();
 
-    // Today's dispensing log lists the new record.
-    await expect(logRows).toHaveCount(logCountBefore + 1, { timeout: 15_000 });
-    await expect(logRows.last().getByRole("cell", { name: "3.7", exact: true })).toBeVisible();
+    // Today's dispensing log lists exactly this record (row identity, not a
+    // count delta — audit 10-H1).
+    const logRow = page.getByRole("row", { name: /MORNING QUARANTINE/ });
+    await expect(logRow).toHaveCount(1, { timeout: 15_000 });
+    await expect(logRow.getByRole("cell", { name: "3.7", exact: true })).toBeVisible();
   });
 
-  test("adding an expense transaction updates the totals and the ledger", async ({
+  test("adding an expense transaction lists it in the ledger", async ({
     page,
   }) => {
     test.setTimeout(90_000);
@@ -57,7 +51,6 @@ test.describe("feeding and finance", () => {
       .getByText("Total expense", { exact: true })
       .locator("xpath=preceding-sibling::div[1]");
     await expect(expenseValue).toBeVisible();
-    const before = parseMoney(await expenseValue.textContent());
 
     await page.getByRole("button", { name: "New transaction" }).click();
     const dialog = page.getByRole("dialog", { name: "New transaction" });
@@ -70,14 +63,10 @@ test.describe("feeding and finance", () => {
     await expect(page.getByText("Transaction saved.")).toBeVisible();
     await expect(dialog).toBeHidden();
 
-    // The all-time expense total grows by exactly the new amount.
-    await expect
-      .poll(async () => parseMoney(await expenseValue.textContent()), { timeout: 15_000 })
-      .toBeCloseTo(before + 321.5, 2);
-
-    // The ledger row shows the transaction.
+    // Row identity, not a total delta (audit 10-H1): the ledger row carrying
+    // this run's unique note shows the exact amount.
     const row = page.getByRole("row", { name: new RegExp(note) });
-    await expect(row).toBeVisible();
+    await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row.getByText("EXPENSE")).toBeVisible();
     await expect(row.getByText("FEED")).toBeVisible();
     await expect(row.getByText("₹321.50")).toBeVisible();

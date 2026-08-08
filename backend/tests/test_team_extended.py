@@ -15,11 +15,13 @@ Expected preset bundles below are HARDCODED (not imported from
 import httpx
 import pytest
 
+from app.core.config import get_settings
 from app.utils import today
 
 from .conftest import owner_with_farm, register
 
 WORKER_PW = "workerpass123"
+COOKIE = get_settings().refresh_cookie_name
 
 # Exact permission bundles per preset role (mirror of ROLE_PRESETS in
 # app/permissions.py, frozen here as the contract under test).
@@ -638,8 +640,9 @@ async def test_permissions_requires_auth_and_farm(client: httpx.AsyncClient) -> 
     assert (await client.get("/api/auth/permissions")).status_code == 401
     auth_only = {k: v for k, v in owner.items() if k == "Authorization"}
     resp = await client.get("/api/auth/permissions", headers=auth_only)
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "X-Farm-Id header is required"
+    # LOW 8-4: the header is required by the contract (422, not 400).
+    assert resp.status_code == 422
+    assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
 
 # ---------------------------------------------------------------------------
@@ -788,9 +791,9 @@ async def test_create_worker_invalid_email_rejected(client: httpx.AsyncClient, e
     owner = await owner_with_farm(client)
     rid = await role_id(client, owner, "CLEANER")
     resp = await add_worker(client, owner, rid, email)
-    # blank/whitespace → 400; other malformed-but-@-less → 400 as well
-    assert resp.status_code == 400, resp.text
-    assert resp.json()["detail"] == "Enter a valid email address."
+    # EmailMixin schema validation (AUDIT 4-L6): malformed emails 422 before
+    # the router runs.
+    assert resp.status_code == 422, resp.text
 
 
 @pytest.mark.parametrize(
@@ -861,7 +864,7 @@ async def test_create_worker_cannot_absorb_other_farms_owner(client: httpx.Async
     rid = await role_id(client, owner_a, "CLEANER")
     resp = await add_worker(client, owner_a, rid, "b@farm.in")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "That account owns a farm — owners can't be added as workers."
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
 
 async def test_create_worker_cannot_add_worker_who_later_owned_a_farm(
@@ -881,7 +884,7 @@ async def test_create_worker_cannot_add_worker_who_later_owned_a_farm(
     rid_c = await role_id(client, owner_c, "CLEANER")
     resp = await add_worker(client, owner_c, rid_c, "w@farm.in")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "That account owns a farm — owners can't be added as workers."
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
 
 async def test_create_worker_role_must_exist_on_this_farm(client: httpx.AsyncClient) -> None:
@@ -1081,11 +1084,12 @@ async def test_deactivation_revokes_all_access(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
-    # every perm he had is gone: farm itself is now inaccessible
+    # every perm he had is gone: farm itself is now inaccessible (LOW 0-7:
+    # a deactivated member's farm answers 404 like an unknown farm)
     for url in ["/api/tasks", "/api/animals", "/api/dashboard", "/api/auth/permissions"]:
         resp = await client.get(url, headers=mover)
-        assert resp.status_code == 403, url
-        assert resp.json()["detail"] == "No access to this farm"
+        assert resp.status_code == 404, url
+        assert resp.json()["detail"] == "Farm not found"
     # farm picker is empty
     resp = await client.get("/api/auth/farms", headers=mover)
     assert resp.json() == []
@@ -1242,6 +1246,56 @@ async def test_reset_password_membership_not_found(client: httpx.AsyncClient) ->
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Membership not found"
+
+
+async def test_reset_password_revokes_worker_sessions(client: httpx.AsyncClient) -> None:
+    """HIGH 0-1 / 1-1: the owner's reset is the incident-response tool for a
+    compromised worker account — it must kill the worker's live refresh
+    sessions, not just rewrite the hash."""
+    owner = await owner_with_farm(client)
+    await worker_headers(client, owner, "CLEANER", "w@farm.in")  # jar: worker cookie
+    mid = await membership_id(client, owner, "w@farm.in")
+    worker_cookie = client.cookies.get(COOKIE)
+    assert worker_cookie
+
+    resp = await client.post(
+        f"/api/team/workers/{mid}/reset-password",
+        json={"password": "brandnewpass1"},
+        headers=owner,
+    )
+    assert resp.status_code == 200, resp.text
+
+    client.cookies.clear()
+    client.cookies.set(COOKIE, worker_cookie)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+    # the worker signs in with the new password and gets a working session
+    client.cookies.clear()
+    await login_user(client, "w@farm.in", "brandnewpass1")
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+
+
+async def test_toggle_deactivation_revokes_worker_sessions(client: httpx.AsyncClient) -> None:
+    """HIGH 0-1: deactivating a membership ends the worker's sessions too;
+    reactivation lets him sign in fresh."""
+    owner = await owner_with_farm(client)
+    await worker_headers(client, owner, "CLEANER", "w@farm.in")
+    mid = await membership_id(client, owner, "w@farm.in")
+    worker_cookie = client.cookies.get(COOKIE)
+    assert worker_cookie
+
+    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_active"] is False
+
+    client.cookies.clear()
+    client.cookies.set(COOKIE, worker_cookie)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+
+    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)  # reactivate
+    assert resp.status_code == 200, resp.text
+    client.cookies.clear()
+    await login_user(client, "w@farm.in", WORKER_PW)
+    assert (await client.post("/api/auth/refresh")).status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -1624,6 +1678,64 @@ async def test_team_manager_can_manage_team_endpoints(client: httpx.AsyncClient)
     assert (await client.get("/api/animals", headers=tm)).status_code == 403
 
 
+async def _second_team_manager(client: httpx.AsyncClient, owner: dict) -> tuple[dict, int]:
+    """A second team.manage holder (distinct role name — they are unique per farm)."""
+    role = await create_custom_role(client, owner, "Team Clerk 2", ["team.manage"])
+    resp = await add_worker(client, owner, role["id"], "tm2@farm.in")
+    assert resp.status_code == 201, resp.text
+    mid = resp.json()["id"]
+    headers = await login_user(client, "tm2@farm.in", WORKER_PW)
+    return headers | {"X-Farm-Id": owner["X-Farm-Id"]}, mid
+
+
+async def test_team_manager_cannot_act_on_peer_manager(client: httpx.AsyncClient) -> None:
+    """LOW 1-3: horizontal control among team.manage holders is owner-only —
+    a manager may not demote, deactivate, or password-reset a peer manager
+    (insider lockout/hijack only the owner could undo)."""
+    owner = await owner_with_farm(client)
+    tm1, _ = await team_manager_headers(client, owner)
+    _, mid2 = await _second_team_manager(client, owner)
+    rid = await role_id(client, owner, "CLEANER")
+
+    resp = await client.post(f"/api/team/workers/{mid2}/toggle", headers=tm1)
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Only the farm owner can manage other team managers."
+    resp = await client.post(f"/api/team/workers/{mid2}/role", json={"role_id": rid}, headers=tm1)
+    assert resp.status_code == 403
+    resp = await client.post(
+        f"/api/team/workers/{mid2}/reset-password",
+        json={"password": "hijacked123"},
+        headers=tm1,
+    )
+    assert resp.status_code == 403
+
+    # the peer is untouched: still active, still a manager, password intact
+    team = await team_page(client, owner)
+    peer = next(m for m in team["memberships"] if m["id"] == mid2)
+    assert peer["is_active"] is True
+    assert peer["role_name"] == "Team Clerk 2"
+    await login_user(client, "tm2@farm.in", WORKER_PW)
+
+
+async def test_owner_can_still_act_on_team_managers(client: httpx.AsyncClient) -> None:
+    """The peer guard exempts the owner: he manages managers as before."""
+    owner = await owner_with_farm(client)
+    _, mid2 = await _second_team_manager(client, owner)
+    rid = await role_id(client, owner, "CLEANER")
+    resp = await client.post(f"/api/team/workers/{mid2}/role", json={"role_id": rid}, headers=owner)
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(
+        f"/api/team/workers/{mid2}/reset-password",
+        json={"password": "ownerreset123"},
+        headers=owner,
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(f"/api/team/workers/{mid2}/toggle", headers=owner)
+    assert resp.status_code == 200, resp.text
+    # and a manager acting on a NON-manager worker stays delegable (covered
+    # by test_team_manager_can_toggle_other_workers)
+
+
 # ---------------------------------------------------------------------------
 # Auth & tenancy sweeps across every team endpoint
 # ---------------------------------------------------------------------------
@@ -1643,8 +1755,9 @@ async def test_team_endpoints_require_farm_header(
     owner = await owner_with_farm(client)
     auth_only = {"Authorization": owner["Authorization"]}
     resp = await client.request(method, url, json={}, headers=auth_only)
-    assert resp.status_code == 400, f"{method} {url} → {resp.status_code}"
-    assert resp.json()["detail"] == "X-Farm-Id header is required"
+    # LOW 8-4: the header is required by the contract (422, not 400).
+    assert resp.status_code == 422, f"{method} {url} → {resp.status_code}"
+    assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
 
 @pytest.mark.parametrize(
@@ -1673,13 +1786,13 @@ async def test_farm_header_values(
 async def test_team_endpoints_reject_non_member(
     client: httpx.AsyncClient, method: str, url: str
 ) -> None:
-    """A valid user with no membership on the farm gets 403 everywhere."""
+    """A valid user with no membership on the farm gets 404 everywhere (LOW 0-7)."""
     owner = await owner_with_farm(client)
     stranger = await register(client, email="stranger@farm.in", password="strangerpass1")
     headers = stranger | {"X-Farm-Id": owner["X-Farm-Id"]}
     resp = await client.request(method, url, json={}, headers=headers)
-    assert resp.status_code == 403, f"{method} {url} → {resp.status_code}"
-    assert resp.json()["detail"] == "No access to this farm"
+    assert resp.status_code == 404, f"{method} {url} → {resp.status_code}"
+    assert resp.json()["detail"] == "Farm not found"
 
 
 @pytest.mark.parametrize(("method", "url"), TEAM_ENDPOINTS)
@@ -1703,10 +1816,11 @@ async def test_invalid_bearer_token_rejected(client: httpx.AsyncClient) -> None:
 
 
 async def test_cross_farm_worker_cannot_peek_team(client: httpx.AsyncClient) -> None:
-    """Farm B's worker aiming his token at farm A is a non-member there → 403."""
+    """Farm B's worker aiming his token at farm A is a non-member there → 404."""
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     worker_b = await worker_headers(client, owner_b, "MOVER", "w@farm.in")
     resp = await client.get("/api/team", headers=worker_b | {"X-Farm-Id": owner_a["X-Farm-Id"]})
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "No access to this farm"
+    # LOW 0-7: forbidden farms answer exactly like unknown ones.
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Farm not found"

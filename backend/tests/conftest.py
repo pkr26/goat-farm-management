@@ -16,6 +16,14 @@ from sqlalchemy import text
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 TEST_DB = os.environ.get("GOATFARM_TEST_DB", "goatfarm_test")
+if not (TEST_DB.endswith("_test") or "_test_" in TEST_DB):
+    # The suite drops the database and truncates every table per test —
+    # an unchecked GOATFARM_TEST_DB=goatfarm would wipe the dev/prod data.
+    # Parallel test runs use suffixed throwaway DBs (goatfarm_test_ops, …).
+    raise RuntimeError(
+        f"Refusing to run the test suite against database {TEST_DB!r}: "
+        "GOATFARM_TEST_DB must name a throwaway database ending in '_test'."
+    )
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 TEST_URL = f"postgresql+asyncpg://localhost:5432/{TEST_DB}"
 

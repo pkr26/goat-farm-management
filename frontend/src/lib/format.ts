@@ -11,6 +11,20 @@ export function formatMoney(value: number | null | undefined): string {
   return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
 }
 
+/** YYYY-MM-DD of today in UTC — the backend's "today" everywhere. Use this
+ *  for overdue/due-soon/late-by comparisons; browser-local today disagrees
+ *  with the server during the IST 00:00–05:30 window (audit 7-5). Date-only
+ *  *writes* keep the local date — the backend accepts one day of headroom. */
+export function utcToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** YYYY-MM-DD `days` after `iso` (both YYYY-MM-DD), timezone-safe. */
+export function addDays(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",

@@ -93,7 +93,7 @@ const txnSchema = z.object({
     "OTHER",
   ]),
   amount: z.coerce.number().positive("Amount must be greater than 0"),
-  notes: z.string().max(500).optional(),
+  notes: z.string().max(255).optional(),
   related_animal_id: z.string().optional(),
 });
 type TxnInput = z.input<typeof txnSchema>;
@@ -110,7 +110,7 @@ const AMOUNT_TINTS: Record<string, string> = {
 };
 
 export default function FinancePage() {
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
   const queryClient = useQueryClient();
@@ -198,6 +198,13 @@ export default function FinancePage() {
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
@@ -504,7 +511,7 @@ export default function FinancePage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="notes">Notes</Label>
-                <Input id="notes" maxLength={500} placeholder="description" {...register("notes")} />
+                <Input id="notes" maxLength={255} placeholder="description" {...register("notes")} />
                 {errors.notes && (
                   <p className="text-sm text-destructive">{errors.notes.message}</p>
                 )}

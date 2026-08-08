@@ -127,7 +127,10 @@ class CullingAssumptions(_Group):
     # Annual fraction of breeding does culled; applied from simulation month 13
     # (the foundation stock gets one full year grace), NABARD/TNAU convention.
     doe_cull_rate_annual: FiniteFloat = Field(default=0.20, ge=0.0, le=1.0)
-    max_doe_age_months: int = Field(default=72, ge=24, le=180)
+    # Floor 36, not 24: the engine spreads foundation does over ages
+    # 24..min(60, max_doe_age - 12), which is an empty range below 36
+    # (ZeroDivisionError mid-run). 36 keeps every schema-valid run alive.
+    max_doe_age_months: int = Field(default=72, ge=36, le=180)
     buck_rotation_years: int = Field(default=3, ge=1, le=10)  # avoid inbreeding
     buck_doe_ratio: int = Field(default=25, ge=1, le=100)  # 1 buck per 25 does
 
@@ -366,4 +369,19 @@ class SimulationAssumptions(_Group):
                     f"event month {event.month} exceeds the simulation horizon "
                     f"({self.meta.horizon_months} months)"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _breeding_age_within_doe_lifespan(self) -> "SimulationAssumptions":
+        # The engine tracks doe ages in an array of max_doe_age_months + 1
+        # slots and writes every doe entering the pool at index
+        # age_at_first_breeding_months — afb beyond the max age indexes out of
+        # range mid-run (and a doe culled before she can first breed is a
+        # broken model anyway). The per-field floors already imply this
+        # (afb <= 30 < 36 <= max_doe_age); the validator pins the invariant
+        # against future bound changes.
+        if self.reproduction.age_at_first_breeding_months > self.culling.max_doe_age_months:
+            raise ValueError(
+                "reproduction.age_at_first_breeding_months must be <= culling.max_doe_age_months"
+            )
         return self

@@ -2,10 +2,11 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .auth import EmailMixin
 from .common import BoundedId
 
 
-class WorkerCreateIn(BaseModel):
+class WorkerCreateIn(EmailMixin):
     email: str
     password: str | None = Field(default=None, max_length=128)  # required for a new account
     name: str | None = Field(default=None, max_length=120)

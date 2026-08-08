@@ -23,6 +23,16 @@ Documented v1 approximations:
   cost in that month (they never join the project cost); adult event sales are
   booked at cull value, young-stock sales at live-weight meat value, unless an
   explicit ``price_per_head`` is given.
+- Conception requires at least one buck: with ``bucks == 0`` (a zero-buck
+  starting herd without ``auto_purchase_bucks``, or after the whole battery is
+  sold/culled) no doe conceives until a buck is present. Any positive buck
+  count serves the whole herd at the full conception rate — there is no
+  buck:doe ratio scaling of fertility in v1 (the ratio drives only the
+  auto-purchase headcount).
+- Weaning is modelled at month 3 (the kid class spans ages 0-2) versus the
+  operational system's day 60, and the default meat sale age is 12 months
+  versus the farm's 8-9 month marketing — the projection weans and sells
+  systematically later than live records enforce.
 - Shed/equipment capacity is based on the *initial* adult + grower count, not
   the projected peak herd.
 - Cull removals (rate-based and max-age) are taken proportionally from all doe
@@ -32,8 +42,10 @@ Documented v1 approximations:
   simulation year 1 (excluding scheduled event purchases).
 - No depreciation and no terminal/herd-salvage value in v1. Symmetrically,
   when the loan term outlives the horizon, the balance still owed at the end
-  is charged against the final month's cash flow (terminal debt without a
-  terminal asset would overstate every return metric).
+  is charged in the final month as extra principal — it is part of that
+  month's ``debt_service`` (terminal debt without a terminal asset would
+  overstate every return metric), so the annual P&L debt-service columns and
+  DSCR reflect the balloon.
 """
 
 import math
@@ -243,7 +255,9 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
     doe_ages = [0.0] * (cull.max_doe_age_months + 1)
     if a.herd.does > 0:
         span_lo, span_hi = 24, min(60, cull.max_doe_age_months - 12)
-        slots = list(range(span_lo, span_hi + 1))
+        # Defense past the schema floor (ge=36 guarantees span_hi >= span_lo):
+        # never spread over an empty range (ZeroDivisionError).
+        slots = list(range(span_lo, span_hi + 1)) or [span_lo]
         per_slot = float(a.herd.does) / len(slots)
         for age in slots:
             doe_ages[age] = per_slot
@@ -435,7 +449,10 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
             lact[0] += kidding_does
 
         # --- 4. breeding of ready open does ---------------------------------
-        conceived = open_ready * r.conception_rate
+        # No buck, no conception: a herd without a sire cannot breed. Bucks
+        # are otherwise only a cost/rotation line (step 6); see the module
+        # docstring's approximation list.
+        conceived = open_ready * r.conception_rate if bucks > 0.0 else 0.0
         preg[0] += conceived
         open_ready -= conceived
 
@@ -684,13 +701,14 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
     cumulative = -equity
     # If the loan outlives the horizon, the balance still owed at the end is a
     # real claim on the promoter; with no terminal asset value (v1), it is
-    # charged against the final month's cash flow.
+    # repaid in the final month as extra principal — part of that month's debt
+    # service, so the annual P&L and DSCR see the balloon.
     terminal_balance = schedule[horizon - 1].closing_balance if horizon < len(schedule) else 0.0
     for rec in records:
         debt_service = schedule[rec.month - 1].payment if rec.month <= len(schedule) else 0.0
-        net_cash = rec.revenue - rec.opex - debt_service
         if rec.month == horizon:
-            net_cash -= terminal_balance
+            debt_service += terminal_balance
+        net_cash = rec.revenue - rec.opex - debt_service
         cumulative += net_cash
         months.append(
             MonthlyRow(
@@ -742,6 +760,10 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         year = start // 12 + 1
         interest = sum(schedule[m.month - 1].interest for m in block if m.month <= len(schedule))
         principal = sum(schedule[m.month - 1].principal for m in block if m.month <= len(schedule))
+        if terminal_balance > 0.0 and block[-1].month == horizon:
+            # The terminal balloon is principal repaid in the final month; the
+            # block's debt_service (= sum of monthly rows) already carries it.
+            principal += terminal_balance
         meat = sum(m.sales_revenue for m in block)
         cull_rev = sum(m.cull_revenue for m in block)
         milk = sum(m.milk_revenue for m in block)

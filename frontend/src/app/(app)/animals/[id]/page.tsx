@@ -73,6 +73,13 @@ const optNum = (schema: z.ZodNumber) =>
   );
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
+function localToday(): string {
+  const now = new Date();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${m}-${d}`;
+}
+
 function Detail({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
@@ -93,10 +100,13 @@ function useProfileRefresh(animalId: number) {
 }
 
 const weightSchema = z.object({
-  date: z.string().optional(),
+  date: z
+    .string()
+    .optional()
+    .refine((s) => !s || s <= localToday(), "Date can't be in the future"),
   weight_kg: z.coerce.number().positive("Weight must be greater than 0"),
   bcs: optNum(z.number().int().min(1).max(5)),
-  notes: z.string().optional(),
+  notes: z.string().max(255).optional(),
 });
 type WeightInput = z.input<typeof weightSchema>;
 type WeightValues = z.output<typeof weightSchema>;
@@ -143,7 +153,8 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <div className="space-y-1.5">
             <Label htmlFor="w_date">Date (defaults to today)</Label>
-            <Input id="w_date" type="date" {...register("date")} />
+            <Input id="w_date" type="date" max={localToday()} {...register("date")} />
+            {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="w_kg">Weight (kg) *</Label>
@@ -174,7 +185,7 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
 
 const moveSchema = z.object({
   to_bucket: z.enum(BUCKETS as [string, ...string[]]),
-  reason: z.string().optional(),
+  reason: z.string().max(255).optional(),
 });
 type MoveValues = z.infer<typeof moveSchema>;
 
@@ -270,7 +281,7 @@ const statusSchema = z.object({
   date: z.string().optional(),
   sale_price: optNum(z.number().nonnegative()),
   buyer_name: z.string().max(120).optional(),
-  notes: z.string().optional(),
+  notes: z.string().max(255).optional(),
 });
 type StatusInput = z.input<typeof statusSchema>;
 type StatusValues = z.output<typeof statusSchema>;
@@ -629,7 +640,7 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
 export default function AnimalProfilePage() {
   const params = useParams<{ id: string }>();
   const animalId = Number(params.id);
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("animals.view");
   const query = useAnimalProfileApiAnimalsAnimalIdGet(animalId, {
     query: { enabled: allowed && Number.isFinite(animalId) },
@@ -639,6 +650,13 @@ export default function AnimalProfilePage() {
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;

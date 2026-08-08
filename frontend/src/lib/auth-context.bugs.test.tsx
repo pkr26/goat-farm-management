@@ -49,7 +49,7 @@ function Probe() {
   );
 }
 
-describe("AuthProvider bootstrap — refresh throws (suspected unhandled rejection bug)", () => {
+describe("AuthProvider bootstrap — refresh failure handling", () => {
   beforeEach(() => {
     pushMock.mockClear();
     setAccessToken(null);
@@ -65,9 +65,9 @@ describe("AuthProvider bootstrap — refresh throws (suspected unhandled rejecti
       expect(screen.getByTestId("loading")).toHaveTextContent("false"),
     );
     expect(screen.getByTestId("user")).toHaveTextContent("none");
-    expect(pushMock).toHaveBeenCalledWith("/login");
-    // BUG: the assertions above pass, but the bootstrap promise rejected
-    // without a catch — see this run's unhandled-rejection report.
+    // The redirect is a separate effect that fires the render AFTER loading
+    // flips — an immediate assertion races it (flaky).
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
 
   it("non-JSON 200 body during silent refresh still settles loading and redirects", async () => {
@@ -88,8 +88,7 @@ describe("AuthProvider bootstrap — refresh throws (suspected unhandled rejecti
       expect(screen.getByTestId("loading")).toHaveTextContent("false"),
     );
     expect(screen.getByTestId("user")).toHaveTextContent("none");
-    expect(pushMock).toHaveBeenCalledWith("/login");
-    // BUG: same root cause — resp.json() throws inside the try with no catch.
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
 });
 

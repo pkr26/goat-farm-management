@@ -341,6 +341,50 @@ describe("AuthProvider actions", () => {
     );
     expect(pushMock).toHaveBeenCalledWith("/login");
   });
+
+  it("forced logout runs the same cleanup as signOut, once per transition (audit 6-3)", async () => {
+    server.use(
+      http.get("/api/animals", () =>
+        HttpResponse.json({ detail: "Expired" }, { status: 401 }),
+      ),
+    );
+
+    // On a public path the no-user redirect effect stays out of the way, so
+    // every /login push below comes from the auth-failure handler itself.
+    const previousPath = navState.pathname;
+    navState.pathname = "/login";
+    try {
+      const { queryClient } = renderWithProviders(<Probe />);
+      await expectLoaded();
+      expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+      queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+
+      // The refresh cookie is rejected (expired/revoked/reused token); two
+      // concurrent 401s must share ONE forced logout, not two (audit 6-1/6-3).
+      rejectRefresh();
+      pushMock.mockClear();
+      await act(async () => {
+        await Promise.all([
+          apiFetch("/api/animals").catch(() => undefined),
+          apiFetch("/api/animals").catch(() => undefined),
+        ]);
+      });
+
+      // Same cleanup as signOut: user, farms, farm id, localStorage key and
+      // the TanStack cache are all gone.
+      await waitFor(() =>
+        expect(screen.getByTestId("user")).toHaveTextContent("none"),
+      );
+      expect(screen.getByTestId("farms")).toHaveTextContent("");
+      expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+      expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+      expect(pushMock).toHaveBeenCalledTimes(1);
+      expect(pushMock).toHaveBeenCalledWith("/login");
+    } finally {
+      navState.pathname = previousPath;
+    }
+  });
 });
 
 describe("useAuth", () => {

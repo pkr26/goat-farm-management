@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatDate } from "@/lib/format";
+import { formatDate, utcToday } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** v1's Animal.display_name: tag plus optional name. */
@@ -49,13 +49,6 @@ function daysBetween(from: string, to: string): number {
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-}
-
-function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
 }
 
 /** "Open" to the task's linked form, else a plain "View" link to the tasks tab. */
@@ -84,13 +77,20 @@ function TaskLink({
 
 export default function DashboardPage() {
   const { farms, farmId } = useAuth();
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("dashboard.view");
   const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
@@ -107,7 +107,8 @@ export default function DashboardPage() {
   }
 
   const farm = farms.find((f) => f.id === farmId);
-  const today = localToday();
+  // Comparisons against server due dates use the backend's UTC today (7-5).
+  const today = utcToday();
   const taskTotal = payload.todays_tasks.length + payload.overdue_tasks.length;
   const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
 
@@ -232,12 +233,16 @@ export default function DashboardPage() {
                     </TableCell>
                     <TableCell>due {formatDate(r.expected_kidding_date)}</TableCell>
                     <TableCell className="text-right">
-                      <Link
-                        href={`/kidding/new?breeding_id=${r.id}`}
-                        className={buttonVariants({ variant: "outline", size: "sm" })}
-                      >
-                        Record
-                      </Link>
+                      {/* Recording needs kidding.manage — without it the link
+                          lands on an access-denied page (audit 7-7). */}
+                      {can("kidding.manage") && (
+                        <Link
+                          href={`/kidding/new?breeding_id=${r.id}`}
+                          className={buttonVariants({ variant: "outline", size: "sm" })}
+                        >
+                          Record
+                        </Link>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -34,12 +34,19 @@ from app.models import (
     AnimalStatus,
     Bucket,
     BucketMove,
+    Farm,
     FeedingRecord,
     FeedingShift,
+    FeedInventory,
     Sex,
     User,
 )
-from app.services import BUCKET_ALLOCATION_REFERENCE, DRY_ROUGHAGE, recipe_for_animal
+from app.services import (
+    BUCKET_ALLOCATION_REFERENCE,
+    DRY_ROUGHAGE,
+    add_feed_stock,
+    recipe_for_animal,
+)
 from app.utils import today
 
 from .conftest import login, owner_with_farm
@@ -1499,13 +1506,28 @@ async def test_add_stock_nonfinite_and_garbage_qty_422(client: httpx.AsyncClient
 async def test_add_stock_bad_price_422(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     item = await inv_item(client, headers, "DORB")
-    for bad in (0, -5, "nan", "inf", "abc"):
+    for bad in (-5, "nan", "inf", "abc"):
         resp = await add_stock(client, headers, item["id"], 10.0, price=bad)
         assert resp.status_code == 422, bad
     item = await inv_item(client, headers, "DORB")
     assert item["qty_on_hand"] == 0.0
     assert item["last_purchase_price_per_kg"] is None
     assert await finance_txns(client, headers) == []
+
+
+async def test_add_stock_zero_price_is_accepted(client: httpx.AsyncClient) -> None:
+    """AUDIT 3-6: an explicit ₹0 restock is real data — it books a ₹0 expense
+    and zeroes the last price instead of 422ing."""
+    headers = await owner_with_farm(client)
+    item = await inv_item(client, headers, "DORB")
+    resp = await add_stock(client, headers, item["id"], 10.0, price=0)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["qty_on_hand"] == 10.0
+    assert body["last_purchase_price_per_kg"] == 0.0
+    txns = await finance_txns(client, headers)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == 0.0
 
 
 async def test_add_stock_missing_qty_422(client: httpx.AsyncClient) -> None:
@@ -1622,13 +1644,14 @@ async def test_invalid_token_gets_401(client: httpx.AsyncClient) -> None:
         assert resp.json()["detail"] == "Invalid or expired token"
 
 
-async def test_missing_farm_header_gets_400(client: httpx.AsyncClient) -> None:
+async def test_missing_farm_header_gets_422(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     auth_only = {"Authorization": headers["Authorization"]}
     for method, url, body in ENDPOINTS:
         resp = await _hit(client, method, url, body, auth_only)
-        assert resp.status_code == 400, url
-        assert resp.json()["detail"] == "X-Farm-Id header is required"
+        # LOW 8-4: the header is required by the contract (422, not 400).
+        assert resp.status_code == 422, url
+        assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
 
 async def test_non_integer_farm_header_gets_400(client: httpx.AsyncClient) -> None:
@@ -1655,14 +1678,15 @@ async def test_nonexistent_farm_gets_404(client: httpx.AsyncClient) -> None:
     assert resp.json()["detail"] == "Farm not found"
 
 
-async def test_non_member_farm_gets_403(client: httpx.AsyncClient) -> None:
+async def test_non_member_farm_gets_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     intruder = {"Authorization": owner_b["Authorization"], "X-Farm-Id": owner_a["X-Farm-Id"]}
     for method, url, body in ENDPOINTS:
         resp = await _hit(client, method, url, body, intruder)
-        assert resp.status_code == 403, url
-        assert resp.json()["detail"] == "No access to this farm"
+        # LOW 0-7: forbidden farms answer exactly like unknown ones.
+        assert resp.status_code == 404, url
+        assert resp.json()["detail"] == "Farm not found"
 
 
 async def test_feeder_role_can_view_everything(client: httpx.AsyncClient) -> None:
@@ -1792,3 +1816,32 @@ async def test_full_feeding_day_flow(client: httpx.AsyncClient) -> None:
     assert len(txns) == 1
     assert txns[0]["category"] == "FEED"
     assert txns[0]["amount"] == pytest.approx(2000.0)
+
+
+# ---------------------------------------------------------------------------
+# AUDIT 3-6 — an explicit ₹0/kg restock is a real price, not "no price"
+# ---------------------------------------------------------------------------
+# add_feed_stock used `if price_per_kg:`, dropping an explicit 0: no ₹0
+# expense was booked and last_purchase_price_per_kg kept its stale value —
+# inconsistent with create_purchase_batch's careful explicit-₹0 handling.
+# Service-level test: the endpoint schema (StockAddIn.price_per_kg is a
+# PositiveFloat) currently rejects ₹0 with a 422, so the fixed branch is
+# exercised by calling the service the way a loosened schema would.
+async def test_add_stock_zero_price_books_zero_expense(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    item = await inv_item(client, headers, MINERAL)
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        farm = (await db.execute(select(Farm).where(Farm.id == farm_id))).scalar_one()
+        row = (
+            await db.execute(select(FeedInventory).where(FeedInventory.id == item["id"]))
+        ).scalar_one()
+        row.last_purchase_price_per_kg = 42.0  # a stale price the ₹0 must zero out
+        await add_feed_stock(db, farm, row, 10, 0)
+        await db.commit()
+    body = await inv_item(client, headers, MINERAL)
+    assert body["qty_on_hand"] == 10
+    assert body["last_purchase_price_per_kg"] == 0  # zeroed, not left stale
+    feed_txns = [t for t in await finance_txns(client, headers) if t["category"] == "FEED"]
+    assert len(feed_txns) == 1
+    assert feed_txns[0]["amount"] == 0  # an explicit ₹0 books a ₹0 expense

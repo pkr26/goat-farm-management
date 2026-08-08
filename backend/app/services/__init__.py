@@ -1,0 +1,200 @@
+"""Domain flows shared by routers and tests.
+
+Every function takes an AsyncSession and farm-scoped entities; callers commit.
+All business data is farm-scoped by construction (farm_id copied from the
+parent entities).
+
+Split into per-domain submodules (audit 4-M1); this package re-exports every
+name so existing ``from app.services import ...`` / ``from ..services import
+...`` importers keep working unchanged.
+
+Async adaptation notes (vs. the v1 sync services):
+- Async sessions forbid implicit lazy loads. Where v1 dereferenced a
+  relationship on a caller-passed entity (``br.doe``, ``br.kidding_record``,
+  ``doe.breedings_as_doe``), the service now loads the same rows explicitly
+  (``_load_doe`` / ``_kidding_record_of`` / a direct select). Where the
+  service itself runs a query whose results' relationships are used
+  (``Animal.weight_records``/``bucket_moves``/``breedings_as_doe``,
+  ``FeedRecipe.lines``), the query carries ``selectinload`` options.
+- ``task_scope`` returns a ``Select`` (query builder): callers add ordering /
+  pagination and execute it themselves.
+- ``move_animal`` and ``recipe_for_animal`` stay synchronous: they perform no
+  I/O (session-state mutation / pure python over already-loaded attributes).
+"""
+
+# Model names re-exported for backward compatibility: the pre-split services
+# module imported these from app.models, so they were reachable as
+# ``services.<name>`` (tests/test_schema_parity.py asserts the MAX_* caps).
+from ..models import (
+    GESTATION_DAYS,
+    MAX_AGE_MONTHS,
+    MAX_BATCH_COUNT,
+    MAX_FAILED_CYCLES_BEFORE_CULL,
+    MAX_GESTATION_DAYS,
+    MAX_RECUR_DAYS,
+    MIN_GESTATION_DAYS,
+    SHIFT_SPLIT,
+    WEANING_DAYS,
+    Animal,
+    AnimalSource,
+    AnimalStatus,
+    BirthType,
+    BreedingMethod,
+    BreedingOutcome,
+    BreedingRecord,
+    Bucket,
+    BucketDefinition,
+    BucketFeedSetting,
+    BucketMove,
+    Farm,
+    FarmMembership,
+    FeedingRecord,
+    FeedingShift,
+    FeedInventory,
+    FeedRecipe,
+    HealthEvent,
+    HealthEventType,
+    KiddingRecord,
+    KidEntry,
+    KidStatus,
+    PurchaseBatch,
+    Role,
+    Task,
+    TaskCategory,
+    TaskStatus,
+    Transaction,
+    TransactionCategory,
+    TransactionType,
+    User,
+    VaccineTemplate,
+    expected_kidding_date,
+    planned_ultrasound_date,
+    quarantine_schedule,
+)
+from ._common import ANIMAL_OUT_LOADS
+from .animals import (
+    TAG_ALPHABET,
+    generate_unique_tag,
+    move_animal,
+    skip_pending_tasks_for_animal,
+)
+from .breeding import (
+    breeding_candidate_does,
+    create_breeding_record,
+    doe_has_open_breeding,
+    is_breeding_candidate,
+    mark_aborted,
+    record_ultrasound_result,
+)
+from .dashboard import ready_to_move_suggestions
+from .feeding import (
+    BUCKET_ALLOCATION_REFERENCE,
+    DRY_ROUGHAGE,
+    RECIPE_DISPLAY,
+    SHIFT_TIMES,
+    InsufficientFeedError,
+    add_feed_stock,
+    feeding_plan,
+    get_daily_kg_per_head,
+    mix_feed_batch,
+    recipe_for_animal,
+    record_dispensing,
+    set_daily_kg_per_head,
+)
+from .finance import monthly_pnl
+from .health import record_health_event, vaccination_schedule_for_animal
+from .kidding import KidSpec, record_kidding
+from .purchases import create_purchase_batch
+from .tasks import (
+    complete_task,
+    create_manual_task,
+    reject_task,
+    skip_task,
+    spawn_next_occurrence,
+    task_scope,
+    verify_task,
+)
+
+__all__ = [
+    "ANIMAL_OUT_LOADS",
+    "BUCKET_ALLOCATION_REFERENCE",
+    "DRY_ROUGHAGE",
+    "GESTATION_DAYS",
+    "MAX_AGE_MONTHS",
+    "MAX_BATCH_COUNT",
+    "MAX_FAILED_CYCLES_BEFORE_CULL",
+    "MAX_GESTATION_DAYS",
+    "MAX_RECUR_DAYS",
+    "MIN_GESTATION_DAYS",
+    "RECIPE_DISPLAY",
+    "SHIFT_SPLIT",
+    "SHIFT_TIMES",
+    "TAG_ALPHABET",
+    "WEANING_DAYS",
+    "Animal",
+    "AnimalSource",
+    "AnimalStatus",
+    "BirthType",
+    "BreedingMethod",
+    "BreedingOutcome",
+    "BreedingRecord",
+    "Bucket",
+    "BucketDefinition",
+    "BucketFeedSetting",
+    "BucketMove",
+    "Farm",
+    "FarmMembership",
+    "FeedInventory",
+    "FeedRecipe",
+    "FeedingRecord",
+    "FeedingShift",
+    "HealthEvent",
+    "HealthEventType",
+    "InsufficientFeedError",
+    "KidEntry",
+    "KidSpec",
+    "KidStatus",
+    "KiddingRecord",
+    "PurchaseBatch",
+    "Role",
+    "Task",
+    "TaskCategory",
+    "TaskStatus",
+    "Transaction",
+    "TransactionCategory",
+    "TransactionType",
+    "User",
+    "VaccineTemplate",
+    "add_feed_stock",
+    "breeding_candidate_does",
+    "complete_task",
+    "create_breeding_record",
+    "create_manual_task",
+    "create_purchase_batch",
+    "doe_has_open_breeding",
+    "expected_kidding_date",
+    "feeding_plan",
+    "generate_unique_tag",
+    "get_daily_kg_per_head",
+    "is_breeding_candidate",
+    "mark_aborted",
+    "mix_feed_batch",
+    "monthly_pnl",
+    "move_animal",
+    "planned_ultrasound_date",
+    "quarantine_schedule",
+    "ready_to_move_suggestions",
+    "recipe_for_animal",
+    "record_dispensing",
+    "record_health_event",
+    "record_kidding",
+    "record_ultrasound_result",
+    "reject_task",
+    "set_daily_kg_per_head",
+    "skip_pending_tasks_for_animal",
+    "skip_task",
+    "spawn_next_occurrence",
+    "task_scope",
+    "vaccination_schedule_for_animal",
+    "verify_task",
+]

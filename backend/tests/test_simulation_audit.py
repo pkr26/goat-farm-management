@@ -7,8 +7,9 @@ view), complementing the golden unit tests in test_simulation_engine.py:
    and the moratorium must be shorter than the loan term, otherwise the
    principal silently vanishes from every cash flow.
 2. Terminal debt — when the loan outlives the horizon, the outstanding
-   balance is charged against the final month (no terminal asset value in v1,
-   so terminal debt must not be dropped either).
+   balance is repaid in the final month as extra principal inside
+   ``debt_service`` (no terminal asset value in v1, so terminal debt must not
+   be dropped — and the annual P&L and DSCR must see the balloon).
 3. Herd mass balance — animals are conserved across a grid of scenarios:
    herd_t == herd_{t-1} + births + purchases - deaths - sales - culls.
 4. Accounting identities — monthly rows sum to the annual P&L, EBITDA and
@@ -82,10 +83,15 @@ MONTH_FLOAT_FIELDS = [
 
 
 def toy(**herd_overrides: object) -> SimulationAssumptions:
-    """10 open does, no bucks, no purchases (golden-derivation herd)."""
+    """10 open does + 1 buck, no purchases (golden-derivation herd).
+
+    The single buck matters: conception is gated on buck presence (a zero-buck
+    herd never conceives), and one buck serves any doe count at the full rate
+    in v1, so the golden math is unchanged.
+    """
     herd = {
         "does": 10,
-        "bucks": 0,
+        "bucks": 1,
         "auto_purchase_bucks": False,
         "foundation_flock_state": "open",
         **herd_overrides,
@@ -191,12 +197,39 @@ def test_terminal_balance_charged_in_final_month() -> None:
     balance_at_24 = res.amortization[23].closing_balance
     assert balance_at_24 > 0.0  # 96 scheduled payments remain after the horizon
     final = res.months[-1]
+    # The balloon is part of the final month's debt service (as principal).
+    assert final.debt_service == pytest.approx(res.amortization[23].payment + balance_at_24)
     assert final.net_cash_flow == pytest.approx(
-        revenue_of(final) - opex_of(final) - final.debt_service - balance_at_24
+        revenue_of(final) - opex_of(final) - final.debt_service
     )
     # Non-final months carry only scheduled debt service.
     mid = res.months[-2]
+    assert mid.debt_service == pytest.approx(res.amortization[22].payment)
     assert mid.net_cash_flow == pytest.approx(revenue_of(mid) - opex_of(mid) - mid.debt_service)
+
+
+def test_terminal_balance_reaches_annual_pl_and_dscr() -> None:
+    """The balloon lands in the final year's debt_service/principal, so DSCR
+    prices it in (9-5: it used to be invisible to the P&L and DSCR)."""
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        finance=FinanceAssumptions(loan_term_months=120, moratorium_months=12),
+    )
+    res = run_simulation(a, with_break_even=False)
+    balance_at_24 = res.amortization[23].closing_balance
+    final_year = res.annual_pl[-1]
+    scheduled_payment = sum(row.payment for row in res.amortization[12:24])
+    scheduled_principal = sum(row.principal for row in res.amortization[12:24])
+    assert final_year.debt_service == pytest.approx(scheduled_payment + balance_at_24)
+    assert final_year.principal == pytest.approx(scheduled_principal + balance_at_24)
+    # The interest+principal decomposition identity survives the balloon.
+    assert final_year.debt_service == pytest.approx(final_year.interest + final_year.principal)
+    # DSCR of the terminal year reflects the balloon — materially below the
+    # figure that excluded it (the audit measured 0.19 vs a reported 1.20).
+    assert res.metrics.dscr_per_year[-1] == pytest.approx(
+        final_year.ebitda / final_year.debt_service
+    )
+    assert res.metrics.dscr_per_year[-1] < final_year.ebitda / scheduled_payment
 
 
 def test_terminal_balance_reaches_npv_and_cumulative_cash() -> None:
@@ -509,6 +542,44 @@ def test_npv_bcr_sign_agreement_across_grid() -> None:
 # ---------------------------------------------------------------------------
 # 6. Biological sanity
 # ---------------------------------------------------------------------------
+def test_zero_bucks_means_no_conception() -> None:
+    """Conception is gated on buck presence (9-4): a zero-buck herd with
+    auto-purchase off never conceives — no pregnancies, no births. The flock
+    starts "open" so the only route into pregnancy is conception."""
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=36))
+    a.herd.bucks = 0
+    a.herd.auto_purchase_bucks = False
+    a.herd.foundation_flock_state = "open"
+    res = run_simulation(a, with_break_even=False)
+    assert all(row.pregnant_does == 0.0 for row in res.months)
+    assert all(row.births == 0.0 for row in res.months)
+    assert all(row.f_kids == 0.0 and row.m_kids == 0.0 for row in res.months)
+
+
+def test_auto_purchased_buck_enables_conception_from_month2() -> None:
+    """bucks=0 with auto-purchase on: month 1 breeds nothing (no sire at
+    breeding time — the buck is bought in that month's buck-management step);
+    the first conceptions land in month 2."""
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        herd=HerdAssumptions(does=10, bucks=0, foundation_flock_state="open"),
+    )
+    res = run_simulation(a, with_break_even=False)
+    assert res.months[0].pregnant_does == 0.0
+    assert res.months[0].bucks == pytest.approx(1.0)  # auto-purchased in month 1
+    assert res.months[1].pregnant_does > 0.0
+
+
+def test_selling_all_bucks_stops_conception() -> None:
+    a = toy()
+    a.meta.horizon_months = 24
+    a.events = [HerdEventAssumptions(month=1, kind="sale", animal_class="buck", count=1)]
+    res = run_simulation(a, with_break_even=False)
+    assert res.months[0].bucks == 0.0
+    assert all(row.pregnant_does == 0.0 for row in res.months)
+    assert all(row.births == 0.0 for row in res.months)
+
+
 def test_zero_conception_means_no_births_and_declining_herd() -> None:
     # "open" foundation flock: no initial pregnancies, and with conception at
     # zero no doe ever conceives — the herd only declines.
@@ -803,3 +874,44 @@ async def test_api_accepts_boundary_financing(client: httpx.AsyncClient) -> None
     assert resp.status_code == 200, resp.text
     metrics = resp.json()["metrics"]
     assert metrics["equity"] == pytest.approx(0.0, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# 11. Cross-field guards (9-1/9-2): schema-valid crashes are now 422 / fine
+# ---------------------------------------------------------------------------
+async def test_api_rejects_max_doe_age_below_36(client: httpx.AsyncClient) -> None:
+    """max_doe_age_months in [24, 35] used to ZeroDivisionError mid-run (500);
+    the floor is now 36 (the engine spreads foundation does over
+    24..min(60, max_doe_age-12), an empty range below 36)."""
+    headers = await owner_with_farm(client)
+    resp = await client.get("/api/simulation/defaults", headers=headers)
+    assumptions = resp.json()
+    assumptions["meta"]["horizon_months"] = 12
+    for bad in (24, 30, 35):
+        assumptions["culling"]["max_doe_age_months"] = bad
+        resp = await client.post(
+            "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+        )
+        assert resp.status_code == 422, bad
+    # The floor itself validates and runs.
+    assumptions["culling"]["max_doe_age_months"] = 36
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_api_accepts_afb_at_boundary_of_min_doe_age(client: httpx.AsyncClient) -> None:
+    """The 9-2 IndexError pair (age_at_first_breeding > max_doe_age) is no
+    longer constructible (afb <= 30 < 36 <= max_doe_age, plus a cross-field
+    validator); the boundary pair validates and runs clean."""
+    headers = await owner_with_farm(client)
+    resp = await client.get("/api/simulation/defaults", headers=headers)
+    assumptions = resp.json()
+    assumptions["meta"]["horizon_months"] = 12
+    assumptions["reproduction"]["age_at_first_breeding_months"] = 30
+    assumptions["culling"]["max_doe_age_months"] = 36
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text

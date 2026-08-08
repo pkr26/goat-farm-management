@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskOut } from "@/api/generated/models";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, utcToday } from "@/lib/format";
 
 import TasksPage from "./page";
 
@@ -22,15 +23,10 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-/** Local YYYY-MM-DD (mirrors the page's localToday). */
-function localISO(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-const TODAY = localISO(new Date());
-const TOMORROW = localISO(new Date(Date.now() + 86_400_000));
+/** UTC-relative fixture dates: the page compares against utcToday()
+ * (audit 7-5), so browser-local fixtures drift a day near midnight. */
+const TODAY = utcToday();
+const TOMORROW = addDays(TODAY, 1);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {

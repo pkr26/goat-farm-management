@@ -15,6 +15,8 @@ Public surface:
 - finance helpers: :func:`monthly_emi`, :func:`amortization_schedule`,
   :func:`npv`, :func:`irr`, :func:`bcr`, :func:`payback_month`,
   :class:`AmortizationRow` (finance.py)
+- :func:`herd_cohorts`: bucket a farm's live herd into starting cohorts
+  (snapshot.py)
 - result models (results.py)
 """
 
@@ -36,6 +38,7 @@ from .assumptions import (
 from .defaults import (
     BREED_PRESETS,
     PRESET_FACTORIES,
+    SYSTEMS,
     apply_system,
     get_preset,
 )
@@ -74,11 +77,13 @@ from .results import (
     SimulationResult,
     ViabilityMetrics,
 )
+from .snapshot import herd_cohorts
 
 __all__ = [
     "BREED_PRESETS",
     "DAYS_PER_MONTH",
     "PRESET_FACTORIES",
+    "SYSTEMS",
     "AmortizationRow",
     "AmortizationRowModel",
     "AnnualPLRow",
@@ -111,6 +116,7 @@ __all__ = [
     "combine_feed",
     "cultivated_green_supply_kg",
     "get_preset",
+    "herd_cohorts",
     "irr",
     "land_requirement_acres",
     "monthly_emi",

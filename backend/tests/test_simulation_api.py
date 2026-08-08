@@ -10,6 +10,10 @@ keys, so this doubles as a contract check on the defaults endpoint.
 from datetime import date, timedelta
 
 import httpx
+from sqlalchemy import text
+
+from app.api.simulation import _farm_run_lock
+from app.db import get_sessionmaker
 
 from .conftest import login, owner_with_farm
 
@@ -198,9 +202,14 @@ async def test_simulation_rbac(client: httpx.AsyncClient) -> None:
     assumptions = await default_assumptions(client, owner)
     assumptions["meta"]["horizon_months"] = 12
 
-    # A role with no simulation permissions: everything 403s.
+    # A role with no simulation permissions: herd/run/scenario endpoints 403.
+    # The /defaults endpoints are global breed reference data (9-9): they only
+    # require authentication, not farm permissions.
     no_perms = await worker_headers(client, owner, ["dashboard.view"], "nop@farm.in")
-    assert (await client.get("/api/simulation/defaults", headers=no_perms)).status_code == 403
+    assert (await client.get("/api/simulation/defaults", headers=no_perms)).status_code == 200
+    assert (
+        await client.get("/api/simulation/defaults/breeds", headers=no_perms)
+    ).status_code == 200
     assert (await client.get("/api/simulation/herd-snapshot", headers=no_perms)).status_code == 403
     run_resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=no_perms
@@ -458,3 +467,97 @@ async def test_herd_snapshot_unknown_breed_400(client: httpx.AsyncClient) -> Non
         "/api/simulation/herd-snapshot", params={"breed": "merino"}, headers=headers
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Per-farm run limiter (9-3): one in-flight run per farm, 429 while busy
+# ---------------------------------------------------------------------------
+async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    farm_id = int(headers["X-Farm-Id"])
+    lock = _farm_run_lock(farm_id)
+    await lock.acquire()  # simulate an in-flight run for this farm
+    try:
+        resp = await client.post(
+            "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+        )
+        assert resp.status_code == 429, resp.text
+        resp = await client.get(
+            "/api/simulation/scenarios/compare", params={"ids": "1"}, headers=headers
+        )
+        assert resp.status_code == 429, resp.text
+    finally:
+        lock.release()
+    # Once the lock is free, the same payload runs.
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_run_limiter_is_per_farm(client: httpx.AsyncClient) -> None:
+    owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
+    owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Farm B")
+    assumptions = await default_assumptions(client, owner_a)
+    assumptions["meta"]["horizon_months"] = 12
+    lock = _farm_run_lock(int(owner_a["X-Farm-Id"]))
+    await lock.acquire()
+    try:
+        # Farm A is busy; farm B's run is unaffected.
+        resp = await client.post(
+            "/api/simulation/run", json={"assumptions": assumptions}, headers=owner_b
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        lock.release()
+
+
+# ---------------------------------------------------------------------------
+# Stale scenario rows (9-6): skipped in listings, 422 elsewhere, never a 500
+# ---------------------------------------------------------------------------
+async def _corrupt_scenario_row(scenario_id: int) -> None:
+    """Simulate a row stored under an older/looser assumptions schema."""
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("UPDATE simulation_scenarios SET assumptions = :blob WHERE id = :sid"),
+            {"blob": '{"bogus": 1}', "sid": scenario_id},
+        )
+        await db.commit()
+
+
+async def test_stale_scenario_row_never_500s(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    good = await create_scenario(client, headers, "Good", assumptions)
+    stale = await create_scenario(client, headers, "Stale", assumptions)
+    await _corrupt_scenario_row(stale["id"])
+
+    # The list endpoint skips the bad row instead of 500ing the whole farm.
+    listing = await client.get("/api/simulation/scenarios", headers=headers)
+    assert listing.status_code == 200, listing.text
+    assert [s["name"] for s in listing.json()] == ["Good"]
+
+    # Get / run / compare surface a clean 422 for the affected scenario.
+    resp = await client.get(f"/api/simulation/scenarios/{stale['id']}", headers=headers)
+    assert resp.status_code == 422, resp.text
+    resp = await client.post(f"/api/simulation/scenarios/{stale['id']}/run", headers=headers)
+    assert resp.status_code == 422, resp.text
+    resp = await client.get(
+        "/api/simulation/scenarios/compare",
+        params={"ids": f"{good['id']},{stale['id']}"},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+    # Update rescues the row with fresh, valid assumptions; delete works too.
+    patched = await client.patch(
+        f"/api/simulation/scenarios/{stale['id']}",
+        json={"assumptions": assumptions},
+        headers=headers,
+    )
+    assert patched.status_code == 200, patched.text
+    deleted = await client.delete(f"/api/simulation/scenarios/{stale['id']}", headers=headers)
+    assert deleted.status_code == 204

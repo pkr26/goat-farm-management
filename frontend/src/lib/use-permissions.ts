@@ -3,6 +3,11 @@
 /**
  * Permission set of the current user on the active farm (drives nav +
  * button visibility, mirroring v1's base.html `perms` checks).
+ *
+ * `isError`/`error` distinguish "the permissions call failed" from a genuine
+ * empty set — pages must render an error state instead of "no access"
+ * (audit 7-6). `isOwner` mirrors the backend's owner exemption (e.g. owners
+ * may verify their own completions, audit 7-4).
  */
 
 import { usePermissionsApiAuthPermissionsGet } from "@/api/generated/endpoints";
@@ -17,6 +22,9 @@ export function usePermissions() {
   const perms = new Set(payload?.permissions ?? []);
   return {
     loading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    isOwner: payload?.is_owner ?? false,
     can: (code: string) => perms.has(code),
   };
 }

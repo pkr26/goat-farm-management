@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .breeding import BreedingRecordOut
-from .common import BoundedId, NonNegativeWeightKgFloat
+from .common import BoundedId, NonNegativeWeightKgFloat, PastOrTodayDate
 
 KidStatusStr = Literal["ALIVE", "STILLBORN", "DIED"]
 # SPEC §KiddingRecord + models.KiddingEase: exactly these three (no CAESAREAN).
@@ -22,7 +22,9 @@ class KidIn(BaseModel):
 
 class KiddingCreateIn(BaseModel):
     breeding_record_id: BoundedId
-    date: date  # must be >= breeding date and <= today (checked in router)
+    # PastOrTodayDate covers "not in the future" incl. the one-day timezone
+    # headroom (AUDIT 4-L6); >= the breeding date is checked in the router.
+    date: PastOrTodayDate
     ease: KiddingEaseStr = "NORMAL"
     notes: str | None = None
     kids: list[KidIn] = Field(min_length=1, max_length=10)

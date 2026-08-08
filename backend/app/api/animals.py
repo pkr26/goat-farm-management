@@ -11,6 +11,8 @@ from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     Animal,
     AnimalStatus,
+    BreedingOutcome,
+    BreedingRecord,
     BucketMove,
     HealthEvent,
     Transaction,
@@ -34,7 +36,13 @@ from ..schemas.animals import (
 )
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.health import HealthEventOut
-from ..services import generate_unique_tag, move_animal, skip_pending_tasks_for_animal
+from ..services import (
+    ANIMAL_OUT_LOADS,
+    generate_unique_tag,
+    mark_aborted,
+    move_animal,
+    skip_pending_tasks_for_animal,
+)
 from ..utils import today
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
@@ -43,7 +51,12 @@ NOT_FOUND = "Animal not found"
 
 
 async def _get_animal(
-    db: AsyncSession, farm_id: int, animal_id: int, *, for_update: bool = False
+    db: AsyncSession,
+    farm_id: int,
+    animal_id: int,
+    *,
+    for_update: bool = False,
+    with_details: bool = False,
 ) -> Animal:
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
     # int32 DataError (500).
@@ -57,7 +70,12 @@ async def _get_animal(
         result = await db.execute(select(Animal).where(Animal.id == animal_id).with_for_update())
         animal = result.scalar_one_or_none()
     else:
-        animal = await db.get(Animal, animal_id)
+        stmt = select(Animal).where(Animal.id == animal_id)
+        if with_details:
+            # AnimalOut's computed fields read these collections.
+            stmt = stmt.options(*ANIMAL_OUT_LOADS)
+        result = await db.execute(stmt)
+        animal = result.scalar_one_or_none()
     if animal is None or animal.farm_id != farm_id:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     return animal
@@ -70,7 +88,9 @@ async def _animal_out(db: AsyncSession, animal: Animal) -> AnimalOut:
     a never-loaded persistent animal would trigger a forbidden lazy load."""
     animal_id = animal.id  # read before expire: expired attrs can't be touched
     db.expire(animal)
-    result = await db.execute(select(Animal).where(Animal.id == animal_id))
+    result = await db.execute(
+        select(Animal).options(*ANIMAL_OUT_LOADS).where(Animal.id == animal_id)
+    )
     return AnimalOut.model_validate(result.scalar_one())
 
 
@@ -82,7 +102,7 @@ async def list_animals(
     bucket: BucketStr | None = None,
     sex: Sex | None = None,
     status: AnimalStatusStr | None = None,
-    q: str | None = None,
+    q: Annotated[str | None, Query(max_length=60)] = None,
     limit: Annotated[int | None, Query(ge=1, le=1000)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AnimalListOut:
@@ -96,16 +116,19 @@ async def list_animals(
     else:  # v1 default: the herd list shows ACTIVE animals unless asked otherwise
         stmt = stmt.where(Animal.status == AnimalStatus.ACTIVE.value)
     if q and q.strip():
-        stmt = stmt.where(Animal.tag_number.ilike(f"%{q.strip()}%"))
+        # Escape LIKE wildcards (AUDIT 4-L3): a literal "%"/"_" in the query
+        # must match itself, not act as a pattern metacharacter.
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        stmt = stmt.where(Animal.tag_number.ilike(f"%{escaped}%", escape="\\"))
     stmt = stmt.order_by(Animal.current_bucket, Animal.tag_number)
     if limit is None and offset == 0:
         # Default (unpaginated) behavior: the full filtered list, as always.
-        result = await db.execute(stmt)
+        result = await db.execute(stmt.options(*ANIMAL_OUT_LOADS))
         animals = [AnimalOut.model_validate(a) for a in result.scalars()]
         return AnimalListOut(animals=animals, total=len(animals))
     # Paginated: `total` stays the full filtered count so clients can page.
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    result = await db.execute(stmt.offset(offset).limit(limit))
+    result = await db.execute(stmt.options(*ANIMAL_OUT_LOADS).offset(offset).limit(limit))
     animals = [AnimalOut.model_validate(a) for a in result.scalars()]
     return AnimalListOut(animals=animals, total=total)
 
@@ -129,12 +152,18 @@ async def create_animal(
             )
     # enum/date/non-negativity guards from v1 now live in AnimalCreateIn's validators.
     # A blank tag gets an auto-generated one; that retries once on a lost race.
+    # Capture farm.id/user.id up front: a rollback in the retry path expires
+    # every ORM object, and touching farm.id/user.id there would be a
+    # forbidden sync refresh on the async session (MissingGreenlet 500
+    # instead of the intended retry).
+    farm_id = farm.id
+    user_id = user.id
     attempts = 1 if tag_number else 2
     for attempt in range(attempts):
         if not tag_number:
-            tag_number = await generate_unique_tag(db, farm.id)
+            tag_number = await generate_unique_tag(db, farm_id)
         animal = Animal(
-            farm_id=farm.id,
+            farm_id=farm_id,
             tag_number=tag_number,
             name=(payload.name or "").strip() or None,
             sex=payload.sex,
@@ -160,7 +189,7 @@ async def create_animal(
                     from_bucket=None,
                     to_bucket=payload.current_bucket,
                     reason="Initial entry",
-                    created_by_id=user.id,
+                    created_by_id=user_id,
                 )
             )
             if payload.weight_kg is not None and payload.weight_kg > 0:
@@ -170,7 +199,7 @@ async def create_animal(
                         date=today(),
                         weight_kg=payload.weight_kg,
                         notes="Entry weight",
-                        created_by_id=user.id,
+                        created_by_id=user_id,
                     )
                 )
             await db.commit()
@@ -195,9 +224,10 @@ async def animal_profile(
     farm: CurrentFarm,
     _perms: Annotated[set[str], Depends(require_perm("animals.view"))],
 ) -> AnimalProfileOut:
-    animal = await _get_animal(db, farm.id, animal_id)
+    animal = await _get_animal(db, farm.id, animal_id, with_details=True)
     kids_result = await db.execute(
         select(Animal)
+        .options(*ANIMAL_OUT_LOADS)
         .where(Animal.farm_id == farm.id, Animal.dam_id == animal.id)
         .order_by(Animal.tag_number)
     )
@@ -216,7 +246,7 @@ async def animal_profile(
         .where(HealthEvent.animal_id == animal.id)
         .order_by(HealthEvent.date.desc(), HealthEvent.id.desc())
     )
-    # breedings_as_doe is selectin-loaded; newest first for the client's list.
+    # breedings_as_doe is eager-loaded (with_details); newest first for the client.
     breeding_ids = [
         br.id
         for br in sorted(
@@ -317,6 +347,38 @@ async def change_status(
     # new_status is never ACTIVE here: clear the cull flag and stop the
     # animal's pending tasks (a dead/sold animal must not generate work).
     animal.cull_candidate = False
+
+    # A sold/dead/culled doe cannot carry a pregnancy to term: auto-resolve
+    # any live confirmed pregnancy as ABORTED instead of leaving a phantom
+    # pregnancy on the kidding due lists forever (record_kidding would reject
+    # the non-ACTIVE doe, and nothing else prompted mark_aborted). Lock order
+    # is canonical: the animal lock above → breeding rows here → task locks
+    # inside mark_aborted / skip_pending_tasks_for_animal.
+    if animal.sex == "F":
+        open_result = await db.execute(
+            select(BreedingRecord)
+            .where(
+                BreedingRecord.doe_id == animal.id,
+                BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+            )
+            .with_for_update()
+        )
+        for br in open_result.scalars():
+            await mark_aborted(db, br)
+            if br.outcome == BreedingOutcome.ABORTED.value:
+                # Move-history note: the auto-resolution is visible on the
+                # animal's profile trail (from == to: no bucket change — the
+                # doe stays put, only the pregnancy ends).
+                db.add(
+                    BucketMove(
+                        animal_id=animal.id,
+                        from_bucket=animal.current_bucket,
+                        to_bucket=animal.current_bucket,
+                        reason=f"Pregnancy auto-aborted — doe marked {payload.new_status.lower()}",
+                        created_by_id=user.id,
+                    )
+                )
+
     await skip_pending_tasks_for_animal(db, farm.id, animal.id)
 
     if payload.new_status == AnimalStatus.SOLD.value:

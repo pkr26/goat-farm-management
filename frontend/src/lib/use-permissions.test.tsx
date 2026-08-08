@@ -10,6 +10,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { HttpResponse, delay, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/use-permissions";
 import { ALL_PERMISSIONS, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
@@ -23,10 +24,14 @@ vi.mock("next/navigation", () => ({
 
 /** Renders the hook's outputs into the DOM for assertion. */
 function Probe({ codes = [] }: { codes?: string[] }) {
-  const { loading, can } = usePermissions();
+  const { loading, isError, isOwner, can } = usePermissions();
+  const { loading: authLoading } = useAuth();
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
+      <span data-testid="auth-loading">{String(authLoading)}</span>
+      <span data-testid="is-error">{String(isError)}</span>
+      <span data-testid="is-owner">{String(isOwner)}</span>
       {codes.map((code) => (
         <span key={code} data-testid={`can:${code}`}>
           {String(can(code))}
@@ -137,11 +142,13 @@ describe("usePermissions — no active farm", () => {
 
     renderWithProviders(<Probe codes={["animals.view"]} />);
 
-    // Give the auth bootstrap time to finish and any (incorrect) fetch to fire.
+    // Settled signal, not a wall-clock sleep (audit 10-L8): auth-loading
+    // flips false only after the whole bootstrap (refresh + farms fetch +
+    // farm selection) has finished. With no farms the active farm stays null
+    // forever, so the permissions query can never become enabled afterwards.
     await waitFor(() =>
-      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      expect(screen.getByTestId("auth-loading")).toHaveTextContent("false"),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(permissionCalls).toBe(0);
     expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
@@ -176,5 +183,54 @@ describe("usePermissions — loading and error states", () => {
 
     await expectSettled("loading", "false");
     expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
+  });
+
+  it("flags isError when the endpoint fails (audit 7-6 — not silent 'no access')", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    // loading=false is visible from the first (disabled-query) render, so
+    // wait on the error flag itself.
+    await waitFor(() =>
+      expect(screen.getByTestId("is-error")).toHaveTextContent("true"),
+    );
+  });
+
+  it("does not flag isError on a successful response", async () => {
+    renderWithProviders(<Probe codes={["animals.view"]} />);
+
+    // A granted permission flipping to true proves the payload was applied.
+    await waitFor(() =>
+      expect(screen.getByTestId("can:animals.view")).toHaveTextContent("true"),
+    );
+    expect(screen.getByTestId("is-error")).toHaveTextContent("false");
+  });
+
+  it("exposes is_owner from the payload (needed for the verify-self guard, 7-4)", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("is-owner")).toHaveTextContent("true"),
+    );
+  });
+
+  it("exposes is_owner false for a worker membership", async () => {
+    renderWithProviders(<Probe codes={["animals.view"]} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("can:animals.view")).toHaveTextContent("true"),
+    );
+    expect(screen.getByTestId("is-owner")).toHaveTextContent("false");
   });
 });

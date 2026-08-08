@@ -1,8 +1,32 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { expect, type Locator, type Page } from "@playwright/test";
 
-/** Migrated dev account (owner of "Demo Osmanabadi Farm"). */
-export const DEV_EMAIL = "demo@goatfarm.in";
-export const DEV_PASSWORD = "demo1234";
+/** Credentials of the fresh user+farm provisioned by global-setup.ts for
+ *  this run (audit 10-H1 — no hardcoded pre-existing dev account). */
+export interface E2ECredentials {
+  email: string;
+  password: string;
+  farmName: string;
+}
+
+function loadCredentials(): E2ECredentials {
+  try {
+    return JSON.parse(
+      readFileSync(path.join(__dirname, ".e2e-state.json"), "utf8"),
+    ) as E2ECredentials;
+  } catch {
+    throw new Error(
+      "e2e/.e2e-state.json missing — Playwright globalSetup provisions it before the specs run.",
+    );
+  }
+}
+
+const CREDS = loadCredentials();
+export const E2E_EMAIL = CREDS.email;
+export const E2E_PASSWORD = CREDS.password;
+export const E2E_FARM_NAME = CREDS.farmName;
 
 /** Run-unique, regex-safe tag/title suffix (alphanumerics + hyphens only). */
 export function uniqueTag(prefix: string): string {
@@ -33,8 +57,8 @@ export function daysAgo(days: number): string {
 /** Sign in through the login page and land on the dashboard. */
 export async function signIn(page: Page): Promise<void> {
   await page.goto("/login");
-  await page.getByLabel("Email").fill(DEV_EMAIL);
-  await page.getByLabel("Password").fill(DEV_PASSWORD);
+  await page.getByLabel("Email").fill(E2E_EMAIL);
+  await page.getByLabel("Password").fill(E2E_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
   // Farm is auto-selected and nav only renders once permissions load.

@@ -14,7 +14,7 @@ from ..schemas.animals import AnimalOut
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.purchases import PurchaseBatchDetailOut, PurchaseBatchIn, PurchaseBatchOut
 from ..schemas.tasks import TaskOut
-from ..services import create_purchase_batch
+from ..services import ANIMAL_OUT_LOADS, create_purchase_batch
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"])
 
@@ -122,7 +122,11 @@ async def batch_detail(
         .order_by(Task.due_date, Task.id)
     )
     animal_result = await db.execute(
-        select(Animal).where(Animal.purchase_batch_id == batch.id).order_by(Animal.tag_number)
+        select(Animal)
+        # AnimalOut's computed fields read these collections.
+        .options(*ANIMAL_OUT_LOADS)
+        .where(Animal.purchase_batch_id == batch.id)
+        .order_by(Animal.tag_number)
     )
     return PurchaseBatchDetailOut(
         batch=(await _batch_out(db, [batch]))[0],

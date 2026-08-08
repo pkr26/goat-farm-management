@@ -6,7 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -54,13 +55,16 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api-client";
-import { formatDate } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import { formatDate, utcToday } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TaskCreateInCategory);
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
 const NONE = "none";
+/** Tabs addressable via /tasks?tab=… deep links (dashboard links here). */
+const VALID_TABS = new Set(["today", "overdue", "upcoming", "awaiting", "completed"]);
 
 function localToday(): string {
   const now = new Date();
@@ -183,6 +187,7 @@ function RowActions({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="reason (sent back)"
+          aria-label="Rejection reason"
           className="h-7 w-44"
           maxLength={255}
         />
@@ -216,12 +221,16 @@ function TaskTable({
   canComplete,
   canVerify,
   today,
+  currentUserId,
+  isOwner,
 }: {
   tasks: TaskOut[];
   tab: string;
   canComplete: boolean;
   canVerify: boolean;
   today: string;
+  currentUserId: number | null;
+  isOwner: boolean;
 }) {
   if (tasks.length === 0) {
     return (
@@ -316,7 +325,11 @@ function TaskTable({
                     task={t}
                     tab={tab}
                     canComplete={canComplete}
-                    canVerify={canVerify}
+                    canVerify={
+                      // The API 409s self-verification for non-owners — don't
+                      // offer the action (audit 7-4).
+                      canVerify && (isOwner || t.completed_by_id !== currentUserId)
+                    }
                     today={today}
                   />
                 </TableCell>
@@ -356,8 +369,9 @@ const dutySchema = z.object({
 });
 type DutyValues = z.infer<typeof dutySchema>;
 
-export default function TasksPage() {
-  const { can, loading: permsLoading } = usePermissions();
+function TasksPageContent() {
+  const { can, loading: permsLoading, isError: permsError, isOwner } = usePermissions();
+  const { user } = useAuth();
   const allowed = can("tasks.view");
   const canCreate = can("tasks.create");
   const canComplete = can("tasks.complete");
@@ -365,7 +379,13 @@ export default function TasksPage() {
   const canSeeTeam = can("team.manage");
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState("today");
+  const searchParams = useSearchParams();
+  // Honor ?tab= deep links (the dashboard links to /tasks?tab=overdue etc.);
+  // unknown values fall back to "today" (audit 7-1).
+  const [tab, setTab] = useState(() => {
+    const requested = searchParams.get("tab");
+    return requested && VALID_TABS.has(requested) ? requested : "today";
+  });
   const [open, setOpen] = useState(false);
 
   const query = useListTasksApiTasksGet({ query: { enabled: allowed } });
@@ -443,6 +463,13 @@ export default function TasksPage() {
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
+  }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
@@ -457,7 +484,9 @@ export default function TasksPage() {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
-  const today = localToday();
+  // Comparisons use the backend's UTC today, not the browser's local date
+  // (off-by-one in the IST 00:00–05:30 window, audit 7-5).
+  const today = utcToday();
   const visibleTabs: { value: string; label: string; tasks: TaskOut[] }[] = [
     { value: "today", label: `Today (${payload.today.length})`, tasks: payload.today },
     { value: "overdue", label: `Overdue (${payload.overdue.length})`, tasks: payload.overdue },
@@ -471,6 +500,9 @@ export default function TasksPage() {
     });
     visibleTabs.push({ value: "completed", label: "Completed", tasks: payload.completed });
   }
+  // A deep-linked tab may not exist for this user (e.g. ?tab=awaiting
+  // without tasks.verify) — fall back to "today".
+  const activeTab = visibleTabs.some((t) => t.value === tab) ? tab : "today";
 
   return (
     <div className="space-y-6">
@@ -491,7 +523,7 @@ export default function TasksPage() {
         }
       />
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
+      <Tabs value={activeTab} onValueChange={(v) => setTab(v as string)}>
         <TabsList>
           {visibleTabs.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
@@ -507,6 +539,8 @@ export default function TasksPage() {
               canComplete={canComplete}
               canVerify={canVerify}
               today={today}
+              currentUserId={user?.id ?? null}
+              isOwner={isOwner}
             />
           </TabsContent>
         ))}
@@ -542,14 +576,14 @@ export default function TasksPage() {
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label>Category</Label>
+                <Label htmlFor="duty-category">Category</Label>
                 <Select
                   value={wCategory}
                   onValueChange={(v) =>
                     setValue("category", v as DutyValues["category"], { shouldValidate: true })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="duty-category" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -576,7 +610,7 @@ export default function TasksPage() {
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label>Assign to role</Label>
+                    <Label htmlFor="duty-role">Assign to role</Label>
                     <Select
                       value={wAssignedRoleId || NONE}
                       onValueChange={(v) => {
@@ -585,7 +619,7 @@ export default function TasksPage() {
                       }}
                       items={roleItems}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger id="duty-role" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -599,7 +633,7 @@ export default function TasksPage() {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>or assign to worker</Label>
+                    <Label htmlFor="duty-worker">or assign to worker</Label>
                     <Select
                       value={wAssignedUserId || NONE}
                       onValueChange={(v) => {
@@ -608,7 +642,7 @@ export default function TasksPage() {
                       }}
                       items={workerItems}
                     >
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger id="duty-worker" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -639,5 +673,14 @@ export default function TasksPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Suspense boundary required because the content reads useSearchParams(). */
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <TasksPageContent />
+    </Suspense>
   );
 }

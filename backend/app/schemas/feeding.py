@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .animals import BucketStr
-from .common import MoneyFloat, PastOrTodayDate, QuantityKgFloat
+from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat
 
 ShiftStr = Literal["MORNING", "AFTERNOON", "NIGHT"]
 
@@ -26,7 +26,9 @@ class MixIn(BaseModel):
 
 class StockAddIn(BaseModel):
     qty_kg: QuantityKgFloat
-    price_per_kg: MoneyFloat | None = None
+    # Non-negative (not positive): an explicit ₹0 restock is real data — the
+    # service books a ₹0 expense and zeroes the last price (AUDIT 3-6).
+    price_per_kg: NonNegativeMoneyFloat | None = None
 
 
 class FeedSettingIn(BaseModel):

@@ -1,7 +1,8 @@
 """Kidding: upcoming/overdue due list, history, record a kidding."""
 
+import re
 from datetime import timedelta
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -11,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     Animal,
+    AnimalStatus,
     BreedingOutcome,
     BreedingRecord,
     KiddingRecord,
@@ -18,14 +20,27 @@ from ..models import (
 )
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.kidding import KiddingCreateIn, KiddingListOut, KiddingRecordOut, KidEntryOut
-from ..services import record_kidding
+from ..services import KidSpec, record_kidding
 from ..utils import today
-from .breeding import _breeding_out
+from ._shared import breeding_out
 
 router = APIRouter(prefix="/api/kidding", tags=["kidding"])
 
 NOT_FOUND = "Breeding record not found"
 ALREADY_KIDDED = "This pregnancy already has a kidding record"
+
+
+def _unique_constraint_name(exc: IntegrityError) -> str | None:
+    """Name of the unique constraint an IntegrityError tripped, or None.
+    SQLAlchemy's asyncpg adaptation stringifies the driver error (no
+    ``diag.constraint_name`` like psycopg), so the name is recovered from
+    the message when the driver attribute is absent."""
+    orig = getattr(exc, "orig", None)
+    name = getattr(orig, "constraint_name", None)
+    if isinstance(name, str):
+        return name
+    match = re.search(r'violates unique constraint "([^"]+)"', str(orig))
+    return match.group(1) if match else None
 
 
 def _kidding_out(record: KiddingRecord) -> KiddingRecordOut:
@@ -56,9 +71,13 @@ async def kidding_list(
             selectinload(BreedingRecord.buck),
             selectinload(BreedingRecord.kidding_record),
         )
+        .join(Animal, BreedingRecord.doe_id == Animal.id)
         .where(
             BreedingRecord.farm_id == farm.id,
             BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+            # Defensive: a sold/dead doe's pregnancy is auto-resolved on the
+            # status change, but legacy phantom rows must never list here.
+            Animal.status == AnimalStatus.ACTIVE.value,
         )
         .order_by(BreedingRecord.expected_kidding_date)
     )
@@ -79,8 +98,8 @@ async def kidding_list(
     )
     return KiddingListOut(
         records=[_kidding_out(r) for r in history_result.scalars()],
-        upcoming=[_breeding_out(r) for r in upcoming],
-        overdue=[_breeding_out(r) for r in overdue],
+        upcoming=[breeding_out(r) for r in upcoming],
+        overdue=[breeding_out(r) for r in overdue],
     )
 
 
@@ -93,16 +112,33 @@ async def create_kidding(
     perms: Annotated[set[str], Depends(require_perm("kidding.manage"))],
 ) -> KiddingRecordOut:
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
-    # int32 DataError (500).
+    # int32 DataError (500). Scalar pre-check only: the locked ORM fetch below
+    # must be the first ORM load so its attributes come from the post-lock
+    # read (an earlier ORM load would poison the identity map).
     if payload.breeding_record_id > MAX_INT32_ID:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
+    row = (
+        await db.execute(
+            select(BreedingRecord.doe_id, BreedingRecord.farm_id).where(
+                BreedingRecord.id == payload.breeding_record_id
+            )
+        )
+    ).first()
+    if row is None or row.farm_id != farm.id:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    # Canonical lock order (animal → breeding → task, same as the abort and
+    # ultrasound flows): a concurrent abort serializes against this — the
+    # loser re-reads the committed outcome and fails its state guard, so a
+    # pregnancy can never end ABORTED with live born kids.
+    await db.execute(select(Animal.id).where(Animal.id == row.doe_id).with_for_update())
     result = await db.execute(
         select(BreedingRecord)
         .options(selectinload(BreedingRecord.doe), selectinload(BreedingRecord.kidding_record))
         .where(BreedingRecord.id == payload.breeding_record_id)
+        .with_for_update()
     )
     br = result.scalar_one_or_none()
-    if br is None or br.farm_id != farm.id:
+    if br is None:  # pragma: no cover — the scalar pre-check found the row
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     if br.kidding_record is not None:
         raise HTTPException(status_code=409, detail=ALREADY_KIDDED)
@@ -110,16 +146,14 @@ async def create_kidding(
     # a forged request against a PENDING/FAILED/ABORTED breeding is rejected.
     if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
         raise HTTPException(status_code=400, detail="Kidding requires a confirmed pregnancy")
-    # Same one-day timezone headroom as PastOrTodayDate: a client east of UTC
-    # recording its local "today" must not be rejected as a future date.
-    if payload.date > today() + timedelta(days=1):
-        raise HTTPException(status_code=400, detail="Kidding date cannot be in the future")
+    # "Not in the future" is enforced by the schema (PastOrTodayDate, with the
+    # one-day east-of-UTC headroom); only the breeding-date bound remains here.
     if payload.date < br.breeding_date:
         raise HTTPException(
             status_code=400, detail="Kidding date cannot be before the breeding date"
         )
 
-    kids: list[dict[str, Any]] = []
+    kids: list[KidSpec] = []
     explicit_tags: list[str] = []  # alive-kid tags the user actually set (blank stays auto)
     for i, kid in enumerate(payload.kids):
         tag = (kid.tag or "").strip()
@@ -160,9 +194,17 @@ async def create_kidding(
         # Not a confirmed/kiddable pregnancy (or non-ACTIVE doe) — raced past the pre-checks.
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None
-    except IntegrityError:
-        # A double submit raced past the pre-check into the breeding_record_id UNIQUE.
+    except IntegrityError as exc:
+        # Two constraints can trip here: the breeding_record_id UNIQUE (a
+        # double submit raced past the pre-check) or uq_animal_tag_per_farm
+        # (a concurrent insert won an explicit kid tag, or an auto
+        # <doe>-K<n> tag raced _unique_tag's pre-insert snapshot). Answer
+        # each with its own pre-check's status/message, never a bare 500.
         await db.rollback()
+        if _unique_constraint_name(exc) == "uq_animal_tag_per_farm":
+            raise HTTPException(
+                status_code=400, detail="A kid tag already exists in this farm"
+            ) from None
         raise HTTPException(status_code=409, detail=ALREADY_KIDDED) from None
 
     # The service adds KidEntry rows without populating record.kids in memory —

@@ -556,6 +556,77 @@ describe("HealthPage", () => {
     });
   });
 
+  it("prefills the disease target from a vaccine duty's title (audit 3-1)", async () => {
+    tasks = [
+      makeTask({
+        id: 9,
+        title: "[Sharma Traders #2] Day 10: vaccinate PPR (live viral, SC)",
+        category: "VACCINE",
+        purchase_batch_id: 2,
+      }),
+    ];
+    const { user, dialog } = await openDialog();
+    const combos = within(dialog).getAllByRole("combobox");
+    await pickOption(user, combos[combos.length - 1], /vaccinate PPR/);
+
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("PPR");
+
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({
+      scope: "batch",
+      type: "VACCINE",
+      disease_target: "PPR",
+      task_id: 9,
+    });
+  });
+
+  it("prefills product and target from a deworming duty's title (audit 3-1)", async () => {
+    tasks = [
+      makeTask({
+        id: 10,
+        title: "[Sharma Traders #2] Day 4: deworm — Albendazole/Closantel oral + Ivermectin SC",
+        category: "DEWORMING",
+        purchase_batch_id: 2,
+      }),
+    ];
+    const { user, dialog } = await openDialog();
+    const combos = within(dialog).getAllByRole("combobox");
+    await pickOption(user, combos[combos.length - 1], /deworm/);
+
+    expect(within(dialog).getByLabelText(/product name/i)).toHaveValue(
+      "Albendazole/Closantel oral + Ivermectin SC",
+    );
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("Deworming");
+
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({
+      type: "DEWORMING",
+      product_name: "Albendazole/Closantel oral + Ivermectin SC",
+      disease_target: "Deworming",
+      task_id: 10,
+    });
+  });
+
+  it("switching the linked duty back to '— none —' reverts the prefills (audit 7-11)", async () => {
+    tasks = [DEWORM_BATCH_TASK];
+    const { user, dialog } = await openDialog();
+    const combos = within(dialog).getAllByRole("combobox");
+    const dutySelect = combos[combos.length - 1];
+    await pickOption(user, dutySelect, /Deworm batch #2/);
+
+    expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("Deworming");
+
+    await pickOption(user, dutySelect, /none/);
+
+    expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("VACCINE");
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
+  });
+
   // ---------- URL prefill (/health/new?task_id=…) ----------
 
   it("auto-opens the dialog prefilled from ?task_id and ?animal_id", async () => {

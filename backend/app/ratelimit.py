@@ -1,9 +1,12 @@
 """Dependency-free in-memory sliding-window rate limiter.
 
 Per-process and non-persistent by design (single-process deployment): counts
-live in a dict keyed by (scope, client key) and are lost on restart. The auth
-endpoints use it to throttle login/register brute force; the test suite
-disables it via GOATFARM_AUTH_RATE_LIMIT_ENABLED=false.
+live in a dict keyed by (scope, client key) and are lost on restart, and
+under `--workers N` / horizontal scaling each process gets its own bucket
+(effective limits multiply by the process count) — a documented constraint;
+a shared backend (e.g. Redis) is the fix if multi-process is ever needed.
+The auth endpoints use it to throttle login/register/refresh brute force;
+the test suite disables it via GOATFARM_AUTH_RATE_LIMIT_ENABLED=false.
 """
 
 import time

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
+from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_user_sessions
 from ..models import Farm, FarmMembership, Role, Task, User
 from ..permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, PERMISSIONS
 from ..schemas.common import MAX_INT32_ID
@@ -29,6 +29,10 @@ from ..security import hash_password, password_policy_error
 router = APIRouter(prefix="/api/team", tags=["team"])
 
 TEAM_PERM = Annotated[set[str], Depends(require_perm("team.manage"))]
+
+# LOW 1-4: generic refusal for cross-farm-affiliated accounts in create_worker
+# (see the comment at the raise sites).
+CANT_ADD_TO_TEAM = "That email can't be added to this farm's team."
 
 
 def _membership_out(membership: FarmMembership) -> MembershipOut:
@@ -79,6 +83,21 @@ async def _get_role(db: AsyncSession, farm: Farm, role_id: int) -> Role:
     if role is None or role.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Role not found")
     return role
+
+
+def _guard_peer_manager(membership: FarmMembership, user: User, farm: Farm) -> None:
+    """LOW 1-3: a non-owner team.manage holder may not act on a peer whose
+    role ALSO grants team.manage — otherwise one manager could demote,
+    deactivate, or password-reset another (insider lockout/account hijack
+    only the owner can undo). The owner is exempt; targets without
+    team.manage stay delegable."""
+    if user.id == farm.owner_id:
+        return
+    role = membership.role
+    if role is not None and "team.manage" in role.permission_set():
+        raise HTTPException(
+            status_code=403, detail="Only the farm owner can manage other team managers."
+        )
 
 
 async def _member_count(db: AsyncSession, role_id: int) -> int:
@@ -132,12 +151,12 @@ async def create_worker(
     that owns no farm and belongs to no other farm's team. Accounts and
     passwords are global, so absorbing an account affiliated with another
     farm would hand this farm a cross-tenant takeover path (reset-password
-    rewrites the global password). Residual limitation: there is no
-    invitation/consent flow yet — an unaffiliated account is enrolled without
-    the account holder's say-so."""
-    email = payload.email.strip().lower()
-    if not email or "@" not in email:
-        raise HTTPException(status_code=400, detail="Enter a valid email address.")
+    rewrites the global password). Cross-farm refusals share ONE generic
+    message (LOW 1-4) so probing arbitrary emails can't reveal other farms'
+    roster state. Residual limitation: there is no invitation/consent flow
+    yet — an unaffiliated account is enrolled without the account holder's
+    say-so."""
+    email = payload.email  # normalized by EmailMixin (strip/lower, shape-checked)
     role = await db.get(Role, payload.role_id) if payload.role_id <= MAX_INT32_ID else None
     if role is None or role.farm_id != farm.id:
         raise HTTPException(status_code=400, detail="Pick a valid role.")
@@ -152,11 +171,15 @@ async def create_worker(
         if worker is not None
         else None
     )
+    # LOW 1-4: one generic refusal for every cross-farm affiliation — the
+    # distinct messages ("owns a farm" / "belongs to another farm's team")
+    # let any farm owner probe arbitrary emails and learn other farms'
+    # roster state. Passwords/accounts are global, so absorbing an account
+    # affiliated with another farm would hand this farm a cross-tenant
+    # takeover path either way.
     if owns_a_farm is not None:
-        # Passwords/accounts are global: never absorb someone else's owner account.
-        raise HTTPException(
-            status_code=400, detail="That account owns a farm — owners can't be added as workers."
-        )
+        # Never absorb someone else's owner account.
+        raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM)
     if (
         worker is not None
         and (
@@ -186,9 +209,7 @@ async def create_worker(
     ):
         # Any membership — active or inactive — on another farm ties this
         # account to that farm's access; it may not be absorbed here.
-        raise HTTPException(
-            status_code=400, detail="That account already belongs to another farm's team."
-        )
+        raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM)
 
     if worker is None:
         password = payload.password or ""
@@ -243,6 +264,7 @@ async def change_role(
     # must not let a worker promote his own membership to a richer role.
     if membership.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot change your own role.")
+    _guard_peer_manager(membership, user, farm)
     role = await db.get(Role, payload.role_id) if payload.role_id <= MAX_INT32_ID else None
     if role is None or role.farm_id != farm.id:
         raise HTTPException(status_code=400, detail="Pick a valid role.")
@@ -258,7 +280,12 @@ async def toggle_worker(
     membership = await _get_membership(db, farm, membership_id)
     if membership.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own membership.")
+    _guard_peer_manager(membership, user, farm)
     membership.is_active = not membership.is_active
+    if not membership.is_active:
+        # HIGH 0-1: deactivation must end the worker's live sessions too, not
+        # just block farm data on the next request.
+        await revoke_user_sessions(db, membership.user_id)
     await db.commit()
     return _membership_out(membership)
 
@@ -268,16 +295,17 @@ async def reset_password(
     payload: PasswordResetIn,
     membership_id: int,
     db: DbSession,
+    user: CurrentUser,
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> MembershipOut:
     """Rewrite a worker's GLOBAL password. Restricted to accounts whose sole
     farm affiliation is this one (the accounts this farm created): resetting
     the password of an account tied to another farm would be a cross-tenant
-    takeover. Residual limitation: without an invitation/consent flow, the
-    farm-set password is the account's only credential — the worker cannot
-    yet change it himself."""
+    takeover. All of the worker's live refresh sessions are revoked (HIGH
+    0-1) — a reset done because the account is suspect must end its sessions."""
     membership = await _get_membership(db, farm, membership_id)
+    _guard_peer_manager(membership, user, farm)
     if not membership.is_active:
         raise HTTPException(
             status_code=400, detail="Reactivate this membership before resetting the password."
@@ -317,6 +345,7 @@ async def reset_password(
     if error:
         raise HTTPException(status_code=400, detail=error)
     membership.user.password_hash = hash_password(payload.password)
+    await revoke_user_sessions(db, membership.user_id)  # kill all live sessions
     await db.commit()
     return _membership_out(membership)
 
@@ -403,5 +432,14 @@ async def delete_role(role_id: int, db: DbSession, farm: CurrentFarm, perms: TEA
         update(Task).where(Task.assigned_role_id == role.id).values(assigned_role_id=None)
     )
     await db.delete(role)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # LOW 2-11: a worker was assigned this role between the member-count
+        # check above and the DELETE (FK violation) — answer like the
+        # pre-check instead of 500ing.
+        await db.rollback()
+        raise HTTPException(
+            status_code=400, detail="Role still has workers assigned — reassign them first."
+        ) from None
     return Response(status_code=204)

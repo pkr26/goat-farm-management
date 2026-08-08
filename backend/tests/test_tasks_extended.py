@@ -666,21 +666,23 @@ async def test_reject_no_auth_401(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-async def test_list_missing_farm_header_400(client: httpx.AsyncClient) -> None:
+async def test_list_missing_farm_header_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     headers = {"Authorization": owner["Authorization"]}
     resp = await client.get("/api/tasks", headers=headers)
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "X-Farm-Id header is required"
+    # LOW 8-4: the header is required by the contract — missing fails request
+    # validation (422) before the farm dependency runs.
+    assert resp.status_code == 422
+    assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
 
-async def test_create_missing_farm_header_400(client: httpx.AsyncClient) -> None:
+async def test_create_missing_farm_header_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     headers = {"Authorization": owner["Authorization"]}
     resp = await client.post(
         "/api/tasks", json={"title": "X", "due_date": iso(today())}, headers=headers
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
 
 
 async def test_list_noninteger_farm_header_400(client: httpx.AsyncClient) -> None:
@@ -701,15 +703,17 @@ async def test_list_unknown_farm_404(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 404
 
 
-async def test_non_member_farm_list_403(client: httpx.AsyncClient) -> None:
+async def test_non_member_farm_list_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     resp = await client.get("/api/tasks", headers=owner_b | {"X-Farm-Id": owner_a["X-Farm-Id"]})
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "No access to this farm"
+    # LOW 0-7: forbidden farms answer exactly like unknown ones (no farm-id
+    # existence oracle).
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Farm not found"
 
 
-async def test_non_member_farm_create_403(client: httpx.AsyncClient) -> None:
+async def test_non_member_farm_create_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     resp = await client.post(
@@ -717,7 +721,7 @@ async def test_non_member_farm_create_403(client: httpx.AsyncClient) -> None:
         json={"title": "X", "due_date": iso(today())},
         headers=owner_b | {"X-Farm-Id": owner_a["X-Farm-Id"]},
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 async def test_cross_farm_task_complete_404(client: httpx.AsyncClient) -> None:

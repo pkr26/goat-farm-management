@@ -360,7 +360,7 @@ function UltrasoundDialog({
 
 export default function BreedingPage() {
   const queryClient = useQueryClient();
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("breeding.view");
   const canManage = can("breeding.manage");
   const query = useBreedingListApiBreedingGet({ query: { enabled: allowed } });
@@ -405,6 +405,13 @@ export default function BreedingPage() {
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;

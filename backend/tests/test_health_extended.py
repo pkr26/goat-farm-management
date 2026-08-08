@@ -1196,8 +1196,10 @@ async def test_create_batch_stub_animals_shape(client: httpx.AsyncClient) -> Non
         assert animal["status"] == "ACTIVE"
         assert animal["purchase_date"] == iso(batch_date)
         assert animal["seller_name"] == "Kurnool Traders"
-        assert animal["purchase_price"] == 3333.33  # total split per head
         assert animal["estimated_dob"] == iso(add_months(batch_date, -7))
+    # Total split per head; the first animal absorbs the paise remainder so
+    # Σ purchase_price equals the booked expense.
+    assert [a["purchase_price"] for a in animals] == [3333.34, 3333.33, 3333.33]
 
 
 async def test_create_batch_supplier_whitespace_stripped(client: httpx.AsyncClient) -> None:
@@ -1458,11 +1460,15 @@ async def test_batch_avg_age_months_boundaries(client: httpx.AsyncClient) -> Non
         assert resp.status_code == 201, good
 
 
-async def test_batch_zero_avg_age_gives_no_estimated_dob(client: httpx.AsyncClient) -> None:
+# avg_age_months=0 means newborn kids: estimated_dob is the batch date itself
+# (a falsy-0 bug used to store None, breaking age-based vaccine scheduling).
+async def test_batch_zero_avg_age_gives_batch_date_as_estimated_dob(
+    client: httpx.AsyncClient,
+) -> None:
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=1, avg_age_months=0)
     detail = await get_batch(client, headers, batch["id"])
-    assert detail["animals"][0]["estimated_dob"] is None
+    assert detail["animals"][0]["estimated_dob"] == batch["date"]
 
 
 async def test_batch_negative_weight_or_price_422(client: httpx.AsyncClient) -> None:
@@ -1545,27 +1551,29 @@ async def test_garbage_and_wrong_scheme_tokens_401(client: httpx.AsyncClient) ->
 # ---------------------------------------------------------------------------
 # X-Farm-Id header — missing/malformed/foreign
 # ---------------------------------------------------------------------------
-async def test_missing_farm_header_400(client: httpx.AsyncClient) -> None:
+async def test_missing_farm_header_422(client: httpx.AsyncClient) -> None:
+    """X-Farm-Id is a required header in the contract (AUDIT 8-4) — a
+    missing one now fails request validation (422) before deps run."""
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
     auth_only = {"Authorization": headers["Authorization"]}
-    assert (await client.get("/api/health/events", headers=auth_only)).status_code == 400
-    assert (await client.get("/api/purchases", headers=auth_only)).status_code == 400
+    assert (await client.get("/api/health/events", headers=auth_only)).status_code == 422
+    assert (await client.get("/api/purchases", headers=auth_only)).status_code == 422
     resp = await client.post(
         "/api/health/events",
         json={"animal_id": animal["id"], "type": "VACCINE"},
         headers=auth_only,
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     resp = await client.post(
         "/api/purchases/new",
         json={"date": iso(today()), "count": 1},
         headers=auth_only,
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert (
         await client.get(f"/api/health/schedule/{animal['id']}", headers=auth_only)
-    ).status_code == 400
+    ).status_code == 422
 
 
 async def test_malformed_farm_header_400(client: httpx.AsyncClient) -> None:
@@ -1585,16 +1593,18 @@ async def test_nonexistent_farm_404(client: httpx.AsyncClient) -> None:
     assert (await client.get("/api/purchases", headers=ghost)).status_code == 404
 
 
-async def test_foreign_farm_header_403(client: httpx.AsyncClient) -> None:
+async def test_foreign_farm_header_404(client: httpx.AsyncClient) -> None:
+    """AUDIT 0-7: unknown and forbidden farms share one 404 — a 403 here
+    would let any authenticated user enumerate sequential farm ids."""
     owner_a = await owner_with_farm(client, "a@farm.in", "Farm A")
     owner_b = await owner_with_farm(client, "b@farm.in", "Farm B")
     cross = {"Authorization": owner_a["Authorization"], "X-Farm-Id": owner_b["X-Farm-Id"]}
-    assert (await client.get("/api/health/events", headers=cross)).status_code == 403
-    assert (await client.get("/api/purchases", headers=cross)).status_code == 403
+    assert (await client.get("/api/health/events", headers=cross)).status_code == 404
+    assert (await client.get("/api/purchases", headers=cross)).status_code == 404
     resp = await client.post(
         "/api/purchases/new", json={"date": iso(today()), "count": 1}, headers=cross
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,6 @@
 recent weight records — plus the reports page (herd summary, breeding
 performance, mortality). Read-only aggregates per farm."""
 
-from collections import defaultdict
 from datetime import timedelta
 from typing import Annotated
 
@@ -25,10 +24,8 @@ from ..models import (
     TaskCategory,
     TaskStatus,
     WeightRecord,
-    conception_rate,
 )
 from ..schemas.animals import AnimalOut, WeightRecordOut
-from ..schemas.breeding import BreedingRecordOut
 from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
@@ -38,43 +35,14 @@ from ..schemas.dashboard import (
     MoveSuggestionOut,
     ReportsOut,
 )
-from ..schemas.tasks import TaskOut
-from ..services import ready_to_move_suggestions, task_scope
+from ..services import ANIMAL_OUT_LOADS, ready_to_move_suggestions, task_scope
 from ..utils import today
+from ._shared import TASK_LOADS, breeding_out, task_out
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 DASHBOARD_PERM = Annotated[set[str], Depends(require_perm("dashboard.view"))]
 REPORTS_PERM = Annotated[set[str], Depends(require_perm("reports.view"))]
-
-
-def _task_action_url(task: Task) -> str | None:
-    """Where a task links when completing it means filling in a form."""
-    if task.category == TaskCategory.ULTRASOUND.value and task.breeding_record_id:
-        return f"/breeding/{task.breeding_record_id}/ultrasound"
-    if task.category == TaskCategory.KIDDING_DUE.value and task.breeding_record_id:
-        return f"/kidding/new?breeding_id={task.breeding_record_id}"
-    if task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value):
-        params = f"task_id={task.id}"
-        if task.animal_id:
-            params += f"&animal_id={task.animal_id}"
-        if task.purchase_batch_id:
-            params += f"&purchase_batch_id={task.purchase_batch_id}"
-        return f"/health/new?{params}"
-    return None
-
-
-def _task_out(task: Task) -> TaskOut:
-    out = TaskOut.model_validate(task)
-    out.action_url = _task_action_url(task)
-    return out
-
-
-def _breeding_out(record: BreedingRecord) -> BreedingRecordOut:
-    out = BreedingRecordOut.model_validate(record)
-    out.has_kidding = record.kidding_record is not None
-    out.doe_tag = record.doe.tag_number
-    return out
 
 
 @router.get("")
@@ -87,9 +55,11 @@ async def dashboard(
     active_animals = list(
         (
             await db.execute(
-                select(Animal).where(
-                    Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value
-                )
+                select(Animal)
+                # Counts reuse these rows for ready_to_move_suggestions and
+                # AnimalOut serialization — both read the history collections.
+                .options(*ANIMAL_OUT_LOADS)
+                .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
             )
         ).scalars()
     )
@@ -100,7 +70,11 @@ async def dashboard(
         sex_counts[animal.sex] = sex_counts.get(animal.sex, 0) + 1
 
     now = today()
-    pending = (await task_scope(db, farm, user)).where(Task.status == TaskStatus.PENDING.value)
+    pending = (
+        (await task_scope(db, farm, user))
+        .options(*TASK_LOADS)
+        .where(Task.status == TaskStatus.PENDING.value)
+    )
     todays_tasks = list(
         (await db.execute(pending.where(Task.due_date == now).order_by(Task.id))).scalars()
     )
@@ -120,11 +94,19 @@ async def dashboard(
 
     kiddings_stmt = (
         select(BreedingRecord)
-        .options(selectinload(BreedingRecord.doe))
+        .options(
+            selectinload(BreedingRecord.doe),
+            selectinload(BreedingRecord.buck),
+            selectinload(BreedingRecord.kidding_record),
+        )
+        .join(Animal, BreedingRecord.doe_id == Animal.id)
         .where(
             BreedingRecord.farm_id == farm.id,
             BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
             BreedingRecord.expected_kidding_date <= now + timedelta(days=14),
+            # Defensive: pregnancies of sold/dead does are auto-resolved on
+            # the status change, but legacy phantom rows must never list here.
+            Animal.status == AnimalStatus.ACTIVE.value,
         )
         .order_by(BreedingRecord.expected_kidding_date)
     )
@@ -136,6 +118,7 @@ async def dashboard(
         (
             await db.execute(
                 select(Animal)
+                .options(*ANIMAL_OUT_LOADS)
                 .where(
                     Animal.farm_id == farm.id,
                     Animal.cull_candidate.is_(True),
@@ -174,10 +157,10 @@ async def dashboard(
         total_active=len(active_animals),
         sex_counts=sex_counts,
         status_totals=status_totals,
-        todays_tasks=[_task_out(t) for t in todays_tasks],
-        overdue_tasks=[_task_out(t) for t in overdue_tasks],
-        ultrasounds_due=[_task_out(t) for t in ultrasounds_due],
-        kiddings_due=[_breeding_out(r) for r in kiddings_due],
+        todays_tasks=[task_out(t) for t in todays_tasks],
+        overdue_tasks=[task_out(t) for t in overdue_tasks],
+        ultrasounds_due=[task_out(t) for t in ultrasounds_due],
+        kiddings_due=[breeding_out(r) for r in kiddings_due],
         cull_candidates=[AnimalOut.model_validate(a) for a in cull_candidates],
         suggestions=[
             MoveSuggestionOut(
@@ -191,96 +174,187 @@ async def dashboard(
 
 @router.get("/reports")
 async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> ReportsOut:
-    animals = list((await db.execute(select(Animal).where(Animal.farm_id == farm.id))).scalars())
-    active = [a for a in animals if a.status == AnimalStatus.ACTIVE.value]
+    """Herd summary, breeding performance, mortality — all aggregated in SQL
+    (AUDIT 5-H2); only the cull-candidate list is hydrated as ORM rows."""
 
     # --- herd summary -------------------------------------------------------
     defs = list(
         (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
     )
+    # Latest weight record per animal (date, then id — same key as
+    # Animal.latest_weight), falling back to birth_weight like the property.
+    latest_weight = (
+        select(WeightRecord.weight_kg)
+        .where(WeightRecord.animal_id == Animal.id)
+        .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+        # Scalar subquery must return at most one row per animal — without the
+        # LIMIT, a second weight record raises CardinalityViolationError (500).
+        .limit(1)
+        .correlate(Animal)
+        .scalar_subquery()
+    )
+    effective_weight = func.coalesce(latest_weight, Animal.birth_weight)
+    bucket_stats = (
+        await db.execute(
+            select(
+                Animal.current_bucket,
+                func.count(),
+                # avg over animals with a usable weight only (the old Python
+                # version skipped None and 0.0 weights).
+                func.avg(effective_weight).filter(
+                    effective_weight.is_not(None), effective_weight != 0
+                ),
+            )
+            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+            .group_by(Animal.current_bucket)
+        )
+    ).all()
+    per_bucket = {code: (int(count), avg) for code, count, avg in bucket_stats}
     bucket_rows: list[BucketReportRow] = []
     for d in defs:
-        members = [a for a in active if a.current_bucket == d.code]
-        weights = [w for a in members if (w := a.latest_weight_kg)]
+        count, avg = per_bucket.get(d.code, (0, None))
         bucket_rows.append(
             BucketReportRow(
                 name=d.name,
                 code=d.code,
-                count=len(members),
-                avg_weight=round(sum(weights) / len(weights), 1) if weights else None,
+                count=count,
+                avg_weight=round(float(avg), 1) if avg is not None else None,
             )
         )
+    total_active = sum(count for count, _ in per_bucket.values())
+
+    status_rows = (
+        await db.execute(
+            select(Animal.status, func.count())
+            .where(Animal.farm_id == farm.id)
+            .group_by(Animal.status)
+        )
+    ).all()
+    status_counts = {str(status): int(count) for status, count in status_rows}
+    sex_rows = (
+        await db.execute(
+            select(Animal.sex, func.count())
+            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+            .group_by(Animal.sex)
+        )
+    ).all()
     sex_counts: dict[str, int] = {"M": 0, "F": 0}
-    status_counts: dict[str, int] = defaultdict(int)
-    for a in animals:
-        status_counts[a.status] += 1
-        if a.status == AnimalStatus.ACTIVE.value:
-            sex_counts[a.sex] = sex_counts.get(a.sex, 0) + 1
+    for sex, count in sex_rows:
+        sex_counts[str(sex)] = int(count)
 
     # --- breeding performance ----------------------------------------------
-    records = list(
-        (
-            await db.execute(select(BreedingRecord).where(BreedingRecord.farm_id == farm.id))
-        ).scalars()
+    completed = BreedingRecord.outcome != BreedingOutcome.PENDING.value
+    confirmed = BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value
+    first_cycle = BreedingRecord.heat_cycle_number == 1
+    (
+        total_records,
+        completed_count,
+        confirmed_count,
+        fc_completed,
+        fc_confirmed,
+    ) = (
+        await db.execute(
+            select(
+                func.count(),
+                func.count().filter(completed),
+                func.count().filter(confirmed),
+                func.count().filter(completed, first_cycle),
+                func.count().filter(confirmed, first_cycle),
+            ).where(BreedingRecord.farm_id == farm.id)
+        )
+    ).one()
+
+    def _rate(num: int, den: int) -> float | None:
+        return round(100.0 * num / den, 1) if den else None
+
+    # Per-kidding alive counts (kiddings with zero kid entries still count).
+    alive_counts = (
+        select(
+            KiddingRecord.id.label("kidding_id"),
+            func.count(KidEntry.id).filter(KidEntry.status == KidStatus.ALIVE.value).label("alive"),
+        )
+        .outerjoin(KidEntry, KidEntry.kidding_record_id == KiddingRecord.id)
+        .where(KiddingRecord.farm_id == farm.id)
+        .group_by(KiddingRecord.id)
+        .subquery()
     )
-    first_cycle = [r for r in records if r.heat_cycle_number == 1]
-    kiddings = list(
+    kiddings_count, multi_kid, total_alive = (
+        await db.execute(
+            select(
+                func.count(),
+                func.count().filter(alive_counts.c.alive >= 2),
+                func.coalesce(func.sum(alive_counts.c.alive), 0),
+            ).select_from(alive_counts)
+        )
+    ).one()
+
+    cull_candidates = list(
         (
             await db.execute(
-                select(KiddingRecord)
-                .options(selectinload(KiddingRecord.kids))
-                .where(KiddingRecord.farm_id == farm.id)
+                select(Animal)
+                .options(*ANIMAL_OUT_LOADS)
+                .where(
+                    Animal.farm_id == farm.id,
+                    Animal.cull_candidate.is_(True),
+                    Animal.status == AnimalStatus.ACTIVE.value,
+                )
+                .order_by(Animal.tag_number)
             )
         ).scalars()
     )
-    kid_entries = list(
-        (
-            await db.execute(
-                select(KidEntry)
-                .join(KiddingRecord, KidEntry.kidding_record_id == KiddingRecord.id)
-                .where(KiddingRecord.farm_id == farm.id)
-            )
-        ).scalars()
-    )
-    alive_per_kidding = [
-        sum(1 for e in k.kids if e.status == KidStatus.ALIVE.value) for k in kiddings
-    ]
-    multi_kid = sum(1 for n in alive_per_kidding if n >= 2)
-    cull_candidates = [a for a in active if a.cull_candidate]
 
     breeding_stats = BreedingStatsOut(
-        total_records=len(records),
-        conception_rate=conception_rate(records),
-        first_cycle_rate=conception_rate(first_cycle),
-        kiddings=len(kiddings),
+        total_records=total_records,
+        conception_rate=_rate(confirmed_count, completed_count),
+        first_cycle_rate=_rate(fc_confirmed, fc_completed),
+        kiddings=kiddings_count,
         kids_per_kidding=(
-            round(sum(alive_per_kidding) / len(alive_per_kidding), 2) if alive_per_kidding else None
+            round(float(total_alive) / kiddings_count, 2) if kiddings_count else None
         ),
-        twin_rate=round(100.0 * multi_kid / len(kiddings), 1) if kiddings else None,
+        twin_rate=_rate(multi_kid, kiddings_count),
         cull_candidates=[AnimalOut.model_validate(a) for a in cull_candidates],
     )
 
     # --- mortality ------------------------------------------------------------
-    deaths_by_month: dict[str, int] = defaultdict(int)
-    for a in animals:
-        if a.status == AnimalStatus.DEAD.value and a.status_date:
-            deaths_by_month[a.status_date.strftime("%Y-%m")] += 1
-    total_kids = len(kid_entries)
-    stillborn = sum(1 for e in kid_entries if e.status == KidStatus.STILLBORN.value)
+    month_col = func.to_char(Animal.status_date, "YYYY-MM")
+    death_rows = (
+        await db.execute(
+            select(month_col, func.count())
+            .where(
+                Animal.farm_id == farm.id,
+                Animal.status == AnimalStatus.DEAD.value,
+                Animal.status_date.is_not(None),
+            )
+            .group_by(month_col)
+        )
+    ).all()
+    deaths_by_month = sorted(
+        ((str(month), int(count)) for month, count in death_rows), reverse=True
+    )
+    total_kids, stillborn = (
+        await db.execute(
+            select(
+                func.count(KidEntry.id),
+                func.count(KidEntry.id).filter(KidEntry.status == KidStatus.STILLBORN.value),
+            )
+            .join(KiddingRecord, KidEntry.kidding_record_id == KiddingRecord.id)
+            .where(KiddingRecord.farm_id == farm.id)
+        )
+    ).one()
 
     mortality = MortalityOut(
         total_deaths=status_counts.get(AnimalStatus.DEAD.value, 0),
-        deaths_by_month=sorted(deaths_by_month.items(), reverse=True),
+        deaths_by_month=deaths_by_month,
         total_kids_born=total_kids,
         stillborn=stillborn,
-        stillborn_rate=round(100.0 * stillborn / total_kids, 1) if total_kids else None,
+        stillborn_rate=_rate(stillborn, total_kids),
     )
 
     return ReportsOut(
         bucket_rows=bucket_rows,
-        total_active=len(active),
+        total_active=total_active,
         sex_counts=sex_counts,
-        status_counts=dict(status_counts),
+        status_counts=status_counts,
         breeding=breeding_stats,
         mortality=mortality,
     )

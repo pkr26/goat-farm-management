@@ -3,7 +3,8 @@
  * password minimum with the exact boundary, optional name capped at 120
  * chars), the submit contract (blank name → null in the POST body, token
  * stored via signIn, navigation to /farm-select), and server-error
- * surfacing (400 detail vs generic message for anything else).
+ * surfacing (any ApiError's detail is shown; only a network failure gets
+ * the generic fallback — audit 7-2/8-3).
  *
  * Note: the page has no confirm-password field, so mismatch validation
  * does not exist to test.
@@ -281,7 +282,7 @@ describe("RegisterPage", () => {
       expect(pushMock).not.toHaveBeenCalled();
     });
 
-    it("shows the generic message on a 409 (only 400 details are surfaced)", async () => {
+    it("surfaces the server detail on a 409", async () => {
       server.use(
         http.post("/api/auth/register", () =>
           HttpResponse.json({ detail: "conflict detail" }, { status: 409 }),
@@ -292,13 +293,33 @@ describe("RegisterPage", () => {
       renderWithProviders(<RegisterPage />);
       await submitValid(user);
 
+      expect(await screen.findByText("conflict detail")).toBeInTheDocument();
       expect(
-        await screen.findByText("Could not register — is the backend running?"),
-      ).toBeInTheDocument();
-      expect(screen.queryByText("conflict detail")).not.toBeInTheDocument();
+        screen.queryByText("Could not register — is the backend running?"),
+      ).not.toBeInTheDocument();
     });
 
-    it("shows the generic message on a 500", async () => {
+    it("surfaces the rate-limit detail on a 429 (audit 7-2/8-3)", async () => {
+      server.use(
+        http.post("/api/auth/register", () =>
+          HttpResponse.json(
+            { detail: "Too many attempts — please try again later." },
+            { status: 429 },
+          ),
+        ),
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<RegisterPage />);
+      await submitValid(user);
+
+      expect(
+        await screen.findByText("Too many attempts — please try again later."),
+      ).toBeInTheDocument();
+      expect(pushMock).not.toHaveBeenCalled();
+    });
+
+    it("surfaces the server detail on a 500", async () => {
       server.use(
         http.post("/api/auth/register", () =>
           HttpResponse.json({ detail: "unique constraint failed" }, { status: 500 }),
@@ -309,9 +330,7 @@ describe("RegisterPage", () => {
       renderWithProviders(<RegisterPage />);
       await submitValid(user);
 
-      expect(
-        await screen.findByText("Could not register — is the backend running?"),
-      ).toBeInTheDocument();
+      expect(await screen.findByText("unique constraint failed")).toBeInTheDocument();
       expect(pushMock).not.toHaveBeenCalled();
     });
 

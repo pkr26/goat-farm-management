@@ -34,6 +34,7 @@ import type {
   BreedingRecordOut,
   BreedsOut,
   BucketBoardRow,
+  ChangePasswordIn,
   CompareScenariosApiSimulationScenariosCompareGetParams,
   DashboardOut,
   DispenseIn,
@@ -48,6 +49,7 @@ import type {
   HTTPValidationError,
   HealthEventIn,
   HealthEventOut,
+  HealthzHealthzGet200,
   HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
   KiddingCreateIn,
@@ -118,6 +120,234 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export type healthzHealthzGetResponse200 = {
+  data: HealthzHealthzGet200
+  status: 200
+}
+
+export type healthzHealthzGetResponseSuccess = (healthzHealthzGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type healthzHealthzGetResponse = (healthzHealthzGetResponseSuccess)
+
+export const getHealthzHealthzGetUrl = () => {
+
+
+
+
+  return `/healthz`
+}
+
+/**
+ * Liveness: the process is up. Unauthenticated, no dependencies.
+ * @summary Healthz
+ */
+export const healthzHealthzGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<healthzHealthzGetResponse> => {
+
+  return customInstance<healthzHealthzGetResponse>(getHealthzHealthzGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getHealthzHealthzGetQueryKey = () => {
+    return [
+    `/healthz`
+    ] as const;
+    }
+
+
+export const getHealthzHealthzGetQueryOptions = <TData = Awaited<ReturnType<typeof healthzHealthzGet>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthzHealthzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getHealthzHealthzGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthzHealthzGet>>> = ({ signal }) => healthzHealthzGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthzHealthzGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type HealthzHealthzGetQueryResult = NonNullable<Awaited<ReturnType<typeof healthzHealthzGet>>>
+export type HealthzHealthzGetQueryError = ErrorType<unknown>
+
+
+export function useHealthzHealthzGet<TData = Awaited<ReturnType<typeof healthzHealthzGet>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthzHealthzGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthzHealthzGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthzHealthzGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthzHealthzGet<TData = Awaited<ReturnType<typeof healthzHealthzGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthzHealthzGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthzHealthzGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthzHealthzGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthzHealthzGet<TData = Awaited<ReturnType<typeof healthzHealthzGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthzHealthzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Healthz
+ */
+
+export function useHealthzHealthzGet<TData = Awaited<ReturnType<typeof healthzHealthzGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthzHealthzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getHealthzHealthzGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type readyzReadyzGetResponse200 = {
+  data: unknown
+  status: 200
+}
+
+export type readyzReadyzGetResponseSuccess = (readyzReadyzGetResponse200) & {
+  headers: Headers;
+};
+;
+
+export type readyzReadyzGetResponse = (readyzReadyzGetResponseSuccess)
+
+export const getReadyzReadyzGetUrl = () => {
+
+
+
+
+  return `/readyz`
+}
+
+/**
+ * Readiness: the DB pool can serve a query (SELECT 1).
+ * @summary Readyz
+ */
+export const readyzReadyzGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<readyzReadyzGetResponse> => {
+
+  return customInstance<readyzReadyzGetResponse>(getReadyzReadyzGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getReadyzReadyzGetQueryKey = () => {
+    return [
+    `/readyz`
+    ] as const;
+    }
+
+
+export const getReadyzReadyzGetQueryOptions = <TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getReadyzReadyzGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof readyzReadyzGet>>> = ({ signal }) => readyzReadyzGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ReadyzReadyzGetQueryResult = NonNullable<Awaited<ReturnType<typeof readyzReadyzGet>>>
+export type ReadyzReadyzGetQueryError = ErrorType<unknown>
+
+
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof readyzReadyzGet>>,
+          TError,
+          Awaited<ReturnType<typeof readyzReadyzGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof readyzReadyzGet>>,
+          TError,
+          Awaited<ReturnType<typeof readyzReadyzGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Readyz
+ */
+
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getReadyzReadyzGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export type registerApiAuthRegisterPostResponse201 = {
   data: TokenOut
@@ -463,6 +693,99 @@ export const useLogoutApiAuthLogoutPost = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getLogoutApiAuthLogoutPostMutationOptions(options), queryClient);
+    }
+
+export type changePasswordApiAuthChangePasswordPostResponse200 = {
+  data: TokenOut
+  status: 200
+}
+
+export type changePasswordApiAuthChangePasswordPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type changePasswordApiAuthChangePasswordPostResponseSuccess = (changePasswordApiAuthChangePasswordPostResponse200) & {
+  headers: Headers;
+};
+export type changePasswordApiAuthChangePasswordPostResponseError = (changePasswordApiAuthChangePasswordPostResponse422) & {
+  headers: Headers;
+};
+
+export type changePasswordApiAuthChangePasswordPostResponse = (changePasswordApiAuthChangePasswordPostResponseSuccess | changePasswordApiAuthChangePasswordPostResponseError)
+
+export const getChangePasswordApiAuthChangePasswordPostUrl = () => {
+
+
+
+
+  return `/api/auth/change-password`
+}
+
+/**
+ * LOW 0-6: self-service password change. Requires the current password,
+ * revokes EVERY outstanding refresh session (0-1 logout-everywhere), then
+ * issues a fresh pair so the current device stays signed in.
+ * @summary Change Password
+ */
+export const changePasswordApiAuthChangePasswordPost = async (changePasswordIn: ChangePasswordIn, options?: Parameters<typeof customInstance>[1]): Promise<changePasswordApiAuthChangePasswordPostResponse> => {
+
+  return customInstance<changePasswordApiAuthChangePasswordPostResponse>(getChangePasswordApiAuthChangePasswordPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(changePasswordIn)
+  }
+);}
+
+
+
+
+
+export const getChangePasswordApiAuthChangePasswordPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changePasswordApiAuthChangePasswordPost>>, TError,{data: ChangePasswordIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof changePasswordApiAuthChangePasswordPost>>, TError,{data: ChangePasswordIn}, TContext> => {
+
+const mutationKey = ['changePasswordApiAuthChangePasswordPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof changePasswordApiAuthChangePasswordPost>>, {data: ChangePasswordIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  changePasswordApiAuthChangePasswordPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ChangePasswordApiAuthChangePasswordPostMutationResult = NonNullable<Awaited<ReturnType<typeof changePasswordApiAuthChangePasswordPost>>>
+    export type ChangePasswordApiAuthChangePasswordPostMutationBody = ChangePasswordIn
+    export type ChangePasswordApiAuthChangePasswordPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Change Password
+ */
+export const useChangePasswordApiAuthChangePasswordPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof changePasswordApiAuthChangePasswordPost>>, TError,{data: ChangePasswordIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof changePasswordApiAuthChangePasswordPost>>,
+        TError,
+        {data: ChangePasswordIn},
+        TContext
+      > => {
+      return useMutation(getChangePasswordApiAuthChangePasswordPostMutationOptions(options), queryClient);
     }
 
 export type meApiAuthMeGetResponse200 = {
@@ -4708,6 +5031,8 @@ export const getReportsApiDashboardReportsGetUrl = () => {
 }
 
 /**
+ * Herd summary, breeding performance, mortality — all aggregated in SQL
+ * (AUDIT 5-H2); only the cull-candidate list is hydrated as ORM rows.
  * @summary Reports
  */
 export const reportsApiDashboardReportsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<reportsApiDashboardReportsGetResponse> => {
@@ -4952,9 +5277,11 @@ export const getCreateWorkerApiTeamWorkersPostUrl = () => {
  * that owns no farm and belongs to no other farm's team. Accounts and
  * passwords are global, so absorbing an account affiliated with another
  * farm would hand this farm a cross-tenant takeover path (reset-password
- * rewrites the global password). Residual limitation: there is no
- * invitation/consent flow yet — an unaffiliated account is enrolled without
- * the account holder's say-so.
+ * rewrites the global password). Cross-farm refusals share ONE generic
+ * message (LOW 1-4) so probing arbitrary emails can't reveal other farms'
+ * roster state. Residual limitation: there is no invitation/consent flow
+ * yet — an unaffiliated account is enrolled without the account holder's
+ * say-so.
  * @summary Create Worker
  */
 export const createWorkerApiTeamWorkersPost = async (workerCreateIn: WorkerCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createWorkerApiTeamWorkersPostResponse> => {
@@ -5229,9 +5556,8 @@ export const getResetPasswordApiTeamWorkersMembershipIdResetPasswordPostUrl = (m
  * Rewrite a worker's GLOBAL password. Restricted to accounts whose sole
  * farm affiliation is this one (the accounts this farm created): resetting
  * the password of an account tied to another farm would be a cross-tenant
- * takeover. Residual limitation: without an invitation/consent flow, the
- * farm-set password is the account's only credential — the worker cannot
- * yet change it himself.
+ * takeover. All of the worker's live refresh sessions are revoked (HIGH
+ * 0-1) — a reset done because the account is suspect must end its sessions.
  * @summary Reset Password
  */
 export const resetPasswordApiTeamWorkersMembershipIdResetPasswordPost = async (membershipId: number,
@@ -5594,7 +5920,8 @@ export const getListBreedsApiSimulationDefaultsBreedsGetUrl = () => {
 }
 
 /**
- * Available breed presets and production systems.
+ * Available breed presets and production systems (global reference data —
+ * any authenticated user, no farm context needed).
  * @summary List Breeds
  */
 export const listBreedsApiSimulationDefaultsBreedsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listBreedsApiSimulationDefaultsBreedsGetResponse> => {
@@ -5722,7 +6049,10 @@ export const getBreedDefaultsApiSimulationDefaultsGetUrl = (params?: BreedDefaul
 }
 
 /**
- * Default assumptions for a breed + production system (400 on unknown).
+ * Default assumptions for a breed + production system (400 on unknown breed;
+ * 422 on an unknown system — the Literal query type validates it, AUDIT 4-L2).
+ *
+ * Global reference data: any authenticated user, no farm context needed.
  * @summary Breed Defaults
  */
 export const breedDefaultsApiSimulationDefaultsGet = async (params?: BreedDefaultsApiSimulationDefaultsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<breedDefaultsApiSimulationDefaultsGetResponse> => {
@@ -5853,7 +6183,8 @@ export const getHerdSnapshotApiSimulationHerdSnapshotGetUrl = (params?: HerdSnap
  * Group the farm's ACTIVE animals into simulation starting cohorts:
  * kid 0-2 m, weaner 3-5 m, grower 6 m up to breeding age, adult at breeding
  * age (doe threshold = the breed's age-at-first-breeding, buck at 12 m;
- * unknown age counts as adult).
+ * unknown age counts as adult). The bucketing itself lives in
+ * ``app.simulation.snapshot.herd_cohorts``.
  * @summary Herd Snapshot
  */
 export const herdSnapshotApiSimulationHerdSnapshotGet = async (params?: HerdSnapshotApiSimulationHerdSnapshotGetParams, options?: Parameters<typeof customInstance>[1]): Promise<herdSnapshotApiSimulationHerdSnapshotGetResponse> => {
@@ -6282,9 +6613,10 @@ export const getCompareScenariosApiSimulationScenariosCompareGetUrl = (params: C
 }
 
 /**
- * Run 2+ stored scenarios deterministically side by side (``ids=1,2``).
+ * Run stored scenarios deterministically side by side (``ids=1,2``).
  *
  * Duplicate ids are collapsed (a repeated id must not re-run a simulation);
+ * a single distinct id is accepted and simply returns that scenario's run;
  * more than MAX_COMPARE_IDS distinct ids is a 400.
  * @summary Compare Scenarios
  */

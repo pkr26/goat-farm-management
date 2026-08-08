@@ -111,7 +111,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const { user, farms, farmId, loading, signOut } = useAuth();
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -144,6 +144,12 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           </Link>
         </SidebarHeader>
         <SidebarContent>
+          {/* A failed permissions call must not look like "no access" (7-6). */}
+          {permsError && (
+            <p className="px-4 py-2 text-sm text-destructive">
+              Could not load your permissions — refresh the page to try again.
+            </p>
+          )}
           {visibleGroups.map((group) => (
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>

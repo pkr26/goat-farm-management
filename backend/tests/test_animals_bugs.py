@@ -8,6 +8,7 @@ column widths → 422. Do not weaken these assertions.
 """
 
 import httpx
+import pytest
 
 from .conftest import owner_with_farm
 
@@ -93,3 +94,29 @@ async def test_status_notes_over_255_chars_not_500(client: httpx.AsyncClient) ->
         headers=owner,
     )
     assert resp.status_code in (200, 422)
+
+
+# FIXED — regression test (AUDIT 2-8)
+# create_animal's auto-tag retry branch was dead code: after the collision
+# rollback every ORM object is expired, so the retry's `farm.id` access was a
+# forbidden sync refresh on the AsyncSession (MissingGreenlet → 500) instead
+# of the intended retry with a fresh generated tag. farm.id is now captured
+# before the loop.
+async def test_auto_tag_retry_after_collision_succeeds(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    await _make_animal(client, owner, tag="G-DUP01")
+    tags = iter(["G-DUP01", "G-NEW01"])  # first generated tag collides, retry wins
+
+    async def fake_generate_unique_tag(db: object, farm_id: int, attempts: int = 10) -> str:
+        return next(tags)
+
+    monkeypatch.setattr("app.api.animals.generate_unique_tag", fake_generate_unique_tag)
+    resp = await client.post(
+        "/api/animals",
+        json={"sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
+        headers=owner,
+    )
+    assert resp.status_code == 201, resp.text  # never the MissingGreenlet 500
+    assert resp.json()["tag_number"] == "G-NEW01"

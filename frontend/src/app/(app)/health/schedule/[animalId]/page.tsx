@@ -80,7 +80,7 @@ function dateOrDash(value: string | null): string {
 }
 
 export default function VaccinationSchedulePage() {
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("health.view");
   const params = useParams<{ animalId: string }>();
   const animalId = Number(params.animalId);
@@ -93,6 +93,13 @@ export default function VaccinationSchedulePage() {
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;

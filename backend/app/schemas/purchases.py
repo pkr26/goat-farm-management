@@ -5,12 +5,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..models import MAX_AGE_MONTHS, MAX_BATCH_COUNT  # single source (AUDIT 4-M4)
 from .animals import AnimalOut
 from .common import NonNegativeMoneyFloat, NonNegativeWeightKgFloat, PastOrTodayDate
 from .tasks import TaskOut
-
-MAX_BATCH_COUNT = 1000  # mirrors services caps
-MAX_AGE_MONTHS = 240
 
 
 class PurchaseBatchIn(BaseModel):

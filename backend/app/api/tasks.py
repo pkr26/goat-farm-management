@@ -13,19 +13,18 @@ not the bare complete endpoint.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import (
+    VERIFICATION_REQUIRED_CATEGORIES,
+    Animal,
     Farm,
     FarmMembership,
     Role,
     Task,
-    TaskCategory,
     TaskStatus,
-    User,
 )
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskTabsOut
@@ -33,11 +32,12 @@ from ..services import (
     complete_task,
     create_manual_task,
     reject_task,
-    spawn_next_occurrence,
+    skip_task,
     task_scope,
     verify_task,
 )
 from ..utils import today
+from ._shared import TASK_LOADS, task_action_url, task_out, visible_to
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
@@ -46,41 +46,9 @@ CREATE = Annotated[set[str], Depends(require_perm("tasks.create"))]
 COMPLETE = Annotated[set[str], Depends(require_perm("tasks.complete"))]
 VERIFY = Annotated[set[str], Depends(require_perm("tasks.verify"))]
 
-# Display enrichment needs these loaded up front — async forbids lazy loads.
-_TASK_LOADS = (
-    selectinload(Task.assigned_role),
-    selectinload(Task.assigned_user),
-    selectinload(Task.animal),
-)
-
-
-def task_action_url(task: Task) -> str | None:
-    """Frontend path of the form that closes this duty, when completing it
-    means recording data (v1's task_action_url, paths unchanged)."""
-    if task.category == TaskCategory.ULTRASOUND.value and task.breeding_record_id:
-        return f"/breeding/{task.breeding_record_id}/ultrasound"
-    if task.category == TaskCategory.KIDDING_DUE.value and task.breeding_record_id:
-        return f"/kidding/new?breeding_id={task.breeding_record_id}"
-    if task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value):
-        params = f"task_id={task.id}"
-        if task.animal_id:
-            params += f"&animal_id={task.animal_id}"
-        if task.purchase_batch_id:
-            params += f"&purchase_batch_id={task.purchase_batch_id}"
-        return f"/health/new?{params}"
-    return None
-
-
-def _task_out(task: Task) -> TaskOut:
-    """Out model + display enrichment. Callers must have loaded the
-    assigned_role / assigned_user / animal relationships (_TASK_LOADS)."""
-    out = TaskOut.model_validate(task)
-    out.assigned_role_name = task.assigned_role.name if task.assigned_role else None
-    out.assigned_user_name = task.assigned_user.display_name if task.assigned_user else None
-    out.animal_tag = task.animal.tag_number if task.animal else None
-    out.needs_verification = task.needs_verification
-    out.action_url = task_action_url(task)
-    return out
+# Display enrichment loads (TASK_LOADS), task_action_url, task_out and
+# visible_to live in `._shared` (AUDIT 4-M3) — single source of truth shared
+# with the dashboard/breeding/kidding/health routers.
 
 
 async def _get_task(
@@ -90,7 +58,7 @@ async def _get_task(
     # int32 DataError (500).
     if task_id > MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Task not found")
-    stmt = select(Task).options(*_TASK_LOADS).where(Task.id == task_id)
+    stmt = select(Task).options(*TASK_LOADS).where(Task.id == task_id)
     if for_update:
         # SELECT ... FOR UPDATE: concurrent complete/skip/verify/reject calls
         # serialize on the row — the loser re-reads the committed status and
@@ -104,15 +72,6 @@ async def _get_task(
     return task
 
 
-def _visible_to(task: Task, user: User, farm: Farm, membership: FarmMembership | None) -> bool:
-    """Workers may act only on duties shown to them by task_scope."""
-    if farm.owner_id == user.id:
-        return True
-    return task.assigned_user_id == user.id or bool(
-        membership and task.assigned_role_id and task.assigned_role_id == membership.role_id
-    )
-
-
 @router.get("")
 async def list_tasks(
     db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: VIEW
@@ -120,7 +79,7 @@ async def list_tasks(
     """All five v1 tabs in one payload; per-tab counts are the list lengths
     (the completed history keeps v1's 100-row cap)."""
     now = today()
-    scoped = (await task_scope(db, farm, user)).options(*_TASK_LOADS)
+    scoped = (await task_scope(db, farm, user)).options(*TASK_LOADS)
     pending = scoped.where(Task.status == TaskStatus.PENDING.value)
 
     # Verification views are farm-wide for tasks.verify holders: a verifier
@@ -128,7 +87,7 @@ async def list_tasks(
     # what they must see.
     can_verify = "tasks.verify" in perms
     review_base = (
-        select(Task).where(Task.farm_id == farm.id).options(*_TASK_LOADS) if can_verify else scoped
+        select(Task).where(Task.farm_id == farm.id).options(*TASK_LOADS) if can_verify else scoped
     )
     done_base = review_base.where(Task.status == TaskStatus.DONE.value)
 
@@ -139,31 +98,40 @@ async def list_tasks(
     upcoming_rows = (
         await db.execute(pending.where(Task.due_date > now).order_by(Task.due_date, Task.id))
     ).scalars()
-    awaiting = [
-        t
-        for t in (await db.execute(done_base.order_by(Task.completed_at.desc()))).scalars()
-        if t.needs_verification
-    ]
+    # Awaiting verification: DONE + a verification-required category (CLEANING)
+    # — filtered in SQL (AUDIT 5-M3), not by loading the whole DONE pile.
+    awaiting = list(
+        (
+            await db.execute(
+                done_base.where(Task.category.in_(VERIFICATION_REQUIRED_CATEGORIES)).order_by(
+                    Task.completed_at.desc()
+                )
+            )
+        ).scalars()
+    )
+    # The completed-tab predicate runs in SQL BEFORE the 100-row cap: skipped
+    # duties (owner sees them), duties needing no verification, and verified
+    # ones — previously the newest 100 rows were filtered in Python, so a DONE
+    # pile dominated by unverified CLEANING rows starved the tab.
     finished = review_base.where(
         Task.status.in_(
             [TaskStatus.DONE.value, TaskStatus.VERIFIED.value, TaskStatus.SKIPPED.value]
-        )
+        ),
+        or_(
+            Task.status == TaskStatus.SKIPPED.value,
+            Task.status == TaskStatus.VERIFIED.value,
+            Task.category.notin_(VERIFICATION_REQUIRED_CATEGORIES),
+        ),
     )
-    completed = [
-        t
-        for t in (
-            await db.execute(finished.order_by(Task.completed_at.desc()).limit(100))
-        ).scalars()
-        if t.status == TaskStatus.SKIPPED.value  # owner sees skipped duties too
-        or not t.needs_verification
-        or t.status == TaskStatus.VERIFIED.value
-    ]
+    completed = list(
+        (await db.execute(finished.order_by(Task.completed_at.desc()).limit(100))).scalars()
+    )
     return TaskTabsOut(
-        today=[_task_out(t) for t in today_rows],
-        overdue=[_task_out(t) for t in overdue_rows],
-        upcoming=[_task_out(t) for t in upcoming_rows],
-        awaiting=[_task_out(t) for t in awaiting],
-        completed=[_task_out(t) for t in completed],
+        today=[task_out(t) for t in today_rows],
+        overdue=[task_out(t) for t in overdue_rows],
+        upcoming=[task_out(t) for t in upcoming_rows],
+        awaiting=[task_out(t) for t in awaiting],
+        completed=[task_out(t) for t in completed],
     )
 
 
@@ -207,8 +175,8 @@ async def create_task(
         recur_days=payload.recur_days,
     )
     await db.commit()
-    # Re-fetch with _TASK_LOADS so _task_out can read the relationships.
-    return _task_out(await _get_task(db, farm, task.id))
+    # Re-fetch with TASK_LOADS so task_out can read the relationships.
+    return task_out(await _get_task(db, farm, task.id))
 
 
 @router.post("/{task_id}/complete")
@@ -220,10 +188,24 @@ async def complete(
     membership: CurrentMembership,
     perms: COMPLETE,
 ) -> TaskOut:
+    # Scalar peek (no ORM load — the locked fetch below must be the first ORM
+    # load so its status comes from the post-lock read) to learn the linked
+    # animal. Canonical lock order is ANIMAL → TASK: change_status locks the
+    # animal then its tasks, so an animal-linked completion must take the
+    # animal lock first too — completing a weaning/delivery-move duty while
+    # the doe is concurrently sold otherwise inverts the order and deadlocks
+    # (PostgreSQL kills one side with a 500).
+    peek = (
+        (await db.execute(select(Task.farm_id, Task.animal_id).where(Task.id == task_id))).first()
+        if task_id <= MAX_INT32_ID
+        else None
+    )
+    if peek is not None and peek.animal_id is not None and peek.farm_id == farm.id:
+        await db.execute(select(Animal.id).where(Animal.id == peek.animal_id).with_for_update())
     task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Task is not pending")
-    if not _visible_to(task, user, farm, membership):
+    if not visible_to(task, user, farm, membership):
         raise HTTPException(status_code=403, detail="This duty is not assigned to you")
     # Form-linked duties (see task_action_url) must be closed via their
     # form — a bare call would skip recording the ultrasound/kidding/health
@@ -236,7 +218,7 @@ async def complete(
         raise HTTPException(status_code=409, detail="This duty is not due yet")
     await complete_task(db, task, user)
     await db.commit()
-    return _task_out(task)
+    return task_out(task)
 
 
 @router.post("/{task_id}/skip")
@@ -251,15 +233,11 @@ async def skip(
     task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Task is not pending")
-    if not _visible_to(task, user, farm, membership):
+    if not visible_to(task, user, farm, membership):
         raise HTTPException(status_code=403, detail="This duty is not assigned to you")
-    task.status = TaskStatus.SKIPPED.value
-    task.skipped_by_id = user.id
-    if task.recur_days:
-        # A skipped occurrence must not kill the series.
-        await spawn_next_occurrence(db, task)
+    await skip_task(db, task, user)
     await db.commit()
-    return _task_out(task)
+    return task_out(task)
 
 
 @router.post("/{task_id}/verify")
@@ -275,7 +253,7 @@ async def verify(
         raise HTTPException(status_code=409, detail="Someone else must verify this duty")
     await verify_task(db, task, user)
     await db.commit()
-    return _task_out(task)
+    return task_out(task)
 
 
 @router.post("/{task_id}/reject")
@@ -287,4 +265,4 @@ async def reject(
         raise HTTPException(status_code=400, detail="Task is not awaiting verification")
     await reject_task(db, task, (payload.note or "").strip())
     await db.commit()
-    return _task_out(task)
+    return task_out(task)

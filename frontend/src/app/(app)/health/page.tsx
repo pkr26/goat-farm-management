@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -64,7 +64,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, formatMoney } from "@/lib/format";
+import { addDays, formatDate, formatMoney, utcToday } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 
 const EVENT_TYPES = Object.values(HealthEventInType);
@@ -86,19 +86,42 @@ function localToday(): string {
   return `${now.getFullYear()}-${m}-${d}`;
 }
 
-/** Local YYYY-MM-DD `days` from now (for the due-soon threshold). */
-function localDatePlus(days: number): string {
-  const dt = new Date();
-  dt.setDate(dt.getDate() + days);
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const d = String(dt.getDate()).padStart(2, "0");
-  return `${dt.getFullYear()}-${m}-${d}`;
+/** Product/disease hints parsed from a linked duty's title, so recorded
+ *  events match the vaccination templates instead of leaving both blank
+ *  (audit 3-1: a blank-target deworming event never matched the template). */
+export function taskPrefill(task: TaskOut): {
+  product_name?: string;
+  disease_target?: string;
+} {
+  // Strip auto-task scaffolding: "[Supplier #3] Day 4: …" → "…", and a
+  // trailing ": <animal tag>" ("Pre-kidding ET+TT vaccine: G-ABC12").
+  let title = task.title.replace(/^\[[^\]]*\]\s*/, "");
+  title = title.replace(/^Days?\s*\d+(?:[–—-]\d+)?:\s*/i, "");
+  if (task.animal_tag && title.endsWith(`: ${task.animal_tag}`)) {
+    title = title.slice(0, -`: ${task.animal_tag}`.length);
+  }
+  if (task.category === "DEWORMING") {
+    // "deworm — Albendazole/Closantel oral + Ivermectin SC": product is the
+    // drug part; the target is always the Deworming template.
+    const drug = title.split("—")[1]?.trim();
+    return { product_name: drug || undefined, disease_target: "Deworming" };
+  }
+  if (task.category === "VACCINE") {
+    // "vaccinate PPR (live viral, SC)" → "PPR".
+    const vaccinated = /vaccinate\s+(.+?)\s*(?:\(|$)/i.exec(title);
+    if (vaccinated) return { disease_target: vaccinated[1].trim() };
+    // "Pre-kidding ET+TT vaccine" → the "ET + TT pre-kidding" template.
+    if (/et\s*\+\s*tt/i.test(title)) return { disease_target: "ET + TT pre-kidding" };
+    if (title.trim()) return { disease_target: title.trim() };
+  }
+  return {};
 }
 
-/** Next-due date cell: red tint when overdue, amber when due within a week. */
+/** Next-due date cell: red tint when overdue, amber when due within a week.
+ *  Comparisons use the backend's UTC today (audit 7-5). */
 function NextDue({ date }: { date: string }) {
-  const overdue = date < localToday();
-  const dueSoon = !overdue && date <= localDatePlus(7);
+  const overdue = date < utcToday();
+  const dueSoon = !overdue && date <= addDays(utcToday(), 7);
   if (!overdue && !dueSoon) return <>{formatDate(date)}</>;
   return (
     <span
@@ -125,7 +148,7 @@ const eventSchema = z
     product_name: z.string().max(120).optional(),
     disease_target: z.string().max(120).optional(),
     dose: z.string().max(60).optional(),
-    route: z.string().optional(),
+    route: z.string().max(20).optional(),
     vet_name: z.string().max(120).optional(),
     cost: z
       .string()
@@ -160,7 +183,7 @@ function FieldError({ message }: { message?: string }) {
 }
 
 export default function HealthPage() {
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewTasks = can("tasks.view");
@@ -229,6 +252,7 @@ export default function HealthPage() {
     reset,
     control,
     setValue,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<EventValues>({
     resolver: zodResolver(eventSchema),
@@ -258,21 +282,70 @@ export default function HealthPage() {
   const wType = useWatch({ control, name: "type" });
   const scope = useWatch({ control, name: "scope" });
 
-  /** Prefill scope/target/type from a linked VACCINE/DEWORMING duty (v1 behaviour). */
+  /** Values the last linked duty prefilled — used to revert them when the
+   *  user switches back to "— none —" without clobbering manual edits
+   *  (audit 7-11). */
+  const appliedPrefillRef = useRef<{
+    scope?: EventValues["scope"];
+    type?: EventValues["type"];
+    product_name?: string;
+    disease_target?: string;
+  } | null>(null);
+
+  /** Prefill scope/target/type/product from a linked VACCINE/DEWORMING duty
+   *  (v1 behaviour + audit 3-1 product/disease hints). */
   function applyTask(taskIdStr: string) {
     setValue("task_id", taskIdStr);
+    if (taskIdStr === NONE) {
+      const prev = appliedPrefillRef.current;
+      if (prev) {
+        if (prev.scope && getValues("scope") === prev.scope) setValue("scope", "animal");
+        if (prev.type && getValues("type") === prev.type) setValue("type", "VACCINE");
+        if (
+          prev.product_name !== undefined &&
+          (getValues("product_name") ?? "") === prev.product_name
+        ) {
+          setValue("product_name", "");
+        }
+        if (
+          prev.disease_target !== undefined &&
+          (getValues("disease_target") ?? "") === prev.disease_target
+        ) {
+          setValue("disease_target", "");
+        }
+      }
+      appliedPrefillRef.current = null;
+      return;
+    }
     const task = pendingHealthTasks.find((t) => String(t.id) === taskIdStr);
     if (!task) return;
+    const applied: NonNullable<typeof appliedPrefillRef.current> = {};
     if (task.animal_id) {
+      applied.scope = "animal";
       setValue("scope", "animal");
       setValue("animal_id", String(task.animal_id));
     } else if (task.purchase_batch_id) {
+      applied.scope = "batch";
       setValue("scope", "batch");
       setValue("purchase_batch_id", String(task.purchase_batch_id));
     }
     if (task.category === "VACCINE" || task.category === "DEWORMING") {
+      applied.type = task.category;
       setValue("type", task.category);
+      // Prefill product/disease from the duty title so the recorded event
+      // matches the vaccination templates (audit 3-1). Don't overwrite text
+      // the user already typed.
+      const hints = taskPrefill(task);
+      if (hints.product_name && !(getValues("product_name") ?? "").trim()) {
+        applied.product_name = hints.product_name;
+        setValue("product_name", hints.product_name);
+      }
+      if (hints.disease_target && !(getValues("disease_target") ?? "").trim()) {
+        applied.disease_target = hints.disease_target;
+        setValue("disease_target", hints.disease_target);
+      }
     }
+    appliedPrefillRef.current = applied;
   }
 
   // /health/new?task_id=… redirects here: auto-open the dialog prefilled.
@@ -350,6 +423,13 @@ export default function HealthPage() {
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
+  }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
@@ -397,9 +477,9 @@ export default function HealthPage() {
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
-            <Label>View schedule for</Label>
+            <Label htmlFor="schedule-animal">View schedule for</Label>
             <Select value={scheduleAnimalId} onValueChange={(v) => setScheduleAnimalId(v)} items={scheduleAnimalItems}>
-              <SelectTrigger className="w-64">
+              <SelectTrigger id="schedule-animal" className="w-64">
                 <SelectValue placeholder="Pick an animal" />
               </SelectTrigger>
               <SelectContent>
@@ -504,13 +584,13 @@ export default function HealthPage() {
               </div>
               {scope === "animal" && (
                 <div className="space-y-1.5">
-                  <Label>Animal *</Label>
+                  <Label htmlFor="event-animal">Animal *</Label>
                   <Select
                     value={wAnimalId || ""}
                     onValueChange={(v) => setValue("animal_id", v, { shouldValidate: true })}
                     items={animalItems}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="event-animal" className="w-full">
                       <SelectValue placeholder="Pick an animal" />
                     </SelectTrigger>
                     <SelectContent>
@@ -527,12 +607,12 @@ export default function HealthPage() {
               )}
               {scope === "bucket" && (
                 <div className="space-y-1.5">
-                  <Label>Bucket *</Label>
+                  <Label htmlFor="event-bucket">Bucket *</Label>
                   <Select
                     value={wBucket || ""}
                     onValueChange={(v) => setValue("bucket", v, { shouldValidate: true })}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="event-bucket" className="w-full">
                       <SelectValue placeholder="Pick a bucket" />
                     </SelectTrigger>
                     <SelectContent>
@@ -548,7 +628,7 @@ export default function HealthPage() {
               )}
               {scope === "batch" && (
                 <div className="space-y-1.5">
-                  <Label>Purchase batch *</Label>
+                  <Label htmlFor="event-batch">Purchase batch *</Label>
                   <Select
                     value={wPurchaseBatchId || ""}
                     onValueChange={(v) =>
@@ -556,7 +636,7 @@ export default function HealthPage() {
                     }
                     items={batchItems}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="event-batch" className="w-full">
                       <SelectValue placeholder="Pick a batch" />
                     </SelectTrigger>
                     <SelectContent>
@@ -574,19 +654,19 @@ export default function HealthPage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="date">Date *</Label>
+                <Label htmlFor="date">Date (defaults to today)</Label>
                 <Input id="date" type="date" max={localToday()} {...register("date")} />
                 <FieldError message={errors.date?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label>Type</Label>
+                <Label htmlFor="event-type">Type</Label>
                 <Select
                   value={wType}
                   onValueChange={(v) =>
                     setValue("type", v as EventValues["type"], { shouldValidate: true })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="event-type" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -614,13 +694,13 @@ export default function HealthPage() {
                 <FieldError message={errors.dose?.message} />
               </div>
               <div className="space-y-1.5">
-                <Label>Route</Label>
+                <Label htmlFor="event-route">Route</Label>
                 <Select
                   value={wRoute || NONE}
                   onValueChange={(v) => setValue("route", v)}
                   items={ROUTE_ITEMS}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="event-route" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -649,13 +729,13 @@ export default function HealthPage() {
               </div>
               {canViewTasks && pendingHealthTasks.length > 0 && (
                 <div className="space-y-1.5">
-                  <Label>Linked duty (completes it)</Label>
+                  <Label htmlFor="event-task">Linked duty (completes it)</Label>
                   <Select
                     value={wTaskId || NONE}
                     onValueChange={(v) => applyTask(v)}
                     items={taskItems}
                   >
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="event-task" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

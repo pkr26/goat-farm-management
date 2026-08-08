@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
-import { formatDate } from "@/lib/format";
+import { formatDate, utcToday } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 
 function localToday(): string {
@@ -343,7 +343,7 @@ function KidsCell({ kidding }: { kidding: KiddingRecordOut }) {
 
 export default function KiddingPage() {
   const queryClient = useQueryClient();
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("kidding.view");
   const canManage = can("kidding.manage");
   const query = useKiddingListApiKiddingGet({ query: { enabled: allowed } });
@@ -376,6 +376,13 @@ export default function KiddingPage() {
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
+  }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
@@ -392,7 +399,8 @@ export default function KiddingPage() {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
-  const today = localToday();
+  // "Xd late" compares against the backend's UTC today, not local (7-5).
+  const today = utcToday();
 
   function recordButton(r: BreedingRecordOut) {
     if (!canManage) return null;

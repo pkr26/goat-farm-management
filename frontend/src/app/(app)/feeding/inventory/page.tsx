@@ -288,7 +288,7 @@ function MixBatchDialog() {
 }
 
 export default function InventoryPage() {
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
 
@@ -297,6 +297,13 @@ export default function InventoryPage() {
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;

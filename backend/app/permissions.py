@@ -65,12 +65,6 @@ PERMISSION_GROUPS: list[tuple[str, list[str]]] = [
     ("Team", ["team.manage"]),
 ]
 
-_PERMISSION_LABELS = dict(PERMISSIONS)
-
-
-def permission_label(code: str) -> str:
-    return _PERMISSION_LABELS.get(code, code)
-
 
 class RolePreset(TypedDict):
     code: str

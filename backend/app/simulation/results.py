@@ -41,9 +41,11 @@ class MonthlyRow(BaseModel):
     labour_cost: float
     insurance_cost: float
     misc_cost: float
-    debt_service: float  # ₹, interest + principal
-    # ₹, revenues - opex - debt service; the final month also carries the
-    # outstanding loan balance when the loan term outlives the horizon.
+    debt_service: float  # ₹, interest + principal; the final month also carries
+    # the outstanding loan balance (terminal balloon, as principal) when the
+    # loan term outlives the horizon
+    # ₹, revenues - opex - debt service (so the final month also carries the
+    # outstanding loan balance when the loan term outlives the horizon).
     net_cash_flow: float
     cumulative_cash_flow: float  # ₹, including the month-0 equity outflow
     fodder_surplus_kg: float  # green DM: cultivated supply - requirement (negative = deficit)

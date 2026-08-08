@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Search, SearchX } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { Controller, useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
@@ -193,13 +193,13 @@ function CreateAnimalDialog({
               <Input id="name" {...register("name")} />
             </div>
             <div className="space-y-1.5">
-              <Label>Sex *</Label>
+              <Label htmlFor="animal-sex">Sex *</Label>
               <Controller
                 control={control}
                 name="sex"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange} items={SEX_ITEMS}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="animal-sex" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -211,13 +211,13 @@ function CreateAnimalDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Source *</Label>
+              <Label htmlFor="animal-source">Source *</Label>
               <Controller
                 control={control}
                 name="source"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange} items={SOURCE_ITEMS}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="animal-source" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -229,13 +229,13 @@ function CreateAnimalDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Bucket *</Label>
+              <Label htmlFor="animal-bucket">Bucket *</Label>
               <Controller
                 control={control}
                 name="current_bucket"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange} items={BUCKET_ITEMS}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="animal-bucket" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -342,14 +342,37 @@ function CreateAnimalDialog({
 
 function AnimalsPageContent() {
   const queryClient = useQueryClient();
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("animals.view");
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const [bucket, setBucket] = useState(searchParams.get("bucket") ?? ALL);
   const [sex, setSex] = useState(searchParams.get("sex") ?? ALL);
   const [status, setStatus] = useState(searchParams.get("status") ?? ALL);
   const [q, setQ] = useState(searchParams.get("q") ?? "");
+  // Same-route client navigations (e.g. a dashboard bucket link while already
+  // on /animals) change the params — re-sync the filters (audit 7-8). Keyed
+  // off the param STRING: useSearchParams' object identity isn't stable.
+  const paramsKey = searchParams.toString();
+  useEffect(() => {
+    const params = new URLSearchParams(paramsKey);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBucket(params.get("bucket") ?? ALL);
+    setSex(params.get("sex") ?? ALL);
+    setStatus(params.get("status") ?? ALL);
+    setQ(params.get("q") ?? "");
+  }, [paramsKey]);
+  // ?new=1 opens the create dialog once; strip it so a reload doesn't reopen
+  // the dialog (audit 7-8).
+  useEffect(() => {
+    const params = new URLSearchParams(paramsKey);
+    if (params.get("new") !== "1") return;
+    params.delete("new");
+    const rest = params.toString();
+    router.replace(rest ? `${pathname}?${rest}` : pathname);
+  }, [paramsKey, pathname, router]);
   // Debounce the search box (~300ms) so typing doesn't fire a request per
   // keystroke; the input itself stays instant.
   const [debouncedQ, setDebouncedQ] = useState(q);
@@ -373,6 +396,13 @@ function AnimalsPageContent() {
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;

@@ -18,6 +18,7 @@ import type {
 } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, utcToday } from "@/lib/format";
 
 import DashboardPage from "./page";
 
@@ -28,15 +29,11 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-/** Local YYYY-MM-DD (mirrors the page's localToday). */
-function localISO(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-
-const TODAY = localISO(new Date());
-const THREE_DAYS_AGO = localISO(new Date(Date.now() - 3 * 86_400_000));
+/** UTC-relative fixture dates: the page compares due dates against
+ * utcToday() (audit 7-5), so fixtures built from browser-local dates drift
+ * one day whenever the local and UTC dates differ. */
+const TODAY = utcToday();
+const THREE_DAYS_AGO = addDays(TODAY, -3);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
@@ -295,6 +292,16 @@ describe("DashboardPage — populated aggregates", () => {
       "href",
       "/kidding/new?breeding_id=5",
     );
+  });
+
+  it("hides the Record shortcut without kidding.manage (audit 7-7)", async () => {
+    server.use(permissionsHandler(["dashboard.view"]), dashboardHandler(POPULATED));
+    renderWithProviders(<DashboardPage />);
+
+    // The row and doe link stay; only the Record action is gone.
+    await screen.findByText("D-101");
+    const row = rowOf("D-101");
+    expect(within(row).queryByRole("link", { name: "Record" })).not.toBeInTheDocument();
   });
 
   it("falls back to 'Doe #<id>' when the breeding record has no doe tag", async () => {

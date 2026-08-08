@@ -14,10 +14,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
+import type { FarmOut, UserOut } from "@/api/generated/models";
 import {
   apiFetch,
   setAccessToken,
@@ -25,18 +27,11 @@ import {
   setOnAuthFailure,
 } from "@/lib/api-client";
 
-export interface SessionUser {
-  id: number;
-  email: string;
-  name: string | null;
-}
-
-export interface FarmEntry {
-  id: number;
-  name: string;
-  location: string | null;
-  role: string | null; // null = owner
-}
+// Derived from the generated contract models so backend schema drift breaks
+// tsc here instead of silently diverging (audit 8-2).
+export type SessionUser = UserOut;
+/** /api/auth/farms entries always carry `role` (null = owner). */
+export type FarmEntry = FarmOut & { role: string | null };
 
 interface AuthState {
   user: SessionUser | null;
@@ -61,6 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const queryClient = useQueryClient();
+  // Guards the forced-logout path: N concurrent 401s with a failed refresh
+  // must run the cleanup once, not N times (audit 6-3).
+  const forcedLogout = useRef(false);
 
   const selectFarm = useCallback(
     (id: number) => {
@@ -74,12 +72,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
-  const signOut = useCallback(async () => {
-    try {
-      await apiFetch("/api/auth/logout", { method: "POST" });
-    } catch {
-      /* cookie may already be gone */
-    }
+  /** Full local session teardown — shared by signOut and the forced-logout
+   *  (refresh rejected, e.g. a rotated/reused refresh token now 401s) path so
+   *  both behave identically (audit 6-1/6-3). */
+  const clearSession = useCallback(() => {
     queryClient.clear();
     setAccessToken(null);
     setCurrentFarmId(null);
@@ -87,8 +83,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setFarms([]);
     setFarmIdState(null);
+  }, [queryClient]);
+
+  const signOut = useCallback(async () => {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* cookie may already be gone */
+    }
+    clearSession();
     router.push("/login");
-  }, [router, queryClient]);
+  }, [router, clearSession]);
 
   const refreshFarms = useCallback(async () => {
     const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
@@ -104,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (accessToken: string, u: SessionUser) => {
+      forcedLogout.current = false;
       setAccessToken(accessToken);
       setUser(u);
       await refreshFarms();
@@ -113,7 +119,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setOnAuthFailure(() => {
-      setUser(null);
+      // Fired when a refresh attempt is rejected (expired/revoked/reused
+      // refresh token). One cleanup per logout transition, identical to
+      // signOut's, then straight to /login — never a retry loop.
+      if (forcedLogout.current) return;
+      forcedLogout.current = true;
+      clearSession();
       router.push("/login");
     });
     (async () => {

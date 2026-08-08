@@ -23,7 +23,9 @@ from app.db import get_sessionmaker
 from app.main import create_app
 from app.models import (
     Animal,
+    AnimalStatus,
     BreedingRecord,
+    BucketFeedSetting,
     FeedRecipe,
     FeedRecipeLine,
     Task,
@@ -181,12 +183,16 @@ async def test_concurrent_double_breeding_leaves_one_open_record(
     assert records[0]["outcome"] == "PENDING"
 
 
-async def test_double_breeding_hits_open_pregnancy_constraint_409(
+async def test_double_breeding_blocked_insert_rejected_cleanly(
     client: httpx.AsyncClient,
 ) -> None:
-    """Deterministic constraint path: an uncommitted PENDING row already holds
-    the doe's slot, so the request's pre-checks pass, its INSERT blocks on
-    uq_breeding_open_pregnancy and must surface as a 409, never a 500."""
+    """Deterministic race path: an uncommitted PENDING row already holds the
+    doe's slot — and, via the FK, a key-share lock on the doe row itself.
+    create_breeding locks the doe FOR UPDATE before inserting (AUDIT 2-9),
+    so the request blocks on THAT lock (not on uq_breeding_open_pregnancy as
+    before the lock existed), re-reads the committed PENDING row after the
+    holder commits, and fails eligibility with the same 400 a sequential
+    retry gets — never a 500, and exactly one record survives."""
     owner = await owner_with_farm(client)
     doe = await make_doe(client, owner)
     buck = await make_animal(client, owner, tag="B-1", sex="M", bucket="BREEDING")
@@ -195,9 +201,9 @@ async def test_double_breeding_hits_open_pregnancy_constraint_409(
     holder.add(BreedingRecord(farm_id=farm_id, doe_id=doe, buck_id=buck, breeding_date=today()))
     await holder.flush()
 
-    # Commit the holder only once the request's INSERT is genuinely blocked
-    # on the unique index — a wall-clock sleep could fire before the request
-    # reached its INSERT under load, and the 409 would flake to a 400.
+    # Commit the holder only once the request is genuinely blocked on the
+    # doe's row lock — a wall-clock sleep could fire before the request
+    # reached its FOR UPDATE under load.
     request = asyncio.create_task(
         client.post(
             "/api/breeding",
@@ -205,12 +211,20 @@ async def test_double_breeding_hits_open_pregnancy_constraint_409(
             headers=owner,
         )
     )
-    await wait_until_blocked()
-    await holder.commit()
-    await holder.close()
-    resp = await request
-    assert resp.status_code == 409, resp.text
-    assert "unresolved breeding/pregnancy" in resp.json()["detail"]
+    try:
+        await wait_until_blocked()
+        await holder.commit()
+        resp = await request
+    finally:
+        # Never leak a lock-holding session: a failure above would leave the
+        # holder's uncommitted row lock behind, and the autouse teardown's
+        # TRUNCATE would block on it indefinitely (no timeout).
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+    assert resp.status_code == 400, resp.text
+    assert "not eligible" in resp.json()["detail"]
     resp = await client.get("/api/breeding", headers=owner)
     records = [r for r in resp.json()["records"] if r["doe_id"] == doe]
     assert len(records) == 1  # only the holder's row
@@ -304,23 +318,33 @@ async def test_create_animal_tag_race_returns_pre_check_400(client: httpx.AsyncC
     )
     await holder.flush()
 
-    async def commit_holder() -> None:
-        await asyncio.sleep(0.2)  # let the request's INSERT block on the index first
-        await holder.commit()
-        await holder.close()
-
-    committer = asyncio.create_task(commit_holder())
-    resp = await client.post(
-        "/api/animals",
-        json={
-            "tag_number": "RACE-1",
-            "sex": "F",
-            "source": "PURCHASED",
-            "current_bucket": "FOUNDATION",
-        },
-        headers=owner,
+    # Commit the holder only once the request's INSERT is genuinely blocked
+    # on the unique index — a wall-clock sleep can fire before the request
+    # reaches its INSERT under load; then the holder commits first, the
+    # request fails at the pre-check with the same 400, and the raced-INSERT
+    # → IntegrityError → 400 translation this test guards is never exercised.
+    request = asyncio.create_task(
+        client.post(
+            "/api/animals",
+            json={
+                "tag_number": "RACE-1",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": "FOUNDATION",
+            },
+            headers=owner,
+        )
     )
-    await committer
+    try:
+        await wait_until_blocked()
+        await holder.commit()
+        resp = await request
+    finally:
+        # Never leak a lock-holding session (see the B4.2 test above).
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
     assert resp.status_code == 400, resp.text
     assert resp.json()["detail"] == "Tag 'RACE-1' already exists on this farm."
     resp = await client.get("/api/animals", headers=owner, params={"status": "ACTIVE"})
@@ -458,10 +482,16 @@ async def test_skip_never_overwrites_a_committed_completion(
     skip_request = asyncio.create_task(
         client.post(f"/api/animals/{aid}/status", json={"new_status": "SOLD"}, headers=owner)
     )
-    await wait_until_blocked()  # the skipper is stuck on the completer's lock
-    await completer.commit()
-    await completer.close()
-    resp = await skip_request
+    try:
+        await wait_until_blocked()  # the skipper is stuck on the completer's lock
+        await completer.commit()
+        resp = await skip_request
+    finally:
+        # Never leak a lock-holding session (see the B4.2 test above).
+        await completer.rollback()
+        await completer.close()
+        if not skip_request.done():
+            skip_request.cancel()
     assert resp.status_code == 200, resp.text
 
     async with get_sessionmaker()() as db:
@@ -472,3 +502,471 @@ async def test_skip_never_overwrites_a_committed_completion(
         assert final.completed_at is not None
     resp = await client.get(f"/api/animals/{aid}", headers=owner)
     assert resp.json()["animal"]["status"] == "SOLD"  # the sale still went through
+
+
+# ---------------------------------------------------------------------------
+# Shared breeding-flow helpers for the AUDIT lens-2 races below
+# ---------------------------------------------------------------------------
+async def bred_doe_with_record(
+    client: httpx.AsyncClient,
+    headers: dict,
+    tag: str = "D-US",
+    breeding_date: date | None = None,
+) -> tuple[int, dict]:
+    """A breeding-ready doe + buck with one PENDING breeding (via the API)."""
+    doe = await make_doe(client, headers, tag=tag)
+    buck = await make_animal(client, headers, tag=f"{tag}-BUCK", sex="M", bucket="BREEDING")
+    resp = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe,
+            "buck_id": buck,
+            "breeding_date": iso(breeding_date or today()),
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return doe, resp.json()
+
+
+async def confirm_pregnancy(client: httpx.AsyncClient, headers: dict, br_id: int) -> None:
+    resp = await client.post(
+        f"/api/breeding/{br_id}/ultrasound",
+        json={"pregnant": True, "kid_count": 2},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def breeding_follow_ups(client: httpx.AsyncClient, headers: dict, br_id: int) -> list[dict]:
+    """The pregnancy follow-up duties spawned for a breeding record."""
+    tabs = await task_tabs(client, headers)
+    return [
+        t
+        for t in all_tasks(tabs)
+        if t["breeding_record_id"] == br_id and t["category"] != "ULTRASOUND"
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 2-1 — concurrent ultrasound submissions apply the follow-ups exactly once
+# ---------------------------------------------------------------------------
+async def test_concurrent_ultrasound_submissions_apply_once(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    doe, br = await bred_doe_with_record(client, owner)
+    payload = {"pregnant": True, "kid_count": 2}
+    async with second_client() as other:
+        await warm(other, owner)
+        r1, r2 = await asyncio.gather(
+            client.post(f"/api/breeding/{br['id']}/ultrasound", json=payload, headers=owner),
+            other.post(f"/api/breeding/{br['id']}/ultrasound", json=payload, headers=owner),
+        )
+    # The breeding row is locked FOR UPDATE: the loser re-reads the committed
+    # outcome and gets the same 409 a sequential replay gets.
+    assert sorted([r1.status_code, r2.status_code]) == [200, 409]
+    # ET+TT vaccine + Move to DELIVERY + Kidding due — exactly once, not twice.
+    assert len(await breeding_follow_ups(client, owner, br["id"])) == 3
+    resp = await client.get(f"/api/animals/{doe}", headers=owner)
+    moves = [m for m in resp.json()["moves"] if m["to_bucket"] == "PREGNANCY_EARLY"]
+    assert len(moves) == 1
+
+
+async def test_concurrent_mixed_ultrasound_results_stay_consistent(
+    client: httpx.AsyncClient,
+) -> None:
+    """A pregnant + a not-pregnant submission race: one wins outright, the
+    loser 409s — never FAILED-with-pregnancy-tasks divergent state."""
+    owner = await owner_with_farm(client)
+    _doe, br = await bred_doe_with_record(client, owner)
+    async with second_client() as other:
+        await warm(other, owner)
+        r1, r2 = await asyncio.gather(
+            client.post(
+                f"/api/breeding/{br['id']}/ultrasound",
+                json={"pregnant": True, "kid_count": 2},
+                headers=owner,
+            ),
+            other.post(
+                f"/api/breeding/{br['id']}/ultrasound",
+                json={"pregnant": False},
+                headers=owner,
+            ),
+        )
+    assert sorted([r1.status_code, r2.status_code]) == [200, 409]
+    resp = await client.get(f"/api/breeding/{br['id']}", headers=owner)
+    outcome = resp.json()["outcome"]
+    follow_ups = await breeding_follow_ups(client, owner, br["id"])
+    if outcome == "CONFIRMED_PREGNANT":
+        assert len(follow_ups) == 3
+    else:
+        assert outcome == "FAILED"
+        assert follow_ups == []  # no pregnancy tasks for a failed cycle
+
+
+# ---------------------------------------------------------------------------
+# 2-2 — a double abort runs mark_aborted exactly once
+# ---------------------------------------------------------------------------
+async def test_concurrent_double_abort_aborts_once(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    doe, br = await bred_doe_with_record(client, owner, breeding_date=today() - timedelta(days=40))
+    await confirm_pregnancy(client, owner, br["id"])
+    async with second_client() as other:
+        await warm(other, owner)
+        r1, r2 = await asyncio.gather(
+            client.post(f"/api/breeding/{br['id']}/abort", headers=owner),
+            other.post(f"/api/breeding/{br['id']}/abort", headers=owner),
+        )
+    # The loser takes the breeding-row lock, re-reads ABORTED and 409s.
+    assert sorted([r1.status_code, r2.status_code]) == [200, 409]
+    resp = await client.get(f"/api/breeding/{br['id']}", headers=owner)
+    assert resp.json()["outcome"] == "ABORTED"
+    # Exactly one "Pregnancy aborted" move and one round of task skips.
+    resp = await client.get(f"/api/animals/{doe}", headers=owner)
+    aborts = [m for m in resp.json()["moves"] if m["reason"] == "Pregnancy aborted"]
+    assert len(aborts) == 1
+    follow_ups = await breeding_follow_ups(client, owner, br["id"])
+    assert len(follow_ups) == 3
+    assert {t["status"] for t in follow_ups} == {"SKIPPED"}
+
+
+# ---------------------------------------------------------------------------
+# 2-3 — kidding vs abort: the pregnancy never ends ABORTED with live kids
+# ---------------------------------------------------------------------------
+async def test_kidding_vs_abort_never_aborted_with_live_kids(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    _doe, br = await bred_doe_with_record(
+        client, owner, breeding_date=today() - timedelta(days=150)
+    )
+    await confirm_pregnancy(client, owner, br["id"])
+    kidding_payload = {
+        "breeding_record_id": br["id"],
+        "date": iso(today()),
+        "ease": "NORMAL",
+        "kids": [{"sex": "M"}],
+    }
+    async with second_client() as other:
+        await warm(other, owner)
+        r_kid, r_abort = await asyncio.gather(
+            client.post("/api/kidding", json=kidding_payload, headers=owner),
+            other.post(f"/api/breeding/{br['id']}/abort", headers=owner),
+        )
+    # Both flows lock the doe then the breeding row: they serialize, and the
+    # loser re-reads the committed state and fails its own state guard.
+    codes = sorted([r_kid.status_code, r_abort.status_code])
+    assert codes in ([200, 400], [201, 409]), codes
+    resp = await client.get(f"/api/breeding/{br['id']}", headers=owner)
+    final = resp.json()
+    if r_kid.status_code == 201:
+        assert final["has_kidding"] is True
+        assert final["outcome"] == "CONFIRMED_PREGNANT"
+    else:
+        assert final["outcome"] == "ABORTED"
+        assert final["has_kidding"] is False
+        # No born kids from an aborted pregnancy.
+        resp = await client.get("/api/animals", headers=owner, params={"q": "D-US-K"})
+        assert resp.json()["animals"] == []
+
+
+# ---------------------------------------------------------------------------
+# 2-4 — completing the delivery-move duty vs selling the doe never deadlocks
+# ---------------------------------------------------------------------------
+async def test_complete_delivery_move_vs_sell_never_deadlocks(
+    client: httpx.AsyncClient,
+) -> None:
+    """complete_task used to lock task → animal while change_status locks
+    animal → tasks: this pair deadlocked into a 500. Both now take the
+    animal lock first, so they serialize cleanly — several rounds, because
+    the deadlock needed an unlucky interleave, not a wrong final state."""
+    owner = await owner_with_farm(client)
+    async with second_client() as other:
+        await warm(other, owner)
+        for round_ in range(5):
+            tag = f"D-DL{round_}"
+            doe, br = await bred_doe_with_record(
+                client, owner, tag=tag, breeding_date=today() - timedelta(days=136)
+            )
+            await confirm_pregnancy(client, owner, br["id"])
+            # EKD = today + 14, so the "Move to DELIVERY" duty (EKD − 15)
+            # fell due yesterday and is completable.
+            move_task = next(
+                t
+                for t in await breeding_follow_ups(client, owner, br["id"])
+                if t["category"] == "BUCKET_MOVE" and t["status"] == "PENDING"
+            )
+            r_complete, r_sell = await asyncio.gather(
+                client.post(f"/api/tasks/{move_task['id']}/complete", headers=owner),
+                other.post(
+                    f"/api/animals/{doe}/status", json={"new_status": "SOLD"}, headers=owner
+                ),
+            )
+            assert r_complete.status_code != 500, r_complete.text
+            assert r_sell.status_code != 500, r_sell.text
+            assert sorted([r_complete.status_code, r_sell.status_code]) in (
+                [200, 200],  # the duty completed, then the sale went through
+                [200, 400],  # the sale won; the duty was skipped under it
+            )
+            tabs = await task_tabs(client, owner)
+            final_task = next(t for t in all_tasks(tabs) if t["id"] == move_task["id"])
+            assert final_task["status"] in ("DONE", "SKIPPED")
+
+
+# ---------------------------------------------------------------------------
+# 2-5 — concurrent first-time saves of a bucket ration never 500
+# ---------------------------------------------------------------------------
+async def test_concurrent_first_feed_setting_save_never_500s(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    async with second_client() as other:
+        await warm(other, owner)
+        r1, r2 = await asyncio.gather(
+            client.post(
+                "/api/feeding/settings",
+                json={"bucket": "FOUNDATION", "daily_kg_per_head": 1.5},
+                headers=owner,
+            ),
+            other.post(
+                "/api/feeding/settings",
+                json={"bucket": "FOUNDATION", "daily_kg_per_head": 2.5},
+                headers=owner,
+            ),
+        )
+    # The loser's INSERT ... ON CONFLICT DO UPDATE waits for the winner and
+    # then updates its row — no IntegrityError, both succeed.
+    assert r1.status_code == 204, r1.text
+    assert r2.status_code == 204, r2.text
+    async with get_sessionmaker()() as db:
+        rows = (await db.execute(select(BucketFeedSetting))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].daily_kg_per_head in (1.5, 2.5)  # last writer wins
+
+
+async def test_feed_setting_blocked_insert_upserts_cleanly(
+    client: httpx.AsyncClient,
+) -> None:
+    """Deterministic form of the race above: an uncommitted INSERT already
+    holds the bucket's row. The request's INSERT ... ON CONFLICT DO UPDATE
+    blocks on it, then applies the update once the holder commits — 204,
+    never an IntegrityError 500, exactly one row."""
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    holder = get_sessionmaker()()
+    holder.add(BucketFeedSetting(farm_id=farm_id, bucket="FOUNDATION", daily_kg_per_head=9.9))
+    await holder.flush()
+
+    request = asyncio.create_task(
+        client.post(
+            "/api/feeding/settings",
+            json={"bucket": "FOUNDATION", "daily_kg_per_head": 1.5},
+            headers=owner,
+        )
+    )
+    try:
+        await wait_until_blocked()  # the upsert is genuinely stuck on the holder's row
+        await holder.commit()
+        resp = await request
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+    assert resp.status_code == 204, resp.text
+    async with get_sessionmaker()() as db:
+        rows = (await db.execute(select(BucketFeedSetting))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].daily_kg_per_head == 1.5  # the request's value won the upsert
+
+
+# ---------------------------------------------------------------------------
+# 2-6 — the health form's linked-duty completion is row-locked
+# ---------------------------------------------------------------------------
+async def test_health_form_double_complete_spawns_one_occurrence(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    aid = await make_animal(client, owner)
+    resp = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Herd FMD round",
+            "due_date": iso(today()),
+            "category": "VACCINE",
+            "recur_days": 1,
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 201, resp.text
+    task_id = resp.json()["id"]
+    payload = {"animal_id": aid, "type": "VACCINE", "product_name": "PPR", "task_id": task_id}
+    async with second_client() as other:
+        await warm(other, owner)
+        r1, r2 = await asyncio.gather(
+            client.post("/api/health/events", json=payload, headers=owner),
+            other.post("/api/health/events", json=payload, headers=owner),
+        )
+    # Both events record; the duty is locked FOR UPDATE, so only one
+    # completion lands — the loser re-reads DONE and skips the completion.
+    assert r1.status_code == 201, r1.text
+    assert r2.status_code == 201, r2.text
+    tabs = await task_tabs(client, owner)
+    mine = [t for t in all_tasks(tabs) if t["title"] == "Herd FMD round"]
+    original = next(t for t in mine if t["id"] == task_id)
+    assert original["status"] == "DONE"
+    spawned = [t for t in mine if t["id"] != task_id and t["status"] == "PENDING"]
+    assert len(spawned) == 1  # the recurring series spawned exactly once
+
+
+# ---------------------------------------------------------------------------
+# 2-7 — a raced kid-tag insert answers with the tag 400, not the kidding 409
+# ---------------------------------------------------------------------------
+async def test_kidding_kid_tag_race_returns_tag_400(client: httpx.AsyncClient) -> None:
+    """An uncommitted insert already holds the kid's explicit tag: the
+    request's tag pre-check can't see it, races into uq_animal_tag_per_farm
+    and must get the tag pre-check's 400 — never the mislabeled 409
+    'already has a kidding record'."""
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    _doe, br = await bred_doe_with_record(
+        client, owner, breeding_date=today() - timedelta(days=150)
+    )
+    await confirm_pregnancy(client, owner, br["id"])
+    holder = get_sessionmaker()()
+    holder.add(
+        Animal(
+            farm_id=farm_id,
+            tag_number="KID-RACE",
+            sex="F",
+            source="PURCHASED",
+            current_bucket="FOUNDATION",
+        )
+    )
+    await holder.flush()
+
+    request = asyncio.create_task(
+        client.post(
+            "/api/kidding",
+            json={
+                "breeding_record_id": br["id"],
+                "date": iso(today()),
+                "ease": "NORMAL",
+                "kids": [{"sex": "F", "tag": "KID-RACE"}],
+            },
+            headers=owner,
+        )
+    )
+    try:
+        # The kid-Animal INSERT is genuinely stuck on the holder's
+        # uncommitted tag row before the holder commits.
+        await wait_until_blocked()
+        await holder.commit()
+        resp = await request
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "A kid tag already exists in this farm"
+
+
+# ---------------------------------------------------------------------------
+# 2-9 — a breeding that races the doe's sale is rejected, never persisted
+# ---------------------------------------------------------------------------
+async def test_breeding_after_concurrent_sale_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """The doe row is locked FOR UPDATE before the breeding is inserted: a
+    sale that commits while the breeding request waits must be re-read —
+    no open PENDING breeding may persist on a SOLD doe."""
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner)
+    buck = await make_animal(client, owner, tag="B-1", sex="M", bucket="BREEDING")
+    holder = get_sessionmaker()()
+    row = (
+        await holder.execute(select(Animal).where(Animal.id == doe).with_for_update())
+    ).scalar_one()
+    row.status = AnimalStatus.SOLD.value
+    row.status_date = today()
+    await holder.flush()
+
+    request = asyncio.create_task(
+        client.post(
+            "/api/breeding",
+            json={"doe_id": doe, "buck_id": buck, "breeding_date": iso(today())},
+            headers=owner,
+        )
+    )
+    try:
+        # The breeding request is genuinely stuck on the doe's FOR UPDATE
+        # before the sale commits.
+        await wait_until_blocked()
+        await holder.commit()
+        resp = await request
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+    assert resp.status_code == 400, resp.text  # the doe is no longer eligible
+    resp = await client.get("/api/breeding", headers=owner)
+    assert [r for r in resp.json()["records"] if r["doe_id"] == doe] == []
+
+
+# ---------------------------------------------------------------------------
+# 2-12 — a kidding never flips a committed user-skip back to DONE
+# ---------------------------------------------------------------------------
+async def test_kidding_stamp_survives_concurrent_user_skip(
+    client: httpx.AsyncClient,
+) -> None:
+    """record_kidding stamps the KIDDING_DUE duty DONE under a row lock with
+    a PENDING re-check: a user-skip that committed while the kidding was in
+    flight must survive (the skip endpoint allows form-linked duties)."""
+    owner = await owner_with_farm(client)
+    _doe, br = await bred_doe_with_record(
+        client, owner, breeding_date=today() - timedelta(days=150)
+    )
+    await confirm_pregnancy(client, owner, br["id"])
+    due_task = next(
+        t
+        for t in await breeding_follow_ups(client, owner, br["id"])
+        if t["category"] == "KIDDING_DUE"
+    )
+    holder = get_sessionmaker()()
+    row = (
+        await holder.execute(select(Task).where(Task.id == due_task["id"]).with_for_update())
+    ).scalar_one()
+    row.status = TaskStatus.SKIPPED.value
+    await holder.flush()
+
+    request = asyncio.create_task(
+        client.post(
+            "/api/kidding",
+            json={
+                "breeding_record_id": br["id"],
+                "date": iso(today()),
+                "ease": "NORMAL",
+                "kids": [{"sex": "M"}],
+            },
+            headers=owner,
+        )
+    )
+    try:
+        # The kidding's DONE-stamp SELECT ... FOR UPDATE is genuinely stuck
+        # on the skip's uncommitted row lock before the skip commits.
+        await wait_until_blocked()
+        await holder.commit()
+        resp = await request
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+    assert resp.status_code == 201, resp.text  # the kidding itself records fine
+    async with get_sessionmaker()() as db:
+        final = await db.get(Task, due_task["id"])
+        assert final is not None
+        assert final.status == TaskStatus.SKIPPED.value  # never flipped back to DONE

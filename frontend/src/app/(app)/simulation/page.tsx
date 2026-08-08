@@ -53,6 +53,7 @@ import type {
   SimulationResult,
   ViabilityMetrics,
 } from "@/api/generated/models";
+import { BreedDefaultsApiSimulationDefaultsGetSystem } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -95,7 +96,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 
 const DEFAULT_BREED = "osmanabadi";
-const DEFAULT_SYSTEM = "stall_fed";
+const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
 
 /** Quick-pick simulation horizons (meta.horizon_months stays editable). */
 const HORIZON_PRESETS = [
@@ -307,15 +308,20 @@ function sectionEntries(assumptions: SimulationAssumptions): [string, SectionVal
 }
 
 export default function SimulationPage() {
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
   const queryClient = useQueryClient();
 
   const [breed, setBreed] = useState(DEFAULT_BREED);
-  const [system, setSystem] = useState(DEFAULT_SYSTEM);
+  const [system, setSystem] = useState<BreedDefaultsApiSimulationDefaultsGetSystem>(
+    DEFAULT_SYSTEM,
+  );
   // Auto-load defaults on first mount so the editor isn't empty.
-  const [submittedParams, setSubmittedParams] = useState({
+  const [submittedParams, setSubmittedParams] = useState<{
+    breed: string;
+    system: BreedDefaultsApiSimulationDefaultsGetSystem;
+  }>({
     breed: DEFAULT_BREED,
     system: DEFAULT_SYSTEM,
   });
@@ -1084,6 +1090,13 @@ export default function SimulationPage() {
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
+  }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
@@ -1166,7 +1179,12 @@ export default function SimulationPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sim-system">System</Label>
-              <Select value={system} onValueChange={setSystem}>
+              <Select
+                value={system}
+                onValueChange={(v) =>
+                  setSystem(v as BreedDefaultsApiSimulationDefaultsGetSystem)
+                }
+              >
                 <SelectTrigger id="sim-system">
                   <SelectValue />
                 </SelectTrigger>

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # conftest connects to postgres without an explicit user, i.e. as the
+      # runner OS user — give that role superuser so it can create the test DB.
+      - name: Create runner Postgres role
+        run: psql -h localhost -U postgres -d postgres -c "CREATE ROLE runner LOGIN SUPERUSER"
+
+      - name: Install backend (+ dev tools)
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      - name: Ruff format check
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: Ruff lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: mypy --strict
+        working-directory: backend
+        run: python -m mypy --strict app
+
+      - name: pytest (real PostgreSQL)
+        working-directory: backend
+        env:
+          GOATFARM_TEST_DB: goatfarm_test
+        run: python -m pytest -q
+
+      - name: Dependency vulnerability scan
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable pnpm (pinned via packageManager)
+        run: corepack enable
+
+      - name: Install (frozen lockfile)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Vitest
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Production build + typecheck
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Dependency vulnerability scan
+        working-directory: frontend
+        run: pnpm audit

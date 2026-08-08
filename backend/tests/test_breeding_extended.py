@@ -487,7 +487,8 @@ async def test_breeding_list_requires_auth(client: httpx.AsyncClient) -> None:
 async def test_breeding_list_requires_farm_header(client: httpx.AsyncClient) -> None:
     headers = await register(client)
     resp = await client.get("/api/breeding", headers=headers)
-    assert resp.status_code == 400
+    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    assert resp.status_code == 422
 
 
 async def test_breeding_list_rejects_non_integer_farm_header(client: httpx.AsyncClient) -> None:
@@ -509,11 +510,12 @@ async def test_breeding_list_nonexistent_farm(client: httpx.AsyncClient) -> None
     assert resp.status_code == 404
 
 
-async def test_breeding_list_non_member_farm_forbidden(client: httpx.AsyncClient) -> None:
+async def test_breeding_list_non_member_farm_not_found(client: httpx.AsyncClient) -> None:
     other = await owner_with_farm(client, email="other@farm.in", farm_name="Beta Farm")
     stranger = await register(client, email="stranger@farm.in")
     resp = await client.get("/api/breeding", headers=stranger | {"X-Farm-Id": other["X-Farm-Id"]})
-    assert resp.status_code == 403
+    # AUDIT 0-7: forbidden farms answer 404, same as nonexistent ones.
+    assert resp.status_code == 404
 
 
 async def test_breeding_list_isolated_across_farms(client: httpx.AsyncClient) -> None:
@@ -865,7 +867,8 @@ async def test_create_breeding_requires_farm_header(client: httpx.AsyncClient) -
         json={"doe_id": 1, "buck_id": 2, "breeding_date": iso(today())},
         headers=headers,
     )
-    assert resp.status_code == 400
+    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -1432,7 +1435,8 @@ async def test_kidding_list_requires_auth(client: httpx.AsyncClient) -> None:
 async def test_kidding_list_requires_farm_header(client: httpx.AsyncClient) -> None:
     headers = await register(client)
     resp = await client.get("/api/kidding", headers=headers)
-    assert resp.status_code == 400
+    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    assert resp.status_code == 422
 
 
 async def test_kidding_list_isolated_across_farms(client: httpx.AsyncClient) -> None:
@@ -1744,12 +1748,17 @@ async def test_kidding_on_aborted_breeding(client: httpx.AsyncClient) -> None:
 
 
 async def test_kidding_on_sold_doe_conflict(client: httpx.AsyncClient) -> None:
-    """A sold doe must not 'deliver' new stock — service-level guard → 409."""
+    """A sold doe must not 'deliver' new stock. Since the sale auto-resolves
+    her confirmed pregnancy as ABORTED (AUDIT 3-2), the kidding attempt now
+    fails the same confirmed-pregnancy state guard as any aborted record
+    (400, like test_kidding_on_aborted_breeding) rather than the service's
+    non-ACTIVE-doe guard."""
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     await set_status(client, headers, doe["id"], "SOLD")
+    assert (await get_breeding(client, headers, br["id"]))["outcome"] == "ABORTED"
     resp = await kid_on_ekd_raw(client, headers, br)
-    assert resp.status_code == 409
+    assert resp.status_code == 400
     born = [
         a for a in await list_animals(client, headers, status="ACTIVE") if a["source"] == "BORN"
     ]
@@ -1776,7 +1785,7 @@ async def test_kidding_future_date(client: httpx.AsyncClient) -> None:
     # One day of timezone headroom is allowed (clients east of UTC); genuinely
     # future dates are still rejected.
     resp = await post_kidding(client, headers, br["id"], date=iso(today() + timedelta(days=2)))
-    assert resp.status_code == 400
+    assert resp.status_code == 422  # PastOrTodayDate schema guard (AUDIT 4-L6)
 
 
 async def test_kidding_date_before_breeding_date(client: httpx.AsyncClient) -> None:
@@ -1998,7 +2007,8 @@ async def test_kidding_requires_farm_header(client: httpx.AsyncClient) -> None:
         json={"breeding_record_id": 1, "date": iso(today()), "kids": [{"sex": "M"}]},
         headers=headers,
     )
-    assert resp.status_code == 400
+    # Required contract header (AUDIT 8-4): missing fails validation (422).
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import { useAuth, type SessionUser } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
+import type { TokenOut } from "@/api/generated/models";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -59,16 +60,21 @@ export default function LoginPage() {
   async function onSubmit(values: LoginValues) {
     setServerError(null);
     try {
-      const body = await apiFetch<{ access_token: string; user: SessionUser }>(
+      const body = await apiFetch<TokenOut>(
         "/api/auth/login",
         { method: "POST", body: JSON.stringify(values) },
       );
       await signIn(body.access_token, body.user);
       router.push("/dashboard");
     } catch (err) {
+      // Surface the server's own message for every API error (429 rate
+      // limit, 422 password policy, 5xx) — only a network failure gets the
+      // "is the backend running?" fallback (audit 6-4/7-2/8-3).
       setServerError(
-        err instanceof ApiError && err.status === 401
-          ? "Invalid email or password."
+        err instanceof ApiError
+          ? err.status === 401
+            ? "Invalid email or password."
+            : err.detail
           : "Could not sign in — is the backend running?",
       );
     }

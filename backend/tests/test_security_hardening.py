@@ -34,6 +34,7 @@ from app.ratelimit import SlidingWindowRateLimiter, auth_limiter
 from app.security import decode_token, issue_access_token
 
 from .conftest import login, owner_with_farm, register
+from .test_auth_extended import insert_user, make_pbkdf2_hash
 
 
 async def _role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
@@ -82,7 +83,9 @@ async def test_worker_of_another_farm_cannot_be_absorbed(client: httpx.AsyncClie
 
     resp = await _add_worker(client, owner_a, "victim@farm.in", password="pwnedpass123")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "That account already belongs to another farm's team."
+    # LOW 1-4: one generic refusal — distinct messages leaked other farms'
+    # roster state to anyone probing arbitrary emails.
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
     # The victim's account is untouched: his own password still works, the
     # attacker's never landed, and farm A's team never gained him.
@@ -112,7 +115,7 @@ async def test_inactive_membership_elsewhere_still_blocks_absorb(
 
     resp = await _add_worker(client, owner_a, "victim@farm.in", password="pwnedpass123")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "That account already belongs to another farm's team."
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
 
 async def test_reset_password_blocked_for_cross_farm_affiliated_account(
@@ -203,6 +206,34 @@ async def test_login_unknown_email_takes_the_hashing_path(
     )
     assert resp.status_code == 401
     assert len(calls) == 2
+
+
+async def test_login_legacy_hash_wrong_password_still_pays_argon2_cost(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """LOW 0-5: a legacy pbkdf2 account with a wrong password returns after a
+    fast pbkdf2 verify — measurably earlier than both the unknown-email and
+    Argon2 paths, exposing "email exists, pre-migration". A failed legacy
+    verify is now topped up with dummy Argon2 work."""
+    from app import security
+    from app.api import auth as auth_api
+
+    calls: list[tuple[str, str]] = []
+    real_verify = security.verify_password
+
+    def spy(password: str, stored: str) -> tuple[bool, bool]:
+        calls.append((password, stored))
+        return real_verify(password, stored)
+
+    await insert_user("legacy-timing@farm.in", make_pbkdf2_hash("realpass123"))
+    monkeypatch.setattr(auth_api, "verify_password", spy)
+    resp = await client.post(
+        "/api/auth/login", json={"email": "legacy-timing@farm.in", "password": "wrongpass1"}
+    )
+    assert resp.status_code == 401
+    assert len(calls) == 2  # the fast legacy verify plus dummy Argon2 work
+    assert calls[0][1].startswith("pbkdf2_sha256$")
+    assert calls[1][1].startswith("$argon2")
 
 
 async def test_password_max_length_128(client: httpx.AsyncClient) -> None:
@@ -368,6 +399,69 @@ async def test_proxy_headers_honored_when_trusted(
             headers={"X-Forwarded-For": "5.6.7.8"},
         )
         assert resp.status_code == 401  # a different real client IP is unaffected
+
+
+@pytest.fixture()
+def rate_limit_one(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Like rate_limit_on but with max_attempts=1, so the 0-3 multiplied
+    ceilings (per-email 3×, per-IP 10×) trip after few requests."""
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "1")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_WINDOW_SECONDS", "300")
+    get_settings.cache_clear()
+    auth_limiter.clear()
+    yield
+    auth_limiter.clear()
+    get_settings.cache_clear()
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_login_per_email_ceiling_across_rotating_ips(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MEDIUM 0-3(a): rotating source IPs must not reset the attack budget
+    against ONE account — the IP-agnostic per-email counter (3× the composite
+    budget) caps distributed brute force even when every (IP, email) pair is
+    fresh."""
+    from app.main import create_app
+
+    monkeypatch.setenv("GOATFARM_TRUSTED_PROXY_HOSTS", "127.0.0.1")
+    get_settings.cache_clear()
+    app = create_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as proxied:
+        for ip in ("1.1.1.1", "2.2.2.2", "3.3.3.3"):
+            resp = await proxied.post(
+                "/api/auth/login",
+                json={"email": "victim@farm.in", "password": "wrongpass1"},
+                headers={"X-Forwarded-For": ip},
+            )
+            assert resp.status_code == 401  # fresh composite key each time
+        resp = await proxied.post(
+            "/api/auth/login",
+            json={"email": "victim@farm.in", "password": "wrongpass1"},
+            headers={"X-Forwarded-For": "4.4.4.4"},
+        )
+        assert resp.status_code == 429  # the per-email ceiling tripped
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_login_per_ip_ceiling_across_sprayed_emails(
+    client: httpx.AsyncClient,
+) -> None:
+    """MEDIUM 0-3(b): from one IP, spraying DISTINCT accounts must hit the
+    email-agnostic per-IP counter (10× the composite budget) — each pair below
+    is fresh, so only the global per-IP cap can stop it."""
+    for i in range(10):
+        resp = await client.post(
+            "/api/auth/login", json={"email": f"spray{i}@farm.in", "password": "wrongpass1"}
+        )
+        assert resp.status_code == 401
+    resp = await client.post(
+        "/api/auth/login", json={"email": "spray10@farm.in", "password": "wrongpass1"}
+    )
+    assert resp.status_code == 429  # the per-IP ceiling tripped
 
 
 def test_sliding_window_expires() -> None:

@@ -40,7 +40,8 @@ test.describe("tasks verification", () => {
 
     // Two-person rule: the completer cannot normally verify their own work,
     // but the backend exempts the farm owner (backend/app/api/tasks.py) and
-    // demo@goatfarm.in owns Demo Osmanabadi Farm, so self-verify succeeds.
+    // the e2e user provisioned by globalSetup owns this farm, so self-verify
+    // succeeds.
     const awaitingRow = page.getByRole("row", { name: new RegExp(title) });
     await awaitingRow.getByRole("button", { name: "Verify" }).click();
     await expect(page.getByText("Task verified.")).toBeVisible();

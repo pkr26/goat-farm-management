@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { DEV_EMAIL, DEV_PASSWORD, signIn } from "./helpers";
+import { E2E_EMAIL, E2E_FARM_NAME, E2E_PASSWORD, signIn } from "./helpers";
 
 const OWNER_NAV = [
   "Dashboard",
@@ -24,13 +24,13 @@ test.describe("auth", () => {
     await page.goto("/login");
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 
-    await page.getByLabel("Email").fill(DEV_EMAIL);
-    await page.getByLabel("Password").fill(DEV_PASSWORD);
+    await page.getByLabel("Email").fill(E2E_EMAIL);
+    await page.getByLabel("Password").fill(E2E_PASSWORD);
     await page.getByRole("button", { name: "Sign in" }).click();
 
     // Lands on the dashboard with the farm auto-selected.
     await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
-    await expect(page.getByText("Demo Osmanabadi Farm", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toBeVisible({ timeout: 20_000 });
 
     // The owner sees every nav item.
     const nav = page.locator("nav");
@@ -50,7 +50,7 @@ test.describe("auth", () => {
 
   test("wrong password shows an error and stays on /login", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill(DEV_EMAIL);
+    await page.getByLabel("Email").fill(E2E_EMAIL);
     await page.getByLabel("Password").fill("definitely-wrong");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByText("Invalid email or password.")).toBeVisible();
@@ -60,6 +60,6 @@ test.describe("auth", () => {
   // Keep signIn referenced even if tests above change; it is the shared entry point.
   test("signIn helper lands on the dashboard", async ({ page }) => {
     await signIn(page);
-    await expect(page.getByText("Demo Osmanabadi Farm", { exact: true })).toBeVisible();
+    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toBeVisible();
   });
 });

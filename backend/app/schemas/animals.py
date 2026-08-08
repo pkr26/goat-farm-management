@@ -6,7 +6,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .common import (
-    BoundedId,
     NonNegativeMoneyFloat,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
@@ -143,10 +142,6 @@ class BucketBoardRow(BaseModel):
     exit_rule: str
     daily_kg_per_head: float
     animals: list[AnimalOut]
-
-
-class AnimalIdsIn(BaseModel):
-    ids: list[BoundedId]
 
 
 from .health import HealthEventOut  # noqa: E402

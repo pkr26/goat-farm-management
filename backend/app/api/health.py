@@ -23,7 +23,7 @@ from ..schemas.common import MAX_INT32_ID
 from ..schemas.health import HealthEventIn, HealthEventOut, ScheduleOut, ScheduleRowOut
 from ..services import complete_task, record_health_event, vaccination_schedule_for_animal
 from ..utils import today
-from .tasks import _visible_to
+from ._shared import visible_to
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -112,7 +112,17 @@ async def record_event(
         created_by_id=user.id,
     )
     if payload.task_id is not None:
-        task = await db.get(Task, payload.task_id) if payload.task_id <= MAX_INT32_ID else None
+        # FOR UPDATE like _get_task: concurrent posts with the same task_id
+        # serialize on the row — the loser re-reads the committed status and
+        # skips the completion instead of double-applying it (which for a
+        # recurring duty would also defeat spawn_next_occurrence's dedupe).
+        task = (
+            (
+                await db.execute(select(Task).where(Task.id == payload.task_id).with_for_update())
+            ).scalar_one_or_none()
+            if payload.task_id <= MAX_INT32_ID
+            else None
+        )
         # Only vaccine/deworming duties may be closed through the health
         # form; any other smuggled task_id is ignored (event still recorded).
         if (
@@ -124,7 +134,7 @@ async def record_event(
             # Same assignment rule as the duties page — the record form is not
             # a backdoor around task RBAC. The 403 aborts the request before
             # commit, so the event itself is not persisted either.
-            if not _visible_to(task, user, farm, membership):
+            if not visible_to(task, user, farm, membership):
                 raise HTTPException(status_code=403, detail="This duty is not assigned to you")
             await complete_task(db, task, user)
     await db.commit()

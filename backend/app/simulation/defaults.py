@@ -7,7 +7,7 @@ a short source comment. Weight curves are scaled from the Osmanabadi stall-fed
 curve in proportion to each breed's yearling weight (NBAGR breed descriptors).
 """
 
-from typing import Literal
+from typing import Literal, get_args
 
 from .assumptions import (
     GrowthAssumptions,
@@ -19,6 +19,10 @@ from .assumptions import (
 )
 
 System = Literal["stall_fed", "semi_intensive"]
+
+# Derived from the Literal (never a hand-maintained copy) so the API layer's
+# list of production systems can't drift from the type.
+SYSTEMS: list[str] = list(get_args(System))
 
 
 def apply_system(a: SimulationAssumptions, system: System) -> SimulationAssumptions:
@@ -215,6 +219,7 @@ def get_preset(breed: str, system: System = "stall_fed") -> SimulationAssumption
 __all__ = [
     "BREED_PRESETS",
     "PRESET_FACTORIES",
+    "SYSTEMS",
     "System",
     "apply_system",
     "get_preset",

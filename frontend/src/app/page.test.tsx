@@ -34,15 +34,21 @@ describe("RootPage redirect hub", () => {
   });
 
   it("does not redirect while the session bootstrap is still pending", async () => {
+    let refreshRequested = false;
     server.use(
-      http.post("/api/auth/refresh", () => new Promise<Response>(() => {})),
+      http.post("/api/auth/refresh", () => {
+        refreshRequested = true;
+        return new Promise<Response>(() => {});
+      }),
     );
 
     renderWithProviders(<RootPage />);
     await screen.findByText("Loading…");
 
-    // Give effects a chance to run; nothing should fire while loading.
-    await new Promise((r) => setTimeout(r, 50));
+    // Settled signal, not a wall-clock sleep (audit 10-L8): once the
+    // bootstrap's refresh request has fired and is still pending, no effect
+    // can have reached the redirect — loading never settles without it.
+    await waitFor(() => expect(refreshRequested).toBe(true));
     expect(replaceMock).not.toHaveBeenCalled();
   });
 

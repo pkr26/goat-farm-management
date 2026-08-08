@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import false, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -62,18 +62,25 @@ async def list_transactions(
     # unserializable — never serve them.
     txns = [txn for txn in result.scalars().all() if math.isfinite(txn.amount)]
 
+    # All-time totals aggregated in SQL (AUDIT 5-M2); the finite filter drops
+    # legacy poisoned rows (NaN fails `amount < inf` in PostgreSQL since NaN
+    # sorts above +inf) instead of poisoning the sums.
     totals_result = await db.execute(
-        select(Transaction.type, Transaction.amount).where(Transaction.farm_id == farm.id)
+        select(Transaction.type, func.sum(Transaction.amount))
+        .where(
+            Transaction.farm_id == farm.id,
+            Transaction.amount < math.inf,
+            Transaction.amount > -math.inf,
+        )
+        .group_by(Transaction.type)
     )
     total_income = 0.0
     total_expense = 0.0
-    for txn_type, amount in totals_result.all():
-        if not math.isfinite(amount):
-            continue  # skip poisoned legacy rows rather than poison the totals
+    for txn_type, total in totals_result.all():
         if txn_type == TransactionType.INCOME.value:
-            total_income += amount
+            total_income += total
         else:
-            total_expense += amount
+            total_expense += total
 
     pnl = await monthly_pnl(db, farm)
     return FinanceOut(

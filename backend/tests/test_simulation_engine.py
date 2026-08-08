@@ -4,8 +4,9 @@ No app/db/conftest imports: the engine is a self-contained pure-Python package
 and is tested through its public API plus golden values computed independently
 of the engine implementation.
 
-Toy-model derivation used in the golden tests (10 foundation does, all open
-and ready to breed in month 1, defaults otherwise, no bucks/purchases)::
+Toy-model derivation used in the golden tests (10 foundation does + 1 buck —
+conception is gated on buck presence — all does open and ready to breed in
+month 1, defaults otherwise, no purchases)::
 
     s = 0.95 ** (1/12)          # monthly adult survival
     month 1: 10 x 0.85 = 8.5 conceive -> preg1 = 8.5s, open = 1.5s
@@ -16,14 +17,18 @@ First meat sales fall in simulation month 15 with the defaults: conceived in
 month 1 -> kidding in month 6 -> male kids reach sale age 9 in month 15.
 """
 
+import math
+
 import pytest
 from pydantic import ValidationError
 
 from app.simulation import (
     BREED_PRESETS,
+    CullingAssumptions,
     HerdAssumptions,
     MetaAssumptions,
     MonthlyRow,
+    ReproductionAssumptions,
     SalesAssumptions,
     SimulationAssumptions,
     SimulationResult,
@@ -31,6 +36,7 @@ from app.simulation import (
     bcr,
     class_feed,
     get_preset,
+    herd_cohorts,
     irr,
     land_requirement_acres,
     monthly_emi,
@@ -50,14 +56,17 @@ S_KID = 0.90 ** (1.0 / 12.0)  # monthly pre-weaning survival, default 10% annual
 
 
 def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
-    """10 open does, no bucks, no purchases, 12-month horizon.
+    """10 open does + 1 buck, no purchases, 12-month horizon.
 
     ``foundation_flock_state="open"`` keeps the golden derivation: all 10 does
-    are open and ready to breed in month 1.
+    are open and ready to breed in month 1. The single buck matters: conception
+    is gated on buck presence (a zero-buck herd never conceives), and one buck
+    serves any doe count at the full rate in v1, so the golden math is
+    unchanged.
     """
     herd = {
         "does": 10,
-        "bucks": 0,
+        "bucks": 1,
         "auto_purchase_bucks": False,
         "foundation_flock_state": "open",
         **herd_overrides,
@@ -77,7 +86,7 @@ def test_toy_month1_conception() -> None:
     assert m1.pregnant_does == pytest.approx(8.5 * S_ADULT, abs=1e-6)
     assert m1.open_does == pytest.approx(1.5 * S_ADULT, abs=1e-6)
     assert m1.births == 0.0
-    assert m1.deaths == pytest.approx(10.0 * (1.0 - S_ADULT), abs=1e-6)
+    assert m1.deaths == pytest.approx(11.0 * (1.0 - S_ADULT), abs=1e-6)  # 10 does + 1 buck
 
 
 def test_toy_month2_and_month3_cohorts() -> None:
@@ -371,7 +380,7 @@ def test_milk_revenue_hand_check() -> None:
 def test_max_breeding_does_cap() -> None:
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
-        herd=HerdAssumptions(does=10, bucks=0, auto_purchase_bucks=False, max_breeding_does=10),
+        herd=HerdAssumptions(does=10, bucks=1, auto_purchase_bucks=False, max_breeding_does=10),
     )
     res = run_simulation(a, with_break_even=False)
     for row in res.months:
@@ -764,3 +773,82 @@ def test_project_cost_breakdown_sums_and_ignores_events() -> None:
     # Mid-run purchases are opex: the month-0 project cost is untouched.
     assert res.metrics.project_cost == base.metrics.project_cost
     assert res.project_cost_breakdown == base.project_cost_breakdown
+
+
+# ---------------------------------------------------------------------------
+# (j) Schema floors and cross-field guards (audit 9-1 / 9-2)
+# ---------------------------------------------------------------------------
+def test_max_doe_age_floor_36_and_boundary_run() -> None:
+    """9-1: max_doe_age_months in [24, 35] used to make the foundation age
+    spread (24..min(60, max_doe_age-12)) an empty range → ZeroDivisionError.
+    The schema floor is now 36; the boundary value runs clean."""
+    for bad in (23, 24, 35):
+        with pytest.raises(ValidationError):
+            SimulationAssumptions(culling={"max_doe_age_months": bad})  # type: ignore[dict-item]
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        culling=CullingAssumptions(max_doe_age_months=36),
+    )
+    res = run_simulation(a, with_break_even=False)
+    assert len(res.months) == 24
+    assert all(math.isfinite(row.total_herd) for row in res.months)
+
+
+def test_afb_must_not_exceed_max_doe_age() -> None:
+    """9-2: the engine writes doe_ages[afb] for every doe entering the pool;
+    afb beyond max_doe_age_months indexed out of range. The per-field floors
+    already imply the invariant (afb <= 30 < 36 <= max_doe_age); the
+    cross-field validator pins it against future bound changes."""
+    # The boundary pair (afb at its ceiling, max age at its floor) validates.
+    ok = SimulationAssumptions(
+        reproduction=ReproductionAssumptions(age_at_first_breeding_months=30),
+        culling=CullingAssumptions(max_doe_age_months=36),
+    )
+    assert ok.reproduction.age_at_first_breeding_months == 30
+    # Mutation bypasses validation; revalidating the mutated state trips the
+    # cross-field guard (invoked directly here to pin the invariant itself).
+    ok.culling.max_doe_age_months = 24
+    with pytest.raises(ValueError, match="age_at_first_breeding_months"):
+        ok._breeding_age_within_doe_lifespan()
+    # And the boundary pair (with a doe purchase writing doe_ages[30]) runs
+    # without the old IndexError.
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=24),
+        reproduction=ReproductionAssumptions(age_at_first_breeding_months=30),
+        culling=CullingAssumptions(max_doe_age_months=36),
+        events=[HerdEventAssumptions(month=3, kind="purchase", animal_class="doe", count=2)],
+    )
+    res = run_simulation(a, with_break_even=False)
+    assert all(math.isfinite(row.total_herd) for row in res.months)
+
+
+# ---------------------------------------------------------------------------
+# (k) Herd-snapshot cohort bucketing (app.simulation.snapshot)
+# ---------------------------------------------------------------------------
+def test_herd_cohorts_bucketing() -> None:
+    animals = [
+        ("F", 1),
+        ("M", 2),  # kids (0-2 m)
+        ("F", 4),
+        ("M", 3),  # weaners (3-5 m)
+        ("F", 8),
+        ("M", 10),  # growers (6 m up to breeding age)
+        ("F", 12),
+        ("F", 30),  # does (at/past afb=12)
+        ("M", 12),
+        ("M", None),  # bucks (at 12 / unknown age -> adult)
+        ("F", None),  # unknown-age female -> doe
+    ]
+    counts = herd_cohorts(animals, doe_adult_age=12)
+    assert counts == {
+        "does": 3,
+        "bucks": 2,
+        "f_kids": 1,
+        "m_kids": 1,
+        "f_weaners": 1,
+        "m_weaners": 1,
+        "f_growers": 1,
+        "m_growers": 1,
+    }
+    # A later first-breeding age keeps the 12-month female a grower.
+    assert herd_cohorts([("F", 12)], doe_adult_age=15)["f_growers"] == 1

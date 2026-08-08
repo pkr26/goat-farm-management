@@ -1,6 +1,9 @@
-"""Extended auth & security tests: register, login, refresh-cookie rotation,
-logout, /me, /permissions, farm listing/creation, plus unit-level coverage of
-app.security (Argon2id hashing, legacy pbkdf2 upgrade, RS256 JWT issue/decode).
+"""Extended auth & security tests: register, login (JWT pair), refresh-cookie
+rotation backed by server-side session rows (consumption, reuse detection,
+revocation on logout / password change / worker reset), logout,
+change-password, /me, /permissions, farm listing/creation, plus unit-level
+coverage of app.security (Argon2id hashing, legacy pbkdf2 upgrade, RS256 JWT
+issue/decode).
 
 Route level (httpx + real PostgreSQL) wherever the behavior is reachable
 through the API; direct function tests for the crypto/password helpers.
@@ -11,19 +14,23 @@ attacker-controlled keys, mirroring test_adversarial.py.
 import hashlib
 import os
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import jwt
+import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.config import get_settings
 from app.db import get_sessionmaker
-from app.models import User
+from app.models import RefreshSession, User
 from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS
+from app.ratelimit import auth_limiter
 from app.security import (
+    decode_refresh_claims,
     decode_token,
     hash_password,
     issue_access_token,
@@ -613,17 +620,85 @@ async def test_refresh_rotates_the_cookie(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 200, resp.text
 
 
-async def test_refresh_old_token_reuse_stateless(client: httpx.AsyncClient) -> None:
-    """Refresh tokens are stateless JWTs: rotation issues a new cookie but does
-    NOT revoke the previous one. This documents the current design — replaying
-    the pre-rotation token still succeeds."""
+async def test_refresh_old_token_reuse_revokes_family(client: httpx.AsyncClient) -> None:
+    """Replaying a rotated-away refresh token is a theft signal (RFC 6819
+    §5.2.2.3): the presented jti is already consumed, so the request 401s AND
+    the whole rotation family is revoked — the legitimate client's current
+    token dies with it, forcing re-login everywhere."""
     await register(client, "reuse@farm.in")
     old = client.cookies.get(COOKIE)
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 200, resp.text
-    set_refresh_cookie(client, old)
+    rotated = client.cookies.get(COOKIE)
+    assert rotated and rotated != old
+    set_refresh_cookie(client, old)  # attacker replays the pre-rotation token
     resp = await client.post("/api/auth/refresh")
-    assert resp.status_code == 200  # old token still accepted (stateless design)
+    assert resp.status_code == 401
+    set_refresh_cookie(client, rotated)  # the legitimate successor is dead too
+    resp = await client.post("/api/auth/refresh")
+    assert resp.status_code == 401
+    # and the account can still log in fresh (revocation ≠ lockout)
+    await login(client, "reuse@farm.in", OWNER_PW)
+
+
+async def test_refresh_with_unknown_jti_is_401(client: httpx.AsyncClient) -> None:
+    """A correctly signed refresh token whose jti has no live session row
+    (forged with the dev key, or issued before session tracking) is refused."""
+    resp = await client.post(
+        "/api/auth/register", json={"email": "unknownjti@farm.in", "password": OWNER_PW}
+    )
+    user_id = resp.json()["user"]["id"]
+    set_refresh_cookie(client, forge_token(user_id, kind="refresh"))
+    resp = await client.post("/api/auth/refresh")
+    assert resp.status_code == 401
+
+
+async def test_refresh_consumes_the_presented_session_row(client: httpx.AsyncClient) -> None:
+    """Rotation leaves exactly one unconsumed, unrevoked row in the family."""
+    resp = await client.post(
+        "/api/auth/register", json={"email": "rows@farm.in", "password": OWNER_PW}
+    )
+    user_id = resp.json()["user"]["id"]
+    resp = await client.post("/api/auth/refresh")
+    assert resp.status_code == 200, resp.text
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(select(RefreshSession).where(RefreshSession.user_id == user_id))
+            ).scalars()
+        )
+    assert len(rows) == 2
+    assert len({r.family_id for r in rows}) == 1  # one rotation family
+    live = [r for r in rows if r.consumed_at is None and r.revoked_at is None]
+    assert len(live) == 1  # only the freshly rotated token is usable
+
+
+@pytest.fixture()
+def rate_limit_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Re-enable the limiter for one test (conftest disables it suite-wide)
+    with a low ceiling, and leave no cached settings/state behind."""
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("GOATFARM_AUTH_RATE_LIMIT_WINDOW_SECONDS", "300")
+    get_settings.cache_clear()
+    auth_limiter.clear()
+    yield
+    auth_limiter.clear()
+    get_settings.cache_clear()
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_refresh_is_rate_limited_per_ip(client: httpx.AsyncClient) -> None:
+    """MEDIUM 1-1: /refresh was unthrottled — token-grinding attempts from one
+    IP now trip the same sliding-window limiter as login/register."""
+    for _ in range(3):
+        set_refresh_cookie(client, "garbage")
+        resp = await client.post("/api/auth/refresh")
+        assert resp.status_code == 401
+    set_refresh_cookie(client, "garbage")
+    resp = await client.post("/api/auth/refresh")
+    assert resp.status_code == 429
+    assert "Too many" in resp.json()["detail"]
 
 
 async def test_refresh_malformed_cookie_is_401(client: httpx.AsyncClient) -> None:
@@ -768,6 +843,87 @@ async def test_refresh_after_logout_is_401(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 401
 
 
+async def test_logout_revokes_the_presented_session(client: httpx.AsyncClient) -> None:
+    """HIGH 0-1: logout is server-side, not just a cookie delete — replaying
+    the exfiltrated refresh token afterwards is refused."""
+    await register(client, "out3@farm.in")
+    stolen = client.cookies.get(COOKIE)
+    resp = await client.post("/api/auth/logout")
+    assert resp.status_code == 204
+    set_refresh_cookie(client, stolen)
+    resp = await client.post("/api/auth/refresh")
+    assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/change-password
+# ---------------------------------------------------------------------------
+async def test_change_password_happy_path_revokes_other_sessions(
+    client: httpx.AsyncClient,
+) -> None:
+    """LOW 0-6 + 0-1: a change needs the current password, rotates the hash,
+    and kills every outstanding refresh session; the changing device gets a
+    fresh pair in the response."""
+    headers = await register(client, "chg@farm.in")
+    pre_change_cookie = client.cookies.get(COOKIE)
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": OWNER_PW, "new_password": "newpass1234"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    # fresh pair for this device, immediately usable
+    assert (
+        await client.get("/api/auth/me", headers=bearer(resp.json()["access_token"]))
+    ).status_code == 200
+    resp = await client.post("/api/auth/refresh")  # jar holds the fresh cookie
+    assert resp.status_code == 200, resp.text
+    # the pre-change session is revoked
+    set_refresh_cookie(client, pre_change_cookie)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+    # old password dies, new one works
+    resp = await client.post("/api/auth/login", json={"email": "chg@farm.in", "password": OWNER_PW})
+    assert resp.status_code == 401
+    await login(client, "chg@farm.in", "newpass1234")
+
+
+async def test_change_password_wrong_current_password(client: httpx.AsyncClient) -> None:
+    headers = await register(client, "chgwrong@farm.in")
+    cookie_before = client.cookies.get(COOKIE)
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": "notmypass123", "new_password": "newpass1234"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Current password is incorrect."
+    # nothing changed: old password and the live session still work
+    await login(client, "chgwrong@farm.in", OWNER_PW)
+    set_refresh_cookie(client, cookie_before)
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+
+
+async def test_change_password_policy_applies_to_new_password(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await register(client, "chgpol@farm.in")
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": OWNER_PW, "new_password": "short7c"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert "at least" in resp.json()["detail"]
+
+
+async def test_change_password_requires_auth(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": OWNER_PW, "new_password": "newpass1234"},
+    )
+    assert resp.status_code == 401
+
+
 # ---------------------------------------------------------------------------
 # GET /api/auth/me
 # ---------------------------------------------------------------------------
@@ -903,11 +1059,12 @@ async def test_permissions_without_auth_is_401(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 401
 
 
-async def test_permissions_without_farm_header_is_400(client: httpx.AsyncClient) -> None:
+async def test_permissions_without_farm_header_is_422(client: httpx.AsyncClient) -> None:
     headers = await register(client, "nofarm@farm.in")
     resp = await client.get("/api/auth/permissions", headers=headers)
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "X-Farm-Id header is required"
+    # LOW 8-4: the header is required by the contract (422, not 400).
+    assert resp.status_code == 422
+    assert "x-farm-id" in str(resp.json()["detail"]).lower()
 
 
 async def test_permissions_farm_header_must_be_integer(client: httpx.AsyncClient) -> None:
@@ -933,14 +1090,15 @@ async def test_permissions_nonexistent_farm_is_404(client: httpx.AsyncClient) ->
     assert resp.json()["detail"] == "Farm not found"
 
 
-async def test_permissions_other_users_farm_is_403(client: httpx.AsyncClient) -> None:
+async def test_permissions_other_users_farm_is_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="pa@farm.in", farm_name="Farm A")
     headers_b = await register(client, "pb@farm.in")
     resp = await client.get(
         "/api/auth/permissions", headers=headers_b | {"X-Farm-Id": owner_a["X-Farm-Id"]}
     )
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "No access to this farm"
+    # LOW 0-7: forbidden farms answer exactly like unknown ones.
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Farm not found"
 
 
 async def test_permissions_deactivated_worker_loses_access(client: httpx.AsyncClient) -> None:
@@ -951,7 +1109,8 @@ async def test_permissions_deactivated_worker_loses_access(client: httpx.AsyncCl
     resp = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.get("/api/auth/permissions", headers=worker)
-    assert resp.status_code == 403  # membership no longer active
+    # membership no longer active → 404 like any unknown farm (LOW 0-7)
+    assert resp.status_code == 404
 
 
 async def test_permissions_owner_of_two_farms(client: httpx.AsyncClient) -> None:
@@ -1281,6 +1440,20 @@ def test_decode_token_access_roundtrip() -> None:
 def test_decode_token_refresh_roundtrip() -> None:
     token = issue_refresh_token(7)
     assert decode_token(token, "refresh") == 7
+
+
+def test_decode_refresh_claims_roundtrip() -> None:
+    claims = decode_refresh_claims(issue_refresh_token(7, jti="abc123"))
+    assert claims is not None
+    assert claims.user_id == 7
+    assert claims.jti == "abc123"
+    assert claims.expires_at > datetime.now(UTC).replace(tzinfo=None)
+
+
+def test_decode_refresh_claims_rejects_bad_tokens() -> None:
+    assert decode_refresh_claims("garbage") is None
+    assert decode_refresh_claims(issue_access_token(1)) is None  # wrong kind
+    assert decode_refresh_claims(forge_token(1, kind="refresh", ttl_seconds=-60)) is None
 
 
 def test_decode_token_rejects_wrong_kind() -> None:

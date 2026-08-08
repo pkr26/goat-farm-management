@@ -206,7 +206,7 @@ type DispenseInput = z.input<typeof dispenseSchema>;
 type DispenseValues = z.output<typeof dispenseSchema>;
 
 export default function FeedingPage() {
-  const { can, loading: permsLoading } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
   const queryClient = useQueryClient();
@@ -263,6 +263,13 @@ export default function FeedingPage() {
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+  if (permsError) {
+    return (
+      <p className="text-sm text-destructive">
+        Could not load your permissions — refresh the page to try again.
+      </p>
+    );
+  }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
@@ -281,6 +288,14 @@ export default function FeedingPage() {
   const dispensedByBucket = new Map<string, number>();
   for (const r of payload.records) {
     dispensedByBucket.set(r.bucket, (dispensedByBucket.get(r.bucket) ?? 0) + r.qty_kg);
+  }
+  // One bucket can be split across several plan lines (one per recipe), each
+  // with its own daily_kg — the "done" badge must compare the bucket-wide
+  // dispensed total against the SUM of that bucket's lines, never against a
+  // single line (audit 7-3).
+  const plannedByBucket = new Map<string, number>();
+  for (const l of payload.lines) {
+    plannedByBucket.set(l.bucket, (plannedByBucket.get(l.bucket) ?? 0) + l.daily_kg);
   }
 
   return (
@@ -361,7 +376,7 @@ export default function FeedingPage() {
                     ))}
                     <TableCell className="text-right tabular-nums">
                       {dispensed.toFixed(1)} kg
-                      {dispensed >= line.daily_kg && (
+                      {dispensed >= (plannedByBucket.get(line.bucket) ?? line.daily_kg) && (
                         <Badge
                           variant="outline"
                           className="ml-2 border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
@@ -422,14 +437,14 @@ export default function FeedingPage() {
           <form onSubmit={handleSubmit(onDispense)} className="space-y-4" noValidate>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Bucket</Label>
+                <Label htmlFor="dispense-bucket">Bucket</Label>
                 <Select
                   value={wBucket}
                   onValueChange={(v) =>
                     setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: true })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="dispense-bucket" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -442,14 +457,14 @@ export default function FeedingPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Shift</Label>
+                <Label htmlFor="dispense-shift">Shift</Label>
                 <Select
                   value={wShift}
                   onValueChange={(v) =>
                     setValue("shift", v as DispenseValues["shift"], { shouldValidate: true })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="dispense-shift" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -462,13 +477,13 @@ export default function FeedingPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Recipe</Label>
+                <Label htmlFor="dispense-recipe">Recipe</Label>
                 <Select
                   value={wRecipeCode || NONE}
                   onValueChange={(v) => setValue("recipe_code", v)}
                   items={recipeItems}
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="dispense-recipe" className="w-full">
                     <SelectValue placeholder="recipe…" />
                   </SelectTrigger>
                   <SelectContent>

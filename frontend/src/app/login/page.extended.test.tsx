@@ -225,7 +225,7 @@ describe("LoginPage — server error handling", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("shows the backend-unreachable message on a 403", async () => {
+  it("surfaces the server detail on a 403", async () => {
     server.use(
       http.post("/api/auth/login", () =>
         HttpResponse.json({ detail: "Forbidden" }, { status: 403 }),
@@ -236,13 +236,34 @@ describe("LoginPage — server error handling", () => {
     renderWithProviders(<LoginPage />);
     await submitValidForm(user);
 
-    expect(
-      await screen.findByText("Could not sign in — is the backend running?"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Forbidden")).toBeInTheDocument();
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("shows the backend-unreachable message on a 500 with a detail body", async () => {
+  it("surfaces the rate-limit detail on a 429 instead of 'backend running?' (audit 6-4/7-2)", async () => {
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json(
+          { detail: "Too many attempts — please try again later." },
+          { status: 429 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+    await submitValidForm(user);
+
+    expect(
+      await screen.findByText("Too many attempts — please try again later."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Could not sign in — is the backend running?"),
+    ).not.toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the server detail on a 500 with a detail body", async () => {
     server.use(
       http.post("/api/auth/login", () =>
         HttpResponse.json({ detail: "database is locked" }, { status: 500 }),
@@ -253,10 +274,10 @@ describe("LoginPage — server error handling", () => {
     renderWithProviders(<LoginPage />);
     await submitValidForm(user);
 
+    expect(await screen.findByText("database is locked")).toBeInTheDocument();
     expect(
-      await screen.findByText("Could not sign in — is the backend running?"),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("database is locked")).not.toBeInTheDocument();
+      screen.queryByText("Could not sign in — is the backend running?"),
+    ).not.toBeInTheDocument();
   });
 
   it("clears a previous server error when a retry succeeds", async () => {

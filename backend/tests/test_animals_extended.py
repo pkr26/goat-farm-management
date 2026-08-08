@@ -190,13 +190,15 @@ async def test_animals_endpoints_require_auth(client: httpx.AsyncClient) -> None
 async def test_missing_farm_header_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     auth_only = {"Authorization": headers["Authorization"]}
+    # LOW 8-4: the header is required by the contract — missing fails request
+    # validation (422) before the farm dependency runs.
     resp = await client.get("/api/animals", headers=auth_only)
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "X-Farm-Id header is required"
+    assert resp.status_code == 422
+    assert "x-farm-id" in str(resp.json()["detail"]).lower()
     resp = await client.get("/api/buckets", headers=auth_only)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     resp = await client.post("/api/animals", json={}, headers=auth_only)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
 
 
 async def test_non_integer_farm_header_rejected(client: httpx.AsyncClient) -> None:
@@ -222,15 +224,16 @@ async def test_nonexistent_farm_header_404(client: httpx.AsyncClient) -> None:
     assert resp.json()["detail"] == "Farm not found"
 
 
-async def test_other_users_farm_forbidden(client: httpx.AsyncClient) -> None:
+async def test_other_users_farm_not_found(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
-    # B's token against A's farm → 403, never data
+    # B's token against A's farm → 404 like any unknown farm (LOW 0-7: no
+    # farm-id existence oracle), never data
     headers = owner_b | {"X-Farm-Id": owner_a["X-Farm-Id"]}
     for method, url in [("GET", "/api/animals"), ("GET", "/api/buckets"), ("POST", "/api/animals")]:
         resp = await client.request(method, url, headers=headers)
-        assert resp.status_code == 403, (method, url)
-        assert resp.json()["detail"] == "No access to this farm"
+        assert resp.status_code == 404, (method, url)
+        assert resp.json()["detail"] == "Farm not found"
 
 
 async def test_cross_farm_animal_ids_return_404(client: httpx.AsyncClient) -> None:

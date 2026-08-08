@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-import { createAnimal, signIn, uniqueTag } from "./helpers";
+import { createAnimal, E2E_FARM_NAME, signIn, uniqueTag } from "./helpers";
 
-/** Owner nav, mirrored from auth.spec — the demo user owns both farms. */
+/** Owner nav, mirrored from auth.spec — the e2e user owns both farms. */
 const OWNER_NAV = [
   "Dashboard",
   "Animals",
@@ -24,9 +24,9 @@ test.describe("farm switching", () => {
   }) => {
     test.setTimeout(120_000);
 
-    // Farm A: the seeded demo farm, plus one uniquely tagged animal.
+    // Farm A: the farm provisioned by globalSetup, plus one uniquely tagged animal.
     await signIn(page);
-    await expect(page.getByText("Demo Osmanabadi Farm", { exact: true })).toBeVisible({
+    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toBeVisible({
       timeout: 20_000,
     });
     const tagA = uniqueTag("E2E-A");
@@ -44,7 +44,7 @@ test.describe("farm switching", () => {
     await expect(
       page.getByRole("heading", { name: `${farmB} — Dashboard` }),
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("Demo Osmanabadi Farm", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toHaveCount(0);
 
     // Nav reflects farm B's freshly loaded permissions (owner → full nav).
     const nav = page.locator("nav");
@@ -63,10 +63,10 @@ test.describe("farm switching", () => {
     // Switching back refetches farm A's data — the animal is still there.
     await page.getByRole("link", { name: "switch farm" }).click();
     await expect(page).toHaveURL(/\/farm-select$/, { timeout: 15_000 });
-    await page.getByRole("button", { name: /Demo Osmanabadi Farm/ }).click();
+    await page.getByRole("button", { name: E2E_FARM_NAME }).click();
     await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
     await expect(
-      page.getByRole("heading", { name: "Demo Osmanabadi Farm — Dashboard" }),
+      page.getByRole("heading", { name: `${E2E_FARM_NAME} — Dashboard` }),
     ).toBeVisible({ timeout: 20_000 });
     await nav.getByRole("link", { name: "Animals", exact: true }).click();
     await page.getByPlaceholder("Search tag or name…").fill(tagA);

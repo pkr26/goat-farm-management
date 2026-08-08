@@ -15,6 +15,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, utcToday } from "@/lib/format";
 
 import KiddingPage from "./page";
 
@@ -40,15 +41,20 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-/** Local YYYY-MM-DD (mirrors the page's localToday). */
-function localISO(d: Date): string {
+/** UTC-relative fixture dates: the page compares against utcToday()
+ * (audit 7-5), so browser-local fixtures drift a day near midnight. */
+const TODAY = utcToday();
+
+/** Browser-local today — matches the forms' write-side date defaults (the
+ * backend accepts one day of headroom, so writes stay local). */
+function localTodayISO(): string {
+  const d = new Date();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${m}-${day}`;
 }
-const TODAY = localISO(new Date());
 function daysFromToday(delta: number): string {
-  return localISO(new Date(Date.now() + delta * 86_400_000));
+  return addDays(TODAY, delta);
 }
 
 function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
@@ -267,8 +273,11 @@ describe("KiddingPage", () => {
       within(dialog).getByText(/Doe G-010 · due .+ \(2 detected\)/),
     ).toBeInTheDocument();
     expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(2);
-    expect(within(dialog).getByLabelText(/kidding date/i)).toHaveValue(TODAY);
-    expect(within(dialog).getByLabelText(/kidding date/i)).toHaveAttribute("max", TODAY);
+    expect(within(dialog).getByLabelText(/kidding date/i)).toHaveValue(localTodayISO());
+    expect(within(dialog).getByLabelText(/kidding date/i)).toHaveAttribute(
+      "max",
+      localTodayISO(),
+    );
   });
 
   it("adds kid rows up to 10, then disables the add button", async () => {
@@ -347,7 +356,7 @@ describe("KiddingPage", () => {
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
       breeding_record_id: 12,
-      date: TODAY,
+      date: localTodayISO(),
       ease: "NORMAL",
       notes: "easy birth",
     });

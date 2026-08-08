@@ -17,6 +17,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, utcToday } from "@/lib/format";
 
 import TasksPage from "./page";
 
@@ -42,15 +43,20 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-/** Local YYYY-MM-DD (mirrors the page's localToday). */
-function localISO(d: Date): string {
+/** UTC-relative fixture dates: the page compares against utcToday()
+ * (audit 7-5), so browser-local fixtures drift a day near midnight. */
+const TODAY = utcToday();
+
+/** Browser-local today — matches the create form's write-side date default
+ * (the backend accepts one day of headroom, so writes stay local). */
+function localTodayISO(): string {
+  const d = new Date();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${m}-${day}`;
 }
-const TODAY = localISO(new Date());
-const THREE_DAYS_AGO = localISO(new Date(Date.now() - 3 * 86_400_000));
-const NEXT_WEEK = localISO(new Date(Date.now() + 7 * 86_400_000));
+const THREE_DAYS_AGO = addDays(TODAY, -3);
+const NEXT_WEEK = addDays(TODAY, 7);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
@@ -325,6 +331,21 @@ describe("TasksPage (extended)", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows an error state, not 'no access', when the permissions call fails (audit 7-6)", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+    );
+    renderWithProviders(<TasksPage />);
+    expect(
+      await screen.findByText(/Could not load your permissions/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("You don't have access to this page."),
+    ).not.toBeInTheDocument();
+  });
+
   // ---------- complete / skip flows ----------
 
   it("completes a pending manual task and refetches", async () => {
@@ -518,7 +539,7 @@ describe("TasksPage (extended)", () => {
     await waitFor(() => expect(createBody).not.toBeNull());
     expect(createBody).toEqual({
       title: "Check fences",
-      due_date: TODAY,
+      due_date: localTodayISO(),
       category: "OTHER",
       recur_days: null,
       assigned_role_id: null,

@@ -780,7 +780,7 @@ async def test_kidding_rejects_bad_dates_caps_and_weights(client: httpx.AsyncCli
     resp = await post_kidding(client, owner, br_id, date_str=too_early)
     assert resp.status_code == 400
     resp = await post_kidding(client, owner, br_id, date_str=future)
-    assert resp.status_code == 400
+    assert resp.status_code == 422  # PastOrTodayDate schema guard (AUDIT 4-L6)
     resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M"}] * 11)
     assert resp.status_code == 422
     resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M", "birth_weight": "-3"}])
@@ -846,7 +846,11 @@ async def test_sold_doe_cannot_kidd(client: httpx.AsyncClient) -> None:
     )
     assert resp.status_code == 200, resp.text
     resp = await post_kidding(client, owner, br_id)
-    assert resp.status_code == 409  # graceful rejection
+    # Selling the doe auto-aborts her confirmed pregnancy (change_status), so
+    # the breeding is ABORTED by the time the kidding is attempted — the
+    # router's deliberate pre-check answers 400 for any non-CONFIRMED_PREGNANT
+    # outcome (PENDING/FAILED/ABORTED alike), before the service's 409 path.
+    assert resp.status_code == 400  # graceful rejection
     assert await kidding_records(client, owner) == []
     born = [a for a in await list_animals(client, owner) if a["source"] == "BORN"]
     assert born == []
@@ -1145,12 +1149,3 @@ async def test_default_secret_session_forgery_fails(client: httpx.AsyncClient) -
     confused = jwt.encode(claims, pub_der, algorithm="HS256")
     resp = await client.get("/api/auth/farms", headers={"Authorization": f"Bearer {confused}"})
     assert resp.status_code == 401
-
-
-def test_format_money_never_crashes_on_nonfinite() -> None:
-    from app.utils import format_money
-
-    assert format_money(float("inf")) == "—"
-    assert format_money(float("nan")) == "—"
-    assert format_money(float("-inf")) == "—"
-    assert format_money(5000) == "₹5,000"

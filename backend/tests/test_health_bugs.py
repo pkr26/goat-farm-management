@@ -7,11 +7,21 @@ and non-finite floats get a clean sanitized 422 instead of crashing response
 serialization. Do not weaken — these guard the fixed behavior.
 """
 
+from datetime import timedelta
+
 import httpx
 
 from app.main import create_app
+from app.utils import today
 
 from .conftest import owner_with_farm
+from .test_health_extended import (
+    get_schedule,
+    iso,
+    make_animal,
+    record_event,
+    row_by_name,
+)
 
 
 async def _make_animal(client: httpx.AsyncClient, headers: dict) -> dict:
@@ -126,3 +136,114 @@ async def test_batch_infinite_price_should_422_not_500(client: httpx.AsyncClient
             headers=headers | {"Content-Type": "application/json"},
         )
     assert resp.status_code == 422, resp.text
+
+
+# ---------------------------------------------------------------------------
+# AUDIT 3-1 — deworming recorded by drug name matches the Deworming template
+# ---------------------------------------------------------------------------
+# The schedule matcher used to match templates purely by substring over
+# product_name + disease_target. The natural deworming entry (type=DEWORMING,
+# product "Albendazole", blank target) never contained "deworming", so every
+# animal's June/January deworming showed OVERDUE forever. The Deworming
+# template now matches on the event TYPE (and the "deworm" stem).
+async def test_deworming_by_drug_name_marks_template_done(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    assert (
+        row_by_name(await get_schedule(client, headers, animal["id"]), "Deworming")["status"]
+        == "OVERDUE"
+    )
+    await record_event(
+        client, headers, animal_id=animal["id"], type="DEWORMING", product_name="Albendazole"
+    )
+    row = row_by_name(await get_schedule(client, headers, animal["id"]), "Deworming")
+    assert row["last_done"] == iso(today())
+    assert row["status"] == "DONE"  # next dose due in 6 months
+
+
+async def test_deworm_stem_in_free_text_also_matches(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers)
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="DEWORMING",
+        notes="",
+        product_name="Deworm bolus",
+    )
+    assert (
+        row_by_name(await get_schedule(client, headers, animal["id"]), "Deworming")["status"]
+        == "DONE"
+    )
+
+
+# Trade-name vaccines with a blank disease target used to miss their template
+# the same way; a data-driven alias list now maps common brands.
+async def test_trade_name_vaccine_matches_template(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    await record_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", product_name="Raksha-Triovac"
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["last_done"] == iso(today())
+    assert fmd["status"] == "DONE"
+
+
+# ---------------------------------------------------------------------------
+# AUDIT 3-5 — a missed booster no longer shows DONE
+# ---------------------------------------------------------------------------
+# Status only looked at first/last dose + repeat interval: a first-dose-only
+# animal showed DONE even with the booster window lapsed. One matching event
+# with an overdue booster now reports OVERDUE.
+async def test_missed_booster_shows_overdue(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    # FMD booster is due 3.5 weeks after the first dose; this one is 60 days stale.
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(today() - timedelta(days=60)),
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["status"] == "OVERDUE"
+
+
+async def test_booster_given_shows_done(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(today() - timedelta(days=60)),
+    )
+    # The booster dose itself (second matching event) clears the OVERDUE.
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(today() - timedelta(days=30)),
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["status"] == "DONE"  # repeat due 6 months after the last dose
+
+
+async def test_recent_first_dose_booster_not_yet_due_stays_done(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    await record_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", product_name="FMD vaccine"
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["status"] == "DONE"  # booster window is still open

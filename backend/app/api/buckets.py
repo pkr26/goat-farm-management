@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 
 from ..deps import CurrentFarm, DbSession, require_perm
-from ..models import Animal, AnimalStatus, BucketDefinition
+from ..models import Animal, AnimalStatus, BucketDefinition, BucketFeedSetting
 from ..schemas.animals import AnimalOut, BucketBoardRow
-from ..services import get_daily_kg_per_head
+from ..services import ANIMAL_OUT_LOADS
 
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
@@ -23,12 +23,21 @@ async def buckets_board(
     defs = list(defs_result.scalars())
     active_result = await db.execute(
         select(Animal)
+        # AnimalOut's computed fields read these collections.
+        .options(*ANIMAL_OUT_LOADS)
         .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
         .order_by(Animal.tag_number)
     )
     by_bucket: dict[str, list[Animal]] = {d.code: [] for d in defs}
     for animal in active_result.scalars():
         by_bucket.setdefault(animal.current_bucket, []).append(animal)
+
+    # One bulk query for the farm's feed-setting overrides (AUDIT 5-L1), then
+    # join in Python — no per-bucket await of get_daily_kg_per_head.
+    settings_result = await db.execute(
+        select(BucketFeedSetting).where(BucketFeedSetting.farm_id == farm.id)
+    )
+    kg_overrides = {s.bucket: s.daily_kg_per_head for s in settings_result.scalars()}
 
     rows = []
     for d in defs:
@@ -39,7 +48,7 @@ async def buckets_board(
                 who=d.who or "",
                 exit_rule=d.exit_rule or "",
                 # effective per-farm setting (BucketFeedSetting override wins)
-                daily_kg_per_head=await get_daily_kg_per_head(db, farm.id, d.code),
+                daily_kg_per_head=kg_overrides.get(d.code, d.daily_kg_per_head),
                 animals=[AnimalOut.model_validate(a) for a in by_bucket.get(d.code, [])],
             )
         )

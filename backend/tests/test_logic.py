@@ -696,3 +696,54 @@ async def test_monthly_pnl_aggregation(client: httpx.AsyncClient) -> None:
     assert july["income"] == 23000.0 and july["expense"] == 9500.0 and july["net"] == 13500.0
     assert aug["income"] == 1500.0 and aug["expense"] == 9000.0 and aug["net"] == -7500.0
     assert july["categories"]["FEED"]["expense"] == 8000.0
+
+
+# ---------------------------------------------------------------------------
+# AUDIT 3-9 — a 0-month average age means newborn, not "unknown age"
+# ---------------------------------------------------------------------------
+# create_purchase_batch used `if avg_age_months`, so purchased newborn kids
+# (avg 0 months) got estimated_dob=None instead of the batch date, breaking
+# their age-based vaccine schedule.
+async def test_purchase_batch_zero_age_months_sets_dob_to_batch_date(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    batch_date = today() - timedelta(days=5)
+    resp = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": batch_date.isoformat(),
+            "count": 2,
+            "create_animals": True,
+            "avg_age_months": 0,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = await client.get(f"/api/purchases/{resp.json()['id']}", headers=headers)
+    assert [a["estimated_dob"] for a in resp.json()["animals"]] == [batch_date.isoformat()] * 2
+
+
+# ---------------------------------------------------------------------------
+# AUDIT 3-10 — per-head purchase prices sum back to the booked total
+# ---------------------------------------------------------------------------
+# total/count rounded to 2dp per animal could drift from the ledger by up to
+# count × ₹0.005; the first animal now absorbs the paise remainder (same
+# trick as record_health_event's cost split).
+async def test_purchase_batch_per_head_prices_sum_to_total(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 3,
+            "create_animals": True,
+            "total_price": 1000,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = await client.get(f"/api/purchases/{resp.json()['id']}", headers=headers)
+    prices = [a["purchase_price"] for a in resp.json()["animals"]]
+    assert prices == [333.34, 333.33, 333.33]
+    assert round(sum(prices), 2) == 1000.00

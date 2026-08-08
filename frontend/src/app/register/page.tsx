@@ -20,7 +20,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import { useAuth, type SessionUser } from "@/lib/auth-context";
+import { useAuth } from "@/lib/auth-context";
+import type { TokenOut } from "@/api/generated/models";
 
 const registerSchema = z.object({
   name: z.string().max(120).optional(),
@@ -60,7 +61,7 @@ export default function RegisterPage() {
   async function onSubmit(values: RegisterValues) {
     setServerError(null);
     try {
-      const body = await apiFetch<{ access_token: string; user: SessionUser }>(
+      const body = await apiFetch<TokenOut>(
         "/api/auth/register",
         {
           method: "POST",
@@ -70,10 +71,11 @@ export default function RegisterPage() {
       await signIn(body.access_token, body.user);
       router.push("/farm-select");
     } catch (err) {
+      // Surface the server's own message for every API error (400 duplicate
+      // email, 429 rate limit, 422 password policy, 5xx) — only a network
+      // failure gets the fallback (audit 6-4/7-2/8-3).
       setServerError(
-        err instanceof ApiError && err.status === 400
-          ? err.detail
-          : "Could not register — is the backend running?",
+        err instanceof ApiError ? err.detail : "Could not register — is the backend running?",
       );
     }
   }

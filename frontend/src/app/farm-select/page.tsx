@@ -26,7 +26,7 @@ import { useAuth, type FarmEntry } from "@/lib/auth-context";
 
 const farmSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
-  location: z.string().max(200).optional(),
+  location: z.string().max(120).optional(),
 });
 type FarmValues = z.infer<typeof farmSchema>;
 
