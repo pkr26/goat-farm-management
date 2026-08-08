@@ -29,10 +29,11 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 
 import {
+  getCompareScenariosApiSimulationScenariosCompareGetQueryKey,
   getListScenariosApiSimulationScenariosGetQueryKey,
   useBreedDefaultsApiSimulationDefaultsGet,
   useCompareScenariosApiSimulationScenariosCompareGet,
@@ -97,6 +98,174 @@ import { usePermissions } from "@/lib/use-permissions";
 
 const DEFAULT_BREED = "osmanabadi";
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
+const MAX_COMPARE_SCENARIOS = 5;
+
+/** Invalid legacy scenarios remain visible so the user can remove them. This
+ * compatibility type is safe before and after the generated client refresh. */
+type ScenarioRow = Omit<ScenarioOut, "assumptions"> & {
+  assumptions: SimulationAssumptions | null;
+  valid?: boolean;
+  validation_error?: string | null;
+};
+
+type BoundResult = {
+  data: SimulationResult;
+  fingerprint: string;
+  source: string;
+};
+
+type NumericRule = {
+  integer?: boolean;
+  min?: number;
+  max?: number;
+  exclusiveMin?: number;
+  unit?: string;
+};
+
+const INTEGER_FIELDS = new Set([
+  "meta.horizon_months",
+  "herd.does",
+  "herd.bucks",
+  "herd.female_growers",
+  "herd.male_growers",
+  "herd.female_weaners",
+  "herd.male_weaners",
+  "herd.female_kids",
+  "herd.male_kids",
+  "herd.max_breeding_does",
+  "reproduction.gestation_months",
+  "reproduction.lactation_months",
+  "reproduction.months_open_before_breeding",
+  "reproduction.age_at_first_breeding_months",
+  "culling.max_doe_age_months",
+  "culling.buck_rotation_years",
+  "culling.buck_doe_ratio",
+  "growth.sale_age_months",
+  "sales.eid_month",
+  "costs.labour_per_head_threshold",
+  "finance.loan_term_months",
+  "finance.moratorium_months",
+  "finance.working_capital_months",
+  "risk.monte_carlo_runs",
+  "risk.seed",
+]);
+
+const FIELD_BOUNDS: Record<
+  string,
+  Pick<NumericRule, "min" | "max" | "exclusiveMin">
+> = {
+  "meta.horizon_months": { min: 12, max: 240 },
+  "reproduction.gestation_months": { min: 1, max: 7 },
+  "reproduction.lactation_months": { min: 1, max: 8 },
+  "reproduction.months_open_before_breeding": { min: 0, max: 12 },
+  "reproduction.litter_size": { min: 0.5, max: 4 },
+  "reproduction.age_at_first_breeding_months": { min: 6, max: 30 },
+  "reproduction.stillbirth_rate": { min: 0, max: 0.5 },
+  "culling.max_doe_age_months": { min: 36, max: 180 },
+  "culling.buck_rotation_years": { min: 1, max: 10 },
+  "culling.buck_doe_ratio": { min: 1, max: 100 },
+  "growth.birth_weight_kg": { exclusiveMin: 0, max: 1000 },
+  "growth.adult_weight_doe_kg": { exclusiveMin: 0, max: 1000 },
+  "growth.adult_weight_buck_kg": { exclusiveMin: 0, max: 1000 },
+  "growth.sale_age_months": { min: 6, max: 24 },
+  "sales.eid_month": { min: 0, max: 12 },
+  "sales.eid_price_uplift": { min: 0, max: 2 },
+  "sales.lactation_milk_litres": { min: 0, max: 100_000 },
+  "feed.cultivated_fodder_acres": { min: 0, max: 1_000_000 },
+  "feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 0, max: 1000 },
+  "costs.labour_per_head_threshold": { min: 1 },
+  "costs.insurance_pct_stock_value_annual": { min: 0, max: 0.25 },
+  "finance.interest_rate_annual": { min: 0, max: 0.5 },
+  "finance.loan_term_months": { min: 1, max: 180 },
+  "finance.moratorium_months": { min: 0, max: 60 },
+  "finance.subsidy_fraction": { min: 0, max: 0.9 },
+  "finance.discount_rate_annual": { min: 0, max: 0.5 },
+  "finance.working_capital_months": { min: 0, max: 24 },
+  "risk.monte_carlo_runs": { min: 1, max: 2000 },
+};
+
+function numericRule(section: string, key: string): NumericRule {
+  const path = `${section}.${key}`;
+  const rule: NumericRule = {
+    integer: INTEGER_FIELDS.has(path),
+  };
+
+  if (section === "herd") {
+    if (INTEGER_FIELDS.has(path)) {
+      Object.assign(rule, { min: 0, max: 100_000, integer: true });
+    } else if (key.endsWith("_fraction")) Object.assign(rule, { min: 0, max: 1 });
+    else if (key.endsWith("_price")) Object.assign(rule, { min: 0, max: 1e9 });
+  } else if (section === "mortality") Object.assign(rule, { min: 0, max: 0.9 });
+  else if (section === "reproduction" && /rate|ratio/.test(key))
+    Object.assign(rule, { min: 0, max: 1 });
+  else if (section === "culling" && key === "doe_cull_rate_annual")
+    Object.assign(rule, { min: 0, max: 1 });
+  else if (section === "sales" && /price|income/.test(key))
+    Object.assign(rule, { min: 0, max: 1e9 });
+  else if (section === "feed") {
+    if (key.startsWith("dmi_") || key.endsWith("_dm_pct"))
+      Object.assign(rule, {
+        exclusiveMin: 0,
+        max: key.startsWith("dmi_") ? 0.1 : 1,
+      });
+    else if (key.includes("share") || key === "grazing_dm_fraction")
+      Object.assign(rule, { min: 0, max: 1 });
+    else if (key.includes("price")) Object.assign(rule, { min: 0, max: 1e9 });
+  } else if (
+    section === "costs" &&
+    key !== "labour_per_head_threshold" &&
+    !key.includes("pct")
+  )
+    Object.assign(rule, { min: 0, max: 1e9 });
+  else if (
+    section === "finance" &&
+    (key === "initial_stock_cost" || key === "loan_fraction_of_project_cost")
+  )
+    Object.assign(
+      rule,
+      key === "initial_stock_cost" ? { min: 0, max: 1e9 } : { min: 0, max: 1 },
+    );
+
+  // Explicit backend-derived limits are authoritative and must win over the
+  // broad naming heuristics above (for example stillbirth_rate <= 0.5 and
+  // eid_price_uplift <= 2).
+  Object.assign(rule, FIELD_BOUNDS[path]);
+
+  if (
+    path === "sales.eid_price_uplift" ||
+    path === "finance.loan_fraction_of_project_cost"
+  )
+    rule.unit = "fraction";
+  else if (key.includes("month")) rule.unit = "months";
+  else if (key.includes("year") && !key.includes("per_year")) rule.unit = "years";
+  else if (
+    key.includes("price") ||
+    key.includes("cost") ||
+    key.includes("income") ||
+    key.includes("labour") ||
+    key.includes("overhead")
+  )
+    rule.unit = "₹";
+  else if (key.includes("weight") || key.includes("_kg")) rule.unit = "kg";
+  else if (key.includes("litre")) rule.unit = "litres";
+  else if (key.includes("acre")) rule.unit = "acres";
+  else if (/rate|ratio|fraction|pct|share|dmi_/.test(key)) rule.unit = "fraction";
+  return rule;
+}
+
+function resultFingerprint(
+  assumptions: SimulationAssumptions,
+  monteCarlo: boolean,
+  sensitivity: boolean,
+): string {
+  return JSON.stringify({ assumptions, monte_carlo: monteCarlo, sensitivity });
+}
+
+function scenarioUsable(scenario: ScenarioRow): scenario is ScenarioRow & {
+  assumptions: SimulationAssumptions;
+} {
+  return scenario.valid !== false && scenario.assumptions !== null;
+}
 
 /** Quick-pick simulation horizons (meta.horizon_months stays editable). */
 const HORIZON_PRESETS = [
@@ -135,8 +304,8 @@ function validateEvents(events: HerdEventAssumptions[], horizonMonths: number): 
     ) {
       errors.push(`${label}: month must be a whole number between 1 and ${horizonMonths}.`);
     }
-    if (!Number.isInteger(event.count) || event.count <= 0) {
-      errors.push(`${label}: count must be a positive whole number.`);
+    if (!Number.isFinite(event.count) || event.count <= 0 || event.count > 100_000) {
+      errors.push(`${label}: count must be greater than 0 and at most 100,000.`);
     }
     if (
       event.price_per_head !== null &&
@@ -220,6 +389,10 @@ type NumberInputProps = Omit<
   ComponentProps<typeof Input>,
   "type" | "value" | "onChange" | "onBlur"
 > &
+  NumericRule &
+  {
+    onValidityChange?: (valid: boolean) => void;
+  } &
   (
     | {
         value: number;
@@ -240,39 +413,130 @@ type NumberInputProps = Omit<
  *  draft is local while the field is being edited, so external updates
  *  (defaults / scenario loads) still flow through otherwise. */
 function NumberInput(props: NumberInputProps) {
-  const { value, onCommit, nullable = false, ...inputProps } = props;
+  const {
+    value,
+    onCommit,
+    nullable = false,
+    integer,
+    min,
+    max,
+    exclusiveMin,
+    unit,
+    onValidityChange,
+    id,
+    "aria-describedby": describedBy,
+    ...inputProps
+  } = props;
   const [draft, setDraft] = useState<string | null>(null);
-  const [invalid, setInvalid] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = id ? `${id}-error` : undefined;
+
+  function validate(raw: string): { value?: number | null; error?: string } {
+    if (raw === "") {
+      return nullable ? { value: null } : { error: "A value is required." };
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return { error: "Enter a valid number." };
+    if (integer && !Number.isInteger(parsed)) return { error: "Enter a whole number." };
+    if (exclusiveMin !== undefined && parsed <= exclusiveMin)
+      return { error: `Must be greater than ${exclusiveMin}.` };
+    if (min !== undefined && parsed < min) return { error: `Must be at least ${min}.` };
+    if (max !== undefined && parsed > max) return { error: `Must be at most ${max}.` };
+    return { value: parsed };
+  }
+
+  function update(raw: string) {
+    setDraft(raw);
+    const next = validate(raw);
+    const message = next.error ?? null;
+    setError(message);
+    onValidityChange?.(!message);
+    if (!message) {
+      if (next.value === null) (onCommit as (v: number | null) => void)(null);
+      else (onCommit as (v: number) => void)(next.value as number);
+    }
+  }
+
   return (
     <>
       <Input
+        id={id}
+        data-unit={unit}
         type="number"
-        step="any"
-        aria-invalid={invalid || undefined}
+        step={integer ? 1 : "any"}
+        min={exclusiveMin === undefined ? min : undefined}
+        max={max}
+        aria-invalid={Boolean(error) || undefined}
+        aria-describedby={[describedBy, error ? errorId : null]
+          .filter(Boolean)
+          .join(" ") || undefined}
         {...inputProps}
         value={draft ?? (value === null ? "" : String(value))}
-        onChange={(e) => {
-          const raw = e.target.value;
-          setDraft(raw);
-          if (raw === "") {
-            setInvalid(false);
-            if (nullable) (onCommit as (v: number | null) => void)(null);
-            return;
-          }
-          const n = Number(raw);
-          if (!Number.isFinite(n)) {
-            setInvalid(true);
-            return;
-          }
-          setInvalid(false);
-          (onCommit as (v: number) => void)(n);
-        }}
+        onChange={(e) => update(e.target.value)}
         onBlur={() => {
-          setDraft(null);
-          setInvalid(false);
+          if (!error) setDraft(null);
         }}
       />
-      {invalid && <p className="text-sm text-destructive">Enter a valid number.</p>}
+      {error && (
+        <p id={errorId} role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+function NumberArrayInput({
+  id,
+  value,
+  onCommit,
+  onValidityChange,
+}: {
+  id: string;
+  value: number[];
+  onCommit: (value: number[]) => void;
+  onValidityChange: (valid: boolean) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = `${id}-error`;
+
+  function update(raw: string) {
+    setDraft(raw);
+    const tokens = raw.split(",").map((token) => token.trim());
+    let message: string | null = null;
+    const parsed = tokens.map(Number);
+    if (tokens.some((token) => token === "") || parsed.some((n) => !Number.isFinite(n)))
+      message = "Enter only comma-separated numbers.";
+    else if (parsed.length !== 13) message = "Enter exactly 13 weights (ages 0–12).";
+    else if (parsed.some((n) => n <= 0 || n > 1000))
+      message = "Every weight must be greater than 0 and at most 1000 kg.";
+    else if (parsed.some((n, index) => index > 0 && n < parsed[index - 1]))
+      message = "Weights must not decrease with age.";
+
+    setError(message);
+    onValidityChange(!message);
+    if (!message) onCommit(parsed);
+  }
+
+  return (
+    <>
+      <Input
+        id={id}
+        type="text"
+        aria-invalid={Boolean(error) || undefined}
+        aria-describedby={error ? errorId : undefined}
+        value={draft ?? value.join(", ")}
+        onChange={(event) => update(event.target.value)}
+        onBlur={() => {
+          if (!error) setDraft(null);
+        }}
+      />
+      {error && (
+        <p id={errorId} role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
     </>
   );
 }
@@ -326,14 +590,19 @@ export default function SimulationPage() {
     system: DEFAULT_SYSTEM,
   });
   const [assumptions, setAssumptions] = useState<SimulationAssumptions | null>(null);
-  const [loadedScenario, setLoadedScenario] = useState<ScenarioOut | null>(null);
+  const [loadedScenario, setLoadedScenario] = useState<ScenarioRow | null>(null);
+  const [invalidFields, setInvalidFields] = useState<Set<string>>(() => new Set());
+  const [editorVersion, setEditorVersion] = useState(0);
+  const [horizonInputVersion, setHorizonInputVersion] = useState(0);
   // Scheduled herd events live outside the reflected sections editor.
   const [events, setEvents] = useState<HerdEventAssumptions[]>([]);
+  const eventKeyCounter = useRef(0);
+  const [eventKeys, setEventKeys] = useState<string[]>([]);
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
 
   const [monteCarlo, setMonteCarlo] = useState(false);
   const [sensitivity, setSensitivity] = useState(false);
-  const [result, setResult] = useState<SimulationResult | null>(null);
+  const [result, setResult] = useState<BoundResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningScenarioId, setRunningScenarioId] = useState<number | null>(null);
 
@@ -360,8 +629,12 @@ export default function SimulationPage() {
       // into editable state (one-shot per new payload identity).
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAssumptions(defaultsQuery.data.data);
-      setEvents(defaultsQuery.data.data.events ?? []);
+      const nextEvents = defaultsQuery.data.data.events ?? [];
+      setEvents(nextEvents);
+      setEventKeys(nextEvents.map(() => `event-${eventKeyCounter.current++}`));
       setLoadedScenario(null);
+      setInvalidFields(new Set());
+      setEditorVersion((version) => version + 1);
     }
   }, [defaultsQuery.data]);
 
@@ -375,15 +648,23 @@ export default function SimulationPage() {
   const scenariosQuery = useListScenariosApiSimulationScenariosGet({
     query: { enabled: allowed },
   });
-  const scenarios =
-    scenariosQuery.data?.status === 200 ? scenariosQuery.data.data : [];
+  const scenarios: ScenarioRow[] =
+    scenariosQuery.data?.status === 200
+      ? (scenariosQuery.data.data as ScenarioRow[])
+      : [];
+  const usableScenarioIds = new Set(
+    scenarios.filter(scenarioUsable).map((scenario) => scenario.id),
+  );
+  const selectedUsableIds = selectedIds.filter((id) => usableScenarioIds.has(id));
 
   const compareQuery = useCompareScenariosApiSimulationScenariosCompareGet(
     { ids: compareIds ?? "" },
     { query: { enabled: allowed && compareIds !== null } },
   );
   const comparePayload =
-    compareQuery.data?.status === 200 ? compareQuery.data.data : undefined;
+    compareIds !== null && compareQuery.data?.status === 200
+      ? compareQuery.data.data
+      : undefined;
 
   const runMutation = useRunAdhocApiSimulationRunPost();
   const runScenarioMutation = useRunScenarioApiSimulationScenariosScenarioIdRunPost();
@@ -394,6 +675,19 @@ export default function SimulationPage() {
   function invalidateScenarios() {
     queryClient.invalidateQueries({
       queryKey: getListScenariosApiSimulationScenariosGetQueryKey(),
+    });
+    queryClient.invalidateQueries({
+      queryKey: getCompareScenariosApiSimulationScenariosCompareGetQueryKey(),
+    });
+    setCompareIds(null);
+  }
+
+  function setFieldValidity(key: string, valid: boolean) {
+    setInvalidFields((previous) => {
+      const next = new Set(previous);
+      if (valid) next.delete(key);
+      else next.add(key);
+      return next;
     });
   }
 
@@ -420,8 +714,78 @@ export default function SimulationPage() {
   /** Horizon from the meta section; gates event-month validation. */
   const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
   const eventErrors = validateEvents(events, horizonMonths);
+  const assumptionErrors: string[] = [];
+  if (assumptions) {
+    const start = assumptions.meta?.start_year_month;
+    const match = start?.match(/^(\d{4})-(\d{2})$/);
+    if (
+      !match ||
+      Number(match[1]) < 1900 ||
+      Number(match[1]) > 2200 ||
+      Number(match[2]) < 1 ||
+      Number(match[2]) > 12
+    )
+      assumptionErrors.push("Start year month must be a real month from 1900-01 to 2200-12.");
+
+    const finance = assumptions.finance;
+    if (
+      finance &&
+      typeof finance.loan_fraction_of_project_cost === "number" &&
+      typeof finance.subsidy_fraction === "number" &&
+      finance.loan_fraction_of_project_cost + finance.subsidy_fraction > 1
+    )
+      assumptionErrors.push("Loan fraction plus subsidy fraction must not exceed 1.");
+    if (
+      finance &&
+      typeof finance.moratorium_months === "number" &&
+      typeof finance.loan_term_months === "number" &&
+      finance.moratorium_months >= finance.loan_term_months
+    )
+      assumptionErrors.push("Moratorium must be shorter than the loan term.");
+
+    const growth = assumptions.growth;
+    const yearling = growth?.weight_by_age_months
+      ? Math.max(...growth.weight_by_age_months.slice(0, 13))
+      : null;
+    if (
+      growth &&
+      yearling !== null &&
+      typeof growth.adult_weight_doe_kg === "number" &&
+      typeof growth.adult_weight_buck_kg === "number" &&
+      (growth.adult_weight_doe_kg < yearling || growth.adult_weight_buck_kg < yearling)
+    )
+      assumptionErrors.push(
+        "Adult doe and buck weights must be at least the highest yearling weight.",
+      );
+
+    const risk = assumptions.risk;
+    if (risk) {
+      for (const [key, value] of Object.entries(risk)) {
+        if (
+          value &&
+          typeof value === "object" &&
+          "low" in value &&
+          "high" in value &&
+          !(
+            Number((value as SectionValues).low) <= 1 &&
+            Number((value as SectionValues).high) >= 1
+          )
+        )
+          assumptionErrors.push(`${humanize(key)} low and high must bracket 1.`);
+      }
+    }
+  }
+  if (events.length > 500)
+    assumptionErrors.push("A simulation can contain at most 500 herd events.");
+  const hasEditorErrors =
+    invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
+  const currentPayload = assumptions ? { ...assumptions, events } : null;
+  const currentFingerprint = currentPayload
+    ? resultFingerprint(currentPayload, monteCarlo, sensitivity)
+    : null;
 
   function addEvent() {
+    setEventKeys((previous) => [...previous, `event-${eventKeyCounter.current++}`]);
     setEvents((prev) => [
       ...prev,
       {
@@ -441,7 +805,15 @@ export default function SimulationPage() {
   }
 
   function removeEvent(index: number) {
+    const removedKey = eventKeys[index];
     setEvents((prev) => prev.filter((_, i) => i !== index));
+    setEventKeys((previous) => previous.filter((_, i) => i !== index));
+    setInvalidFields((previous) => {
+      const next = new Set(
+        [...previous].filter((key) => !removedKey || !key.startsWith(`event:${removedKey}:`)),
+      );
+      return next;
+    });
   }
 
   /** Assumptions plus the scheduled events, as sent to run/save endpoints. */
@@ -452,7 +824,10 @@ export default function SimulationPage() {
   async function onUseCurrentHerd() {
     try {
       const res = await snapshotQuery.refetch();
-      if (res.data?.status !== 200) return;
+      if (res.isError || res.data?.status !== 200) {
+        toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
+        return;
+      }
       const snap = res.data.data;
       setAssumptions((prev) =>
         prev
@@ -473,6 +848,10 @@ export default function SimulationPage() {
           : prev,
       );
       setLoadedScenario(null);
+      setInvalidFields((previous) =>
+        new Set([...previous].filter((key) => key.startsWith("event:"))),
+      );
+      setEditorVersion((version) => version + 1);
       toast.success(`Loaded current herd (${snap.total_head} head).`);
     } catch (err) {
       toast.error(errorMessage(err, "Could not load the herd snapshot."));
@@ -482,13 +861,18 @@ export default function SimulationPage() {
   async function onRun() {
     const payload = assumptionsWithEvents();
     if (!payload) return;
-    if (eventErrors.length > 0) return; // inline messages already shown
+    if (hasEditorErrors) return;
     setRunError(null);
     try {
       const res = await runMutation.mutateAsync({
         data: { assumptions: payload, monte_carlo: monteCarlo, sensitivity },
       });
-      if (res.status === 200) setResult(res.data);
+      if (res.status === 200)
+        setResult({
+          data: res.data,
+          fingerprint: resultFingerprint(payload, monteCarlo, sensitivity),
+          source: "Current editor assumptions",
+        });
     } catch (err) {
       const message = errorMessage(err, "Simulation failed");
       setRunError(message);
@@ -496,7 +880,8 @@ export default function SimulationPage() {
     }
   }
 
-  async function onRunScenario(scenario: ScenarioOut) {
+  async function onRunScenario(scenario: ScenarioRow) {
+    if (!scenarioUsable(scenario)) return;
     setRunError(null);
     setRunningScenarioId(scenario.id);
     try {
@@ -504,7 +889,12 @@ export default function SimulationPage() {
         scenarioId: scenario.id,
         params: { monte_carlo: monteCarlo, sensitivity },
       });
-      if (res.status === 200) setResult(res.data);
+      if (res.status === 200)
+        setResult({
+          data: res.data,
+          fingerprint: resultFingerprint(scenario.assumptions, monteCarlo, sensitivity),
+          source: `Saved scenario “${scenario.name}”`,
+        });
     } catch (err) {
       const message = errorMessage(err, "Scenario run failed");
       setRunError(message);
@@ -514,7 +904,7 @@ export default function SimulationPage() {
     }
   }
 
-  async function onDeleteScenario(scenario: ScenarioOut) {
+  async function onDeleteScenario(scenario: ScenarioRow) {
     if (!window.confirm(`Delete scenario "${scenario.name}"?`)) return;
     try {
       await deleteMutation.mutateAsync({ scenarioId: scenario.id });
@@ -528,7 +918,12 @@ export default function SimulationPage() {
   }
 
   function onCompare() {
-    const ids = selectedIds.join(",");
+    if (
+      selectedUsableIds.length < 2 ||
+      selectedUsableIds.length > MAX_COMPARE_SCENARIOS
+    )
+      return;
+    const ids = selectedUsableIds.join(",");
     if (ids === compareIds) {
       void compareQuery.refetch();
     } else {
@@ -539,7 +934,7 @@ export default function SimulationPage() {
   async function onSaveScenario() {
     const payload = assumptionsWithEvents();
     if (!payload || !saveName.trim()) return;
-    if (eventErrors.length > 0) return;
+    if (hasEditorErrors) return;
     setSaveError(null);
     try {
       await createMutation.mutateAsync({
@@ -564,7 +959,7 @@ export default function SimulationPage() {
   async function onUpdateScenario() {
     const payload = assumptionsWithEvents();
     if (!payload || !loadedScenario) return;
-    if (eventErrors.length > 0) return;
+    if (hasEditorErrors || !scenarioUsable(loadedScenario)) return;
     try {
       await updateMutation.mutateAsync({
         scenarioId: loadedScenario.id,
@@ -600,14 +995,23 @@ export default function SimulationPage() {
       );
     }
     if (typeof value === "number") {
+      const rule = numericRule(section, key);
       return (
         <div key={id} className="space-y-1.5">
           <Label htmlFor={id}>{humanize(key)}</Label>
           <NumberInput
+            key={
+              section === "meta" && key === "horizon_months"
+                ? `${id}:${horizonInputVersion}`
+                : id
+            }
             id={id}
             value={value}
+            {...rule}
+            onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
             onCommit={(n) => updateField(section, key, n)}
           />
+          {rule.unit && <p className="text-xs text-muted-foreground">Unit: {rule.unit}</p>}
         </div>
       );
     }
@@ -627,6 +1031,10 @@ export default function SimulationPage() {
     }
     if (typeof value === "string") {
       const isMonth = section === "meta" && key === "start_year_month";
+      const monthIsInvalid =
+        isMonth &&
+        !/^(?:19\d{2}|20\d{2}|21\d{2}|2200)-(?:0[1-9]|1[0-2])$/.test(value);
+      const errorId = `${id}-error`;
       return (
         <div key={id} className="space-y-1.5">
           <Label htmlFor={id}>{humanize(key)}</Label>
@@ -634,8 +1042,17 @@ export default function SimulationPage() {
             id={id}
             type={isMonth ? "month" : "text"}
             value={value}
+            min={isMonth ? "1900-01" : undefined}
+            max={isMonth ? "2200-12" : undefined}
+            aria-invalid={monthIsInvalid || undefined}
+            aria-describedby={monthIsInvalid ? errorId : undefined}
             onChange={(e) => updateField(section, key, e.target.value)}
           />
+          {monthIsInvalid && (
+            <p id={errorId} role="alert" className="text-sm text-destructive">
+              Enter a real month from 1900-01 to 2200-12.
+            </p>
+          )}
         </div>
       );
     }
@@ -643,20 +1060,11 @@ export default function SimulationPage() {
       return (
         <div key={id} className="space-y-1.5 sm:col-span-2 lg:col-span-3">
           <Label htmlFor={id}>{humanize(key)} (comma-separated)</Label>
-          <Input
+          <NumberArrayInput
             id={id}
-            type="text"
-            value={value.join(", ")}
-            onChange={(e) =>
-              updateField(
-                section,
-                key,
-                e.target.value
-                  .split(",")
-                  .map((token) => Number(token.trim()))
-                  .filter((n) => !Number.isNaN(n)),
-              )
-            }
+            value={value as number[]}
+            onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
+            onCommit={(numbers) => updateField(section, key, numbers)}
           />
         </div>
       );
@@ -683,14 +1091,21 @@ export default function SimulationPage() {
   function renderNestedField(section: string, key: string, subKey: string, value: unknown) {
     const id = `sim-${section}-${key}-${subKey}`;
     if (typeof value === "number") {
+      const rule: NumericRule =
+        section === "risk" && (subKey === "low" || subKey === "high")
+          ? { exclusiveMin: 0, max: 100, unit: "multiplier" }
+          : numericRule(section, subKey);
       return (
         <div key={id} className="space-y-1.5">
           <Label htmlFor={id}>{humanize(subKey)}</Label>
           <NumberInput
             id={id}
             value={value}
+            {...rule}
+            onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
             onCommit={(n) => updateNestedField(section, key, subKey, n)}
           />
+          {rule.unit && <p className="text-xs text-muted-foreground">Unit: {rule.unit}</p>}
         </div>
       );
     }
@@ -1111,7 +1526,11 @@ export default function SimulationPage() {
             <Button
               variant="outline"
               onClick={onCompare}
-              disabled={selectedIds.length < 2 || compareQuery.isFetching}
+              disabled={
+                selectedUsableIds.length < 2 ||
+                selectedUsableIds.length > MAX_COMPARE_SCENARIOS ||
+                compareQuery.isFetching
+              }
             >
               <GitCompareArrows />
               {compareQuery.isFetching ? "Comparing…" : "Compare selected"}
@@ -1124,7 +1543,7 @@ export default function SimulationPage() {
                     setSaveError(null);
                     setSaveOpen(true);
                   }}
-                  disabled={!assumptions}
+                  disabled={!assumptions || hasEditorErrors}
                 >
                   <Save />
                   Save as scenario
@@ -1133,7 +1552,12 @@ export default function SimulationPage() {
                   <Button
                     variant="outline"
                     onClick={() => void onUpdateScenario()}
-                    disabled={!assumptions || updateMutation.isPending}
+                    disabled={
+                      !assumptions ||
+                      hasEditorErrors ||
+                      !scenarioUsable(loadedScenario) ||
+                      updateMutation.isPending
+                    }
                   >
                     {updateMutation.isPending
                       ? "Updating…"
@@ -1144,7 +1568,7 @@ export default function SimulationPage() {
             )}
             <Button
               onClick={() => void onRun()}
-              disabled={!assumptions || runMutation.isPending}
+              disabled={!assumptions || hasEditorErrors || runMutation.isPending}
             >
               <Play />
               {runMutation.isPending ? "Running…" : "Run simulation"}
@@ -1219,10 +1643,15 @@ export default function SimulationPage() {
             </Button>
           </div>
           {defaultsQuery.isError && (
-            <p className="text-sm text-destructive">
+            <p role="alert" className="text-sm text-destructive">
               {defaultsQuery.error instanceof ApiError
                 ? defaultsQuery.error.detail
                 : "Could not load the defaults."}
+            </p>
+          )}
+          {breedsQuery.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {errorMessage(breedsQuery.error, "Could not load available breeds and systems.")}
             </p>
           )}
         </CardContent>
@@ -1247,9 +1676,11 @@ export default function SimulationPage() {
                   key={preset.months}
                   variant="outline"
                   size="sm"
-                  onClick={() =>
-                    updateField("meta", "horizon_months", preset.months)
-                  }
+                  onClick={() => {
+                    updateField("meta", "horizon_months", preset.months);
+                    setFieldValidity("field:sim-meta-horizon_months", true);
+                    setHorizonInputVersion((version) => version + 1);
+                  }}
                 >
                   {preset.label}
                 </Button>
@@ -1262,7 +1693,7 @@ export default function SimulationPage() {
           {assumptions &&
             sectionEntries(assumptions).map(([section, values]) => (
               <details
-                key={section}
+                key={`${section}:${editorVersion}`}
                 open={section === "meta" || section === "herd"}
                 className="rounded-lg border"
               >
@@ -1276,6 +1707,17 @@ export default function SimulationPage() {
                 </div>
               </details>
             ))}
+          {invalidFields.size > 0 && (
+            <p role="alert" className="text-sm text-destructive">
+              Fix {invalidFields.size} highlighted numeric field
+              {invalidFields.size === 1 ? "" : "s"} before running or saving.
+            </p>
+          )}
+          {assumptionErrors.map((error) => (
+            <p key={error} role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          ))}
         </CardContent>
       </Card>
 
@@ -1283,7 +1725,12 @@ export default function SimulationPage() {
         title="Herd events"
         description="Purchases or sales that fire at a given simulation month."
         actions={
-          <Button variant="outline" size="sm" onClick={addEvent}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addEvent}
+            disabled={events.length >= 500}
+          >
             <Plus />
             Add event
           </Button>
@@ -1309,15 +1756,22 @@ export default function SimulationPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {events.map((event, index) => (
-                <TableRow key={index}>
+              {events.map((event, index) => {
+                const eventKey = eventKeys[index] ?? `event-fallback-${index}`;
+                return (
+                <TableRow key={eventKey}>
                   <TableCell>
                     <NumberInput
+                      id={`simulation-${eventKey}-month`}
                       aria-label="Month"
                       min={1}
                       max={horizonMonths}
+                      integer
                       className="w-20"
                       value={event.month}
+                      onValidityChange={(valid) =>
+                        setFieldValidity(`event:${eventKey}:month`, valid)
+                      }
                       onCommit={(n) => updateEvent(index, { month: n })}
                     />
                   </TableCell>
@@ -1367,21 +1821,31 @@ export default function SimulationPage() {
                   </TableCell>
                   <TableCell>
                     <NumberInput
+                      id={`simulation-${eventKey}-count`}
                       aria-label="Count"
-                      min={1}
+                      exclusiveMin={0}
+                      max={100_000}
                       className="w-20"
                       value={event.count}
+                      onValidityChange={(valid) =>
+                        setFieldValidity(`event:${eventKey}:count`, valid)
+                      }
                       onCommit={(n) => updateEvent(index, { count: n })}
                     />
                   </TableCell>
                   <TableCell>
                     <NumberInput
+                      id={`simulation-${eventKey}-price`}
                       aria-label="Price per head"
                       min={0}
+                      max={1_000_000_000}
                       placeholder="auto"
                       className="w-24"
                       nullable
                       value={event.price_per_head ?? null}
+                      onValidityChange={(valid) =>
+                        setFieldValidity(`event:${eventKey}:price`, valid)
+                      }
                       onCommit={(n) => updateEvent(index, { price_per_head: n })}
                     />
                   </TableCell>
@@ -1395,12 +1859,13 @@ export default function SimulationPage() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         )}
         {eventErrors.map((error) => (
-          <p key={error} className="text-sm text-destructive">
+          <p key={error} role="alert" className="text-sm text-destructive">
             {error}
           </p>
         ))}
@@ -1435,22 +1900,42 @@ export default function SimulationPage() {
             Editing scenario: {loadedScenario.name}
           </p>
         )}
-        {runError && <p className="text-sm text-destructive">{runError}</p>}
+        {runError && (
+          <p role="alert" className="text-sm text-destructive">
+            {runError}
+          </p>
+        )}
       </section>
 
       {result && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Results</h2>
-          {renderResults(result)}
+          <p className="text-sm text-muted-foreground">Source: {result.source}</p>
+          {currentFingerprint !== result.fingerprint && (
+            <p
+              role="status"
+              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            >
+              These results do not match the current editor assumptions or run options.
+              Run the simulation again before using them for a decision.
+            </p>
+          )}
+          {renderResults(result.data)}
         </section>
       )}
 
       <DataTableCard
         title="Scenarios"
-        description="Saved assumption sets to load, run, update or compare."
+        description={`Saved assumption sets to load, run, update or compare. Select 2–${MAX_COMPARE_SCENARIOS} valid scenarios (${selectedUsableIds.length} selected).`}
         contentClassName="space-y-4"
       >
-        {scenarios.length === 0 ? (
+        {scenariosQuery.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage(scenariosQuery.error, "Could not load saved scenarios.")}
+          </p>
+        ) : scenariosQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading scenarios…</p>
+        ) : scenarios.length === 0 ? (
           <EmptyState
             icon={FolderOpen}
             title="No saved scenarios yet."
@@ -1473,29 +1958,63 @@ export default function SimulationPage() {
                   <TableCell>
                     <Checkbox
                       aria-label={`Compare ${scenario.name}`}
-                      checked={selectedIds.includes(scenario.id)}
-                      onCheckedChange={(checked) =>
+                      checked={
+                        scenarioUsable(scenario) && selectedIds.includes(scenario.id)
+                      }
+                      disabled={
+                        !scenarioUsable(scenario) ||
+                        (!selectedIds.includes(scenario.id) &&
+                          selectedUsableIds.length >= MAX_COMPARE_SCENARIOS)
+                      }
+                      onCheckedChange={(checked) => {
+                        if (!scenarioUsable(scenario)) return;
+                        setCompareIds(null);
                         setSelectedIds((prev) =>
                           checked === true
-                            ? [...prev, scenario.id]
+                            ? prev.includes(scenario.id) ||
+                              selectedUsableIds.length >= MAX_COMPARE_SCENARIOS
+                              ? prev
+                              : [...prev, scenario.id]
                             : prev.filter((id) => id !== scenario.id),
-                        )
-                      }
+                        );
+                      }}
                     />
                   </TableCell>
-                  <TableCell className="font-medium">{scenario.name}</TableCell>
-                  <TableCell>{scenario.notes}</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{scenario.name}</div>
+                    {!scenarioUsable(scenario) && (
+                      <span className="text-xs font-normal text-destructive">
+                        Invalid saved assumptions
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div>{scenario.notes}</div>
+                    {!scenarioUsable(scenario) && scenario.validation_error && (
+                      <p className="max-w-md text-xs text-destructive">
+                        {scenario.validation_error}
+                      </p>
+                    )}
+                  </TableCell>
                   <TableCell>{formatDate(scenario.updated_at)}</TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
+                          if (!scenarioUsable(scenario)) return;
                           setAssumptions(scenario.assumptions);
-                          setEvents(scenario.assumptions.events ?? []);
+                          const scenarioEvents = scenario.assumptions.events ?? [];
+                          setEvents(scenarioEvents);
+                          setEventKeys(
+                            scenarioEvents.map(() => `event-${eventKeyCounter.current++}`),
+                          );
                           setLoadedScenario(scenario);
+                          setInvalidFields(new Set());
+                          setEditorVersion((version) => version + 1);
                         }}
+                        disabled={!scenarioUsable(scenario)}
                       >
                         Load
                       </Button>
@@ -1503,7 +2022,7 @@ export default function SimulationPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => void onRunScenario(scenario)}
-                        disabled={runningScenarioId !== null}
+                        disabled={!scenarioUsable(scenario) || runningScenarioId !== null}
                       >
                         {runningScenarioId === scenario.id ? "Running…" : "Run"}
                       </Button>
@@ -1523,6 +2042,11 @@ export default function SimulationPage() {
               ))}
             </TableBody>
           </Table>
+        )}
+        {compareQuery.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage(compareQuery.error, "Could not compare the selected scenarios.")}
+          </p>
         )}
         {comparePayload && comparePayload.results.length > 0 && (
           <div className="space-y-2">
@@ -1559,7 +2083,11 @@ export default function SimulationPage() {
             <DialogTitle>Save as scenario</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+            {saveError && (
+              <p role="alert" className="text-sm text-destructive">
+                {saveError}
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="scenario-name">Name *</Label>
               <Input
@@ -1581,7 +2109,9 @@ export default function SimulationPage() {
             <DialogFooter>
               <Button
                 onClick={() => void onSaveScenario()}
-                disabled={!saveName.trim() || createMutation.isPending}
+                disabled={
+                  !saveName.trim() || hasEditorErrors || createMutation.isPending
+                }
               >
                 {createMutation.isPending ? "Saving…" : "Save scenario"}
               </Button>

@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   createAnimal,
   createBreeding,
+  daysAgo,
   monthsAgo,
   pickSelectOption,
   recordUltrasoundPregnant,
@@ -27,12 +28,12 @@ test.describe("tasks guards", () => {
       dateOfBirth: monthsAgo(14),
       entryWeightKg: 24,
     });
-    await createBreeding(page, doeTag);
+    await createBreeding(page, doeTag, daysAgo(40));
 
-    // The ultrasound duty (due breeding date + 32 days) sits in Upcoming and is
+    // The ultrasound duty (due breeding date + 32 days) is now overdue and is
     // form-linked: an "Open form" link, no raw Complete button.
     await page.goto("/tasks");
-    await page.getByRole("tab", { name: /Upcoming/ }).click();
+    await page.getByRole("tab", { name: /Overdue/ }).click();
     const ultrasoundRow = page.getByRole("row", {
       name: new RegExp(`Ultrasound check: ${doeTag}`),
     });

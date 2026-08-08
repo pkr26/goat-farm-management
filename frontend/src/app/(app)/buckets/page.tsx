@@ -23,7 +23,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { usePermissions } from "@/lib/use-permissions";
 
-function BucketCard({ row }: { row: BucketBoardRow }) {
+function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
   return (
     <Card>
       <CardHeader>
@@ -56,9 +56,13 @@ function BucketCard({ row }: { row: BucketBoardRow }) {
               {row.animals.map((a) => (
                 <TableRow key={a.id}>
                   <TableCell>
-                    <Link href={`/animals/${a.id}`} className="text-primary underline">
-                      {a.tag_number}
-                    </Link>
+                    {canViewAnimals ? (
+                      <Link href={`/animals/${a.id}`} className="text-primary underline">
+                        {a.tag_number}
+                      </Link>
+                    ) : (
+                      a.tag_number
+                    )}
                   </TableCell>
                   <TableCell>{a.name ?? "—"}</TableCell>
                   <TableCell>{a.sex}</TableCell>
@@ -79,6 +83,7 @@ function BucketCard({ row }: { row: BucketBoardRow }) {
 export default function BucketsPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("buckets.view");
+  const canViewAnimals = can("animals.view");
   const query = useBucketsBoardApiBucketsGet({ query: { enabled: allowed } });
   const rows = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -117,7 +122,7 @@ export default function BucketsPage() {
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
           {rows.map((row) => (
-            <BucketCard key={row.bucket} row={row} />
+            <BucketCard key={row.bucket} row={row} canViewAnimals={canViewAnimals} />
           ))}
         </div>
       )}

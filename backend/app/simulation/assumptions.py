@@ -6,6 +6,7 @@ All sub-models forbid extra keys so API payloads fail loudly on typos.
 """
 
 import re
+from itertools import pairwise
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -35,7 +36,7 @@ MAX_FODDER_YIELD_T = 1000
 MAX_RISK_MULTIPLIER = 100.0
 
 # A live weight in kg, bounded so head × kg × ₹ products stay finite.
-WeightKg = Annotated[FiniteFloat, Field(le=MAX_WEIGHT_KG)]
+WeightKg = Annotated[FiniteFloat, Field(gt=0.0, le=MAX_WEIGHT_KG)]
 
 
 class _Group(BaseModel):
@@ -164,15 +165,22 @@ class GrowthAssumptions(_Group):
             26.5,
         ],
         min_length=13,
-        # The engine only reads ages 0..24, but cap the table too: an
-        # unbounded list is an unbounded payload.
-        max_length=1200,
+        # Exactly ages 0..12. Longer tables previously overrode adult weight
+        # because weight_at_age consulted list length before its adult branch.
+        max_length=13,
     )
     # Age at which surplus males are sold for meat. Must be >= 6 so males pass
     # through the grower chain (weaning at 3, grower from 6). Osmanabadi
     # stall-fed kids are marketed at 9-12 months; 12 gives the yearling finish
     # (~26.5 kg) whose extra weight outweighs the added feed at default prices.
     sale_age_months: int = Field(default=12, ge=6, le=24)
+
+    @field_validator("weight_by_age_months")
+    @classmethod
+    def _weight_curve_is_nondecreasing(cls, value: list[float]) -> list[float]:
+        if any(later < earlier for earlier, later in pairwise(value)):
+            raise ValueError("weight_by_age_months must be nondecreasing from birth to month 12")
+        return value
 
 
 class SalesAssumptions(_Group):

@@ -8,15 +8,11 @@ import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getListEventsApiHealthEventsGetQueryKey,
-  getListTasksApiTasksGetQueryKey,
-  useListAnimalsApiAnimalsGet,
-  useListBatchesApiPurchasesGet,
   useListEventsApiHealthEventsGet,
   useListTasksApiTasksGet,
   useRecordEventApiHealthEventsPost,
@@ -29,9 +25,16 @@ import {
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
+import {
+  HealthAnimalPicker,
+  HealthPurchaseBatchPicker,
+} from "@/components/health-target-pickers";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -64,8 +67,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { addDays, formatDate, formatMoney, utcToday } from "@/lib/format";
+import { addDays, farmToday, formatDate, formatMoney } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
+
+import { taskPrefill } from "./task-prefill";
 
 const EVENT_TYPES = Object.values(HealthEventInType);
 const BUCKETS = Object.values(HealthEventInBucket);
@@ -80,48 +86,14 @@ const ROUTE_ITEMS: Record<string, string> = {
 };
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
-}
-
-/** Product/disease hints parsed from a linked duty's title, so recorded
- *  events match the vaccination templates instead of leaving both blank
- *. */
-export function taskPrefill(task: TaskOut): {
-  product_name?: string;
-  disease_target?: string;
-} {
-  // Strip auto-task scaffolding: "[Supplier #3] Day 4: …" → "…", and a
-  // trailing ": <animal tag>" ("Pre-kidding ET+TT vaccine: G-ABC12").
-  let title = task.title.replace(/^\[[^\]]*\]\s*/, "");
-  title = title.replace(/^Days?\s*\d+(?:[–—-]\d+)?:\s*/i, "");
-  if (task.animal_tag && title.endsWith(`: ${task.animal_tag}`)) {
-    title = title.slice(0, -`: ${task.animal_tag}`.length);
-  }
-  if (task.category === "DEWORMING") {
-    // "deworm — Albendazole/Closantel oral + Ivermectin SC": product is the
-    // drug part; the target is always the Deworming template.
-    const drug = title.split("—")[1]?.trim();
-    return { product_name: drug || undefined, disease_target: "Deworming" };
-  }
-  if (task.category === "VACCINE") {
-    // "vaccinate PPR (live viral, SC)" → "PPR".
-    const vaccinated = /vaccinate\s+(.+?)\s*(?:\(|$)/i.exec(title);
-    if (vaccinated) return { disease_target: vaccinated[1].trim() };
-    // "Pre-kidding ET+TT vaccine" → the "ET + TT pre-kidding" template.
-    if (/et\s*\+\s*tt/i.test(title)) return { disease_target: "ET + TT pre-kidding" };
-    if (title.trim()) return { disease_target: title.trim() };
-  }
-  return {};
+  return farmToday();
 }
 
 /** Next-due date cell: red tint when overdue, amber when due within a week.
- *  Comparisons use the backend's UTC today. */
+ *  Comparisons use the active farm's calendar day. */
 function NextDue({ date }: { date: string }) {
-  const overdue = date < utcToday();
-  const dueSoon = !overdue && date <= addDays(utcToday(), 7);
+  const overdue = date < farmToday();
+  const dueSoon = !overdue && date <= addDays(farmToday(), 7);
   if (!overdue && !dueSoon) return <>{formatDate(date)}</>;
   return (
     <span
@@ -158,6 +130,19 @@ const eventSchema = z
       )
       .optional(),
     next_due_date: z.string().optional(),
+    schedule_template_name: z.string().max(120).optional(),
+    next_due_authority: z.string().max(120).optional(),
+    product_lot: z.string().max(120).optional(),
+    product_manufactured_on: z.string().optional(),
+    product_expires_on: z.string().optional(),
+    vaccine_valid_until: z.string().optional(),
+    certificate_number: z.string().max(120).optional(),
+    official_tag_number: z.string().max(80).optional(),
+    administered_by: z.string().max(120).optional(),
+    withdrawal_until: z.string().optional(),
+    suspected_scheduled_disease: z.boolean(),
+    authority_notified_at: z.string().optional(),
+    isolation_started_at: z.string().optional(),
     notes: z.string().optional(),
     task_id: z.string().optional(),
   })
@@ -174,38 +159,111 @@ const eventSchema = z
     if (v.date && v.date > localToday()) {
       ctx.addIssue({ code: "custom", path: ["date"], message: "Date cannot be in the future" });
     }
+    if (v.next_due_date) {
+      if (v.date && v.next_due_date <= v.date) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["next_due_date"],
+          message: "Next due date must be after the event date",
+        });
+      }
+      if (!v.schedule_template_name?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["schedule_template_name"],
+          message: "Name the schedule used for a next-due date",
+        });
+      }
+      if (!v.next_due_authority?.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["next_due_authority"],
+          message: "Record the authority for this next-due date",
+        });
+      }
+    }
+    if (v.product_manufactured_on && v.product_manufactured_on > localToday()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["product_manufactured_on"],
+        message: "Manufacture date cannot be in the future",
+      });
+    }
+    if (
+      v.product_manufactured_on &&
+      v.product_expires_on &&
+      v.product_expires_on < v.product_manufactured_on
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["product_expires_on"],
+        message: "Expiry cannot be before manufacture date",
+      });
+    }
+    if (v.date && v.product_expires_on && v.product_expires_on < v.date) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["product_expires_on"],
+        message: "Product was expired on the event date",
+      });
+    }
+    if (
+      v.vaccine_valid_until &&
+      v.product_expires_on &&
+      v.vaccine_valid_until > v.product_expires_on
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["vaccine_valid_until"],
+        message: "Vaccine validity cannot extend beyond product expiry",
+      });
+    }
+    if (v.date && v.withdrawal_until && v.withdrawal_until < v.date) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["withdrawal_until"],
+        message: "Withdrawal date cannot be before the event date",
+      });
+    }
+    if (v.suspected_scheduled_disease && !v.disease_target?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["disease_target"],
+        message: "Name the suspected scheduled disease",
+      });
+    }
+    for (const field of ["authority_notified_at", "isolation_started_at"] as const) {
+      if (v[field] && v[field] > localToday()) {
+        ctx.addIssue({ code: "custom", path: [field], message: "Date cannot be in the future" });
+      }
+    }
   });
 type EventValues = z.infer<typeof eventSchema>;
 
-function FieldError({ message }: { message?: string }) {
+function FieldError({ message, id }: { message?: string; id?: string }) {
   if (!message) return null;
-  return <p className="text-sm text-destructive">{message}</p>;
+  return <p id={id} role="alert" className="text-sm text-destructive">{message}</p>;
 }
 
 export default function HealthPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("health.view");
   const canManage = can("health.manage");
+  const canViewAnimals = can("animals.view");
   const canViewTasks = can("tasks.view");
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [eventOffset, setEventOffset] = useState(0);
+  const eventLimit = 50;
 
-  const eventsQuery = useListEventsApiHealthEventsGet({ query: { enabled: allowed } });
-  const events = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
-
-  const animalsQuery = useListAnimalsApiAnimalsGet(undefined, {
-    query: { enabled: allowed },
-  });
-  const animals =
-    animalsQuery.data?.status === 200 ? animalsQuery.data.data.animals : undefined;
+  const eventsQuery = useListEventsApiHealthEventsGet(
+    { limit: eventLimit, offset: eventOffset },
+    { query: { enabled: allowed } },
+  );
+  const eventPayload = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
 
   const [open, setOpen] = useState(false);
-  const batchesQuery = useListBatchesApiPurchasesGet({
-    query: { enabled: canManage && open },
-  });
-  const batches = batchesQuery.data?.status === 200 ? batchesQuery.data.data : undefined;
-
-  const tasksQuery = useListTasksApiTasksGet({
+  const tasksQuery = useListTasksApiTasksGet(undefined, {
     query: { enabled: canManage && canViewTasks && open },
   });
   const tabs = tasksQuery.data?.status === 200 ? tasksQuery.data.data : undefined;
@@ -221,24 +279,7 @@ export default function HealthPage() {
   const [scheduleAnimalId, setScheduleAnimalId] = useState("");
   const [prefillTaskId, setPrefillTaskId] = useState<string | null>(null);
 
-  /** value → label maps for the root `items` prop: without it, Base UI's
-   * Select.Value renders the raw value (e.g. an animal id) in the closed
-   * trigger, including for programmatically prefilled values. */
-  const scheduleAnimalItems: Record<string, string> = Object.fromEntries(
-    (animals ?? []).map((a) => [String(a.id), `${a.tag_number}${a.name ? ` · ${a.name}` : ""}`]),
-  );
-  const animalItems: Record<string, string> = Object.fromEntries(
-    (animals ?? []).map((a) => [
-      String(a.id),
-      `${a.tag_number}${a.name ? ` · ${a.name}` : ""} — ${a.current_bucket}`,
-    ]),
-  );
-  const batchItems: Record<string, string> = Object.fromEntries(
-    (batches ?? []).map((b) => [
-      String(b.id),
-      `#${b.id} — ${formatDate(b.date)} ${b.supplier ?? ""} (${b.count})`,
-    ]),
-  );
+  /** value → label map for the local task select. */
   const taskItems: Record<string, string> = {
     [NONE]: "— none —",
     ...Object.fromEntries(
@@ -270,6 +311,19 @@ export default function HealthPage() {
       vet_name: "",
       cost: "",
       next_due_date: "",
+      schedule_template_name: "",
+      next_due_authority: "",
+      product_lot: "",
+      product_manufactured_on: "",
+      product_expires_on: "",
+      vaccine_valid_until: "",
+      certificate_number: "",
+      official_tag_number: "",
+      administered_by: "",
+      withdrawal_until: "",
+      suspected_scheduled_disease: false,
+      authority_notified_at: "",
+      isolation_started_at: "",
       notes: "",
       task_id: NONE,
     },
@@ -281,6 +335,10 @@ export default function HealthPage() {
   const wTaskId = useWatch({ control, name: "task_id" });
   const wType = useWatch({ control, name: "type" });
   const scope = useWatch({ control, name: "scope" });
+  const suspectedScheduledDisease = useWatch({
+    control,
+    name: "suspected_scheduled_disease",
+  });
 
   /** Values the last linked duty prefilled — used to revert them when the
    *  user switches back to "— none —" without clobbering manual edits
@@ -348,18 +406,19 @@ export default function HealthPage() {
     appliedPrefillRef.current = applied;
   }
 
-  // /health/new?task_id=… redirects here: auto-open the dialog prefilled.
+  // /health/new?... redirects here: auto-open the dialog and preserve any
+  // animal/batch/task context supplied by the originating workflow.
   useEffect(() => {
     if (!canManage || prefillTaskId !== null) return;
     const params = new URLSearchParams(window.location.search);
     const taskId = params.get("task_id");
-    if (!taskId) return;
+    const animalId = params.get("animal_id");
+    const batchId = params.get("purchase_batch_id");
+    if (!taskId && !animalId && !batchId) return;
     // One-time mount initialization from URL params — cascading-render risk
     // doesn't apply here (runs once, not reactive to props/state).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(true);
-    const animalId = params.get("animal_id");
-    const batchId = params.get("purchase_batch_id");
     if (animalId) {
       setValue("scope", "animal");
       setValue("animal_id", animalId);
@@ -368,8 +427,10 @@ export default function HealthPage() {
       setValue("scope", "batch");
       setValue("purchase_batch_id", batchId);
     }
-    setPrefillTaskId(taskId);
-    setValue("task_id", taskId);
+    if (taskId) {
+      setPrefillTaskId(taskId);
+      setValue("task_id", taskId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage]);
 
@@ -405,14 +466,30 @@ export default function HealthPage() {
       vet_name: values.vet_name?.trim() || null,
       cost: values.cost ? Number(values.cost) : null,
       next_due_date: values.next_due_date || null,
+      schedule_template_name: values.schedule_template_name?.trim() || null,
+      next_due_authority: values.next_due_authority?.trim() || null,
+      product_lot: values.product_lot?.trim() || null,
+      product_manufactured_on: values.product_manufactured_on || null,
+      product_expires_on: values.product_expires_on || null,
+      vaccine_valid_until: values.vaccine_valid_until || null,
+      certificate_number: values.certificate_number?.trim() || null,
+      official_tag_number: values.official_tag_number?.trim() || null,
+      administered_by: values.administered_by?.trim() || null,
+      withdrawal_until: values.withdrawal_until || null,
+      suspected_scheduled_disease: values.suspected_scheduled_disease,
+      authority_notified_at: values.suspected_scheduled_disease
+        ? values.authority_notified_at || null
+        : null,
+      isolation_started_at: values.suspected_scheduled_disease
+        ? values.isolation_started_at || null
+        : null,
       notes: values.notes?.trim() || null,
       task_id: values.task_id && values.task_id !== NONE ? Number(values.task_id) : null,
     };
     try {
       await recordMutation.mutateAsync({ data: payload });
       toast.success("Health event recorded.");
-      queryClient.invalidateQueries({ queryKey: getListEventsApiHealthEventsGetQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getListTasksApiTasksGetQueryKey() });
+      invalidateFarmData(queryClient);
       setOpen(false);
       reset();
     } catch (err) {
@@ -433,7 +510,7 @@ export default function HealthPage() {
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
-  if (eventsQuery.isLoading || !events) {
+  if (eventsQuery.isLoading || !eventPayload) {
     if (eventsQuery.isError) {
       return (
         <p className="text-sm text-destructive">
@@ -445,6 +522,8 @@ export default function HealthPage() {
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+
+  const events = eventPayload.events;
 
   return (
     <div className="space-y-6">
@@ -478,19 +557,14 @@ export default function HealthPage() {
         <CardContent className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
             <Label htmlFor="schedule-animal">View schedule for</Label>
-            <Select value={scheduleAnimalId} onValueChange={(v) => setScheduleAnimalId(v)} items={scheduleAnimalItems}>
-              <SelectTrigger id="schedule-animal" className="w-64">
-                <SelectValue placeholder="Pick an animal" />
-              </SelectTrigger>
-              <SelectContent>
-                {(animals ?? []).map((a) => (
-                  <SelectItem key={a.id} value={String(a.id)}>
-                    {a.tag_number}
-                    {a.name ? ` · ${a.name}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <HealthAnimalPicker
+              id="schedule-animal"
+              value={scheduleAnimalId}
+              onValueChange={setScheduleAnimalId}
+              placeholder="Pick an animal"
+              dialogTitle="Choose an animal schedule"
+              className="w-64"
+            />
           </div>
           <Button
             variant="outline"
@@ -525,6 +599,7 @@ export default function HealthPage() {
                 <TableHead>Route</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
                 <TableHead>Next due</TableHead>
+                <TableHead>Traceability & holds</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -535,10 +610,12 @@ export default function HealthPage() {
                     <StatusBadge status={e.type}>{e.type}</StatusBadge>
                   </TableCell>
                   <TableCell>
-                    {e.animal_tag ? (
+                    {e.animal_tag && canViewAnimals ? (
                       <Link href={`/animals/${e.animal_id}`} className="text-primary underline">
                         {e.animal_tag}
                       </Link>
+                    ) : e.animal_tag ? (
+                      e.animal_tag
                     ) : e.purchase_batch_id ? (
                       `batch #${e.purchase_batch_id}`
                     ) : (
@@ -551,13 +628,72 @@ export default function HealthPage() {
                   <TableCell>{e.route ?? "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatMoney(e.cost)}</TableCell>
                   <TableCell>
-                    {e.next_due_date ? <NextDue date={e.next_due_date} /> : "—"}
+                    {e.next_due_date ? (
+                      <span>
+                        <NextDue date={e.next_due_date} />
+                        {e.schedule_template_name && (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {e.schedule_template_name}
+                            {e.next_due_authority ? ` · ${e.next_due_authority}` : ""}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="min-w-48 space-y-1 text-xs">
+                      {e.suspected_scheduled_disease && (
+                        <Badge variant="destructive">Scheduled disease suspected</Badge>
+                      )}
+                      {e.product_lot && <p>Lot: {e.product_lot}</p>}
+                      {e.product_manufactured_on && (
+                        <p>Manufactured: {formatDate(e.product_manufactured_on)}</p>
+                      )}
+                      {e.product_expires_on && (
+                        <p>Expires: {formatDate(e.product_expires_on)}</p>
+                      )}
+                      {e.vaccine_valid_until && (
+                        <p>Vaccine valid until: {formatDate(e.vaccine_valid_until)}</p>
+                      )}
+                      {e.certificate_number && <p>Certificate: {e.certificate_number}</p>}
+                      {e.official_tag_number && <p>Official tag: {e.official_tag_number}</p>}
+                      {e.administered_by && <p>Administered by: {e.administered_by}</p>}
+                      {e.withdrawal_until && (
+                        <p>Withdrawal until: {formatDate(e.withdrawal_until)}</p>
+                      )}
+                      {e.authority_notified_at && (
+                        <p>Authority notified: {formatDate(e.authority_notified_at)}</p>
+                      )}
+                      {e.isolation_started_at && (
+                        <p>Isolation started: {formatDate(e.isolation_started_at)}</p>
+                      )}
+                      {!e.suspected_scheduled_disease &&
+                        !e.product_lot &&
+                        !e.certificate_number &&
+                        !e.official_tag_number &&
+                        !e.administered_by &&
+                        !e.withdrawal_until &&
+                        !e.product_manufactured_on &&
+                        !e.product_expires_on &&
+                        !e.vaccine_valid_until &&
+                        !e.authority_notified_at &&
+                        !e.isolation_started_at && <span>—</span>}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
+        <PaginationControls
+          total={eventPayload.total}
+          limit={eventPayload.limit}
+          offset={eventPayload.offset}
+          onOffsetChange={setEventOffset}
+          label="health events"
+        />
       </DataTableCard>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -585,24 +721,16 @@ export default function HealthPage() {
               {scope === "animal" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-animal">Animal *</Label>
-                  <Select
+                  <HealthAnimalPicker
+                    id="event-animal"
                     value={wAnimalId || ""}
                     onValueChange={(v) => setValue("animal_id", v, { shouldValidate: true })}
-                    items={animalItems}
-                  >
-                    <SelectTrigger id="event-animal" className="w-full">
-                      <SelectValue placeholder="Pick an animal" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(animals ?? []).map((a) => (
-                        <SelectItem key={a.id} value={String(a.id)}>
-                          {a.tag_number}
-                          {a.name ? ` · ${a.name}` : ""} — {a.current_bucket}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FieldError message={errors.animal_id?.message} />
+                    placeholder="Pick an animal"
+                    dialogTitle="Choose an animal for this health event"
+                    aria-invalid={Boolean(errors.animal_id) || undefined}
+                    aria-describedby={errors.animal_id ? "event-animal-error" : undefined}
+                  />
+                  <FieldError id="event-animal-error" message={errors.animal_id?.message} />
                 </div>
               )}
               {scope === "bucket" && (
@@ -612,7 +740,12 @@ export default function HealthPage() {
                     value={wBucket || ""}
                     onValueChange={(v) => setValue("bucket", v, { shouldValidate: true })}
                   >
-                    <SelectTrigger id="event-bucket" className="w-full">
+                    <SelectTrigger
+                      id="event-bucket"
+                      className="w-full"
+                      aria-invalid={Boolean(errors.bucket) || undefined}
+                      aria-describedby={errors.bucket ? "event-bucket-error" : undefined}
+                    >
                       <SelectValue placeholder="Pick a bucket" />
                     </SelectTrigger>
                     <SelectContent>
@@ -623,31 +756,24 @@ export default function HealthPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <FieldError message={errors.bucket?.message} />
+                  <FieldError id="event-bucket-error" message={errors.bucket?.message} />
                 </div>
               )}
               {scope === "batch" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-batch">Purchase batch *</Label>
-                  <Select
+                  <HealthPurchaseBatchPicker
+                    id="event-batch"
                     value={wPurchaseBatchId || ""}
                     onValueChange={(v) =>
                       setValue("purchase_batch_id", v, { shouldValidate: true })
                     }
-                    items={batchItems}
-                  >
-                    <SelectTrigger id="event-batch" className="w-full">
-                      <SelectValue placeholder="Pick a batch" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(batches ?? []).map((b) => (
-                        <SelectItem key={b.id} value={String(b.id)}>
-                          #{b.id} — {formatDate(b.date)} {b.supplier ?? ""} ({b.count})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FieldError message={errors.purchase_batch_id?.message} />
+                    placeholder="Pick a batch"
+                    dialogTitle="Choose a purchase batch for this health event"
+                    aria-invalid={Boolean(errors.purchase_batch_id) || undefined}
+                    aria-describedby={errors.purchase_batch_id ? "event-batch-error" : undefined}
+                  />
+                  <FieldError id="event-batch-error" message={errors.purchase_batch_id?.message} />
                 </div>
               )}
             </fieldset>
@@ -655,8 +781,15 @@ export default function HealthPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Date (defaults to today)</Label>
-                <Input id="date" type="date" max={localToday()} {...register("date")} />
-                <FieldError message={errors.date?.message} />
+                <Input
+                  id="date"
+                  type="date"
+                  max={localToday()}
+                  aria-invalid={Boolean(errors.date) || undefined}
+                  aria-describedby={errors.date ? "event-date-error" : undefined}
+                  {...register("date")}
+                />
+                <FieldError id="event-date-error" message={errors.date?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="event-type">Type</Label>
@@ -680,18 +813,38 @@ export default function HealthPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="product_name">Product name</Label>
-                <Input id="product_name" placeholder="e.g. PPR vaccine" {...register("product_name")} />
-                <FieldError message={errors.product_name?.message} />
+                <Input
+                  id="product_name"
+                  maxLength={120}
+                  placeholder="e.g. PPR vaccine"
+                  aria-invalid={Boolean(errors.product_name) || undefined}
+                  aria-describedby={errors.product_name ? "product-name-error" : undefined}
+                  {...register("product_name")}
+                />
+                <FieldError id="product-name-error" message={errors.product_name?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="disease_target">Disease target</Label>
-                <Input id="disease_target" {...register("disease_target")} />
-                <FieldError message={errors.disease_target?.message} />
+                <Input
+                  id="disease_target"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.disease_target) || undefined}
+                  aria-describedby={errors.disease_target ? "disease-target-error" : undefined}
+                  {...register("disease_target")}
+                />
+                <FieldError id="disease-target-error" message={errors.disease_target?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dose">Dose</Label>
-                <Input id="dose" placeholder="e.g. 1 ml" {...register("dose")} />
-                <FieldError message={errors.dose?.message} />
+                <Input
+                  id="dose"
+                  maxLength={60}
+                  placeholder="e.g. 1 ml"
+                  aria-invalid={Boolean(errors.dose) || undefined}
+                  aria-describedby={errors.dose ? "event-dose-error" : undefined}
+                  {...register("dose")}
+                />
+                <FieldError id="event-dose-error" message={errors.dose?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="event-route">Route</Label>
@@ -715,17 +868,41 @@ export default function HealthPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="vet_name">Vet</Label>
-                <Input id="vet_name" {...register("vet_name")} />
-                <FieldError message={errors.vet_name?.message} />
+                <Input
+                  id="vet_name"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.vet_name) || undefined}
+                  aria-describedby={errors.vet_name ? "event-vet-error" : undefined}
+                  {...register("vet_name")}
+                />
+                <FieldError id="event-vet-error" message={errors.vet_name?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cost">Total cost (₹, split evenly)</Label>
-                <Input id="cost" inputMode="decimal" placeholder="0.00" {...register("cost")} />
-                <FieldError message={errors.cost?.message} />
+                <Input
+                  id="cost"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  aria-invalid={Boolean(errors.cost) || undefined}
+                  aria-describedby={errors.cost ? "event-cost-error" : undefined}
+                  {...register("cost")}
+                />
+                <FieldError id="event-cost-error" message={errors.cost?.message} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="next_due_date">Next due date</Label>
-                <Input id="next_due_date" type="date" {...register("next_due_date")} />
+                <Input
+                  id="next_due_date"
+                  type="date"
+                  aria-invalid={Boolean(errors.next_due_date) || undefined}
+                  aria-describedby={errors.next_due_date ? "next-due-date-error" : undefined}
+                  {...register("next_due_date")}
+                />
+                {errors.next_due_date && (
+                  <p id="next-due-date-error" role="alert" className="text-sm text-destructive">
+                    {errors.next_due_date.message}
+                  </p>
+                )}
               </div>
               {canViewTasks && pendingHealthTasks.length > 0 && (
                 <div className="space-y-1.5">
@@ -750,6 +927,175 @@ export default function HealthPage() {
                 </div>
               )}
             </div>
+            <details className="rounded-lg border p-3">
+              <summary className="cursor-pointer text-sm font-medium">
+                Advanced traceability & compliance
+              </summary>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Record the product trail, authorised schedule, statutory notification and
+                movement/withdrawal holds when they apply.
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="schedule_template_name">Schedule/template name</Label>
+                  <Input
+                    id="schedule_template_name"
+                    maxLength={120}
+                    aria-invalid={Boolean(errors.schedule_template_name) || undefined}
+                    aria-describedby={errors.schedule_template_name ? "schedule-template-error" : undefined}
+                    {...register("schedule_template_name")}
+                  />
+                  {errors.schedule_template_name && (
+                    <p id="schedule-template-error" role="alert" className="text-sm text-destructive">
+                      {errors.schedule_template_name.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="next_due_authority">Next-due authority</Label>
+                  <Input
+                    id="next_due_authority"
+                    maxLength={120}
+                    placeholder="e.g. veterinarian prescription / official schedule"
+                    aria-invalid={Boolean(errors.next_due_authority) || undefined}
+                    aria-describedby={errors.next_due_authority ? "next-due-authority-error" : undefined}
+                    {...register("next_due_authority")}
+                  />
+                  {errors.next_due_authority && (
+                    <p id="next-due-authority-error" role="alert" className="text-sm text-destructive">
+                      {errors.next_due_authority.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product_lot">Product lot/batch</Label>
+                  <Input id="product_lot" maxLength={120} {...register("product_lot")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="administered_by">Administered by</Label>
+                  <Input id="administered_by" maxLength={120} {...register("administered_by")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product_manufactured_on">Product manufactured</Label>
+                  <Input
+                    id="product_manufactured_on"
+                    type="date"
+                    max={localToday()}
+                    aria-invalid={Boolean(errors.product_manufactured_on) || undefined}
+                    aria-describedby={errors.product_manufactured_on ? "product-manufactured-error" : undefined}
+                    {...register("product_manufactured_on")}
+                  />
+                  {errors.product_manufactured_on && (
+                    <p id="product-manufactured-error" role="alert" className="text-sm text-destructive">
+                      {errors.product_manufactured_on.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="product_expires_on">Product expires</Label>
+                  <Input
+                    id="product_expires_on"
+                    type="date"
+                    aria-invalid={Boolean(errors.product_expires_on) || undefined}
+                    aria-describedby={errors.product_expires_on ? "product-expires-error" : undefined}
+                    {...register("product_expires_on")}
+                  />
+                  {errors.product_expires_on && (
+                    <p id="product-expires-error" role="alert" className="text-sm text-destructive">
+                      {errors.product_expires_on.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vaccine_valid_until">Vaccine valid until</Label>
+                  <Input
+                    id="vaccine_valid_until"
+                    type="date"
+                    aria-invalid={Boolean(errors.vaccine_valid_until) || undefined}
+                    aria-describedby={errors.vaccine_valid_until ? "vaccine-valid-error" : undefined}
+                    {...register("vaccine_valid_until")}
+                  />
+                  {errors.vaccine_valid_until && (
+                    <p id="vaccine-valid-error" role="alert" className="text-sm text-destructive">
+                      {errors.vaccine_valid_until.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="withdrawal_until">Withdrawal until</Label>
+                  <Input
+                    id="withdrawal_until"
+                    type="date"
+                    aria-invalid={Boolean(errors.withdrawal_until) || undefined}
+                    aria-describedby={errors.withdrawal_until ? "withdrawal-until-error" : undefined}
+                    {...register("withdrawal_until")}
+                  />
+                  {errors.withdrawal_until && (
+                    <p id="withdrawal-until-error" role="alert" className="text-sm text-destructive">
+                      {errors.withdrawal_until.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="certificate_number">Certificate number</Label>
+                  <Input id="certificate_number" maxLength={120} {...register("certificate_number")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="official_tag_number">Official tag number</Label>
+                  <Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />
+                </div>
+                <div className="flex items-center gap-2 sm:col-span-2">
+                  <Checkbox
+                    id="suspected_scheduled_disease"
+                    checked={suspectedScheduledDisease}
+                    onCheckedChange={(checked) =>
+                      setValue("suspected_scheduled_disease", checked === true, {
+                        shouldValidate: true,
+                      })
+                    }
+                  />
+                  <Label htmlFor="suspected_scheduled_disease" className="font-normal">
+                    Suspected scheduled/notifiable disease — apply movement restriction
+                  </Label>
+                </div>
+                {suspectedScheduledDisease && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="authority_notified_at">Authority notified date</Label>
+                      <Input
+                        id="authority_notified_at"
+                        type="date"
+                        max={localToday()}
+                        aria-invalid={Boolean(errors.authority_notified_at) || undefined}
+                        aria-describedby={errors.authority_notified_at ? "authority-notified-error" : undefined}
+                        {...register("authority_notified_at")}
+                      />
+                      {errors.authority_notified_at && (
+                        <p id="authority-notified-error" role="alert" className="text-sm text-destructive">
+                          {errors.authority_notified_at.message}
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="isolation_started_at">Isolation started date</Label>
+                      <Input
+                        id="isolation_started_at"
+                        type="date"
+                        max={localToday()}
+                        aria-invalid={Boolean(errors.isolation_started_at) || undefined}
+                        aria-describedby={errors.isolation_started_at ? "isolation-started-error" : undefined}
+                        {...register("isolation_started_at")}
+                      />
+                      {errors.isolation_started_at && (
+                        <p id="isolation-started-error" role="alert" className="text-sm text-destructive">
+                          {errors.isolation_started_at.message}
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </details>
             <div className="space-y-1.5">
               <Label htmlFor="notes">Notes</Label>
               <Input id="notes" {...register("notes")} />

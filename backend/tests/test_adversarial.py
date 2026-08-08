@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from app.core.config import get_settings
+from app.utils import today
 
 from .conftest import login, owner_with_farm
 
@@ -98,13 +99,16 @@ async def post_breeding(
 async def make_breeding(
     client: httpx.AsyncClient, headers: dict, doe_id: int, buck_id: int, **overrides: object
 ) -> int:
+    # This helper is used by outcome-flow tests.  A default observation date
+    # must not predate the mandatory +32-day ultrasound check.
+    overrides = {"breeding_date": iso(date.today() - timedelta(days=35))} | overrides
     resp = await post_breeding(client, headers, doe_id, buck_id, **overrides)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
 async def breed_doe(
-    client: httpx.AsyncClient, headers: dict, tag: str = "D-1", bred_days_ago: int = 0
+    client: httpx.AsyncClient, headers: dict, tag: str = "D-1", bred_days_ago: int = 35
 ) -> tuple[int, int, int]:
     """Breeding-ready doe + buck and one PENDING breeding. Returns (doe, buck, br) ids.
     `bred_days_ago` backdates the breeding so a kidding today lands at a
@@ -187,7 +191,7 @@ async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
 async def health_events(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     resp = await client.get("/api/health/events", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return resp.json()["events"]
 
 
 async def inventory(client: httpx.AsyncClient, headers: dict) -> list[dict]:
@@ -199,7 +203,7 @@ async def inventory(client: httpx.AsyncClient, headers: dict) -> list[dict]:
 async def purchase_batches(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     resp = await client.get("/api/purchases", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return resp.json()["batches"]
 
 
 async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
@@ -599,14 +603,18 @@ async def test_negative_mix_rejected_without_touching_stock(client: httpx.AsyncC
     assert all(i["qty_on_hand"] == 100 for i in await inventory(client, owner))
 
 
-async def test_health_form_cannot_recomplete_a_done_task(client: httpx.AsyncClient) -> None:
-    """A health form posting an already-closed task_id must leave the task
-    untouched (the event is still recorded)."""
+async def test_health_form_rejects_a_done_task_id(client: httpx.AsyncClient) -> None:
+    """A health form cannot append an event against an already-closed task."""
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
     resp = await client.post(
         "/api/tasks",
-        json={"title": "Vaccinate", "due_date": iso(date.today()), "category": "VACCINE"},
+        json={
+            "title": "Vaccinate",
+            "due_date": iso(date.today()),
+            "category": "VACCINE",
+            "animal_id": aid,
+        },
         headers=owner,
     )
     task_id = resp.json()["id"]
@@ -623,9 +631,9 @@ async def test_health_form_cannot_recomplete_a_done_task(client: httpx.AsyncClie
     assert len(done) == 1 and done[0]["status"] == "DONE"
     completed_at = done[0]["completed_at"]
     assert completed_at is not None
-    # replay with the same (now DONE) task_id — event recorded, task untouched
+    # Replay is rejected and leaves the completed task unchanged.
     resp = await client.post("/api/health/events", json=data, headers=owner)
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 409, resp.text
     tabs = await task_tabs(client, owner)
     done = find_tasks(tabs, id=task_id)
     assert done[0]["status"] == "DONE"
@@ -680,7 +688,7 @@ async def test_weight_nonfinite_future_and_dead_animal_rejected(client: httpx.As
     resp = await client.post(
         f"/api/animals/{aid}/move", json={"to_bucket": "QUARANTINE"}, headers=owner
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 409  # terminal lifecycle transition conflict
     profile = await get_profile(client, owner, aid)
     assert profile["weights"] == []
     assert profile["animal"]["current_bucket"] == "FOUNDATION"  # unmoved
@@ -867,7 +875,7 @@ async def test_health_nonfinite_cost_future_date_and_smuggled_task(
         resp = await client.post("/api/health/events", json=base | override, headers=owner)
         assert resp.status_code == 422, override
     assert await health_events(client, owner) == []
-    # A smuggled non-health task_id must not be completed through the form.
+    # A smuggled non-health task id cannot be treated as a generic health event.
     resp = await client.post(
         "/api/tasks",
         json={"title": "Move pen", "due_date": iso(date.today()), "category": "BUCKET_MOVE"},
@@ -875,10 +883,10 @@ async def test_health_nonfinite_cost_future_date_and_smuggled_task(
     )
     task_id = resp.json()["id"]
     resp = await client.post("/api/health/events", json=base | {"task_id": task_id}, headers=owner)
-    assert resp.status_code == 201, resp.text
-    assert len(await health_events(client, owner)) == 1  # event recorded…
+    assert resp.status_code == 409, resp.text
+    assert len(await health_events(client, owner)) == 0
     task = find_tasks(await task_tabs(client, owner), id=task_id)
-    assert task[0]["status"] == "PENDING"  # …task untouched
+    assert task[0]["status"] == "PENDING"
 
 
 async def test_form_linked_and_early_auto_task_completion_blocked(
@@ -942,10 +950,16 @@ async def test_recur_days_cap_and_skip_spawns_next(client: httpx.AsyncClient) ->
     resp = await client.post(f"/api/tasks/{task_id}/skip", headers=owner)
     assert resp.status_code == 200, resp.text
     tabs = await task_tabs(client, owner)
-    assert find_tasks(tabs, id=task_id)[0]["status"] == "SKIPPED"
+    original = find_tasks(tabs, id=task_id)[0]
+    assert original["status"] == "SKIPPED"
     nxt = [t for t in find_tasks(tabs, title="Daily", status="PENDING") if t["id"] != task_id]
     assert len(nxt) == 1
-    assert nxt[0]["due_date"] == iso(date.today() + timedelta(days=7))  # series survives a skip
+    farms_response = await client.get("/api/auth/farms", headers=owner)
+    assert farms_response.status_code == 200, farms_response.text
+    farm = next(farm for farm in farms_response.json() if farm["id"] == int(owner["X-Farm-Id"]))
+    assert nxt[0]["due_date"] == iso(
+        max(date.fromisoformat(original["due_date"]), today(farm["timezone"])) + timedelta(days=7)
+    )  # series survives a skip in the farm's timezone
 
 
 async def test_self_verification_blocked_for_worker(client: httpx.AsyncClient) -> None:
@@ -1071,7 +1085,8 @@ async def test_team_takeover_and_escalation_guards(client: httpx.AsyncClient) ->
         "/api/auth/login", json={"email": "w@farm.in", "password": "pwnedpass1"}
     )
     assert resp.status_code == 401  # …not rewritten
-    # team.manage-only worker: role edits are clamped to the perms he holds.
+    # team.manage-only worker: manager-role editing is owner-only, so the
+    # worker cannot use their own role as a privilege-escalation vehicle.
     resp = await client.post(
         "/api/team/roles", json={"name": "Manager", "permissions": ["team.manage"]}, headers=owner_a
     )
@@ -1090,8 +1105,7 @@ async def test_team_takeover_and_escalation_guards(client: httpx.AsyncClient) ->
         json={"name": "Manager", "permissions": ["team.manage", "finance.view", "animals.move"]},
         headers=worker,
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["permissions"] == ["team.manage"]  # no escalation
+    assert resp.status_code == 403, resp.text
     roles = (await client.get("/api/team", headers=owner_a)).json()["roles"]
     mgr_role = next(r for r in roles if r["id"] == mgr_role_id)
     assert mgr_role["permissions"] == ["team.manage"]

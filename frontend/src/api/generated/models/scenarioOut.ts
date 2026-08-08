@@ -14,7 +14,9 @@ export interface ScenarioOut {
   farm_id: number;
   name: string;
   notes: string;
-  assumptions: SimulationAssumptions;
+  assumptions: SimulationAssumptions | null;
+  valid?: boolean;
+  validation_error?: string | null;
   created_at: string;
   updated_at: string;
 }

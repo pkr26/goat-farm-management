@@ -48,7 +48,7 @@ from .enums import (
     TransactionCategory,
     TransactionType,
 )
-from .feeding import FeedingRecord, FeedInventory, FeedRecipe, FeedRecipeLine
+from .feeding import FeedFinishedStock, FeedingRecord, FeedInventory, FeedRecipe, FeedRecipeLine
 from .finance import Transaction
 from .health import HealthEvent, VaccineTemplate
 from .helpers import (
@@ -98,6 +98,7 @@ __all__ = [
     "BucketMove",
     "Farm",
     "FarmMembership",
+    "FeedFinishedStock",
     "FeedInventory",
     "FeedRecipe",
     "FeedRecipeLine",

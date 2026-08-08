@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TaskOut } from "@/api/generated/models";
 
-import { taskPrefill } from "./page";
+import { taskPrefill } from "./task-prefill";
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
@@ -24,12 +24,15 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     assigned_role_id: null,
     assigned_user_id: null,
     recur_days: null,
+    recurring_series_id: null,
     completed_by_id: null,
     completed_at: null,
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
     skipped_by_id: null,
+    skipped_at: null,
+    skip_reason: null,
     ...overrides,
   };
 }

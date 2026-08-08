@@ -3,14 +3,17 @@ vars prefixed GOATFARM_, e.g. GOATFARM_DATABASE_URL."""
 
 from __future__ import annotations
 
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+MAX_PREVIOUS_JWT_PUBLIC_KEYS = 3
 
 # asyncpg `ssl` connect-arg values (same names as libpq's sslmode).
 DbSslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
@@ -43,14 +46,28 @@ class Settings(BaseSettings):
     db_pool_timeout: int = Field(default=30, ge=1)  # seconds to wait for a free connection
     db_statement_timeout_ms: int = Field(default=30_000, ge=1)  # asyncpg server_settings
 
+    # Reject oversized JSON/form bodies before Starlette buffers/parses them.
+    # This is an application backstop; the edge proxy should enforce the same
+    # or a smaller limit before traffic reaches uvicorn.
+    max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=20_971_520)
+
     # JWT: RS256 keypair lives in backend/keys/ (generated on first run,
     # gitignored). Access token travels in the Authorization header; the
     # refresh token in an httpOnly SameSite=Lax cookie.
     jwt_private_key_path: Path = BACKEND_DIR / "keys" / "jwt_private.pem"
     jwt_public_key_path: Path = BACKEND_DIR / "keys" / "jwt_public.pem"
+    # Verification-only public keys retained from an old pair or pre-staged
+    # for the next pair. Keeping this list small bounds legacy-token
+    # verification work; the environment value is a JSON array of paths.
+    jwt_previous_public_key_paths: list[Path] = Field(
+        default_factory=list, max_length=MAX_PREVIOUS_JWT_PUBLIC_KEYS
+    )
     jwt_algorithm: Literal["RS256"] = "RS256"
     access_token_ttl_seconds: int = Field(default=30 * 60, ge=1)
     refresh_token_ttl_seconds: int = Field(default=60 * 60 * 24 * 14, ge=1)
+    # Only simultaneous browser-tab replays get an idempotent successor.
+    # Anything later remains a refresh-token theft signal.
+    refresh_reuse_grace_seconds: int = Field(default=3, ge=0, le=30)
     refresh_cookie_name: str = "goatfarm_refresh"
 
     # Argon2id parameters (protected: only changeable via env, never at runtime).
@@ -97,18 +114,46 @@ class Settings(BaseSettings):
                 "GOATFARM_COOKIE_SECURE must be true in production "
                 "(the refresh JWT travels in a cookie; over plain HTTP it leaks)"
             )
-        localhost = [
-            origin for origin in self.cors_origins if "localhost" in origin or "127.0.0.1" in origin
-        ]
-        if localhost:
-            problems.append(
-                f"GOATFARM_CORS_ORIGINS must not include dev origins in production: {localhost}"
-            )
         if not self.cors_origins:
             problems.append(
                 "GOATFARM_CORS_ORIGINS must not be empty in production "
                 "(the credentialed SPA needs at least one HTTPS origin)"
             )
+        invalid_origins: list[str] = []
+        for origin in self.cors_origins:
+            try:
+                parsed = urlsplit(origin)
+                host = parsed.hostname
+                # Reading .port validates malformed/out-of-range ports.
+                _port = parsed.port
+                is_loopback = False
+                if host:
+                    try:
+                        is_loopback = ipaddress.ip_address(host).is_loopback
+                    except ValueError:
+                        is_loopback = host.lower() == "localhost"
+                valid = (
+                    origin != "*"
+                    and parsed.scheme == "https"
+                    and host is not None
+                    and parsed.username is None
+                    and parsed.password is None
+                    and parsed.path == ""
+                    and parsed.query == ""
+                    and parsed.fragment == ""
+                    and not is_loopback
+                )
+            except ValueError:
+                valid = False
+            if not valid:
+                invalid_origins.append(origin)
+        if invalid_origins:
+            problems.append(
+                "GOATFARM_CORS_ORIGINS must contain exact non-loopback HTTPS origins "
+                f"(no wildcard, credentials, path, query or fragment): {invalid_origins}"
+            )
+        if self.min_password_length < 12:
+            problems.append("GOATFARM_MIN_PASSWORD_LENGTH must be at least 12 in production")
         if self.db_sslmode in {"disable", "allow", "prefer"}:
             problems.append(
                 f"GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe in production — "

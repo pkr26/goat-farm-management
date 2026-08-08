@@ -5,12 +5,26 @@
 
 import { describe, expect, it } from "vitest";
 
-import { addDays, utcToday } from "./format";
+import { addDays, todayInTimeZone, utcToday } from "./format";
 
 describe("utcToday", () => {
   it("returns today's UTC date as YYYY-MM-DD", () => {
     expect(utcToday()).toBe(new Date().toISOString().slice(0, 10));
     expect(utcToday()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe("todayInTimeZone", () => {
+  it("uses the farm's calendar date across UTC boundaries", () => {
+    const instant = new Date("2026-08-08T20:00:00Z");
+    expect(todayInTimeZone("Asia/Kolkata", instant)).toBe("2026-08-09");
+    expect(todayInTimeZone("America/Phoenix", instant)).toBe("2026-08-08");
+  });
+
+  it("falls back safely when a stale timezone is invalid", () => {
+    expect(todayInTimeZone("Not/A_Timezone", new Date("2026-08-08T20:00:00Z"))).toBe(
+      "2026-08-09",
+    );
   });
 });
 

@@ -12,4 +12,9 @@ export interface FarmCreateIn {
      */
   name: string;
   location?: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 64
+     */
+  timezone?: string;
 }

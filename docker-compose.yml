@@ -5,7 +5,7 @@
 # Credentials come from .env (copy .env.example to .env for defaults).
 services:
   db:
-    image: postgres:16
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-goatfarm}
@@ -30,10 +30,16 @@ services:
       # Local stack on plain HTTP: stays "development". A real deployment sets
       # GOATFARM_ENVIRONMENT=production + GOATFARM_COOKIE_SECURE=true +
       # non-localhost GOATFARM_CORS_ORIGINS + GOATFARM_DB_SSLMODE=require
+      # + GOATFARM_MIN_PASSWORD_LENGTH=12 and stable mounted JWT keys
       # (validated fail-closed at boot).
       GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
+      GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
+    volumes:
+      - jwtkeys:/app/keys
     ports:
       - "8000:8000"
 
 volumes:
   pgdata:
+  jwtkeys:

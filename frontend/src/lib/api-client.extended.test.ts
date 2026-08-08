@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   apiFetch,
+  refreshSession,
   setAccessToken,
   setCurrentFarmId,
   setOnAuthFailure,
@@ -299,6 +300,25 @@ describe("apiFetch refresh-retry edge cases", () => {
     expect(refreshCall).toBeDefined();
     expect(refreshCall?.[1]?.method).toBe("POST");
     expect(refreshCall?.[1]?.credentials).toBe("include");
+  });
+
+  it("uses a same-origin Web Lock to coordinate refresh across tabs", async () => {
+    const lockRequest = vi.fn(
+      async (_name: string, callback: () => Promise<unknown>) => callback(),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        access_token: "coordinated-token",
+        user: { id: 1, email: "user@farm.in", name: null },
+      }),
+    );
+
+    const result = await refreshSession();
+
+    expect(result?.access_token).toBe("coordinated-token");
+    expect(lockRequest).toHaveBeenCalledTimes(1);
+    expect(lockRequest.mock.calls[0][0]).toBe("goatfarm-auth-refresh");
   });
 
   it("throws the retry's 401 without looping when the retry is still unauthorized", async () => {

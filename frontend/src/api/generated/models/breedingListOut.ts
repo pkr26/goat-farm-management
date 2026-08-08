@@ -10,4 +10,7 @@ export interface BreedingListOut {
   records: BreedingRecordOut[];
   candidate_doe_ids: number[];
   active_buck_ids: number[];
+  total: number;
+  limit: number;
+  offset: number;
 }

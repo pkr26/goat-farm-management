@@ -12,8 +12,8 @@ not the bare complete endpoint.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
@@ -27,7 +27,7 @@ from ..models import (
     TaskStatus,
 )
 from ..schemas.common import MAX_INT32_ID
-from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskTabsOut
+from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskSkipIn, TaskTabsOut
 from ..services import (
     complete_task,
     create_manual_task,
@@ -74,11 +74,16 @@ async def _get_task(
 
 @router.get("")
 async def list_tasks(
-    db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: VIEW
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: VIEW,
+    completed_limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    completed_offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TaskTabsOut:
     """All five v1 tabs in one payload; per-tab counts are the list lengths
     (the completed history keeps v1's 100-row cap)."""
-    now = today()
+    now = today(farm.timezone)
     scoped = (await task_scope(db, farm, user)).options(*TASK_LOADS)
     pending = scoped.where(Task.status == TaskStatus.PENDING.value)
 
@@ -123,8 +128,17 @@ async def list_tasks(
             Task.category.notin_(VERIFICATION_REQUIRED_CATEGORIES),
         ),
     )
+    completed_total = (
+        await db.execute(select(func.count()).select_from(finished.order_by(None).subquery()))
+    ).scalar_one()
     completed = list(
-        (await db.execute(finished.order_by(Task.completed_at.desc()).limit(100))).scalars()
+        (
+            await db.execute(
+                finished.order_by(Task.completed_at.desc(), Task.id.desc())
+                .offset(completed_offset)
+                .limit(completed_limit)
+            )
+        ).scalars()
     )
     return TaskTabsOut(
         today=[task_out(t) for t in today_rows],
@@ -132,6 +146,9 @@ async def list_tasks(
         upcoming=[task_out(t) for t in upcoming_rows],
         awaiting=[task_out(t) for t in awaiting],
         completed=[task_out(t) for t in completed],
+        completed_total=completed_total,
+        completed_limit=completed_limit,
+        completed_offset=completed_offset,
     )
 
 
@@ -164,12 +181,25 @@ async def create_task(
         if membership is not None:
             worker_id = membership.user_id
 
+    animal_id = None
+    if payload.animal_id is not None and payload.animal_id <= MAX_INT32_ID:
+        linked_animal = await db.get(Animal, payload.animal_id)
+        if (
+            linked_animal is not None
+            and linked_animal.farm_id == farm.id
+            and linked_animal.status == "ACTIVE"
+        ):
+            animal_id = linked_animal.id
+    if payload.animal_id is not None and animal_id is None:
+        raise HTTPException(status_code=400, detail="Assigned animal is not active on this farm")
+
     task = await create_manual_task(
         db,
         farm,
         title,
         payload.due_date,
         payload.category,
+        animal_id=animal_id,
         assigned_role_id=role_id,
         assigned_user_id=worker_id,
         recur_days=payload.recur_days,
@@ -214,9 +244,13 @@ async def complete(
         raise HTTPException(status_code=409, detail="Use the linked form to complete this duty")
     # Auto-generated duties (quarantine release, weaning, ...) unlock on
     # their due date; manual duties are exempt.
-    if task.auto_generated and task.due_date > today():
+    if task.auto_generated and task.due_date > today(farm.timezone):
         raise HTTPException(status_code=409, detail="This duty is not due yet")
-    await complete_task(db, task, user)
+    try:
+        await complete_task(db, task, user)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     await db.commit()
     return task_out(task)
 
@@ -229,13 +263,14 @@ async def skip(
     farm: CurrentFarm,
     membership: CurrentMembership,
     perms: COMPLETE,
+    payload: TaskSkipIn | None = None,
 ) -> TaskOut:
     task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Task is not pending")
     if not visible_to(task, user, farm, membership):
         raise HTTPException(status_code=403, detail="This duty is not assigned to you")
-    await skip_task(db, task, user)
+    await skip_task(db, task, user, payload.reason if payload else None)
     await db.commit()
     return task_out(task)
 

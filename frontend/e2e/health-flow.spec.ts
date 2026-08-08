@@ -4,6 +4,7 @@ import {
   createAnimal,
   monthsAgo,
   openAnimalProfile,
+  pickRemoteOption,
   pickSelectOption,
   signIn,
   uniqueTag,
@@ -28,7 +29,7 @@ test.describe("health flow", () => {
     await page.getByRole("button", { name: "+ Add event" }).click();
     const dialog = page.getByRole("dialog", { name: "Add health event" });
     await expect(dialog).toBeVisible();
-    await pickSelectOption(dialog, "Animal *", new RegExp(tag));
+    await pickRemoteOption(dialog, "Animal *", new RegExp(tag), tag);
     // Type defaults to VACCINE.
     await dialog.getByLabel("Product name").fill(product);
     await dialog.getByLabel("Dose").fill("1 ml");
@@ -53,7 +54,12 @@ test.describe("health flow", () => {
     // The vaccination schedule flips the PPR row to DONE; the other templates
     // of an unvaccinated 5-month-old are still OVERDUE.
     await page.goto("/health");
-    await pickSelectOption(page.locator("body"), "View schedule for", new RegExp(tag));
+    await pickRemoteOption(
+      page.locator("body"),
+      "View schedule for",
+      new RegExp(tag),
+      tag,
+    );
     await page.getByRole("button", { name: "View" }).click();
     await expect(page).toHaveURL(/\/health\/schedule\/\d+$/, { timeout: 15_000 });
     await expect(

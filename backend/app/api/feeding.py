@@ -1,23 +1,26 @@
 """Feeding: today's 3-shift plan + dispensing log, recipes + allocation
 reference, feed inventory (add stock / mix batch)."""
 
+from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import FeedingRecord, FeedInventory, FeedRecipe
+from ..models import FeedFinishedStock, FeedingRecord, FeedInventory, FeedRecipe
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.feeding import (
     BucketAllocationOut,
     DispenseIn,
+    FeedingHistoryOut,
     FeedingPlanOut,
     FeedingRecordOut,
     FeedInventoryOut,
     FeedRecipeOut,
     FeedSettingIn,
+    FinishedFeedStockOut,
     MixIn,
     PlanLineOut,
     RecipeListOut,
@@ -25,6 +28,7 @@ from ..schemas.feeding import (
 )
 from ..services import (
     BUCKET_ALLOCATION_REFERENCE,
+    DRY_ROUGHAGE,
     InsufficientFeedError,
     add_feed_stock,
     feeding_plan,
@@ -46,7 +50,10 @@ async def feeding_today(db: DbSession, farm: CurrentFarm, perms: FeedingView) ->
     plan = await feeding_plan(db, farm)
     result = await db.execute(
         select(FeedingRecord)
-        .where(FeedingRecord.farm_id == farm.id, FeedingRecord.date == today())
+        .where(
+            FeedingRecord.farm_id == farm.id,
+            FeedingRecord.date == today(farm.timezone),
+        )
         .order_by(FeedingRecord.id)
     )
     return FeedingPlanOut(
@@ -74,23 +81,62 @@ async def dispense(
 ) -> FeedingRecordOut:
     """Record feed actually dispensed to a bucket on a shift."""
     code = (payload.recipe_code or "").strip() or None
-    # Only recipes that actually exist may be recorded against a feeding.
-    if code is not None:
+    # Only recipes that actually exist may be recorded against a feeding. The
+    # quarantine dry-roughage instruction is an intentional virtual recipe.
+    if code is not None and code != DRY_ROUGHAGE:
         result = await db.execute(select(FeedRecipe.id).where(FeedRecipe.code == code))
         if result.scalar_one_or_none() is None:
             raise HTTPException(status_code=400, detail=f"Unknown recipe {code}")
-    record = await record_dispensing(
-        db,
-        farm,
-        payload.bucket,
-        payload.shift,
-        code,
-        payload.qty_kg,
-        payload.date or today(),
-        created_by_id=user.id,
-    )
+    try:
+        record = await record_dispensing(
+            db,
+            farm,
+            payload.bucket,
+            payload.shift,
+            code,
+            payload.qty_kg,
+            payload.date or today(farm.timezone),
+            created_by_id=user.id,
+        )
+    except (InsufficientFeedError, ValueError) as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     await db.commit()
     return FeedingRecordOut.model_validate(record)
+
+
+@router.get("/records")
+async def feeding_history(
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: FeedingView,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> FeedingHistoryOut:
+    """Paginated dispensing history, including backdated records."""
+    if date_from is not None and date_to is not None and date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+    stmt = select(FeedingRecord).where(FeedingRecord.farm_id == farm.id)
+    if date_from is not None:
+        stmt = stmt.where(FeedingRecord.date >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(FeedingRecord.date <= date_to)
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    rows = (
+        await db.execute(
+            stmt.order_by(FeedingRecord.date.desc(), FeedingRecord.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).scalars()
+    return FeedingHistoryOut(
+        records=[FeedingRecordOut.model_validate(row) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/recipes")
@@ -106,6 +152,27 @@ async def list_recipes(db: DbSession, farm: CurrentFarm, perms: FeedingView) -> 
             for bucket, allocation in BUCKET_ALLOCATION_REFERENCE
         ],
     )
+
+
+@router.get("/finished-stock")
+async def list_finished_stock(
+    db: DbSession, farm: CurrentFarm, perms: FeedingView
+) -> list[FinishedFeedStockOut]:
+    """Ready-to-dispense recipe balances created by successful mixes."""
+    result = await db.execute(
+        select(FeedFinishedStock, FeedRecipe.name)
+        .join(FeedRecipe, FeedRecipe.code == FeedFinishedStock.recipe_code)
+        .where(FeedFinishedStock.farm_id == farm.id)
+        .order_by(FeedRecipe.name)
+    )
+    return [
+        FinishedFeedStockOut(
+            recipe_code=stock.recipe_code,
+            recipe_name=recipe_name,
+            qty_on_hand=stock.qty_on_hand,
+        )
+        for stock, recipe_name in result.all()
+    ]
 
 
 @router.post("/mix")

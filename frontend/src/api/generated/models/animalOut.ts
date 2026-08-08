@@ -26,6 +26,16 @@ export interface AnimalOut {
   purchase_price: number | null;
   seller_name: string | null;
   cull_candidate: boolean;
+  movement_restricted: boolean;
+  restriction_reason: string | null;
+  suspected_scheduled_disease: boolean;
+  suspected_disease: string | null;
+  authority_notified_at: string | null;
+  restriction_cleared_at: string | null;
+  restriction_cleared_by_id: number | null;
+  restriction_clearance_reference: string | null;
+  mortality_cause: string | null;
+  mortality_reported_at: string | null;
   notes: string | null;
   created_at: string;
   age_months?: number | null;

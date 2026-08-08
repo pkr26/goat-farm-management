@@ -253,6 +253,84 @@ describe("SimulationPage", () => {
     expect(within(yearRow).getAllByText("₹30,000")).toHaveLength(2);
   });
 
+  it("labels result provenance and warns when the editor changes after a run", async () => {
+    server.use(http.post("/api/simulation/run", () => HttpResponse.json(RESULT)));
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("Source: Current editor assumptions")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/results do not match the current editor/i),
+    ).not.toBeInTheDocument();
+
+    const does = screen.getByLabelText("Does");
+    await user.clear(does);
+    await user.type(does, "51");
+    expect(
+      screen.getByText(/results do not match the current editor assumptions or run options/i),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an invalid legacy scenario visible and deletable but blocks load and run", async () => {
+    await renderLoaded([
+      {
+        id: 9,
+        farm_id: 1,
+        name: "Legacy broken plan",
+        notes: "Created before validation was tightened",
+        assumptions: null,
+        valid: false,
+        validation_error: "horizon_months must be at least 12",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+      },
+    ]);
+
+    expect(screen.getByText("Invalid saved assumptions")).toBeInTheDocument();
+    expect(screen.getByText(/horizon_months must be at least 12/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+  });
+
+  it("caps comparison selection at five valid scenarios", async () => {
+    const scenarios = Array.from({ length: 6 }, (_, index) => ({
+      id: index + 1,
+      farm_id: 1,
+      name: `Plan ${index + 1}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+
+    for (let index = 1; index <= 5; index += 1)
+      await user.click(screen.getByLabelText(`Compare Plan ${index}`));
+
+    expect(screen.getByLabelText("Compare Plan 6")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByText(/5 selected/)).toBeInTheDocument();
+  });
+
+  it("enforces backend numeric bounds before a run", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const rate = screen.getByLabelText("Interest Rate Annual");
+
+    await user.clear(rate);
+    await user.type(rate, "0.9");
+
+    expect(screen.getByText("Must be at most 0.5.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+  });
+
   it("saves a scenario and shows it in the refreshed list", async () => {
     const scenarios: unknown[] = [];
     server.use(

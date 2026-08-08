@@ -21,7 +21,7 @@ test.describe("animals", () => {
     await createAnimal(page, { tag });
 
     // The new animal shows up in the list (search to be robust to existing data).
-    await page.getByPlaceholder("Search tag or name…").fill(tag);
+    await page.getByPlaceholder("Search by tag…").fill(tag);
     await expect(page.getByRole("link", { name: tag, exact: true })).toBeVisible();
 
     // Open its profile.

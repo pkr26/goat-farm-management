@@ -25,7 +25,7 @@ from ..models import (
     TaskStatus,
     WeightRecord,
 )
-from ..schemas.animals import AnimalOut, WeightRecordOut
+from ..schemas.animals import WeightRecordOut
 from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
@@ -37,7 +37,7 @@ from ..schemas.dashboard import (
 )
 from ..services import ANIMAL_OUT_LOADS, ready_to_move_suggestions, task_scope
 from ..utils import today
-from ._shared import TASK_LOADS, breeding_out, task_out
+from ._shared import TASK_LOADS, animal_out, breeding_out, task_out
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -69,7 +69,7 @@ async def dashboard(
         counts[animal.current_bucket] = counts.get(animal.current_bucket, 0) + 1
         sex_counts[animal.sex] = sex_counts.get(animal.sex, 0) + 1
 
-    now = today()
+    now = today(farm.timezone)
     pending = (
         (await task_scope(db, farm, user))
         .options(*TASK_LOADS)
@@ -161,10 +161,12 @@ async def dashboard(
         overdue_tasks=[task_out(t) for t in overdue_tasks],
         ultrasounds_due=[task_out(t) for t in ultrasounds_due],
         kiddings_due=[breeding_out(r) for r in kiddings_due],
-        cull_candidates=[AnimalOut.model_validate(a) for a in cull_candidates],
+        cull_candidates=[animal_out(a, now, farm.timezone) for a in cull_candidates],
         suggestions=[
             MoveSuggestionOut(
-                animal=AnimalOut.model_validate(s["animal"]), to=s["to"], reason=s["reason"]
+                animal=animal_out(s["animal"], now, farm.timezone),
+                to=s["to"],
+                reason=s["reason"],
             )
             for s in suggestions
         ],
@@ -176,6 +178,8 @@ async def dashboard(
 async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> ReportsOut:
     """Herd summary, breeding performance, mortality — all aggregated in SQL;
     only the cull-candidate list is hydrated as ORM rows."""
+
+    reference_date = today(farm.timezone)
 
     # --- herd summary -------------------------------------------------------
     defs = list(
@@ -312,7 +316,7 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
             round(float(total_alive) / kiddings_count, 2) if kiddings_count else None
         ),
         twin_rate=_rate(multi_kid, kiddings_count),
-        cull_candidates=[AnimalOut.model_validate(a) for a in cull_candidates],
+        cull_candidates=[animal_out(a, reference_date, farm.timezone) for a in cull_candidates],
     )
 
     # --- mortality ------------------------------------------------------------

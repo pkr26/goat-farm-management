@@ -85,10 +85,10 @@ def weight_at_age(age_months: int, growth: GrowthAssumptions, adult_weight_kg: f
     table = growth.weight_by_age_months
     if age_months <= 0:
         return table[0]
-    if age_months < len(table):
-        return table[age_months]
     if age_months >= 24:
         return adult_weight_kg
+    if age_months < len(table):
+        return table[age_months]
     frac = (age_months - 12) / 12.0
     return table[12] + frac * (adult_weight_kg - table[12])
 

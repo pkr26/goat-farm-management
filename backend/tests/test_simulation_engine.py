@@ -328,6 +328,19 @@ def test_weight_curve() -> None:
     assert weight_at_age(18, g, 32.0) == pytest.approx(29.25)
 
 
+@pytest.mark.parametrize(
+    "curve",
+    [
+        [-1.0] * 13,
+        [2.5] * 14,
+        [2.5, 4.0, 3.0, *([5.0] * 10)],
+    ],
+)
+def test_weight_curve_rejects_nonphysical_or_wrong_length(curve: list[float]) -> None:
+    with pytest.raises(ValidationError):
+        SimulationAssumptions.model_validate({"growth": {"weight_by_age_months": curve}})
+
+
 def test_breed_presets_and_systems() -> None:
     expected = {
         "osmanabadi",

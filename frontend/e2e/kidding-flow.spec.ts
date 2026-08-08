@@ -65,9 +65,9 @@ test.describe("kidding flow", () => {
 
     // Both kids are now animals (auto-created, source BORN, RECOVERY bucket).
     await page.goto("/animals");
-    await page.getByPlaceholder("Search tag or name…").fill(kid1);
+    await page.getByPlaceholder("Search by tag…").fill(kid1);
     await expect(page.getByRole("link", { name: kid1, exact: true })).toBeVisible();
-    await page.getByPlaceholder("Search tag or name…").fill(kid2);
+    await page.getByPlaceholder("Search by tag…").fill(kid2);
     await expect(page.getByRole("link", { name: kid2, exact: true })).toBeVisible();
     await openAnimalProfile(page, kid1);
     await expect(profileDetail(page, "Bucket")).toHaveText("RECOVERY");

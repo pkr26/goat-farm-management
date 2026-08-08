@@ -48,6 +48,14 @@ class FeedInventoryOut(BaseModel):
     last_purchase_price_per_kg: float | None
 
 
+class FinishedFeedStockOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    recipe_code: str
+    recipe_name: str
+    qty_on_hand: float
+
+
 class FeedRecipeLineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,6 +85,13 @@ class FeedingRecordOut(BaseModel):
     qty_kg: float
 
 
+class FeedingHistoryOut(BaseModel):
+    records: list[FeedingRecordOut]
+    total: int
+    limit: int
+    offset: int
+
+
 class BucketAllocationOut(BaseModel):
     bucket: str
     allocation: str  # SPEC allocation guidance for the bucket
@@ -99,4 +114,4 @@ class PlanLineOut(BaseModel):
 
 class FeedingPlanOut(BaseModel):
     lines: list[PlanLineOut]
-    records: list[FeedingRecordOut]  # recent dispensing log
+    records: list[FeedingRecordOut]  # today's dispensing log

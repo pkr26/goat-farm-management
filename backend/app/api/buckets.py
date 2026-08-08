@@ -7,8 +7,10 @@ from sqlalchemy import select
 
 from ..deps import CurrentFarm, DbSession, require_perm
 from ..models import Animal, AnimalStatus, BucketDefinition, BucketFeedSetting
-from ..schemas.animals import AnimalOut, BucketBoardRow
+from ..schemas.animals import BucketBoardRow
 from ..services import ANIMAL_OUT_LOADS
+from ..utils import today
+from ._shared import animal_out
 
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
@@ -40,6 +42,7 @@ async def buckets_board(
     kg_overrides = {s.bucket: s.daily_kg_per_head for s in settings_result.scalars()}
 
     rows = []
+    reference_date = today(farm.timezone)
     for d in defs:
         rows.append(
             BucketBoardRow(
@@ -49,7 +52,9 @@ async def buckets_board(
                 exit_rule=d.exit_rule or "",
                 # effective per-farm setting (BucketFeedSetting override wins)
                 daily_kg_per_head=kg_overrides.get(d.code, d.daily_kg_per_head),
-                animals=[AnimalOut.model_validate(a) for a in by_bucket.get(d.code, [])],
+                animals=[
+                    animal_out(a, reference_date, farm.timezone) for a in by_bucket.get(d.code, [])
+                ],
             )
         )
     return rows

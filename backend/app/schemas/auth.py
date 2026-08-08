@@ -1,29 +1,47 @@
 """Pydantic schemas for the auth endpoints."""
 
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+MAX_EMAIL_LENGTH = 254
+_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+    r"(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
 
 
 class EmailMixin(BaseModel):
-    """Shared strip/lower + shape check for email inputs."""
+    """Shared bounded normalization and conservative mailbox validation.
+
+    This intentionally accepts common RFC local-part punctuation (including
+    apostrophes) while rejecting whitespace, control characters, malformed
+    domains and attacker-sized values before they can become limiter keys or
+    hit the VARCHAR(255) database column.
+    """
 
     @field_validator("email", check_fields=False)
     @classmethod
     def _email_ok(cls, value: str) -> str:
         email = value.strip().lower()
-        if not email or "@" not in email:
+        if len(email) > MAX_EMAIL_LENGTH or _EMAIL_RE.fullmatch(email) is None:
             raise ValueError("Enter a valid email address")
         return email
 
 
 class RegisterIn(EmailMixin):
-    email: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
     # max_length: no unbounded input into the (deliberately expensive) Argon2 hasher.
     password: str = Field(min_length=1, max_length=128)
     name: str | None = Field(default=None, max_length=120)  # users.name is String(120)
 
 
 class LoginIn(EmailMixin):
-    email: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
     password: str = Field(max_length=128)
 
 
@@ -41,16 +59,62 @@ class TokenOut(BaseModel):
     user: UserOut
 
 
+class AccountDeleteIn(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+
+
+class AccountIdentityExport(BaseModel):
+    id: int
+    email: str
+    name: str | None
+    created_at: datetime
+
+
+class OwnedFarmExport(BaseModel):
+    id: int
+    name: str
+    location: str | None
+    timezone: str
+    created_at: datetime
+
+
+class MembershipExport(BaseModel):
+    farm_id: int
+    farm_name: str
+    role_id: int
+    role_name: str
+    is_active: bool
+    created_at: datetime
+
+
+class AccountExportOut(BaseModel):
+    exported_at: datetime
+    account: AccountIdentityExport
+    owned_farms: list[OwnedFarmExport]
+    memberships: list[MembershipExport]
+
+
 class FarmOut(BaseModel):
     id: int
     name: str
     location: str | None
+    timezone: str = "Asia/Kolkata"
     role: str | None = None  # None = owner, else the membership's role name
 
 
 class FarmCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     location: str | None = Field(default=None, max_length=120)  # farms.location is String(120)
+    timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
+        return value
 
 
 class PermissionsOut(BaseModel):

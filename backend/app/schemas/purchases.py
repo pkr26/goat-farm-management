@@ -45,6 +45,13 @@ class PurchaseBatchOut(BaseModel):
     open_tasks: int = 0  # pending quarantine tasks
 
 
+class PurchaseBatchListOut(BaseModel):
+    batches: list[PurchaseBatchOut]
+    total: int
+    limit: int
+    offset: int
+
+
 class PurchaseBatchDetailOut(BaseModel):
     batch: PurchaseBatchOut
     animals: list[AnimalOut]

@@ -1,8 +1,7 @@
 /**
- * Team page role dialog permission clamping: a user holding only
- * team.manage sees exactly the team.* checkbox in the permission matrix —
- * groups they hold nothing in are hidden entirely — and a created role can
- * only carry the held permission.
+ * Team page role dialog permission safety: a user holding only team.manage
+ * sees the full matrix, cannot grant unheld permissions, and preserves any
+ * unheld permissions already present on an edited role.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -33,6 +32,8 @@ const TEAM_PAYLOAD = {
       role_id: null,
       role_name: null,
       is_active: true,
+      can_reset_password: false,
+      reset_password_block_reason: "This account must use self-service password recovery.",
     },
   ],
   roles: [],
@@ -84,33 +85,79 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
     return { user, dialog };
   }
 
-  it("shows only the team.* checkbox; unheld groups are hidden entirely", async () => {
+  it("shows the full matrix but disables permissions the editor cannot grant", async () => {
     const { dialog } = await openRoleDialog();
 
-    // The single grantable permission is rendered with its label.
-    expect(within(dialog).getByText("Manage team, roles & passwords")).toBeInTheDocument();
-    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(1);
-
-    // Groups the editor holds nothing in do not render at all.
-    expect(within(dialog).queryByText("Animals")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Tasks / duties")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("View animals")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Add animals")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Complete duties")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("Animals")).toBeInTheDocument();
+    expect(within(dialog).getByText("Tasks / duties")).toBeInTheDocument();
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(5);
+    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(within(dialog).getByRole("checkbox", { name: "Add animals" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Manage team, roles & passwords" }),
+    ).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("a created role carries only the held team.manage permission", async () => {
+  it("does not let a non-owner grant team.manage even when they hold it", async () => {
     const { user, dialog } = await openRoleDialog();
 
     await user.type(within(dialog).getByLabelText(/role name/i), "Night Watch");
-    await user.click(within(dialog).getByRole("checkbox"));
+    expect(
+      within(dialog).getByRole("checkbox", { name: "Manage team, roles & passwords" }),
+    ).toHaveAttribute("aria-disabled", "true");
     await user.click(within(dialog).getByRole("button", { name: "Create role" }));
 
     await waitFor(() => expect(rolePostBody).not.toBeNull());
     expect(rolePostBody).toEqual({
       name: "Night Watch",
       description: null,
-      permissions: ["team.manage"],
+      permissions: [],
+    });
+  });
+
+  it("preserves checked permissions the editor does not hold when editing", async () => {
+    const existingRole = {
+      id: 12,
+      code: null,
+      name: "Animal keeper",
+      description: null,
+      permissions: ["animals.view", "animals.create"],
+      member_count: 0,
+    };
+    let putBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get("/api/team", () =>
+        HttpResponse.json({ ...TEAM_PAYLOAD, roles: [existingRole] }),
+      ),
+      http.put("/api/team/roles/:roleId", async ({ request }) => {
+        putBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...existingRole, ...putBody });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TeamPage />);
+    expect(await screen.findByText("Animal keeper")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(within(dialog).getByRole("checkbox", { name: "Add animals" })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Save role" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putBody).toMatchObject({
+      name: "Animal keeper",
+      permissions: ["animals.view", "animals.create"],
     });
   });
 });

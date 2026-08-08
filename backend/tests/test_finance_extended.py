@@ -274,6 +274,12 @@ async def test_create_amount_decimal_precision(client: httpx.AsyncClient) -> Non
     assert txn["amount"] == 12345.67
 
 
+async def test_amount_is_rounded_to_exact_paise(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    txn = await add_txn(client, owner, amount=10.015)
+    assert txn["amount"] == 10.02
+
+
 async def test_create_amount_one_paisa(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     txn = await add_txn(client, owner, amount=0.01)
@@ -590,7 +596,8 @@ async def test_list_empty_farm(client: httpx.AsyncClient) -> None:
     assert data["transactions"] == []
     assert data["total_income"] == 0.0
     assert data["total_expense"] == 0.0
-    assert data["pnl"] == []
+    assert len(data["pnl"]) == 12
+    assert all(row["income"] == row["expense"] == row["net"] == 0 for row in data["pnl"])
 
 
 async def test_list_contains_created_transaction(client: httpx.AsyncClient) -> None:
@@ -642,8 +649,60 @@ async def test_list_capped_at_200_transactions(client: httpx.AsyncClient) -> Non
         await add_txn(client, owner, amount=1.0)
     data = await get_finance(client, owner)
     assert len(data["transactions"]) == 200
+    assert data["transactions_total"] == 205
+    assert data["limit"] == 200
+    assert data["offset"] == 0
     # Totals are all-time aggregates, not capped by the 200-row list window.
     assert data["total_expense"] == 205.0
+    second_page = await client.get(
+        "/api/finance", params={"limit": 10, "offset": 200}, headers=owner
+    )
+    assert second_page.status_code == 200, second_page.text
+    assert len(second_page.json()["transactions"]) == 5
+    assert second_page.json()["transactions_total"] == 205
+
+
+async def test_correction_preserves_audit_trail_and_replaces_totals(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    original = await add_txn(client, owner, amount=125.0, notes="wrong receipt")
+    corrected = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json={
+            "date": iso(today()),
+            "type": "EXPENSE",
+            "category": "FEED",
+            "amount": 100.005,
+            "notes": "verified receipt",
+            "reason": "Transcription error",
+        },
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    replacement = corrected.json()
+    assert replacement["amount"] == 100.01
+    assert replacement["correction_of_id"] == original["id"]
+
+    data = await get_finance(client, owner)
+    assert data["total_expense"] == 100.01
+    assert len(data["transactions"]) == 2
+    old = next(row for row in data["transactions"] if row["id"] == original["id"])
+    assert old["voided_at"] is not None
+    assert old["void_reason"] == "Transcription error"
+
+    replay = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json={
+            "date": iso(today()),
+            "type": "EXPENSE",
+            "category": "FEED",
+            "amount": 99,
+            "reason": "Another correction",
+        },
+        headers=owner,
+    )
+    assert replay.status_code == 409
 
 
 async def test_totals_hand_computed(client: httpx.AsyncClient) -> None:
@@ -779,8 +838,8 @@ async def test_pnl_single_month_hand_computed(client: httpx.AsyncClient) -> None
     await add_txn(client, owner, type="INCOME", category="MILK", amount=500.5, date=iso(d))
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=200.25, date=iso(d))
     data = await get_finance(client, owner)
-    assert len(data["pnl"]) == 1
-    row = data["pnl"][0]
+    assert len(data["pnl"]) == 12
+    row = next(row for row in data["pnl"] if row["month"] == d.strftime("%Y-%m"))
     assert row["month"] == d.strftime("%Y-%m")
     assert row["income"] == 1500.5
     assert row["expense"] == 200.25
@@ -809,7 +868,9 @@ async def test_pnl_ordered_most_recent_month_first(client: httpx.AsyncClient) ->
     for m in months:
         await add_txn(client, owner, date=iso(m))
     pnl = (await get_finance(client, owner))["pnl"]
-    assert [r["month"] for r in pnl] == [m.strftime("%Y-%m") for m in sorted(months, reverse=True)]
+    assert [r["month"] for r in pnl[:3]] == [
+        m.strftime("%Y-%m") for m in sorted(months, reverse=True)
+    ]
 
 
 async def test_pnl_capped_at_12_months(client: httpx.AsyncClient) -> None:
@@ -831,7 +892,7 @@ async def test_pnl_present_despite_filters(client: httpx.AsyncClient) -> None:
     await add_txn(client, owner, type="INCOME", amount=10.0, date=iso(today().replace(day=1)))
     data = await get_finance(client, owner, month="2020-01", type="INCOME", category="MILK")
     assert data["transactions"] == []  # list is filtered...
-    assert len(data["pnl"]) == 1  # ...but the P&L is not
+    assert len(data["pnl"]) == 12  # ...but the rolling P&L is not
 
 
 # ---------------------------------------------------------------------------
@@ -861,11 +922,39 @@ async def test_sale_without_price_creates_no_transaction(client: httpx.AsyncClie
     assert (await get_finance(client, owner))["transactions"] == []
 
 
-async def test_sale_with_zero_price_creates_no_transaction(client: httpx.AsyncClient) -> None:
+async def test_sale_with_zero_price_creates_zero_audit_transaction(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, tag="MEAT-3", sex="M", bucket="MALE_KIDS")
     await change_status(client, owner, animal["id"], "SOLD", sale_price=0)
-    assert (await get_finance(client, owner))["transactions"] == []
+    data = await get_finance(client, owner)
+    assert len(data["transactions"]) == 1
+    assert data["transactions"][0]["amount"] == 0.0
+    assert data["transactions"][0]["source_type"] == "ANIMAL_SALE"
+
+
+async def test_individual_purchase_creates_source_linked_expense(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    purchase_date = today() - timedelta(days=2)
+    animal = await make_animal(
+        client,
+        owner,
+        tag="BUY-ONE",
+        purchase_date=iso(purchase_date),
+        purchase_price=9876.545,
+        seller_name="Kurnool breeder",
+    )
+    data = await get_finance(client, owner)
+    assert data["total_expense"] == 9876.55
+    assert len(data["transactions"]) == 1
+    txn = data["transactions"][0]
+    assert txn["date"] == iso(purchase_date)
+    assert txn["related_animal_id"] == animal["id"]
+    assert txn["source_type"] == "ANIMAL_PURCHASE"
+    assert txn["source_id"] == animal["id"]
 
 
 async def test_death_creates_no_transaction(client: httpx.AsyncClient) -> None:

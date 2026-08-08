@@ -271,6 +271,109 @@
         }
       }
     },
+    "/api/auth/account/export": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Export Account",
+        "description": "Export the caller's identity and tenant relationships as JSON.\n\nDeliberately excludes farm-domain records: a worker's attribution to a\ntransaction, animal, or duty does not entitle them to export another\ntenant's operational data. Farm owners receive farm metadata only here;\ndomain-specific exports can be added separately with explicit tenancy\nauthorization.",
+        "operationId": "export_account_api_auth_account_export_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountExportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/account": {
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Delete Account",
+        "description": "Permanently remove a non-owner account after password confirmation.",
+        "operationId": "delete_account_api_auth_account_delete",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountDeleteIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/permissions": {
       "get": {
         "tags": [
@@ -1048,6 +1151,29 @@
         "operationId": "breeding_list_api_breeding_get",
         "parameters": [
           {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
             "name": "x-farm-id",
             "in": "header",
             "required": true,
@@ -1146,6 +1272,118 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BreedingRecordOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/breeding/candidates": {
+      "get": {
+        "tags": [
+          "breeding"
+        ],
+        "summary": "Breeding Candidates",
+        "description": "Search a bounded page of animals eligible for the breeding form.\n\nThis domain-scoped summary deliberately does not grant access to the full\nanimal register. Doe eligibility comes from the same canonical service as\nthe create path; bucks are active farm-local males.",
+        "operationId": "breeding_candidates_api_breeding_candidates_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "doe",
+                "buck"
+              ],
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BreedingCandidateListOut"
                 }
               }
             }
@@ -1383,6 +1621,29 @@
         "operationId": "kidding_list_api_kidding_get",
         "parameters": [
           {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
             "name": "x-farm-id",
             "in": "header",
             "required": true,
@@ -1498,15 +1759,55 @@
         }
       }
     },
-    "/api/health/events": {
+    "/api/health/animals": {
       "get": {
         "tags": [
           "health"
         ],
-        "summary": "List Events",
-        "description": "Latest 100 events on the farm, newest first (v1 ordering).",
-        "operationId": "list_events_api_health_events_get",
+        "summary": "Health Animal Options",
+        "description": "Farm-local active-animal summaries for health schedules and events.\n\nA numeric query, optionally prefixed by ``#``, resolves an exact selected\nid without requiring access to the full animal profile endpoint.",
+        "operationId": "health_animal_options_api_health_animals_get",
         "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
           {
             "name": "x-farm-id",
             "in": "header",
@@ -1539,11 +1840,259 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/HealthEventOut"
-                  },
-                  "title": "Response List Events Api Health Events Get"
+                  "$ref": "#/components/schemas/HealthAnimalOptionListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/purchase-batches": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health Purchase Batch Options",
+        "description": "Targetable batch summaries without exposing the purchase ledger.\n\nBatches with no active animals are omitted because the health write path\ncannot apply an event to them.",
+        "operationId": "health_purchase_batch_options_api_health_purchase_batches_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthPurchaseBatchOptionListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/restrictions/{animal_id}/clear": {
+      "post": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Clear Movement Restriction",
+        "description": "Record a factual authority/veterinary clearance and release a hold.\n\nThis does not diagnose or treat an animal. It only makes a previously\nrecorded operational restriction reversible through an attributed,\nreferenced action instead of a database edit.",
+        "operationId": "clear_movement_restriction_api_health_restrictions__animal_id__clear_post",
+        "parameters": [
+          {
+            "name": "animal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Animal Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MovementRestrictionClearIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/events": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "List Events",
+        "description": "A requested page of health events, newest first, with its full count.",
+        "operationId": "list_events_api_health_events_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthEventListOut"
                 }
               }
             }
@@ -1565,7 +2114,7 @@
           "health"
         ],
         "summary": "Record Event",
-        "description": "One HealthEvent row per targeted ACTIVE animal; the total cost is\nsplit evenly inside record_health_event (first animal absorbs the\nrounding remainder). A linked VACCINE/DEWORMING task_id is completed;\nany other task_id is ignored while the event is still recorded, as v1\ndid.",
+        "description": "One HealthEvent row per targeted ACTIVE animal.\n\nA task-linked event must match the task's exact scope, health type and\nseeded schedule template. This prevents a generic health note from\ncompleting an unrelated quarantine vaccine duty.",
         "operationId": "record_event_api_health_events_post",
         "parameters": [
           {
@@ -1709,6 +2258,29 @@
         "description": "All five v1 tabs in one payload; per-tab counts are the list lengths\n(the completed history keeps v1's 100-row cap).",
         "operationId": "list_tasks_api_tasks_get",
         "parameters": [
+          {
+            "name": "completed_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Completed Limit"
+            }
+          },
+          {
+            "name": "completed_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Completed Offset"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -1936,6 +2508,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TaskSkipIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2294,6 +2883,122 @@
         }
       }
     },
+    "/api/feeding/records": {
+      "get": {
+        "tags": [
+          "feeding"
+        ],
+        "summary": "Feeding History",
+        "description": "Paginated dispensing history, including backdated records.",
+        "operationId": "feeding_history_api_feeding_records_get",
+        "parameters": [
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedingHistoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/feeding/recipes": {
       "get": {
         "tags": [
@@ -2336,6 +3041,69 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RecipeListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/feeding/finished-stock": {
+      "get": {
+        "tags": [
+          "feeding"
+        ],
+        "summary": "List Finished Stock",
+        "description": "Ready-to-dispense recipe balances created by successful mixes.",
+        "operationId": "list_finished_stock_api_feeding_finished_stock_get",
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FinishedFeedStockOut"
+                  },
+                  "title": "Response List Finished Stock Api Feeding Finished Stock Get"
                 }
               }
             }
@@ -2569,7 +3337,7 @@
           "finance"
         ],
         "summary": "List Transactions",
-        "description": "Transactions (newest first, max 200) with optional month/type/category\nfilters, all-time totals and the 12-month P&L.",
+        "description": "Paginated transactions with optional filters, all-time totals and a\ntrue rolling 12-calendar-month P&L. ``transactions_total`` always reports\nthe full filtered count so clients can expose honest pagination.",
         "operationId": "list_transactions_api_finance_get",
         "parameters": [
           {
@@ -2618,6 +3386,29 @@
                 }
               ],
               "title": "Category"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
             }
           },
           {
@@ -2739,15 +3530,133 @@
         }
       }
     },
+    "/api/finance/transactions/{transaction_id}/correct": {
+      "post": {
+        "tags": [
+          "finance"
+        ],
+        "summary": "Correct Transaction",
+        "description": "Void one ledger row and create its audited replacement atomically.",
+        "operationId": "correct_transaction_api_finance_transactions__transaction_id__correct_post",
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Transaction Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransactionCorrectionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/purchases": {
       "get": {
         "tags": [
           "purchases"
         ],
         "summary": "List Batches",
-        "description": "All purchase batches for this farm, newest first.",
+        "description": "Searched, paginated purchase batches for this farm, newest first.\n\nText searches supplier names literally (LIKE wildcards are escaped); a\nnumeric query, with an optional leading ``#``, also matches an exact batch\nid. This keeps selectors bounded without hiding old purchase batches.",
         "operationId": "list_batches_api_purchases_get",
         "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
           {
             "name": "x-farm-id",
             "in": "header",
@@ -2780,11 +3689,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/PurchaseBatchOut"
-                  },
-                  "title": "Response List Batches Api Purchases Get"
+                  "$ref": "#/components/schemas/PurchaseBatchListOut"
                 }
               }
             }
@@ -3120,18 +4025,9 @@
           "team"
         ],
         "summary": "Create Worker",
-        "description": "Add a worker: create a brand-new account, or enroll an existing one\nthat owns no farm and belongs to no other farm's team. Accounts and\npasswords are global, so absorbing an account affiliated with another\nfarm would hand this farm a cross-tenant takeover path (reset-password\nrewrites the global password). Cross-farm refusals share ONE generic\nmessage so probing arbitrary emails can't reveal other farms'\nroster state. Residual limitation: there is no invitation/consent flow\nyet \u2014 an unaffiliated account is enrolled without the account holder's\nsay-so.",
+        "description": "Provision a new worker account owned by this farm.\n\nA pre-existing global account is always refused. Supporting those users\nsafely requires an invitation that they explicitly accept while signed in\n(or through a verified one-time email link); silent enrollment is an\naccount-takeover primitive because farm managers can reset provisioned\nworker passwords.",
         "operationId": "create_worker_api_team_workers_post",
         "parameters": [
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
           {
             "name": "authorization",
             "in": "header",
@@ -3146,6 +4042,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3333,7 +4238,7 @@
           "team"
         ],
         "summary": "Reset Password",
-        "description": "Rewrite a worker's GLOBAL password. Restricted to accounts whose sole\nfarm affiliation is this one (the accounts this farm created): resetting\nthe password of an account tied to another farm would be a cross-tenant\ntakeover. All of the worker's live refresh sessions are revoked (HIGH\n0-1) \u2014 a reset done because the account is suspect must end its sessions.",
+        "description": "Reset only a global account this farm demonstrably provisioned.",
         "operationId": "reset_password_api_team_workers__membership_id__reset_password_post",
         "parameters": [
           {
@@ -3414,15 +4319,6 @@
         "operationId": "create_role_api_team_roles_post",
         "parameters": [
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3436,6 +4332,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3491,15 +4396,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3513,6 +4409,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3566,15 +4471,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3588,6 +4484,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3811,15 +4716,6 @@
         "operationId": "run_adhoc_api_simulation_run_post",
         "parameters": [
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3833,6 +4729,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -4017,15 +4922,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4039,6 +4935,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -4305,15 +5210,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4327,6 +5223,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -4357,6 +5262,91 @@
   },
   "components": {
     "schemas": {
+      "AccountDeleteIn": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password"
+        ],
+        "title": "AccountDeleteIn"
+      },
+      "AccountExportOut": {
+        "properties": {
+          "exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exported At"
+          },
+          "account": {
+            "$ref": "#/components/schemas/AccountIdentityExport"
+          },
+          "owned_farms": {
+            "items": {
+              "$ref": "#/components/schemas/OwnedFarmExport"
+            },
+            "type": "array",
+            "title": "Owned Farms"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/MembershipExport"
+            },
+            "type": "array",
+            "title": "Memberships"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exported_at",
+          "account",
+          "owned_farms",
+          "memberships"
+        ],
+        "title": "AccountExportOut"
+      },
+      "AccountIdentityExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "name",
+          "created_at"
+        ],
+        "title": "AccountIdentityExport"
+      },
       "AmortizationRowModel": {
         "properties": {
           "month": {
@@ -4774,6 +5764,105 @@
             "type": "boolean",
             "title": "Cull Candidate"
           },
+          "movement_restricted": {
+            "type": "boolean",
+            "title": "Movement Restricted"
+          },
+          "restriction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restriction Reason"
+          },
+          "suspected_scheduled_disease": {
+            "type": "boolean",
+            "title": "Suspected Scheduled Disease"
+          },
+          "suspected_disease": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suspected Disease"
+          },
+          "authority_notified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Notified At"
+          },
+          "restriction_cleared_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restriction Cleared At"
+          },
+          "restriction_cleared_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restriction Cleared By Id"
+          },
+          "restriction_clearance_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restriction Clearance Reference"
+          },
+          "mortality_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Cause"
+          },
+          "mortality_reported_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Reported At"
+          },
           "notes": {
             "anyOf": [
               {
@@ -4850,6 +5939,16 @@
           "purchase_price",
           "seller_name",
           "cull_candidate",
+          "movement_restricted",
+          "restriction_reason",
+          "suspected_scheduled_disease",
+          "suspected_disease",
+          "authority_notified_at",
+          "restriction_cleared_at",
+          "restriction_cleared_by_id",
+          "restriction_clearance_reference",
+          "mortality_cause",
+          "mortality_reported_at",
           "notes",
           "created_at"
         ],
@@ -5006,6 +6105,92 @@
         "title": "AnnualPLRow",
         "description": "Annual profit-and-loss aggregation (12-month blocks)."
       },
+      "BreedingCandidateListOut": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/BreedingCandidateOut"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidates",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "BreedingCandidateListOut"
+      },
+      "BreedingCandidateOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "age_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Months"
+          },
+          "latest_weight_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Weight Kg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tag_number",
+          "name",
+          "age_months",
+          "latest_weight_kg"
+        ],
+        "title": "BreedingCandidateOut",
+        "description": "Minimum animal identity and readiness context needed by breeding pickers."
+      },
       "BreedingCreateIn": {
         "properties": {
           "doe_id": {
@@ -5063,13 +6248,28 @@
             },
             "type": "array",
             "title": "Active Buck Ids"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
           "records",
           "candidate_doe_ids",
-          "active_buck_ids"
+          "active_buck_ids",
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "BreedingListOut"
       },
@@ -5111,6 +6311,18 @@
               }
             ],
             "title": "Ultrasound Date"
+          },
+          "ultrasound_result_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ultrasound Result Date"
           },
           "ultrasound_done": {
             "type": "boolean",
@@ -5191,6 +6403,7 @@
           "method",
           "heat_cycle_number",
           "ultrasound_date",
+          "ultrasound_result_date",
           "ultrasound_done",
           "pregnant",
           "kid_count_detected",
@@ -5751,6 +6964,13 @@
               }
             ],
             "title": "Location"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Timezone",
+            "default": "Asia/Kolkata"
           }
         },
         "type": "object",
@@ -5779,6 +6999,11 @@
               }
             ],
             "title": "Location"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "Asia/Kolkata"
           },
           "role": {
             "anyOf": [
@@ -6174,6 +7399,37 @@
         "title": "FeedSummary",
         "description": "Annual feed totals and the fodder land requirement."
       },
+      "FeedingHistoryOut": {
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/FeedingRecordOut"
+            },
+            "type": "array",
+            "title": "Records"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "records",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "FeedingHistoryOut"
+      },
       "FeedingPlanOut": {
         "properties": {
           "lines": {
@@ -6317,6 +7573,18 @@
             "type": "array",
             "title": "Transactions"
           },
+          "transactions_total": {
+            "type": "integer",
+            "title": "Transactions Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
           "total_income": {
             "type": "number",
             "title": "Total Income"
@@ -6336,11 +7604,37 @@
         "type": "object",
         "required": [
           "transactions",
+          "transactions_total",
+          "limit",
+          "offset",
           "total_income",
           "total_expense",
           "pnl"
         ],
         "title": "FinanceOut"
+      },
+      "FinishedFeedStockOut": {
+        "properties": {
+          "recipe_code": {
+            "type": "string",
+            "title": "Recipe Code"
+          },
+          "recipe_name": {
+            "type": "string",
+            "title": "Recipe Name"
+          },
+          "qty_on_hand": {
+            "type": "number",
+            "title": "Qty On Hand"
+          }
+        },
+        "type": "object",
+        "required": [
+          "recipe_code",
+          "recipe_name",
+          "qty_on_hand"
+        ],
+        "title": "FinishedFeedStockOut"
       },
       "GrowthAssumptions": {
         "properties": {
@@ -6368,10 +7662,11 @@
           "weight_by_age_months": {
             "items": {
               "type": "number",
-              "maximum": 1000.0
+              "maximum": 1000.0,
+              "exclusiveMinimum": 0.0
             },
             "type": "array",
-            "maxItems": 1200,
+            "maxItems": 13,
             "minItems": 13,
             "title": "Weight By Age Months"
           },
@@ -6400,6 +7695,73 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HealthAnimalOptionListOut": {
+        "properties": {
+          "animals": {
+            "items": {
+              "$ref": "#/components/schemas/HealthAnimalOptionOut"
+            },
+            "type": "array",
+            "title": "Animals"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "animals",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "HealthAnimalOptionListOut"
+      },
+      "HealthAnimalOptionOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "current_bucket": {
+            "type": "string",
+            "title": "Current Bucket"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tag_number",
+          "name",
+          "current_bucket"
+        ],
+        "title": "HealthAnimalOptionOut",
+        "description": "Least-privilege animal identity exposed inside health workflows."
       },
       "HealthEventIn": {
         "properties": {
@@ -6569,6 +7931,155 @@
             ],
             "title": "Next Due Date"
           },
+          "schedule_template_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Template Name"
+          },
+          "next_due_authority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Due Authority"
+          },
+          "product_lot": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Lot"
+          },
+          "product_manufactured_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Manufactured On"
+          },
+          "product_expires_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Expires On"
+          },
+          "vaccine_valid_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vaccine Valid Until"
+          },
+          "certificate_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Number"
+          },
+          "official_tag_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Tag Number"
+          },
+          "administered_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Administered By"
+          },
+          "withdrawal_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawal Until"
+          },
+          "suspected_scheduled_disease": {
+            "type": "boolean",
+            "title": "Suspected Scheduled Disease",
+            "default": false
+          },
+          "authority_notified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Notified At"
+          },
+          "isolation_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isolation Started At"
+          },
           "notes": {
             "anyOf": [
               {
@@ -6599,6 +8110,38 @@
           "type"
         ],
         "title": "HealthEventIn"
+      },
+      "HealthEventListOut": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/HealthEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "events",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "HealthEventListOut",
+        "description": "A visible page of the farm health ledger.\n\n`total` is deliberately returned with every page so the UI does not imply\nthat the requested page is the complete statutory/audit history."
       },
       "HealthEventOut": {
         "properties": {
@@ -6708,6 +8251,148 @@
             ],
             "title": "Next Due Date"
           },
+          "schedule_template_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Template Name"
+          },
+          "next_due_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Due Authority"
+          },
+          "product_lot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Lot"
+          },
+          "product_manufactured_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Manufactured On"
+          },
+          "product_expires_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Expires On"
+          },
+          "vaccine_valid_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vaccine Valid Until"
+          },
+          "certificate_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Certificate Number"
+          },
+          "official_tag_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Tag Number"
+          },
+          "administered_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Administered By"
+          },
+          "withdrawal_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawal Until"
+          },
+          "suspected_scheduled_disease": {
+            "type": "boolean",
+            "title": "Suspected Scheduled Disease"
+          },
+          "authority_notified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Notified At"
+          },
+          "isolation_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isolation Started At"
+          },
           "notes": {
             "anyOf": [
               {
@@ -6745,9 +8430,95 @@
           "vet_name",
           "cost",
           "next_due_date",
+          "schedule_template_name",
+          "next_due_authority",
+          "product_lot",
+          "product_manufactured_on",
+          "product_expires_on",
+          "vaccine_valid_until",
+          "certificate_number",
+          "official_tag_number",
+          "administered_by",
+          "withdrawal_until",
+          "suspected_scheduled_disease",
+          "authority_notified_at",
+          "isolation_started_at",
           "notes"
         ],
         "title": "HealthEventOut"
+      },
+      "HealthPurchaseBatchOptionListOut": {
+        "properties": {
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/HealthPurchaseBatchOptionOut"
+            },
+            "type": "array",
+            "title": "Batches"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batches",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "HealthPurchaseBatchOptionListOut"
+      },
+      "HealthPurchaseBatchOptionOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "supplier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "active_animal_count": {
+            "type": "integer",
+            "title": "Active Animal Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "supplier",
+          "count",
+          "active_animal_count"
+        ],
+        "title": "HealthPurchaseBatchOptionOut",
+        "description": "Targetable purchase batch summary; no purchase ledger detail is exposed."
       },
       "HerdAssumptions": {
         "properties": {
@@ -7005,6 +8776,18 @@
             "type": "string",
             "title": "Status"
           },
+          "mortality_reported_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Reported At"
+          },
           "animal_id": {
             "anyOf": [
               {
@@ -7024,6 +8807,7 @@
           "sex",
           "birth_weight",
           "status",
+          "mortality_reported_at",
           "animal_id"
         ],
         "title": "KidEntryOut"
@@ -7071,6 +8855,18 @@
             ],
             "title": "Status",
             "default": "ALIVE"
+          },
+          "mortality_reported_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Reported At"
           }
         },
         "type": "object",
@@ -7153,13 +8949,28 @@
             },
             "type": "array",
             "title": "Overdue"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
           "records",
           "upcoming",
-          "overdue"
+          "overdue",
+          "total",
+          "limit",
+          "offset"
         ],
         "title": "KiddingListOut"
       },
@@ -7239,6 +9050,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "maxLength": 254,
             "title": "Email"
           },
           "password": {
@@ -7253,6 +9065,45 @@
           "password"
         ],
         "title": "LoginIn"
+      },
+      "MembershipExport": {
+        "properties": {
+          "farm_id": {
+            "type": "integer",
+            "title": "Farm Id"
+          },
+          "farm_name": {
+            "type": "string",
+            "title": "Farm Name"
+          },
+          "role_id": {
+            "type": "integer",
+            "title": "Role Id"
+          },
+          "role_name": {
+            "type": "string",
+            "title": "Role Name"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "farm_id",
+          "farm_name",
+          "role_id",
+          "role_name",
+          "is_active",
+          "created_at"
+        ],
+        "title": "MembershipExport"
       },
       "MembershipOut": {
         "properties": {
@@ -7304,6 +9155,21 @@
           "is_active": {
             "type": "boolean",
             "title": "Is Active"
+          },
+          "can_reset_password": {
+            "type": "boolean",
+            "title": "Can Reset Password"
+          },
+          "reset_password_block_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset Password Block Reason"
           }
         },
         "type": "object",
@@ -7314,7 +9180,9 @@
           "name",
           "role_id",
           "role_name",
-          "is_active"
+          "is_active",
+          "can_reset_password",
+          "reset_password_block_reason"
         ],
         "title": "MembershipOut"
       },
@@ -7815,6 +9683,62 @@
         ],
         "title": "MoveSuggestionOut"
       },
+      "MovementRestrictionClearIn": {
+        "properties": {
+          "clearance_reference": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Clearance Reference"
+          }
+        },
+        "type": "object",
+        "required": [
+          "clearance_reference"
+        ],
+        "title": "MovementRestrictionClearIn"
+      },
+      "OwnedFarmExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "location",
+          "timezone",
+          "created_at"
+        ],
+        "title": "OwnedFarmExport"
+      },
       "PasswordResetIn": {
         "properties": {
           "password": {
@@ -8160,6 +10084,37 @@
         ],
         "title": "PurchaseBatchIn"
       },
+      "PurchaseBatchListOut": {
+        "properties": {
+          "batches": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseBatchOut"
+            },
+            "type": "array",
+            "title": "Batches"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batches",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PurchaseBatchListOut"
+      },
       "PurchaseBatchOut": {
         "properties": {
           "id": {
@@ -8282,6 +10237,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "maxLength": 254,
             "title": "Email"
           },
           "password": {
@@ -8787,7 +10743,30 @@
             "title": "Notes"
           },
           "assumptions": {
-            "$ref": "#/components/schemas/SimulationAssumptions"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationAssumptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "default": true
+          },
+          "validation_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Error"
           },
           "created_at": {
             "type": "string",
@@ -9176,6 +11155,59 @@
               }
             ],
             "title": "Notes"
+          },
+          "mortality_cause": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Cause"
+          },
+          "mortality_reported_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortality Reported At"
+          },
+          "suspected_scheduled_disease": {
+            "type": "boolean",
+            "title": "Suspected Scheduled Disease",
+            "default": false
+          },
+          "suspected_disease": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suspected Disease"
+          },
+          "authority_notified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Notified At"
           }
         },
         "type": "object",
@@ -9239,6 +11271,19 @@
             ],
             "title": "Category",
             "default": "OTHER"
+          },
+          "animal_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4.611686018427388e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Id"
           },
           "assigned_role_id": {
             "anyOf": [
@@ -9380,6 +11425,17 @@
             ],
             "title": "Recur Days"
           },
+          "recurring_series_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recurring Series Id"
+          },
           "completed_by_id": {
             "anyOf": [
               {
@@ -9448,6 +11504,29 @@
             ],
             "title": "Skipped By Id"
           },
+          "skipped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped At"
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason"
+          },
           "assigned_role_name": {
             "anyOf": [
               {
@@ -9512,12 +11591,15 @@
           "assigned_role_id",
           "assigned_user_id",
           "recur_days",
+          "recurring_series_id",
           "completed_by_id",
           "completed_at",
           "verified_by_id",
           "verified_at",
           "verification_note",
-          "skipped_by_id"
+          "skipped_by_id",
+          "skipped_at",
+          "skip_reason"
         ],
         "title": "TaskOut"
       },
@@ -9538,6 +11620,24 @@
         },
         "type": "object",
         "title": "TaskRejectIn"
+      },
+      "TaskSkipIn": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "TaskSkipIn"
       },
       "TaskTabsOut": {
         "properties": {
@@ -9575,6 +11675,18 @@
             },
             "type": "array",
             "title": "Completed"
+          },
+          "completed_total": {
+            "type": "integer",
+            "title": "Completed Total"
+          },
+          "completed_limit": {
+            "type": "integer",
+            "title": "Completed Limit"
+          },
+          "completed_offset": {
+            "type": "integer",
+            "title": "Completed Offset"
           }
         },
         "type": "object",
@@ -9583,7 +11695,10 @@
           "overdue",
           "upcoming",
           "awaiting",
-          "completed"
+          "completed",
+          "completed_total",
+          "completed_limit",
+          "completed_offset"
         ],
         "title": "TaskTabsOut"
       },
@@ -9648,6 +11763,85 @@
           "user"
         ],
         "title": "TokenOut"
+      },
+      "TransactionCorrectionIn": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "INCOME",
+              "EXPENSE"
+            ],
+            "title": "Type"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "ANIMAL_SALE",
+              "ANIMAL_PURCHASE",
+              "FEED",
+              "MEDICINE",
+              "VET",
+              "LABOUR",
+              "EQUIPMENT",
+              "MILK",
+              "MANURE",
+              "OTHER"
+            ],
+            "title": "Category"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount",
+            "le": 1000000000
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "related_animal_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4.611686018427388e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Related Animal Id"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "type",
+          "category",
+          "amount",
+          "reason"
+        ],
+        "title": "TransactionCorrectionIn",
+        "description": "Audited replacement for an existing ledger row.\n\nZero is allowed here so an erroneous system-generated amount can be\nneutralized without deleting its provenance."
       },
       "TransactionIn": {
         "properties": {
@@ -9775,6 +11969,78 @@
               }
             ],
             "title": "Animal Tag"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "correction_of_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Of Id"
+          },
+          "voided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voided At"
+          },
+          "voided_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voided By Id"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Void Reason"
           }
         },
         "type": "object",
@@ -9785,7 +12051,14 @@
           "category",
           "amount",
           "notes",
-          "related_animal_id"
+          "related_animal_id",
+          "created_at",
+          "source_type",
+          "source_id",
+          "correction_of_id",
+          "voided_at",
+          "voided_by_id",
+          "void_reason"
         ],
         "title": "TransactionOut"
       },
@@ -9794,6 +12067,18 @@
           "pregnant": {
             "type": "boolean",
             "title": "Pregnant"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
           },
           "kid_count": {
             "anyOf": [
@@ -10088,6 +12373,7 @@
         "properties": {
           "email": {
             "type": "string",
+            "maxLength": 254,
             "title": "Email"
           },
           "password": {

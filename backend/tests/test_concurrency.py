@@ -365,7 +365,7 @@ async def test_purchase_batch_tag_collision_409_then_retry(client: httpx.AsyncCl
     assert resp.status_code == 409, resp.text  # never a 500 IntegrityError
     assert "tag" in resp.json()["detail"].lower()
     resp = await client.get("/api/purchases", headers=owner)
-    assert resp.json() == []  # nothing half-created
+    assert resp.json()["batches"] == []  # nothing half-created
 
     resp = await client.post("/api/purchases/new", json=payload, headers=owner)
     assert resp.status_code == 201, resp.text  # retry gets a fresh batch id
@@ -521,7 +521,10 @@ async def bred_doe_with_record(
         json={
             "doe_id": doe,
             "buck_id": buck,
-            "breeding_date": iso(breeding_date or today()),
+            # The default ultrasound submission records the farm-local date,
+            # so make an implicit-result fixture eligible for the +32-day
+            # planned check rather than fabricating a future result date.
+            "breeding_date": iso(breeding_date or today() - timedelta(days=35)),
         },
         headers=headers,
     )
@@ -796,22 +799,22 @@ async def test_health_form_double_complete_spawns_one_occurrence(
             "due_date": iso(today()),
             "category": "VACCINE",
             "recur_days": 1,
+            "animal_id": aid,
         },
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
     task_id = resp.json()["id"]
-    payload = {"animal_id": aid, "type": "VACCINE", "product_name": "PPR", "task_id": task_id}
+    payload = {"animal_id": aid, "type": "VACCINE", "product_name": "FMD", "task_id": task_id}
     async with second_client() as other:
         await warm(other, owner)
         r1, r2 = await asyncio.gather(
             client.post("/api/health/events", json=payload, headers=owner),
             other.post("/api/health/events", json=payload, headers=owner),
         )
-    # Both events record; the duty is locked FOR UPDATE, so only one
-    # completion lands — the loser re-reads DONE and skips the completion.
-    assert r1.status_code == 201, r1.text
-    assert r2.status_code == 201, r2.text
+    # Strict task correlation permits exactly one event per duty.  The row
+    # lock makes the losing request re-read DONE and return a conflict.
+    assert sorted([r1.status_code, r2.status_code]) == [201, 409]
     tabs = await task_tabs(client, owner)
     mine = [t for t in all_tasks(tabs) if t["title"] == "Herd FMD round"]
     original = next(t for t in mine if t["id"] == task_id)

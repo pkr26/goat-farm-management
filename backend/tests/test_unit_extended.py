@@ -22,7 +22,7 @@ Covered:
 - app/schemas/*: every input schema with valid, invalid and boundary inputs.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 
 import httpx
 import pytest
@@ -96,7 +96,7 @@ from app.schemas.purchases import PurchaseBatchIn
 from app.schemas.tasks import TaskCreateIn, TaskRejectIn
 from app.schemas.team import PasswordResetIn, RoleIn, WorkerCreateIn
 from app.services import move_animal, recipe_for_animal
-from app.utils import add_months, today, utcnow
+from app.utils import add_months, business_date, today, utcnow
 
 from .conftest import owner_with_farm, register
 
@@ -552,28 +552,56 @@ def test_days_in_current_bucket_no_move_no_created_at_is_zero() -> None:
     assert animal.days_in_current_bucket == 0
 
 
-def test_today_is_the_utc_date(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stored datetimes are naive UTC, so today() must be the UTC date — not
-    the server-local date (the two differ for hours every day off-UTC, which
-    used to make days_in_current_bucket flaky by one day).
-
-    Pinned with a frozen clock instead of comparing today() against its own
-    implementation (a tautology that also flaked around UTC midnight): the
-    days_in_current_bucket tests above cover consumers of the clock but would
-    pass with a server-local today() on a UTC host, so the UTC anchoring
-    needs this direct pin."""
+def test_today_uses_the_requested_business_timezone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One UTC instant can belong to different farm-local calendar dates."""
     import app.utils as utils
 
     fixed = datetime(2026, 3, 15, 23, 30, tzinfo=UTC)
 
     class FrozenDatetime(datetime):
         @classmethod
-        def now(cls, tz: object = None) -> datetime:
-            assert tz is UTC, "today() must anchor to the UTC clock"
-            return fixed
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            assert tz is not None
+            return fixed.astimezone(tz)
 
     monkeypatch.setattr(utils, "datetime", FrozenDatetime)
-    assert today() == date(2026, 3, 15)
+    assert today() == date(2026, 3, 16)  # default: Asia/Kolkata
+    assert today("America/Phoenix") == date(2026, 3, 15)
+
+
+def test_animal_date_helpers_accept_the_farm_business_date() -> None:
+    boundary = date(2026, 3, 16)
+    animal = make_animal_object(
+        date_of_birth=date(2025, 5, 16),
+        bucket_moves=[],
+    )
+    animal.created_at = datetime(2026, 3, 15, 0, 0)
+
+    assert animal.age_months_on(boundary - timedelta(days=1)) == 9
+    assert animal.age_months_on(boundary) == 10
+    assert animal.days_in_current_bucket_on(boundary - timedelta(days=1)) == 0
+    assert animal.days_in_current_bucket_on(boundary) == 1
+    assert animal.is_breeding_ready_on(boundary - timedelta(days=1)) is False
+    assert animal.is_breeding_ready_on(boundary) is True
+
+
+def test_bucket_timestamp_is_converted_from_utc_to_the_farm_date() -> None:
+    moved_at = datetime(2026, 3, 15, 20, 0)  # naive UTC by storage contract
+    animal = make_animal_object(
+        bucket_moves=[
+            BucketMove(
+                animal_id=1,
+                from_bucket=None,
+                to_bucket=Bucket.RESTING.value,
+                moved_at=moved_at,
+            )
+        ]
+    )
+
+    assert business_date(moved_at, "Asia/Kolkata") == date(2026, 3, 16)
+    assert business_date(moved_at, "America/Phoenix") == date(2026, 3, 15)
+    assert animal.days_in_current_bucket_on(date(2026, 3, 16), "Asia/Kolkata") == 0
+    assert animal.days_in_current_bucket_on(date(2026, 3, 16), "America/Phoenix") == 1
 
 
 @pytest.mark.parametrize(
@@ -882,6 +910,22 @@ def test_recipe_for_animal_quarantine_days_1_to_3_dry_roughage(
     assert recipe_for_animal(animal) == recipe
 
 
+def test_recipe_for_animal_uses_explicit_farm_business_date() -> None:
+    move = BucketMove(
+        animal_id=1,
+        from_bucket=None,
+        to_bucket=Bucket.QUARANTINE.value,
+        moved_at=datetime(2026, 3, 13, 23, 30),
+    )
+    animal = make_animal_object(
+        current_bucket=Bucket.QUARANTINE.value,
+        bucket_moves=[move],
+    )
+
+    assert recipe_for_animal(animal, date(2026, 3, 15), "UTC") == "DRY_ROUGHAGE_ONLY"
+    assert recipe_for_animal(animal, date(2026, 3, 16), "UTC") == "MAINTENANCE_75_25"
+
+
 @pytest.mark.parametrize(
     ("days_in_bucket", "recipe"),
     [
@@ -934,13 +978,13 @@ def test_register_normalizes_email_case_and_whitespace() -> None:
     assert user.email == "owner@farm.in"
 
 
-@pytest.mark.parametrize("email", ["", "   ", "no-at-sign", "plain.address"])
+@pytest.mark.parametrize("email", ["", "   ", "no-at-sign", "plain.address", "a@b"])
 def test_register_rejects_malformed_email(email: str) -> None:
     with pytest.raises(ValidationError):
         RegisterIn(email=email, password="secret123")
 
 
-@pytest.mark.parametrize("email", ["a@b", "x@y.z", "owner+farm@farm.in"])
+@pytest.mark.parametrize("email", ["a@b.co", "x@y.z", "owner+farm@farm.in"])
 def test_register_accepts_emails_with_at_sign(email: str) -> None:
     assert RegisterIn(email=email, password="secret123").email == email
 
@@ -1069,12 +1113,19 @@ BUCKETS = [
     ],
 )
 def test_animal_create_valid_variants(field: str, value: object) -> None:
-    AnimalCreateIn(**(VALID_ANIMAL | {field: value}))
+    payload = VALID_ANIMAL | {field: value}
+    if field in {"birth_type", "birth_weight"} and value is not None:
+        payload["source"] = "BORN"
+    AnimalCreateIn(**payload)
 
 
 @pytest.mark.parametrize("bucket", BUCKETS)
 def test_animal_create_accepts_every_bucket(bucket: str) -> None:
-    assert AnimalCreateIn(**(VALID_ANIMAL | {"current_bucket": bucket})).current_bucket == bucket
+    sex = "M" if bucket == "MALE_KIDS" else "F"
+    assert (
+        AnimalCreateIn(**(VALID_ANIMAL | {"current_bucket": bucket, "sex": sex})).current_bucket
+        == bucket
+    )
 
 
 @pytest.mark.parametrize(
@@ -1406,7 +1457,14 @@ def test_health_event_accepts_every_type(event_type: str) -> None:
         {"scope": "bucket", "bucket": "FOUNDATION", "type": "DEWORMING"},
         {"scope": "batch", "purchase_batch_id": 1, "type": "FOOTBATH"},
         {"scope": "animal", "animal_id": 1, "type": "VITAMIN", "date": TODAY.isoformat()},
-        {"scope": "animal", "animal_id": 1, "type": "VACCINE", "next_due_date": TOMORROW},
+        {
+            "scope": "animal",
+            "animal_id": 1,
+            "type": "VACCINE",
+            "next_due_date": TOMORROW,
+            "schedule_template_name": "Farm vaccination protocol",
+            "next_due_authority": "Veterinarian prescription VET-001",
+        },
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "cost": 0.0},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "route": "R" * 20},
         # NOTE: a 60-char route was previously "valid" here, but the column is

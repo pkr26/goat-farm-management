@@ -7,5 +7,6 @@
 
 export interface UltrasoundIn {
   pregnant: boolean;
+  date?: string | null;
   kid_count?: number | null;
 }

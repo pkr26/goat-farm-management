@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { server } from "@/test/msw-server";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import LoginPage from "./page";
@@ -64,6 +64,30 @@ describe("LoginPage", () => {
     expect(loginBody).toEqual({ email: "demo@goatfarm.in", password: "demo1234" });
     // signIn stored the access token: the farms fetch carried it.
     expect(farmsAuthorization).toBe("Bearer login-token");
+  });
+
+  it("navigates to the first module allowed by a restricted farm role", async () => {
+    server.use(
+      permissionsHandler(["health.view"]),
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "login-token",
+          user: { id: 2, email: "demo@goatfarm.in", name: "Demo User" },
+        }),
+      ),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 7, name: "Restricted Farm", location: null, role: "Vet" }]),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/health"));
+    expect(pushMock).not.toHaveBeenCalledWith("/dashboard");
   });
 
   it("shows 'Invalid email or password.' on a 401 and does not navigate", async () => {

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -25,7 +26,7 @@ class PurchaseBatch(Base):
     count: Mapped[int]
     avg_age_months: Mapped[float | None]
     avg_weight_kg: Mapped[float | None]
-    total_price: Mapped[float | None]
+    total_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     notes: Mapped[str | None] = mapped_column(Text)
 
     animals: Mapped[list[Animal]] = relationship(back_populates="purchase_batch")

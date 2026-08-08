@@ -33,7 +33,7 @@ os.environ["GOATFARM_DATABASE_URL"] = TEST_URL  # before any app import
 # limiter stays off globally; its tests re-enable it per-test (monkeypatch).
 os.environ["GOATFARM_AUTH_RATE_LIMIT_ENABLED"] = "false"
 
-from app.db import Base, get_sessionmaker, reset_engine  # noqa: E402
+from app.db import Base, get_engine, get_sessionmaker, reset_engine  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.seed import seed_reference_data  # noqa: E402
 
@@ -70,6 +70,9 @@ def _database():
         async with get_sessionmaker()() as db:
             await seed_reference_data(db)
             await db.commit()
+        # Dispose on the loop that opened asyncpg connections. Disposing after
+        # asyncio.run() closes it logs cross-loop errors during short reruns.
+        await get_engine().dispose()
 
     asyncio.run(seed_once())
     reset_engine()  # seed_once bound the engine to a throwaway loop; tests rebind

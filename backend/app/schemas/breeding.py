@@ -16,6 +16,9 @@ class BreedingCreateIn(BaseModel):
 
 class UltrasoundIn(BaseModel):
     pregnant: bool
+    # Optional for backwards compatibility with existing records. When
+    # supplied, chronology is enforced against the planned check date.
+    date: PastOrTodayDate | None = None
     # SPEC §BreedingRecord: kid_count_detected is 1/2/3 nullable (SINGLE/TWIN/TRIPLET).
     kid_count: int | None = Field(default=None, ge=1, le=3)
 
@@ -30,6 +33,7 @@ class BreedingRecordOut(BaseModel):
     method: str
     heat_cycle_number: int
     ultrasound_date: date | None
+    ultrasound_result_date: date | None
     ultrasound_done: bool
     pregnant: bool | None
     kid_count_detected: int | None
@@ -44,3 +48,23 @@ class BreedingListOut(BaseModel):
     records: list[BreedingRecordOut]
     candidate_doe_ids: list[int]  # does eligible for a new breeding
     active_buck_ids: list[int]
+    total: int
+    limit: int
+    offset: int
+
+
+class BreedingCandidateOut(BaseModel):
+    """Minimum animal identity and readiness context needed by breeding pickers."""
+
+    id: int
+    tag_number: str
+    name: str | None
+    age_months: int | None
+    latest_weight_kg: float | None
+
+
+class BreedingCandidateListOut(BaseModel):
+    candidates: list[BreedingCandidateOut]
+    total: int
+    limit: int
+    offset: int

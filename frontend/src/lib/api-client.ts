@@ -6,10 +6,17 @@
  * The access token lives in memory only (module store) — never localStorage.
  */
 
+import type { UserOut } from "@/api/generated/models";
+
 let accessToken: string | null = null;
 let currentFarmId: string | null = null;
 let onAuthFailure: (() => void) | null = null;
-let refreshPromise: Promise<boolean> | null = null;
+export interface RefreshSessionResult {
+  access_token: string;
+  user: UserOut;
+}
+
+let refreshPromise: Promise<RefreshSessionResult | null> | null = null;
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
@@ -23,28 +30,49 @@ export function setOnAuthFailure(handler: (() => void) | null): void {
   onAuthFailure = handler;
 }
 
-async function tryRefresh(): Promise<boolean> {
-  // De-duplicate concurrent refreshes.
-  refreshPromise ??= (async () => {
-    try {
-      const resp = await fetch("/api/auth/refresh", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!resp.ok) return false;
-      const body = (await resp.json()) as { access_token: string };
-      accessToken = body.access_token;
-      return true;
-    } catch {
-      return false;
-    } finally {
-      const settled = refreshPromise;
+async function performRefresh(): Promise<RefreshSessionResult | null> {
+  try {
+    const resp = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!resp.ok) return null;
+    const body = (await resp.json()) as RefreshSessionResult;
+    accessToken = body.access_token;
+    return body;
+  } catch {
+    return null;
+  }
+}
+
+async function performCoordinatedRefresh(): Promise<RefreshSessionResult | null> {
+  // Web Locks coordinates all same-origin tabs/windows. Waiting tabs begin
+  // their fetch only after the first response has installed the rotated
+  // httpOnly cookie, so they present the current token rather than replaying
+  // the old one. The backend's short replay grace remains the fallback for
+  // browsers without Web Locks and network-level races.
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return navigator.locks.request("goatfarm-auth-refresh", performRefresh);
+  }
+  return performRefresh();
+}
+
+export function refreshSession(): Promise<RefreshSessionResult | null> {
+  // De-duplicate React/query concurrency inside this JavaScript realm too.
+  if (!refreshPromise) {
+    refreshPromise = performCoordinatedRefresh();
+    const settled = refreshPromise;
+    void settled.finally(() => {
       setTimeout(() => {
         if (refreshPromise === settled) refreshPromise = null;
       }, 0);
-    }
-  })();
+    });
+  }
   return refreshPromise;
+}
+
+async function tryRefresh(): Promise<boolean> {
+  return (await refreshSession()) !== null;
 }
 
 export class ApiError extends Error {

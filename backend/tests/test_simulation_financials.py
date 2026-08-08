@@ -793,6 +793,14 @@ def test_mc_litter_size_capped_at_schema_max() -> None:
     assert variant.reproduction.litter_size == 4.0
 
 
+def test_disabled_conception_risk_preserves_schema_valid_base() -> None:
+    a = SimulationAssumptions()
+    a.reproduction.conception_rate = 1.0
+    a.risk.conception_rate.enabled = False
+    variant = _apply_draws(a, dict.fromkeys(_DRAW_ORDER, 1.0))
+    assert variant.reproduction.conception_rate == 1.0
+
+
 def test_mc_survives_extreme_spreads() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
     a.risk.monte_carlo_runs = 10

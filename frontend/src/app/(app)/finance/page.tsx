@@ -7,21 +7,22 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ReceiptText, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getListTransactionsApiFinanceGetQueryKey,
   useAddTransactionApiFinanceNewPost,
-  useListAnimalsApiAnimalsGet,
+  useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost,
   useListTransactionsApiFinanceGet,
 } from "@/api/generated/endpoints";
 import {
   TransactionInCategory,
   TransactionInType,
   type ListTransactionsApiFinanceGetParams,
+  type TransactionOut,
 } from "@/api/generated/models";
+import { AnimalPicker } from "@/components/animal-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,9 +52,11 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { StatCard } from "@/components/stat-card";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, formatMoney } from "@/lib/format";
+import { farmToday, formatDate, formatMoney } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn } from "@/lib/utils";
 
@@ -64,10 +67,7 @@ const ALL = "all";
 const NONE = "none";
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 function mutationError(err: unknown): string {
@@ -109,17 +109,247 @@ const AMOUNT_TINTS: Record<string, string> = {
   EXPENSE: "text-red-600 dark:text-red-400",
 };
 
+const correctionSchema = txnSchema.extend({
+  amount: z.coerce.number().nonnegative("Amount can't be negative"),
+  reason: z.string().trim().min(3, "Reason must be at least 3 characters").max(255),
+});
+type CorrectionInput = z.input<typeof correctionSchema>;
+type CorrectionValues = z.output<typeof correctionSchema>;
+
+function CorrectionDialog({
+  transaction,
+  canViewAnimals,
+  onClose,
+  onSaved,
+}: {
+  transaction: TransactionOut;
+  canViewAnimals: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const mutation = useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost();
+  const [formError, setFormError] = useState<string | null>(null);
+  const {
+    register,
+    handleSubmit,
+    control,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm<CorrectionInput, unknown, CorrectionValues>({
+    resolver: zodResolver(correctionSchema),
+    defaultValues: {
+      date: transaction.date,
+      type: transaction.type as TransactionInType,
+      category: transaction.category as TransactionInCategory,
+      amount: transaction.amount,
+      notes: transaction.notes ?? "",
+      related_animal_id:
+        transaction.related_animal_id === null ? NONE : String(transaction.related_animal_id),
+      reason: "",
+    },
+  });
+  const type = useWatch({ control, name: "type" });
+  const category = useWatch({ control, name: "category" });
+  const animalId = useWatch({ control, name: "related_animal_id" });
+  async function submit(values: CorrectionValues) {
+    setFormError(null);
+    try {
+      await mutation.mutateAsync({
+        transactionId: transaction.id,
+        data: {
+          date: values.date,
+          type: values.type,
+          category: values.category,
+          amount: values.amount,
+          notes: values.notes?.trim() || null,
+          related_animal_id:
+            values.related_animal_id && values.related_animal_id !== NONE
+              ? Number(values.related_animal_id)
+              : null,
+          reason: values.reason,
+        },
+      });
+      toast.success("Correction recorded. The original entry remains in the audit trail.");
+      onSaved();
+      onClose();
+    } catch (error) {
+      const message = mutationError(error);
+      setFormError(message);
+      toast.error(message);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Correct transaction #{transaction.id}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          The original row will be marked void and retained. This creates an audited replacement;
+          it does not rewrite financial history.
+        </p>
+        <form onSubmit={handleSubmit(submit)} className="space-y-4" noValidate>
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor={`correction-date-${transaction.id}`}>Date *</Label>
+              <Input
+                id={`correction-date-${transaction.id}`}
+                type="date"
+                max={localToday()}
+                aria-invalid={Boolean(errors.date) || undefined}
+                aria-describedby={errors.date ? `correction-date-${transaction.id}-error` : undefined}
+                {...register("date")}
+              />
+              {errors.date && (
+                <p id={`correction-date-${transaction.id}-error`} role="alert" className="text-sm text-destructive">
+                  {errors.date.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`correction-type-${transaction.id}`}>Type</Label>
+              <Select
+                value={type}
+                onValueChange={(value) => setValue("type", value as TransactionInType)}
+              >
+                <SelectTrigger id={`correction-type-${transaction.id}`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TYPES.map((value) => (
+                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`correction-category-${transaction.id}`}>Category</Label>
+              <Select
+                value={category}
+                onValueChange={(value) => setValue("category", value as TransactionInCategory)}
+              >
+                <SelectTrigger id={`correction-category-${transaction.id}`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES.map((value) => (
+                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`correction-amount-${transaction.id}`}>Amount (₹) *</Label>
+              <Input
+                id={`correction-amount-${transaction.id}`}
+                type="number"
+                step="0.01"
+                min="0"
+                inputMode="decimal"
+                aria-invalid={Boolean(errors.amount) || undefined}
+                aria-describedby={errors.amount ? `correction-amount-${transaction.id}-error` : undefined}
+                {...register("amount")}
+              />
+              {errors.amount && (
+                <p id={`correction-amount-${transaction.id}-error`} role="alert" className="text-sm text-destructive">
+                  {errors.amount.message}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {canViewAnimals ? (
+                <>
+                  <Label htmlFor={`correction-animal-${transaction.id}`}>Animal (optional)</Label>
+                  <AnimalPicker
+                    id={`correction-animal-${transaction.id}`}
+                    value={animalId || NONE}
+                    onValueChange={(value) => setValue("related_animal_id", value)}
+                    placeholder="No animal"
+                    dialogTitle="Choose an animal for the correction"
+                    staticOptions={[{ value: NONE, label: "— none —" }]}
+                    selectedOption={
+                      transaction.related_animal_id !== null
+                        ? {
+                            value: String(transaction.related_animal_id),
+                            label:
+                              transaction.animal_tag ??
+                              `Animal #${transaction.related_animal_id}`,
+                          }
+                        : null
+                    }
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">Animal (read only)</p>
+                  <output
+                    aria-label="Linked animal"
+                    className="block rounded-md border bg-muted/40 px-3 py-2 text-sm"
+                  >
+                    {transaction.related_animal_id !== null
+                      ? transaction.animal_tag ?? `Animal #${transaction.related_animal_id}`
+                      : "No animal linked"}
+                  </output>
+                  <p className="text-xs text-muted-foreground">
+                    You don&apos;t have animal access, so this correction preserves the existing
+                    link.
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor={`correction-notes-${transaction.id}`}>Notes</Label>
+              <Input id={`correction-notes-${transaction.id}`} maxLength={255} {...register("notes")} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor={`correction-reason-${transaction.id}`}>Correction reason *</Label>
+              <Input
+                id={`correction-reason-${transaction.id}`}
+                maxLength={255}
+                aria-invalid={Boolean(errors.reason) || undefined}
+                aria-describedby={errors.reason ? `correction-reason-${transaction.id}-error` : undefined}
+                {...register("reason")}
+              />
+              {errors.reason && (
+                <p id={`correction-reason-${transaction.id}-error`} role="alert" className="text-sm text-destructive">
+                  {errors.reason.message}
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Saving correction…" : "Record correction"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function FinancePage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
+  const canViewAnimals = can("animals.view");
   const queryClient = useQueryClient();
 
   const [month, setMonth] = useState("");
   const [typeFilter, setTypeFilter] = useState(ALL);
   const [categoryFilter, setCategoryFilter] = useState(ALL);
   const [open, setOpen] = useState(false);
+  const [correcting, setCorrecting] = useState<TransactionOut | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
 
   // Omit inactive filters entirely: the Orval URL builder serializes `null`
   // as the literal string "null", which the backend treats as a real filter
@@ -128,24 +358,11 @@ export default function FinancePage() {
     ...(month && { month }),
     ...(typeFilter !== ALL && { type: typeFilter }),
     ...(categoryFilter !== ALL && { category: categoryFilter }),
+    limit,
+    offset,
   };
   const query = useListTransactionsApiFinanceGet(params, { query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
-
-  const animalsQuery = useListAnimalsApiAnimalsGet(
-    {},
-    { query: { enabled: canManage && open } },
-  );
-  const animals =
-    animalsQuery.data?.status === 200 ? animalsQuery.data.data.animals : [];
-  /** value → label map for the root `items` prop: without it, Base UI's
-   * Select.Value renders the raw value in the closed trigger. */
-  const animalItems: Record<string, string> = {
-    [NONE]: "— none —",
-    ...Object.fromEntries(
-      animals.map((a) => [String(a.id), `${a.tag_number}${a.name ? ` · ${a.name}` : ""}`]),
-    ),
-  };
 
   const addMutation = useAddTransactionApiFinanceNewPost();
   const {
@@ -186,7 +403,7 @@ export default function FinancePage() {
         },
       });
       toast.success("Transaction saved.");
-      queryClient.invalidateQueries({ queryKey: getListTransactionsApiFinanceGetQueryKey() });
+      invalidateFarmData(queryClient);
       setOpen(false);
       reset();
     } catch (err) {
@@ -283,7 +500,10 @@ export default function FinancePage() {
                     <button
                       type="button"
                       className="text-primary underline"
-                      onClick={() => setMonth(row.month)}
+                      onClick={() => {
+                        setMonth(row.month);
+                        setOffset(0);
+                      }}
                     >
                       {row.month}
                     </button>
@@ -320,12 +540,21 @@ export default function FinancePage() {
           <Input
             type="month"
             value={month}
-            onChange={(e) => setMonth(e.target.value)}
+            onChange={(e) => {
+              setMonth(e.target.value);
+              setOffset(0);
+            }}
             className="w-40"
             aria-label="Filter by month"
           />
-          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v)}>
-            <SelectTrigger>
+          <Select
+            value={typeFilter}
+            onValueChange={(v) => {
+              setTypeFilter(v);
+              setOffset(0);
+            }}
+          >
+            <SelectTrigger aria-label="Filter transactions by type">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -337,8 +566,14 @@ export default function FinancePage() {
               ))}
             </SelectContent>
           </Select>
-          <Select value={categoryFilter} onValueChange={(v) => setCategoryFilter(v)}>
-            <SelectTrigger>
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => {
+              setCategoryFilter(v);
+              setOffset(0);
+            }}
+          >
+            <SelectTrigger aria-label="Filter transactions by category">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -358,6 +593,7 @@ export default function FinancePage() {
                 setMonth("");
                 setTypeFilter(ALL);
                 setCategoryFilter(ALL);
+                setOffset(0);
               }}
             >
               Clear
@@ -381,42 +617,89 @@ export default function FinancePage() {
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Animal</TableHead>
                 <TableHead>Notes</TableHead>
+                {canManage && <TableHead><span className="sr-only">Actions</span></TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {payload.transactions.map((t) => (
-                <TableRow key={t.id}>
+                <TableRow key={t.id} className={cn(t.voided_at && "bg-muted/40 opacity-70")}>
                   <TableCell>{formatDate(t.date)}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={cn("border-transparent", TYPE_TINTS[t.type])}>
                       {t.type}
                     </Badge>
+                    {t.voided_at && (
+                      <Badge variant="destructive" className="ml-2">VOID</Badge>
+                    )}
                   </TableCell>
                   <TableCell>{t.category}</TableCell>
                   <TableCell
-                    className={cn("text-right tabular-nums font-medium", AMOUNT_TINTS[t.type])}
+                    className={cn(
+                      "text-right tabular-nums font-medium",
+                      AMOUNT_TINTS[t.type],
+                      t.voided_at && "line-through",
+                    )}
                   >
                     {formatMoney(t.amount)}
                   </TableCell>
                   <TableCell>
-                    {t.animal_tag && t.related_animal_id ? (
+                    {t.animal_tag && t.related_animal_id && canViewAnimals ? (
                       <Link
                         href={`/animals/${t.related_animal_id}`}
                         className="text-primary underline"
                       >
                         {t.animal_tag}
                       </Link>
+                    ) : t.animal_tag && t.related_animal_id ? (
+                      t.animal_tag
                     ) : (
                       "—"
                     )}
                   </TableCell>
-                  <TableCell>{t.notes ?? ""}</TableCell>
+                  <TableCell>
+                    {t.notes ?? ""}
+                    {t.correction_of_id !== null && (
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Correction of #{t.correction_of_id}
+                      </span>
+                    )}
+                    {t.void_reason && (
+                      <span className="mt-1 block text-xs text-destructive">
+                        Void reason: {t.void_reason}
+                      </span>
+                    )}
+                  </TableCell>
+                  {canManage && (
+                    <TableCell>
+                      {!t.voided_at && (
+                        <Button type="button" size="sm" variant="outline" onClick={() => setCorrecting(t)}>
+                          Correct
+                        </Button>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
+        <PaginationControls
+          total={payload.transactions_total}
+          limit={payload.limit}
+          offset={payload.offset}
+          onOffsetChange={setOffset}
+          label="transactions"
+        />
       </DataTableCard>
+
+      {correcting && (
+        <CorrectionDialog
+          transaction={correcting}
+          canViewAnimals={canViewAnimals}
+          onClose={() => setCorrecting(null)}
+          onSaved={() => invalidateFarmData(queryClient)}
+        />
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
@@ -424,24 +707,31 @@ export default function FinancePage() {
             <DialogTitle>New transaction</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
+            {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Date *</Label>
-                <Input id="date" type="date" max={localToday()} {...register("date")} />
+                <Input
+                  id="date"
+                  type="date"
+                  max={localToday()}
+                  aria-invalid={Boolean(errors.date) || undefined}
+                  aria-describedby={errors.date ? "transaction-date-error" : undefined}
+                  {...register("date")}
+                />
                 {errors.date && (
-                  <p className="text-sm text-destructive">{errors.date.message}</p>
+                  <p id="transaction-date-error" role="alert" className="text-sm text-destructive">{errors.date.message}</p>
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label>Type</Label>
+                <Label htmlFor="transaction-type">Type</Label>
                 <Select
                   value={wType}
                   onValueChange={(v) =>
                     setValue("type", v as TxnInput["type"], { shouldValidate: true })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="transaction-type" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -454,14 +744,14 @@ export default function FinancePage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Category</Label>
+                <Label htmlFor="transaction-category">Category</Label>
                 <Select
                   value={wCategory}
                   onValueChange={(v) =>
                     setValue("category", v as TxnInput["category"], { shouldValidate: true })
                   }
                 >
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="transaction-category" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -482,38 +772,49 @@ export default function FinancePage() {
                   min="0.01"
                   inputMode="decimal"
                   placeholder="0.00"
+                  aria-invalid={Boolean(errors.amount) || undefined}
+                  aria-describedby={errors.amount ? "transaction-amount-error" : undefined}
                   {...register("amount")}
                 />
                 {errors.amount && (
-                  <p className="text-sm text-destructive">{errors.amount.message}</p>
+                  <p id="transaction-amount-error" role="alert" className="text-sm text-destructive">{errors.amount.message}</p>
                 )}
               </div>
               <div className="space-y-1.5">
-                <Label>Animal (optional)</Label>
-                <Select
-                  value={wRelatedAnimalId || NONE}
-                  onValueChange={(v) => setValue("related_animal_id", v)}
-                  items={animalItems}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>— none —</SelectItem>
-                    {animals.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.tag_number}
-                        {a.name ? ` · ${a.name}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {canViewAnimals ? (
+                  <>
+                    <Label htmlFor="transaction-animal">Animal (optional)</Label>
+                    <AnimalPicker
+                      id="transaction-animal"
+                      value={wRelatedAnimalId || NONE}
+                      onValueChange={(v) => setValue("related_animal_id", v)}
+                      placeholder="No animal"
+                      dialogTitle="Choose an animal for this transaction"
+                      staticOptions={[{ value: NONE, label: "— none —" }]}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium">Animal (optional)</p>
+                    <p className="text-xs text-muted-foreground">
+                      You don&apos;t have animal access, so this transaction will be saved without
+                      an animal link.
+                    </p>
+                  </>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="notes">Notes</Label>
-                <Input id="notes" maxLength={255} placeholder="description" {...register("notes")} />
+                <Input
+                  id="notes"
+                  maxLength={255}
+                  placeholder="description"
+                  aria-invalid={Boolean(errors.notes) || undefined}
+                  aria-describedby={errors.notes ? "transaction-notes-error" : undefined}
+                  {...register("notes")}
+                />
                 {errors.notes && (
-                  <p className="text-sm text-destructive">{errors.notes.message}</p>
+                  <p id="transaction-notes-error" role="alert" className="text-sm text-destructive">{errors.notes.message}</p>
                 )}
               </div>
             </div>

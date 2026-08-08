@@ -17,6 +17,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AnimalOut, TaskOut } from "@/api/generated/models";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { farmToday } from "@/lib/format";
 
 import HealthPage from "./page";
 
@@ -41,12 +42,7 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-function localISO(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-const TODAY = localISO(new Date());
+const TODAY = farmToday();
 
 const ANIMAL: AnimalOut = {
   id: 3,
@@ -69,6 +65,16 @@ const ANIMAL: AnimalOut = {
   purchase_price: null,
   seller_name: null,
   cull_candidate: false,
+  movement_restricted: false,
+  restriction_reason: null,
+  suspected_scheduled_disease: false,
+  suspected_disease: null,
+  authority_notified_at: null,
+  restriction_cleared_at: null,
+  restriction_cleared_by_id: null,
+  restriction_clearance_reference: null,
+  mortality_cause: null,
+  mortality_reported_at: null,
   notes: null,
   created_at: "2026-01-01T05:30:00Z",
 };
@@ -86,12 +92,15 @@ const DUTY: TaskOut = {
   assigned_role_id: null,
   assigned_user_id: null,
   recur_days: null,
+  recurring_series_id: null,
   completed_by_id: null,
   completed_at: null,
   verified_by_id: null,
   verified_at: null,
   verification_note: null,
   skipped_by_id: null,
+  skipped_at: null,
+  skip_reason: null,
   action_url: null,
 };
 
@@ -103,13 +112,33 @@ async function pickOption(user: User, trigger: HTMLElement, name: string | RegEx
 }
 
 describe("HealthPage prefill display (regression: labels, not raw values)", () => {
+  let healthAnimalQueries: Array<string | null>;
+
   beforeEach(() => {
+    healthAnimalQueries = [];
     server.use(
-      http.get("/api/health/events", () => HttpResponse.json([])),
-      http.get("/api/animals", () =>
-        HttpResponse.json({ animals: [ANIMAL], total: 1 }),
+      http.get("/api/health/events", () =>
+        HttpResponse.json({ events: [], total: 0, limit: 50, offset: 0 }),
       ),
-      http.get("/api/purchases", () => HttpResponse.json([])),
+      http.get("/api/health/animals", ({ request }) => {
+        healthAnimalQueries.push(new URL(request.url).searchParams.get("q"));
+        return HttpResponse.json({
+          animals: [
+            {
+              id: ANIMAL.id,
+              tag_number: ANIMAL.tag_number,
+              name: ANIMAL.name,
+              current_bucket: ANIMAL.current_bucket,
+            },
+          ],
+          total: 1,
+          limit: 50,
+          offset: 0,
+        });
+      }),
+      http.get("/api/health/purchase-batches", () =>
+        HttpResponse.json({ batches: [], total: 0, limit: 50, offset: 0 }),
+      ),
       http.get("/api/tasks", () =>
         HttpResponse.json({
           today: [DUTY],
@@ -117,6 +146,9 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
           upcoming: [],
           awaiting: [],
           completed: [],
+          completed_total: 0,
+          completed_limit: 50,
+          completed_offset: 0,
         }),
       ),
     );
@@ -137,7 +169,7 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     await pickOption(user, combos[combos.length - 1], /Deworm Kaveri/);
 
     const animalTrigger = within(dialog).getAllByRole("combobox")[0];
-    expect(animalTrigger).toHaveTextContent(ANIMAL_LABEL);
+    await waitFor(() => expect(animalTrigger).toHaveTextContent(ANIMAL_LABEL));
     expect(animalTrigger).not.toHaveTextContent(/^3$/);
   });
 
@@ -174,5 +206,6 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     });
     const combos = within(dialog).getAllByRole("combobox");
     expect(combos[combos.length - 1]).toHaveTextContent(/Deworm Kaveri/);
+    expect(healthAnimalQueries).toContain("#3");
   });
 });

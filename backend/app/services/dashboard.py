@@ -34,6 +34,7 @@ async def ready_to_move_suggestions(
         )
         animals = list(result.scalars().all())
     suggestions: list[dict[str, Any]] = []
+    reference_date = today(farm.timezone)
 
     def _gestation_days(animal: Animal) -> int | None:
         confirmed = [
@@ -44,14 +45,14 @@ async def ready_to_move_suggestions(
         if not confirmed:
             return None
         latest = max(confirmed, key=lambda r: (r.breeding_date, r.id or 0))
-        return (today() - latest.breeding_date).days
+        return (reference_date - latest.breeding_date).days
 
     for animal in animals:
         bucket = animal.current_bucket
         if (
             animal.sex == "F"
             and bucket in (Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value)
-            and animal.is_breeding_ready
+            and animal.is_breeding_ready_on(reference_date)
         ):
             suggestions.append(
                 {
@@ -63,13 +64,14 @@ async def ready_to_move_suggestions(
         elif (
             animal.sex == "F"
             and bucket == Bucket.RESTING.value
-            and animal.days_in_current_bucket >= 30
+            and animal.days_in_current_bucket_on(reference_date, farm.timezone) >= 30
         ):
+            bucket_days = animal.days_in_current_bucket_on(reference_date, farm.timezone)
             suggestions.append(
                 {
                     "animal": animal,
                     "to": Bucket.BREEDING.value,
-                    "reason": f"{animal.days_in_current_bucket} days resting (flush done)",
+                    "reason": f"{bucket_days} days resting (flush done)",
                 }
             )
         elif bucket == Bucket.PREGNANCY_EARLY.value:
@@ -93,7 +95,7 @@ async def ready_to_move_suggestions(
                     }
                 )
         elif animal.sex == "M" and bucket == Bucket.MALE_KIDS.value:
-            age, weight = animal.age_months, animal.latest_weight_kg
+            age, weight = animal.age_months_on(reference_date), animal.latest_weight_kg
             if age is not None and age >= 8 and weight is not None and weight >= 24:
                 suggestions.append(
                     {

@@ -192,7 +192,12 @@ async def test_reports_match_old_python_aggregation(client: httpx.AsyncClient) -
     await make_animal(client, owner, "G-3", sex="M", bucket="MALE_KIDS", weight_kg=12.0)
     await make_animal(client, owner, "G-4", bucket="RESTING")  # no weight at all
     born = await make_animal(
-        client, owner, "G-5", bucket="FEMALE_KIDS", birth_weight=3.0
+        client,
+        owner,
+        "G-5",
+        bucket="FEMALE_KIDS",
+        source="BORN",
+        birth_weight=3.0,
     )  # falls back to birth_weight
     assert born["latest_weight_kg"] == 3.0
     sold = await make_animal(client, owner, "G-6", sex="M")

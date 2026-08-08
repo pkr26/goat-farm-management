@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -20,6 +20,15 @@ if TYPE_CHECKING:
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (
+        UniqueConstraint(
+            "farm_id",
+            "recurring_series_id",
+            "due_date",
+            name="uq_task_recurring_series_due",
+        ),
+        Index("ix_tasks_farm_status_due", "farm_id", "status", "due_date"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
@@ -50,10 +59,16 @@ class Task(Base):
     # Who manually skipped the duty (service-side skips — abort, kidding
     # leftovers, death/sale — stay NULL: no single user made that call).
     skipped_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    skipped_at: Mapped[datetime | None]
+    skip_reason: Mapped[str | None] = mapped_column(String(255))
 
     # Recurring duty: on completion the next occurrence is spawned this many
     # days after the current due_date (e.g. 1 = daily cleaning).
     recur_days: Mapped[int | None]
+    # Stable identity for one recurrence chain. Title/assignment are editable
+    # display data and cannot safely distinguish two otherwise identical
+    # parallel duties.
+    recurring_series_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
     animal: Mapped[Animal | None] = relationship()
     breeding_record: Mapped[BreedingRecord | None] = relationship()

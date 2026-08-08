@@ -8,13 +8,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Package, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getListInventoryApiFeedingInventoryGetQueryKey,
   useAddStockApiFeedingInventoryItemIdAddPost,
+  useListFinishedStockApiFeedingFinishedStockGet,
   useListInventoryApiFeedingInventoryGet,
   useListRecipesApiFeedingRecipesGet,
   useMixBatchApiFeedingMixPost,
@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 function FeedingNav({ active }: { active: string }) {
@@ -114,7 +115,7 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
         data: { qty_kg: values.qty_kg, price_per_kg: values.price_per_kg ?? null },
       });
       toast.success(`Added ${values.qty_kg} kg of ${item.ingredient}.`);
-      queryClient.invalidateQueries({ queryKey: getListInventoryApiFeedingInventoryGetQueryKey() });
+      invalidateFarmData(queryClient);
       reset();
       setOpen(false);
     } catch (err) {
@@ -208,7 +209,7 @@ function MixBatchDialog() {
     try {
       await mut.mutateAsync({ data: { recipe_code: values.recipe_code, batch_kg: values.batches * 100 } });
       toast.success(`Mixed ${values.batches * 100} kg — inventory decremented.`);
-      queryClient.invalidateQueries({ queryKey: getListInventoryApiFeedingInventoryGetQueryKey() });
+      invalidateFarmData(queryClient);
       reset();
       setOpen(false);
     } catch (err) {
@@ -294,6 +295,11 @@ export default function InventoryPage() {
 
   const query = useListInventoryApiFeedingInventoryGet({ query: { enabled: allowed } });
   const items = query.data?.status === 200 ? query.data.data : undefined;
+  const finishedQuery = useListFinishedStockApiFeedingFinishedStockGet({
+    query: { enabled: allowed },
+  });
+  const finishedStock =
+    finishedQuery.data?.status === 200 ? finishedQuery.data.data : undefined;
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -323,7 +329,7 @@ export default function InventoryPage() {
     <div className="space-y-6">
       <PageHeader
         title="Feed inventory"
-        description="Stock on hand per ingredient, with reorder levels."
+        description="Ingredient stock and ready-to-dispense mixed feed."
         actions={canManage && <MixBatchDialog />}
       />
 
@@ -381,6 +387,47 @@ export default function InventoryPage() {
                   </TableRow>
                 );
               })}
+            </TableBody>
+          </Table>
+        )}
+      </DataTableCard>
+      <DataTableCard
+        title="Ready-to-dispense mixed feed"
+        description="Mixing adds to these recipe balances; recording a recipe dispense deducts from them."
+      >
+        {finishedQuery.isLoading ? (
+          <p className="py-4 text-sm text-muted-foreground">Loading mixed-feed stock…</p>
+        ) : finishedQuery.isError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {finishedQuery.error instanceof ApiError
+              ? finishedQuery.error.detail
+              : "Could not load mixed-feed stock."}
+          </p>
+        ) : !finishedStock || finishedStock.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="No mixed feed is ready."
+            description="Use Mix batch to turn ingredient stock into a ready recipe balance."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Recipe</TableHead>
+                <TableHead>Code</TableHead>
+                <TableHead className="text-right">Ready (kg)</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {finishedStock.map((stock) => (
+                <TableRow key={stock.recipe_code}>
+                  <TableCell className="font-medium">{stock.recipe_name}</TableCell>
+                  <TableCell>{stock.recipe_code}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {stock.qty_on_hand.toFixed(1)}
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         )}

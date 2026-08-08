@@ -15,7 +15,7 @@ requests for the same farm get a 429 instead of piling onto the threadpool.
 import asyncio
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -41,6 +41,7 @@ from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
 from ..simulation.engine import run_simulation
 from ..simulation.results import SimulationResult
 from ..simulation.snapshot import herd_cohorts
+from ..utils import today
 
 router = APIRouter(prefix="/api/simulation", tags=["simulation"])
 
@@ -71,14 +72,32 @@ def _load_assumptions(scenario: SimulationScenario) -> SimulationAssumptions:
         ) from exc
 
 
-def _scenario_out(scenario: SimulationScenario) -> ScenarioOut:
+def _scenario_out(scenario: SimulationScenario, *, allow_invalid: bool = False) -> ScenarioOut:
     """ORM → schema; assumptions are JSON text on the row."""
+    try:
+        assumptions = _load_assumptions(scenario)
+    except HTTPException as exc:
+        if not allow_invalid:
+            raise
+        return ScenarioOut(
+            id=scenario.id,
+            farm_id=scenario.farm_id,
+            name=scenario.name,
+            notes=scenario.notes,
+            assumptions=None,
+            valid=False,
+            validation_error=str(exc.detail),
+            created_at=scenario.created_at,
+            updated_at=scenario.updated_at,
+        )
     return ScenarioOut(
         id=scenario.id,
         farm_id=scenario.farm_id,
         name=scenario.name,
         notes=scenario.notes,
-        assumptions=_load_assumptions(scenario),
+        assumptions=assumptions,
+        valid=True,
+        validation_error=None,
         created_at=scenario.created_at,
         updated_at=scenario.updated_at,
     )
@@ -148,13 +167,12 @@ async def _run_offloaded(
     return await run_in_threadpool(_run, assumptions, monte_carlo, sensitivity)
 
 
-# One in-flight run per farm (keyed by farm id). A worst-case run holds a CPU
-# core for ~12 s; without this a worker holding only simulation.view could
-# keep every threadpool worker busy by firing max-size runs repeatedly.
-# Locks are dropped when no one holds them: a bare
-# dict grew one lock per farm ever seen; sweeping unheld locks caps memory
-# while keeping the "one run per farm" guarantee for concurrent requests.
+# One run per farm and per user, plus a process-wide ceiling. This prevents a
+# user with several farms from consuming the whole shared threadpool. A
+# distributed job queue remains the deployment path for multi-replica scale.
 _farm_run_locks: dict[int, asyncio.Lock] = {}
+_user_run_locks: dict[int, asyncio.Lock] = {}
+_global_run_slots = asyncio.BoundedSemaphore(2)
 
 
 def _farm_run_lock(farm_id: int) -> asyncio.Lock:
@@ -165,28 +183,54 @@ def _farm_run_lock(farm_id: int) -> asyncio.Lock:
     return lock
 
 
-def _release_farm_run_lock(farm_id: int) -> None:
-    """Drop the lock if no one else holds it (memory hygiene)."""
-    lock = _farm_run_locks.get(farm_id)
+def _run_lock(store: dict[int, asyncio.Lock], key: int) -> asyncio.Lock:
+    lock = store.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        store[key] = lock
+    return lock
+
+
+def _release_run_lock(store: dict[int, asyncio.Lock], key: int) -> None:
+    """Drop an idle keyed lock so tenant/user cardinality cannot leak memory."""
+    lock = store.get(key)
     if lock is not None and not lock.locked():
-        _farm_run_locks.pop(farm_id, None)
+        store.pop(key, None)
+
+
+async def _with_run_limits[RunResult](
+    farm_id: int,
+    user_id: int,
+    operation: Callable[[], Awaitable[RunResult]],
+) -> RunResult:
+    """Execute one bounded CPU operation or fail fast instead of queueing."""
+    lock = _farm_run_lock(farm_id)
+    user_lock = _run_lock(_user_run_locks, user_id)
+    if lock.locked() or user_lock.locked() or _global_run_slots.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="Simulation capacity is busy; wait for the current run to finish.",
+        )
+    try:
+        async with user_lock, lock, _global_run_slots:
+            return await operation()
+    finally:
+        _release_run_lock(_farm_run_locks, farm_id)
+        _release_run_lock(_user_run_locks, user_id)
 
 
 async def _run_for_farm(
-    farm_id: int, assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool
+    farm_id: int,
+    user_id: int,
+    assumptions: SimulationAssumptions,
+    monte_carlo: bool,
+    sensitivity: bool,
 ) -> SimulationResult:
-    """Run at most one simulation per farm at a time (429 while busy)."""
-    lock = _farm_run_lock(farm_id)
-    if lock.locked():
-        raise HTTPException(
-            status_code=429,
-            detail="A simulation run is already in progress for this farm; wait for it to finish.",
-        )
-    try:
-        async with lock:
-            return await _run_offloaded(assumptions, monte_carlo, sensitivity)
-    finally:
-        _release_farm_run_lock(farm_id)
+    return await _with_run_limits(
+        farm_id,
+        user_id,
+        lambda: _run_offloaded(assumptions, monte_carlo, sensitivity),
+    )
 
 
 @router.get("/defaults/breeds")
@@ -225,17 +269,21 @@ async def herd_snapshot(
     result = await db.execute(
         select(Animal).where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
     )
+    reference_date = today(farm.timezone)
     counts = herd_cohorts(
-        ((animal.sex, animal.age_months) for animal in result.scalars()), doe_adult_age=afb
+        ((animal.sex, animal.age_months_on(reference_date)) for animal in result.scalars()),
+        doe_adult_age=afb,
     )
     return HerdSnapshotOut(**counts, total_head=sum(counts.values()))
 
 
 @router.post("/run")
-async def run_adhoc(payload: RunIn, farm: CurrentFarm, perms: SimView) -> SimulationResult:
+async def run_adhoc(
+    payload: RunIn, user: CurrentUser, farm: CurrentFarm, perms: SimView
+) -> SimulationResult:
     """Run a simulation from posted assumptions (no persistence)."""
     return await _run_for_farm(
-        farm.id, payload.assumptions, payload.monte_carlo, payload.sensitivity
+        farm.id, user.id, payload.assumptions, payload.monte_carlo, payload.sensitivity
     )
 
 
@@ -279,17 +327,15 @@ async def list_scenarios(db: DbSession, farm: CurrentFarm, perms: SimView) -> li
     out: list[ScenarioOut] = []
     for scenario in result.scalars():
         try:
-            out.append(_scenario_out(scenario))
-        except HTTPException:
-            # Stale row stored under a looser schema — skip it rather than
-            # 500 the whole list (get/run/compare still surface the 422).
-            continue
+            out.append(_scenario_out(scenario, allow_invalid=True))
+        except HTTPException:  # pragma: no cover - allow_invalid handles validation
+            raise
     return out
 
 
 @router.get("/scenarios/compare")
 async def compare_scenarios(
-    db: DbSession, farm: CurrentFarm, perms: SimView, ids: str
+    db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: SimView, ids: str
 ) -> ScenarioCompareOut:
     """Run stored scenarios deterministically side by side (``ids=1,2``).
 
@@ -308,13 +354,8 @@ async def compare_scenarios(
         raise HTTPException(
             status_code=400, detail=f"compare is limited to {MAX_COMPARE_IDS} scenarios"
         )
-    lock = _farm_run_lock(farm.id)
-    if lock.locked():
-        raise HTTPException(
-            status_code=429,
-            detail="A simulation run is already in progress for this farm; wait for it to finish.",
-        )
-    async with lock:  # one lock for the whole batch (a compare is N runs)
+
+    async def run_compare() -> ScenarioCompareOut:
         scenarios = [await _get_scenario(db, farm.id, scenario_id) for scenario_id in id_list]
         return ScenarioCompareOut(
             scenarios=[_scenario_out(scenario) for scenario in scenarios],
@@ -323,6 +364,8 @@ async def compare_scenarios(
                 for scenario in scenarios
             ],
         )
+
+    return await _with_run_limits(farm.id, user.id, run_compare)
 
 
 @router.get("/scenarios/{scenario_id}")
@@ -374,6 +417,7 @@ async def delete_scenario(
 @router.post("/scenarios/{scenario_id}/run")
 async def run_scenario(
     db: DbSession,
+    user: CurrentUser,
     farm: CurrentFarm,
     perms: SimView,
     scenario_id: int,
@@ -382,4 +426,6 @@ async def run_scenario(
 ) -> SimulationResult:
     """Run a stored scenario's assumptions (optionally with MC / sensitivity)."""
     scenario = await _get_scenario(db, farm.id, scenario_id)
-    return await _run_for_farm(farm.id, _load_assumptions(scenario), monte_carlo, sensitivity)
+    return await _run_for_farm(
+        farm.id, user.id, _load_assumptions(scenario), monte_carlo, sensitivity
+    )

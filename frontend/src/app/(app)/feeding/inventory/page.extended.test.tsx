@@ -116,6 +116,28 @@ describe("InventoryPage stock table", () => {
     expect(await screen.findByText("No feed inventory items yet.")).toBeInTheDocument();
   });
 
+  it("shows the ready-to-dispense balance created by mixing", async () => {
+    server.use(
+      http.get("/api/feeding/finished-stock", () =>
+        HttpResponse.json([
+          {
+            recipe_code: "LACTATING_60_40",
+            recipe_name: "Lactating 60/40",
+            qty_on_hand: 175.25,
+          },
+        ]),
+      ),
+    );
+    await renderLoaded();
+
+    const card = screen
+      .getByText("Ready-to-dispense mixed feed")
+      .closest('[data-slot="card"]') as HTMLElement;
+    expect(within(card).getByText("Lactating 60/40")).toBeInTheDocument();
+    expect(within(card).getByText("LACTATING_60_40")).toBeInTheDocument();
+    expect(within(card).getByText("175.3")).toBeInTheDocument();
+  });
+
   it("shows the error detail when the inventory GET fails", async () => {
     server.use(
       http.get("/api/feeding/inventory", () =>

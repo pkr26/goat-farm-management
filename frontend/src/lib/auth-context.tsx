@@ -22,10 +22,12 @@ import {
 import type { FarmOut, UserOut } from "@/api/generated/models";
 import {
   apiFetch,
+  refreshSession,
   setAccessToken,
   setCurrentFarmId,
   setOnAuthFailure,
 } from "@/lib/api-client";
+import { setActiveFarmTimezone } from "@/lib/format";
 
 // Derived from the generated contract models so backend schema drift breaks
 // tsc here instead of silently diverging.
@@ -51,6 +53,7 @@ const PUBLIC_PATHS = ["/login", "/register"];
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [farms, setFarms] = useState<FarmEntry[]>([]);
+  const farmsRef = useRef<FarmEntry[]>([]);
   const [farmId, setFarmIdState] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -76,6 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.clear();
       setFarmIdState(id);
       setCurrentFarmId(String(id));
+      const selected = farmsRef.current.find((farm) => farm.id === id) as
+        | (FarmEntry & { timezone?: string })
+        | undefined;
+      setActiveFarmTimezone(selected?.timezone);
       localStorage.setItem(FARM_STORAGE_KEY, String(id));
     },
     [queryClient],
@@ -88,8 +95,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
     setAccessToken(null);
     setCurrentFarmId(null);
+    setActiveFarmTimezone(null);
     localStorage.removeItem(FARM_STORAGE_KEY);
     setUser(null);
+    farmsRef.current = [];
     setFarms([]);
     setFarmIdState(null);
   }, [queryClient]);
@@ -104,8 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/login");
   }, [router, clearSession]);
 
-  const refreshFarms = useCallback(async () => {
-    const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
+  const applyFarmList = useCallback((list: FarmEntry[]) => {
+    farmsRef.current = list;
     setFarms(list);
     const stored = Number(localStorage.getItem(FARM_STORAGE_KEY));
     const valid = list.find((f) => f.id === stored) ?? list[0];
@@ -113,17 +122,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else {
       setFarmIdState(null);
       setCurrentFarmId(null);
+      setActiveFarmTimezone(null);
     }
   }, [selectFarm]);
+
+  const refreshFarms = useCallback(async () => {
+    const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
+    applyFarmList(list);
+  }, [applyFarmList]);
+
+  /** Stage a token only long enough to discover its farms, then commit the
+   * React session atomically. A transient farms failure must not leave the
+   * login page claiming failure while `user` is already authenticated. */
+  const establishSession = useCallback(
+    async (accessToken: string, u: SessionUser) => {
+      setAccessToken(accessToken);
+      try {
+        const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
+        setUser(u);
+        applyFarmList(list);
+      } catch (error) {
+        // Login/register already rotated an httpOnly refresh cookie. Revoke
+        // that server session before reporting failure; otherwise a reload
+        // could silently sign in after this supposedly transactional step.
+        try {
+          await apiFetch("/api/auth/logout", { method: "POST" });
+        } catch {
+          // A network-wide outage can also block logout; local state is still
+          // cleared and the server-side refresh cookie remains httpOnly.
+        }
+        clearSession();
+        throw error;
+      }
+    },
+    [applyFarmList, clearSession],
+  );
 
   const signIn = useCallback(
     async (accessToken: string, u: SessionUser) => {
       forcedLogout.current = false;
-      setAccessToken(accessToken);
-      setUser(u);
-      await refreshFarms();
+      await establishSession(accessToken, u);
     },
-    [refreshFarms],
+    [establishSession],
   );
 
   useEffect(() => {
@@ -140,15 +180,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initialRefreshStarted.current = true;
     (async () => {
       try {
-        const resp = await fetch("/api/auth/refresh", {
-          method: "POST",
-          credentials: "include",
-        });
-        if (resp.ok) {
-          const body = await resp.json();
-          setAccessToken(body.access_token);
-          setUser(body.user);
-          await refreshFarms();
+        const body = await refreshSession();
+        if (body) {
+          await establishSession(body.access_token, body.user);
         }
       } catch {
         // Refresh failed (network error or non-JSON body): stay signed out.

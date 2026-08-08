@@ -78,6 +78,16 @@ const ANIMAL = {
   purchase_price: null,
   seller_name: null,
   cull_candidate: false,
+  movement_restricted: false,
+  restriction_reason: null,
+  suspected_scheduled_disease: false,
+  suspected_disease: null,
+  authority_notified_at: null,
+  restriction_cleared_at: null,
+  restriction_cleared_by_id: null,
+  restriction_clearance_reference: null,
+  mortality_cause: null,
+  mortality_reported_at: null,
   notes: "Calm doe, good milker.",
   created_at: "2026-01-01T05:30:00Z",
   age_months: 14,
@@ -130,6 +140,19 @@ const PROFILE = {
       vet_name: null,
       cost: 45.5,
       next_due_date: "2027-07-10",
+      schedule_template_name: "Annual PPR",
+      next_due_authority: "Farm veterinarian",
+      product_lot: "PPR-2607",
+      product_manufactured_on: "2026-01-01",
+      product_expires_on: "2027-01-01",
+      vaccine_valid_until: "2027-07-10",
+      certificate_number: "CERT-41",
+      official_tag_number: null,
+      administered_by: "Dr Rao",
+      withdrawal_until: "2026-07-20",
+      suspected_scheduled_disease: false,
+      authority_notified_at: null,
+      isolation_started_at: null,
       notes: null,
     },
     {
@@ -145,6 +168,19 @@ const PROFILE = {
       vet_name: null,
       cost: null,
       next_due_date: null,
+      schedule_template_name: null,
+      next_due_authority: null,
+      product_lot: null,
+      product_manufactured_on: null,
+      product_expires_on: null,
+      vaccine_valid_until: null,
+      certificate_number: null,
+      official_tag_number: null,
+      administered_by: null,
+      withdrawal_until: null,
+      suspected_scheduled_disease: false,
+      authority_notified_at: null,
+      isolation_started_at: null,
       notes: null,
     },
   ],
@@ -160,6 +196,7 @@ describe("AnimalProfilePage", () => {
   let weightBodies: Record<string, unknown>[];
   let moveBodies: Record<string, unknown>[];
   let statusBodies: Record<string, unknown>[];
+  let clearanceBodies: Record<string, unknown>[];
 
   function useProfileHandler(profile: Record<string, unknown> = PROFILE) {
     server.use(
@@ -176,6 +213,7 @@ describe("AnimalProfilePage", () => {
     weightBodies = [];
     moveBodies = [];
     statusBodies = [];
+    clearanceBodies = [];
     vi.clearAllMocks();
     useProfileHandler();
     server.use(
@@ -190,6 +228,10 @@ describe("AnimalProfilePage", () => {
       http.post("/api/animals/1/status", async ({ request }) => {
         statusBodies.push((await request.json()) as Record<string, unknown>);
         return HttpResponse.json({}, { status: 201 });
+      }),
+      http.post("/api/health/restrictions/1/clear", async ({ request }) => {
+        clearanceBodies.push((await request.json()) as Record<string, unknown>);
+        return new HttpResponse(null, { status: 204 });
       }),
     );
   });
@@ -305,10 +347,23 @@ describe("AnimalProfilePage", () => {
     });
 
     it("shows status date but no sale price for a DEAD animal", async () => {
-      useProfileHandler(profileWith({ status: "DEAD", status_date: "2026-07-30" }));
+      useProfileHandler(
+        profileWith({
+          status: "DEAD",
+          status_date: "2026-07-30",
+          mortality_cause: "Suspected PPR",
+          mortality_reported_at: "2026-07-31",
+          suspected_scheduled_disease: true,
+          suspected_disease: "PPR",
+          authority_notified_at: "2026-07-31",
+        }),
+      );
       renderWithProviders(<AnimalProfilePage />);
       await screen.findByText("Status date");
       expect(screen.queryByText("Sale price")).not.toBeInTheDocument();
+      expect(screen.getByText("Suspected PPR")).toBeInTheDocument();
+      expect(screen.getByText("PPR")).toBeInTheDocument();
+      expect(screen.getAllByText("31 Jul 2026")).toHaveLength(2);
     });
 
     it("links dam and sire to their profiles", async () => {
@@ -381,7 +436,7 @@ describe("AnimalProfilePage", () => {
       );
       renderWithProviders(<AnimalProfilePage />);
       const card = (await screen.findByText("Health events (1)")).closest('[data-slot="card"]') as HTMLElement;
-      expect(within(card).getAllByText("—").length).toBe(2);
+      expect(within(card).getAllByText("—").length).toBe(3);
     });
 
     it("shows the empty state when there are no health events", async () => {
@@ -488,6 +543,45 @@ describe("AnimalProfilePage", () => {
       expect(screen.queryByRole("button", { name: "Record weight" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Move bucket" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Change status" })).toBeInTheDocument();
+    });
+
+    it("blocks movement during a health hold and records an audited clearance", async () => {
+      useProfileHandler(
+        profileWith({
+          movement_restricted: true,
+          restriction_reason: "Scheduled-disease suspicion",
+          suspected_disease: "PPR",
+          authority_notified_at: "2026-08-06",
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+
+      expect(screen.getByText("Movement restricted")).toBeInTheDocument();
+      expect(screen.getByText("Suspected disease: PPR")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Move bucket" })).not.toBeInTheDocument();
+      const dialog = await openDialog(user, "Record clearance");
+      const confirm = within(dialog).getByRole("button", { name: "Confirm clearance" });
+      expect(confirm).toBeDisabled();
+      await user.type(
+        within(dialog).getByLabelText("Clearance reference *"),
+        "  VET-CLEAR-2026-18  ",
+      );
+      await user.click(confirm);
+
+      await waitFor(() => expect(clearanceBodies).toEqual([
+        { clearance_reference: "VET-CLEAR-2026-18" },
+      ]));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("does not offer clearance without health.manage", async () => {
+      server.use(permissionsHandler(["animals.view", "animals.move"]));
+      useProfileHandler(profileWith({ movement_restricted: true }));
+      await renderProfile();
+
+      expect(screen.queryByRole("button", { name: "Move bucket" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Record clearance" })).not.toBeInTheDocument();
     });
   });
 
@@ -712,6 +806,11 @@ describe("AnimalProfilePage", () => {
         sale_price: 9000,
         buyer_name: "Shinde Traders",
         notes: null,
+        mortality_cause: null,
+        mortality_reported_at: null,
+        suspected_scheduled_disease: false,
+        suspected_disease: null,
+        authority_notified_at: null,
       });
       await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked SOLD."));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -730,6 +829,11 @@ describe("AnimalProfilePage", () => {
         sale_price: null,
         buyer_name: null,
         notes: null,
+        mortality_cause: null,
+        mortality_reported_at: null,
+        suspected_scheduled_disease: false,
+        suspected_disease: null,
+        authority_notified_at: null,
       });
     });
 
@@ -744,6 +848,43 @@ describe("AnimalProfilePage", () => {
         new_status: "DEAD",
         sale_price: null,
         buyer_name: null,
+      });
+    });
+
+    it("captures mortality and scheduled-disease escalation fields for DEAD", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      await user.type(within(dialog).getByLabelText("Mortality cause"), "Sudden fever");
+      setInput(within(dialog).getByLabelText("Mortality reported date"), "2026-08-07");
+      await user.click(
+        within(dialog).getByRole("checkbox", {
+          name: "Suspected scheduled/notifiable disease",
+        }),
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      expect(
+        await within(dialog).findByText("Identify the suspected scheduled disease"),
+      ).toBeInTheDocument();
+      expect(statusBodies).toHaveLength(0);
+
+      await user.type(within(dialog).getByLabelText("Suspected disease *"), "PPR");
+      setInput(within(dialog).getByLabelText("Authority notified date"), "2026-08-07");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toEqual({
+        new_status: "DEAD",
+        date: null,
+        sale_price: null,
+        buyer_name: null,
+        notes: null,
+        mortality_cause: "Sudden fever",
+        mortality_reported_at: "2026-08-07",
+        suspected_scheduled_disease: true,
+        suspected_disease: "PPR",
+        authority_notified_at: "2026-08-07",
       });
     });
 

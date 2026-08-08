@@ -36,9 +36,9 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatDate, utcToday } from "@/lib/format";
+import { farmToday, formatDate } from "@/lib/format";
+import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
-import { safeAppPath } from "@/lib/utils";
 
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalOut): string {
@@ -56,31 +56,40 @@ function daysBetween(from: string, to: string): number {
 function TaskLink({
   task,
   fallbackHref,
+  can,
   label = "Open",
 }: {
   task: TaskOut;
   fallbackHref: string;
+  can: PermissionCheck;
   label?: string;
 }) {
-  const safeAction = safeAppPath(task.action_url);
-  if (safeAction) {
+  const permittedAction = permittedTaskActionPath(task.action_url, can);
+  if (permittedAction) {
     return (
-      <Link href={safeAction} className={buttonVariants({ variant: "outline", size: "sm" })}>
+      <Link
+        href={permittedAction}
+        className={buttonVariants({ variant: "outline", size: "sm" })}
+      >
         {label}
       </Link>
     );
   }
-  return (
-    <Link href={fallbackHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
-      View
-    </Link>
-  );
+  if (can("tasks.view")) {
+    return (
+      <Link href={fallbackHref} className={buttonVariants({ variant: "outline", size: "sm" })}>
+        View
+      </Link>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">Action unavailable</span>;
 }
 
 export default function DashboardPage() {
   const { farms, farmId } = useAuth();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("dashboard.view");
+  const canViewAnimals = can("animals.view");
   const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -110,7 +119,7 @@ export default function DashboardPage() {
 
   const farm = farms.find((f) => f.id === farmId);
   // Comparisons against server due dates use the backend's UTC today (7-5).
-  const today = utcToday();
+  const today = farmToday();
   const taskTotal = payload.todays_tasks.length + payload.overdue_tasks.length;
   const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
 
@@ -167,7 +176,7 @@ export default function DashboardPage() {
                   </TableCell>
                   <TableCell>{t.title}</TableCell>
                   <TableCell className="text-right">
-                    <TaskLink task={t} fallbackHref="/tasks?tab=overdue" />
+                    <TaskLink task={t} fallbackHref="/tasks?tab=overdue" can={can} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -179,14 +188,14 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <DataTableCard
           title="Today's tasks"
-          actions={
+          actions={can("tasks.view") ? (
             <Link
               href="/tasks?tab=today"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
               View all
             </Link>
-          }
+          ) : undefined}
         >
           {payload.todays_tasks.length === 0 ? (
             <EmptyState
@@ -201,7 +210,7 @@ export default function DashboardPage() {
                   <TableRow key={t.id}>
                     <TableCell>{t.title}</TableCell>
                     <TableCell className="text-right">
-                      <TaskLink task={t} fallbackHref="/tasks?tab=today" />
+                      <TaskLink task={t} fallbackHref="/tasks?tab=today" can={can} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -212,14 +221,14 @@ export default function DashboardPage() {
 
         <DataTableCard
           title="Kiddings due in 14 days"
-          actions={
+          actions={can("breeding.view") ? (
             <Link
               href="/breeding"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
               Breeding
             </Link>
-          }
+          ) : undefined}
         >
           {payload.kiddings_due.length === 0 ? (
             <EmptyState icon={Baby} title="None." className="py-8" />
@@ -229,9 +238,13 @@ export default function DashboardPage() {
                 {payload.kiddings_due.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>
-                      <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
-                        {r.doe_tag ?? `Doe #${r.doe_id}`}
-                      </Link>
+                      {canViewAnimals ? (
+                        <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
+                          {r.doe_tag ?? `Doe #${r.doe_id}`}
+                        </Link>
+                      ) : (
+                        r.doe_tag ?? `Doe #${r.doe_id}`
+                      )}
                     </TableCell>
                     <TableCell>due {formatDate(r.expected_kidding_date)}</TableCell>
                     <TableCell className="text-right">
@@ -255,14 +268,14 @@ export default function DashboardPage() {
 
         <DataTableCard
           title="Ultrasounds due in 7 days"
-          actions={
+          actions={can("breeding.view") ? (
             <Link
               href="/breeding"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
               Breeding
             </Link>
-          }
+          ) : undefined}
         >
           {payload.ultrasounds_due.length === 0 ? (
             <EmptyState icon={ScanLine} title="None." className="py-8" />
@@ -274,7 +287,12 @@ export default function DashboardPage() {
                     <TableCell>{formatDate(t.due_date)}</TableCell>
                     <TableCell>{t.title}</TableCell>
                     <TableCell className="text-right">
-                      <TaskLink task={t} fallbackHref="/tasks?tab=today" label="Record result" />
+                      <TaskLink
+                        task={t}
+                        fallbackHref="/tasks?tab=today"
+                        can={can}
+                        label="Record result"
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -285,14 +303,14 @@ export default function DashboardPage() {
 
         <DataTableCard
           title={`Ready to move (${payload.suggestions.length})`}
-          actions={
+          actions={canViewAnimals ? (
             <Link
               href="/animals"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
               View herd
             </Link>
-          }
+          ) : undefined}
           contentClassName="space-y-3"
         >
           {payload.suggestions.length === 0 ? (
@@ -303,12 +321,16 @@ export default function DashboardPage() {
                 {payload.suggestions.map((s) => (
                   <TableRow key={s.animal.id}>
                     <TableCell>
-                      <Link
-                        href={`/animals/${s.animal.id}`}
-                        className="text-primary underline"
-                      >
-                        {animalName(s.animal)}
-                      </Link>
+                      {canViewAnimals ? (
+                        <Link
+                          href={`/animals/${s.animal.id}`}
+                          className="text-primary underline"
+                        >
+                          {animalName(s.animal)}
+                        </Link>
+                      ) : (
+                        animalName(s.animal)
+                      )}
                     </TableCell>
                     <TableCell>{s.reason}</TableCell>
                     <TableCell className="text-right">
@@ -324,9 +346,13 @@ export default function DashboardPage() {
               <TriangleAlert className="size-4 shrink-0" />
               <span>
                 {payload.cull_candidates.length} cull candidate(s) —{" "}
-                <Link href="/breeding" className="underline">
-                  see breeding page
-                </Link>
+                {can("breeding.view") ? (
+                  <Link href="/breeding" className="underline">
+                    see breeding page
+                  </Link>
+                ) : (
+                  "flagged in breeding records"
+                )}
               </span>
             </p>
           )}
@@ -336,12 +362,9 @@ export default function DashboardPage() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Herd by bucket</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {payload.buckets.map((b) => (
-            <Link
-              key={b.code}
-              href={`/animals?bucket=${encodeURIComponent(b.code)}`}
-              className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary"
-            >
+          {payload.buckets.map((b) => {
+            const content = (
+              <>
               <div className="flex items-start justify-between gap-2">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 [&_svg]:size-4.5">
                   <Layers />
@@ -358,8 +381,25 @@ export default function DashboardPage() {
                   style={{ width: `${Math.round((b.count / maxBucketCount) * 100)}%` }}
                 />
               </div>
-            </Link>
-          ))}
+              </>
+            );
+            return canViewAnimals ? (
+              <Link
+                key={b.code}
+                href={`/animals?bucket=${encodeURIComponent(b.code)}`}
+                className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary"
+              >
+                {content}
+              </Link>
+            ) : (
+              <div
+                key={b.code}
+                className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
+              >
+                {content}
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -371,12 +411,14 @@ export default function DashboardPage() {
             title="No weight records yet."
             description="Weights you record will show up here."
           >
+            {canViewAnimals && can("animals.create") && (
             <Link
               href="/animals/new"
               className={buttonVariants({ variant: "outline", size: "sm" })}
             >
               Add your first animal
             </Link>
+            )}
           </EmptyState>
         ) : (
           <DataTableCard>

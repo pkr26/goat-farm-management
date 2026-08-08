@@ -4,8 +4,8 @@ import re
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -63,6 +63,8 @@ async def kidding_list(
     db: DbSession,
     farm: CurrentFarm,
     perms: Annotated[set[str], Depends(require_perm("kidding.view"))],
+    limit: Annotated[int, Query(ge=1, le=200)] = 30,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> KiddingListOut:
     awaiting_result = await db.execute(
         select(BreedingRecord)
@@ -82,7 +84,7 @@ async def kidding_list(
         .order_by(BreedingRecord.expected_kidding_date)
     )
     awaiting = [r for r in awaiting_result.scalars() if r.kidding_record is None]
-    now = today()
+    now = today(farm.timezone)
     horizon = now + timedelta(days=30)
     # Overdue pregnancies are not "upcoming" — they are listed separately.
     upcoming = [
@@ -94,12 +96,21 @@ async def kidding_list(
         .options(selectinload(KiddingRecord.kids), selectinload(KiddingRecord.doe))
         .where(KiddingRecord.farm_id == farm.id)
         .order_by(KiddingRecord.date.desc(), KiddingRecord.id.desc())
-        .limit(30)
+        .offset(offset)
+        .limit(limit)
     )
+    total = (
+        await db.execute(
+            select(func.count()).select_from(KiddingRecord).where(KiddingRecord.farm_id == farm.id)
+        )
+    ).scalar_one()
     return KiddingListOut(
         records=[_kidding_out(r) for r in history_result.scalars()],
         upcoming=[breeding_out(r) for r in upcoming],
         overdue=[breeding_out(r) for r in overdue],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
@@ -157,7 +168,7 @@ async def create_kidding(
     explicit_tags: list[str] = []  # alive-kid tags the user actually set (blank stays auto)
     for i, kid in enumerate(payload.kids):
         tag = (kid.tag or "").strip()
-        if tag and kid.status == KidStatus.ALIVE.value:
+        if tag and kid.status != KidStatus.STILLBORN.value:
             explicit_tags.append(tag)
         kids.append(
             {
@@ -165,6 +176,7 @@ async def create_kidding(
                 "sex": kid.sex,
                 "birth_weight": kid.birth_weight,
                 "status": kid.status,
+                "mortality_reported_at": kid.mortality_reported_at,
             }
         )
 

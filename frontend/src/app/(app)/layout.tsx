@@ -27,6 +27,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
 import { Logo } from "@/components/logo";
+import { AccountDialog } from "@/components/account-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +45,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth-context";
+import { firstPermittedPath } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 
 type NavItem = { href: string; label: string; perm: string; icon: LucideIcon };
@@ -136,14 +138,25 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         ...group,
         items: group.items.filter((item) => can(item.perm)),
       })).filter((group) => group.items.length > 0);
+  const landingItem = visibleGroups[0]?.items[0];
+  const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;
 
   return (
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader className="p-4">
-          <Link href="/dashboard" aria-label="GoatFarm dashboard">
-            <Logo />
-          </Link>
+          {landingHref ? (
+            <Link
+              href={landingHref}
+              aria-label={`GoatFarm — go to ${landingItem?.label ?? "access status"}`}
+            >
+              <Logo />
+            </Link>
+          ) : (
+            <div aria-label="GoatFarm">
+              <Logo />
+            </div>
+          )}
         </SidebarHeader>
         <SidebarContent>
           {/* A failed permissions call must not look like "no access" (7-6). */}
@@ -192,6 +205,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {user.name ?? user.email}
             </span>
+            <AccountDialog name={user.name ?? null} email={user.email} />
             <Button variant="outline" size="sm" onClick={() => void signOut()}>
               Logout
             </Button>

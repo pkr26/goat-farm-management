@@ -5,12 +5,17 @@
 # The CMD hard-codes --workers 1 (the auth rate limiter is in-memory, per
 # process — multi-worker would silently multiply every limit). Also set
 # GOATFARM_ENVIRONMENT=production, GOATFARM_COOKIE_SECURE=true,
-# GOATFARM_CORS_ORIGINS, GOATFARM_DB_SSLMODE=require for real deployments.
+# GOATFARM_CORS_ORIGINS, GOATFARM_DB_SSLMODE=require and
+# GOATFARM_MIN_PASSWORD_LENGTH>=12 for real deployments. Production also
+# requires a stable RS256 keypair mounted at /app/keys (or configured paths).
 
-FROM python:3.13-slim
+FROM python:3.13-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
@@ -18,9 +23,14 @@ WORKDIR /app
 # code changes), then copy the app source. Any change under backend/app/ no
 # longer busts the pip install layer.
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN pip install --no-cache-dir . \
+# `pip install .` resolves pyproject ranges and ignores uv.lock. Install the
+# pinned uv client, then require the committed lock (including artifact
+# hashes) without development tools or the not-yet-copied local project.
+RUN pip install --no-cache-dir uv==0.12.1 \
+    && uv sync --frozen --no-dev --no-install-project \
     && groupadd --system --gid 10001 goatfarm \
-    && useradd --system --uid 10001 --gid goatfarm goatfarm
+    && useradd --system --uid 10001 --gid goatfarm goatfarm \
+    && install -d -o goatfarm -g goatfarm -m 0700 /app/keys
 
 COPY backend/app ./app
 COPY backend/alembic ./alembic

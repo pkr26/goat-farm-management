@@ -18,12 +18,15 @@ export interface TaskOut {
   assigned_role_id: number | null;
   assigned_user_id: number | null;
   recur_days: number | null;
+  recurring_series_id: string | null;
   completed_by_id: number | null;
   completed_at: string | null;
   verified_by_id: number | null;
   verified_at: string | null;
   verification_note: string | null;
   skipped_by_id: number | null;
+  skipped_at: string | null;
+  skip_reason: string | null;
   assigned_role_name?: string | null;
   assigned_user_name?: string | null;
   animal_tag?: string | null;

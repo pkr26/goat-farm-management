@@ -130,7 +130,12 @@ async def bred_doe(
         headers,
         doe["id"],
         buck["id"],
-        breeding_date=iso(breeding_date or today()),
+        # Most callers subsequently record an ultrasound.  Keep the default
+        # at least the scheduled +32-day check interval in the past so that
+        # the implicit, farm-local observation date is chronologically valid.
+        breeding_date=iso(
+            breeding_date or today() - timedelta(days=ULTRASOUND_AFTER_BREEDING_DAYS + 3)
+        ),
     )
     return doe, buck, br
 
@@ -359,16 +364,14 @@ async def test_candidate_includes_resting_doe(client: httpx.AsyncClient) -> None
     assert body["candidate_doe_ids"] == [doe["id"]]
 
 
-async def test_candidate_includes_breeding_bucket_doe_without_weight(
+async def test_candidate_excludes_breeding_bucket_doe_without_current_weight(
     client: httpx.AsyncClient,
 ) -> None:
-    """Re-breeding path: a doe already in BREEDING (not pregnant, >=10 mo) is
-    eligible even with no weight record — the 22 kg rule applies to the
-    first-breeding buckets only."""
+    """A re-service keeps the same current-weight guard as first service."""
     headers = await owner_with_farm(client)
-    doe = await make_doe(client, headers, bucket="BREEDING", weight_kg=None)
+    await make_doe(client, headers, bucket="BREEDING", weight_kg=None)
     body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == [doe["id"]]
+    assert body["candidate_doe_ids"] == []
 
 
 async def test_candidate_excludes_young_doe_in_breeding_bucket(
@@ -454,6 +457,24 @@ async def test_breeding_list_records_newest_date_first(client: httpx.AsyncClient
     assert [r["id"] for r in body["records"]] == [br2["id"], _br["id"]]
     assert {r["doe_id"] for r in body["records"]} == {doe1["id"], _doe2["id"]}
     assert buck1["id"] in body["active_buck_ids"]
+
+
+async def test_breeding_history_pagination_reports_full_count(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    created = []
+    for index, days_ago in enumerate((60, 40, 20), start=1):
+        _doe, _buck, breeding = await bred_doe(
+            client,
+            headers,
+            f"PAGE-D-{index}",
+            today() - timedelta(days=days_ago),
+        )
+        created.append(breeding["id"])
+    response = await client.get("/api/breeding?limit=2&offset=1", headers=headers)
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert (page["total"], page["limit"], page["offset"]) == (3, 2, 1)
+    assert [record["id"] for record in page["records"]] == [created[1], created[0]]
 
 
 async def test_breeding_list_record_shape_pending(client: httpx.AsyncClient) -> None:
@@ -586,13 +607,16 @@ async def test_create_breeding_date_today(client: httpx.AsyncClient) -> None:
     assert br["breeding_date"] == iso(today())
 
 
-async def test_create_breeding_date_far_past(client: httpx.AsyncClient) -> None:
+async def test_create_breeding_date_cannot_predate_recorded_doe_birth(
+    client: httpx.AsyncClient,
+) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     buck = await make_buck(client, headers)
-    br = await make_breeding(client, headers, doe["id"], buck["id"], breeding_date="1990-01-01")
-    assert br["breeding_date"] == "1990-01-01"
-    assert br["ultrasound_date"] == "1990-02-02"
+    response = await post_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date="1990-01-01"
+    )
+    assert response.status_code == 409
 
 
 async def test_create_breeding_rejects_male_as_doe(client: httpx.AsyncClient) -> None:
@@ -685,6 +709,29 @@ async def test_create_breeding_rebreed_after_failed_cycle(client: httpx.AsyncCli
     )
     assert br2["heat_cycle_number"] == 2
     assert br2["outcome"] == "PENDING"
+
+
+async def test_rebreed_after_failure_rechecks_current_weight_threshold(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, buck, first = await bred_doe(client, headers, breeding_date=today() - timedelta(days=42))
+    await fail_cycle(client, headers, first["id"])
+    low_weight = await client.post(
+        f"/api/animals/{doe['id']}/weight",
+        json={"weight_kg": 21.9},
+        headers=headers,
+    )
+    assert low_weight.status_code == 201, low_weight.text
+    retry = await post_breeding(
+        client,
+        headers,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=21)),
+        heat_cycle_number=2,
+    )
+    assert retry.status_code == 400
 
 
 async def test_create_breeding_rebreed_after_kidding_full_cycle(client: httpx.AsyncClient) -> None:
@@ -937,6 +984,41 @@ async def test_ultrasound_pregnant_happy_path(client: httpx.AsyncClient) -> None
     assert br["pregnant"] is True
     assert br["kid_count_detected"] == 2
     assert br["expected_kidding_date"] == iso(breeding_date + timedelta(days=GESTATION_DAYS))
+    assert br["ultrasound_result_date"] == iso(today())
+
+
+async def test_ultrasound_explicit_result_date_cannot_predate_planned_check(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, breeding = await bred_doe(
+        client, headers, breeding_date=today() - timedelta(days=10)
+    )
+    response = await ultrasound(
+        client,
+        headers,
+        breeding["id"],
+        pregnant=True,
+        kid_count=1,
+        date=iso(today()),
+    )
+    assert response.status_code == 409
+
+
+async def test_ultrasound_records_explicit_result_date(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=40)
+    _doe, _buck, breeding = await bred_doe(client, headers, breeding_date=breeding_date)
+    response = await ultrasound(
+        client,
+        headers,
+        breeding["id"],
+        pregnant=True,
+        kid_count=1,
+        date=iso(today()),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["ultrasound_result_date"] == iso(today())
 
 
 async def test_ultrasound_expected_kidding_date_exactly_150_days(
@@ -1180,8 +1262,14 @@ async def test_three_consecutive_failures_stay_flagged(client: httpx.AsyncClient
     assert doe_after["cull_candidate"] is True
 
 
-async def test_success_between_failures_breaks_the_streak(client: httpx.AsyncClient) -> None:
-    """fail → conceive → kid → fail: not consecutive, no cull flag."""
+async def test_successful_kidding_resets_cull_streak_before_a_new_cycle(
+    client: httpx.AsyncClient,
+) -> None:
+    """A completed pregnancy clears the failed-cycle worklist before rebreeding.
+
+    A new, same-day service cannot truthfully have a completed ultrasound yet:
+    recording that outcome is gated until its planned +32-day check.
+    """
     headers = await owner_with_farm(client)
     doe, buck, br1 = await bred_doe(client, headers, breeding_date=today() - timedelta(days=400))
     await fail_cycle(client, headers, br1["id"])
@@ -1193,10 +1281,9 @@ async def test_success_between_failures_breaks_the_streak(client: httpx.AsyncCli
     assert doe_mid["cull_candidate"] is False
     await kid_on_ekd(client, headers, br2)
     await move_to(client, headers, doe["id"], "RESTING")
-    br3 = await make_breeding(
-        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=10))
-    )
-    await fail_cycle(client, headers, br3["id"])
+    br3 = await make_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
+    early_result = await ultrasound(client, headers, br3["id"], pregnant=False, kid_count=None)
+    assert early_result.status_code == 409
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["cull_candidate"] is False
 
@@ -1401,6 +1488,24 @@ async def test_kidded_pregnancy_leaves_upcoming_and_overdue(client: httpx.AsyncC
     assert len(body["records"]) == 1
 
 
+async def test_kidding_history_pagination_reports_full_count(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe_one, _buck_one, breeding_one = await pregnant_doe(
+        client, headers, "PAGE-K-1", gestation_days=160
+    )
+    _doe_two, _buck_two, breeding_two = await pregnant_doe(
+        client, headers, "PAGE-K-2", gestation_days=160
+    )
+    record_one = await kid_on_ekd(client, headers, breeding_one)
+    record_two = await kid_on_ekd(client, headers, breeding_two)
+    response = await client.get("/api/kidding?limit=1&offset=1", headers=headers)
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert (page["total"], page["limit"], page["offset"]) == (2, 1, 1)
+    assert [record["id"] for record in page["records"]] == [record_one["id"]]
+    assert record_two["id"] != record_one["id"]
+
+
 async def test_kidding_history_lists_record_with_kids(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
@@ -1575,19 +1680,41 @@ async def test_kidding_stillborn_creates_no_animal(client: httpx.AsyncClient) ->
     assert born[0]["birth_type"] == "SINGLE"  # only one alive kid
 
 
-async def test_kidding_died_creates_no_animal(client: httpx.AsyncClient) -> None:
+async def test_kidding_died_creates_dead_animal_for_mortality_traceability(
+    client: httpx.AsyncClient,
+) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     record = await kid_on_ekd(
         client,
         headers,
         br,
-        kids=[{"sex": "M", "status": "DIED"}, {"sex": "F"}],
+        kids=[
+            {"sex": "M", "status": "DIED", "mortality_reported_at": iso(today())},
+            {"sex": "F"},
+        ],
     )
     died = next(k for k in record["kids"] if k["status"] == "DIED")
-    assert died["animal_id"] is None
+    assert died["animal_id"] is not None
+    assert died["mortality_reported_at"] == iso(today())
     born = [a for a in await list_animals(client, headers) if a["source"] == "BORN"]
-    assert len(born) == 1
+    assert len(born) == 1  # the default herd list intentionally excludes DEAD animals
+    dead_animal = await get_animal(client, headers, died["animal_id"])
+    assert dead_animal["status"] == "DEAD"
+
+
+async def test_kidding_all_died_creates_no_weaning_task(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, breeding = await pregnant_doe(client, headers, gestation_days=160)
+    record = await kid_on_ekd(
+        client,
+        headers,
+        breeding,
+        kids=[{"sex": "M", "status": "DIED", "mortality_reported_at": iso(today())}],
+    )
+    died = record["kids"][0]
+    assert died["animal_id"] is not None
+    assert not any(task["category"] == "WEANING" for task in await all_tasks(client, headers))
 
 
 async def test_kidding_all_stillborn_no_animals_doe_recovers(client: httpx.AsyncClient) -> None:
@@ -1599,6 +1726,8 @@ async def test_kidding_all_stillborn_no_animals_doe_recovers(client: httpx.Async
     assert born == []
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["current_bucket"] == "RECOVERY"
+    tasks = await all_tasks(client, headers)
+    assert not any(task["category"] == "WEANING" for task in tasks)
 
 
 async def test_kidding_auto_tags(client: httpx.AsyncClient) -> None:
@@ -2100,7 +2229,13 @@ async def test_vet_worker_can_view_and_manage_breeding(client: httpx.AsyncClient
     vet = await worker_headers(client, owner, "VET", "vet@farm.in")
     resp = await client.get("/api/breeding", headers=vet)
     assert resp.status_code == 200, resp.text
-    resp = await post_breeding(client, vet, doe["id"], buck["id"])
+    resp = await post_breeding(
+        client,
+        vet,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=ULTRASOUND_AFTER_BREEDING_DAYS + 3)),
+    )
     assert resp.status_code == 201, resp.text
     resp = await ultrasound(client, vet, resp.json()["id"], pregnant=False, kid_count=None)
     assert resp.status_code == 200, resp.text

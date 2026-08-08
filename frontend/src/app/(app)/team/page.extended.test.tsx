@@ -82,6 +82,8 @@ const MEMBER_SELF = {
   role_id: null,
   role_name: null,
   is_active: true,
+  can_reset_password: false,
+  reset_password_block_reason: "This account must use self-service password recovery.",
 };
 
 const MEMBER_RAVI = {
@@ -92,6 +94,8 @@ const MEMBER_RAVI = {
   role_id: 10,
   role_name: "Night Watch",
   is_active: true,
+  can_reset_password: true,
+  reset_password_block_reason: null,
 };
 
 const MEMBER_SITA = {
@@ -102,6 +106,8 @@ const MEMBER_SITA = {
   role_id: 11,
   role_name: "Helper",
   is_active: false,
+  can_reset_password: false,
+  reset_password_block_reason: "Reactivate this membership before resetting the password.",
 };
 
 const TEAM_PAYLOAD = {
@@ -155,11 +161,11 @@ describe("TeamPage workers table", () => {
     expect(within(sita).getByText("Inactive")).toBeInTheDocument();
   });
 
-  it("guards the self row: you label instead of a Deactivate button", async () => {
+  it("guards the self row and directs password changes to Account", async () => {
     await renderLoaded();
 
     const self = workerRow(TEST_USER.email);
-    expect(within(self).getByText("you")).toBeInTheDocument();
+    expect(within(self).getByText("Manage your password from Account.")).toBeInTheDocument();
     expect(within(self).queryByRole("button", { name: "Deactivate" })).not.toBeInTheDocument();
 
     // Other rows get Deactivate (active) / Activate (inactive).
@@ -268,7 +274,7 @@ describe("TeamPage add-worker dialog", () => {
     expect(postCalls).toBe(0);
   });
 
-  it("rejects a password shorter than 8 characters", async () => {
+  it("rejects a password shorter than 12 characters", async () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Email/), "new@example.com");
@@ -277,7 +283,7 @@ describe("TeamPage add-worker dialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
 
     expect(
-      await within(dialog).findByText("Password must be at least 8 characters"),
+      await within(dialog).findByText("Password must be at least 12 characters"),
     ).toBeInTheDocument();
     expect(postCalls).toBe(0);
   });
@@ -292,10 +298,11 @@ describe("TeamPage add-worker dialog", () => {
     expect(postCalls).toBe(0);
   });
 
-  it("POSTs null name and null password when left blank", async () => {
+  it("POSTs a null name and the required password", async () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Email/), "  new@example.com ");
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
     await pickRole(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
 
@@ -304,7 +311,7 @@ describe("TeamPage add-worker dialog", () => {
       email: "new@example.com",
       name: null,
       role_id: 10,
-      password: null,
+      password: "newworker123",
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
@@ -314,7 +321,7 @@ describe("TeamPage add-worker dialog", () => {
 
     await user.type(within(dialog).getByLabelText(/^Name/), "  Ravi Kumar  ");
     await user.type(within(dialog).getByLabelText(/Email/), "ravi@example.com");
-    await user.type(within(dialog).getByLabelText(/Password/), "supersecret");
+    await user.type(within(dialog).getByLabelText(/Password/), "supersecret12");
     await pickRole(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
 
@@ -323,7 +330,7 @@ describe("TeamPage add-worker dialog", () => {
       email: "ravi@example.com",
       name: "Ravi Kumar",
       role_id: 10,
-      password: "supersecret",
+      password: "supersecret12",
     });
   });
 
@@ -337,6 +344,7 @@ describe("TeamPage add-worker dialog", () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Email/), "ravi@example.com");
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
     await pickRole(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
 
@@ -382,20 +390,35 @@ describe("TeamPage reset-password dialog", () => {
   });
 
   it("falls back to the email when the worker has no name", async () => {
+    server.use(
+      teamHandler({
+        ...TEAM_PAYLOAD,
+        memberships: [
+          MEMBER_SELF,
+          MEMBER_RAVI,
+          {
+            ...MEMBER_SITA,
+            is_active: true,
+            can_reset_password: true,
+            reset_password_block_reason: null,
+          },
+        ],
+      }),
+    );
     const { dialog } = await openReset(MEMBER_SITA.email);
     expect(
       within(dialog).getByText(`Reset password — ${MEMBER_SITA.email}`),
     ).toBeInTheDocument();
   });
 
-  it("rejects a password shorter than 8 characters", async () => {
+  it("rejects a password shorter than 12 characters", async () => {
     const { user, dialog } = await openReset();
 
     await user.type(within(dialog).getByLabelText(/New password/), "short12");
     await user.click(within(dialog).getByRole("button", { name: "Reset password" }));
 
     expect(
-      await within(dialog).findByText("Password must be at least 8 characters"),
+      await within(dialog).findByText("Password must be at least 12 characters"),
     ).toBeInTheDocument();
     expect(resetCalls).toBe(0);
   });
@@ -426,6 +449,27 @@ describe("TeamPage reset-password dialog", () => {
 
     expect(await within(dialog).findByText("cannot reset owner password")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("disables an ineligible reset upfront and explains the backend policy", async () => {
+    const reason = "This account must use self-service password recovery.";
+    server.use(
+      teamHandler({
+        ...TEAM_PAYLOAD,
+        memberships: [
+          MEMBER_SELF,
+          { ...MEMBER_RAVI, can_reset_password: false, reset_password_block_reason: reason },
+        ],
+      }),
+    );
+    await renderLoaded();
+
+    const row = workerRow(MEMBER_RAVI.email);
+    const reset = within(row).getByRole("button", { name: "Reset password" });
+    expect(reset).toBeDisabled();
+    expect(reset).toHaveAccessibleDescription(reason);
+    expect(within(row).getByText(reason)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
@@ -586,6 +630,24 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toEqual({ name: "Watchman", description: null, permissions: ["animals.view"] });
+  });
+
+  it("selecting an action automatically selects its required view permission", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "New role" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Role name/), "Animal entry");
+
+    await user.click(within(dialog).getByRole("checkbox", { name: "Add animals" }));
+    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Create role" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({
+      name: "Animal entry",
+      permissions: ["animals.create", "animals.view"],
+    });
   });
 
   it("edits a role: prefilled name, prechecked permissions, PUT on save", async () => {

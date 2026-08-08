@@ -7,11 +7,14 @@ httpx ASGI transport never triggers)."""
 import os
 import subprocess
 import sys
+from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
 from sqlalchemy import select
 
@@ -20,6 +23,7 @@ from app.db import get_sessionmaker
 from app.main import create_app
 from app.models import Farm, Role, Task, TaskCategory, User
 from app.permissions import ROLE_PRESETS
+from app.security import validate_jwt_keypair
 from app.seed import seed_startup
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +62,45 @@ async def test_docs_available_in_development(client: httpx.AsyncClient) -> None:
     assert (await client.get("/docs")).status_code == 200
 
 
+async def test_api_responses_are_never_cached(client: httpx.AsyncClient) -> None:
+    resp = await client.get("/api/auth/me")
+    assert resp.status_code == 401
+    assert resp.headers["cache-control"] == "no-store"
+    assert resp.headers["pragma"] == "no-cache"
+
+
+async def test_oversized_content_length_is_rejected_before_parsing(
+    client: httpx.AsyncClient,
+) -> None:
+    limit = get_settings().max_request_body_bytes
+    resp = await client.post(
+        "/api/auth/login",
+        content=b"x" * (limit + 1),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 413
+    assert resp.json() == {"detail": "Request body is too large"}
+    assert resp.headers["cache-control"] == "no-store"
+
+
+async def test_oversized_chunked_body_is_rejected_while_streaming(
+    client: httpx.AsyncClient,
+) -> None:
+    limit = get_settings().max_request_body_bytes
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"x" * (limit // 2 + 1)
+        yield b"y" * (limit // 2 + 1)
+
+    resp = await client.post(
+        "/api/auth/login",
+        content=body(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 413
+    assert resp.json() == {"detail": "Request body is too large"}
+
+
 # --- production-boot safety (11-H3) ------------------------------------------
 
 
@@ -68,16 +111,18 @@ def test_production_refuses_insecure_cookie() -> None:
             cookie_secure=False,
             cors_origins=["https://app.example.com"],
             db_sslmode="require",
+            min_password_length=12,
         )
 
 
 def test_production_refuses_localhost_cors() -> None:
-    with pytest.raises(ValidationError, match="must not include dev origins"):
+    with pytest.raises(ValidationError, match="exact non-loopback HTTPS origins"):
         Settings(
             environment="production",
             cookie_secure=True,
             cors_origins=["http://localhost:3000"],
             db_sslmode="require",
+            min_password_length=12,
         )
 
 
@@ -88,6 +133,7 @@ def test_production_refuses_empty_cors() -> None:
             cookie_secure=True,
             cors_origins=[],
             db_sslmode="require",
+            min_password_length=12,
         )
 
 
@@ -98,6 +144,40 @@ def test_production_refuses_plaintext_db_sslmode() -> None:
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             db_sslmode="disable",
+            min_password_length=12,
+        )
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "*",
+        "http://app.example.com",
+        "https://127.0.0.1:3000",
+        "https://user:pass@app.example.com",
+        "https://app.example.com/path",
+        "https://app.example.com?debug=1",
+    ],
+)
+def test_production_refuses_non_exact_https_cors(origin: str) -> None:
+    with pytest.raises(ValidationError, match="exact non-loopback HTTPS origins"):
+        Settings(
+            environment="production",
+            cookie_secure=True,
+            cors_origins=[origin],
+            db_sslmode="require",
+            min_password_length=12,
+        )
+
+
+def test_production_requires_twelve_character_password_minimum() -> None:
+    with pytest.raises(ValidationError, match="MIN_PASSWORD_LENGTH"):
+        Settings(
+            environment="production",
+            cookie_secure=True,
+            cors_origins=["https://app.example.com"],
+            db_sslmode="require",
+            min_password_length=11,
         )
 
 
@@ -107,6 +187,7 @@ def test_production_accepts_valid_config() -> None:
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         db_sslmode="require",
+        min_password_length=12,
     )
     assert settings.environment == "production"
 
@@ -116,12 +197,69 @@ def test_docs_gated_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
     monkeypatch.setenv("GOATFARM_DB_SSLMODE", "require")
+    monkeypatch.setenv("GOATFARM_MIN_PASSWORD_LENGTH", "12")
     get_settings.cache_clear()
     try:
         app = create_app()
         assert app.openapi_url is None
         assert app.docs_url is None
         assert app.redoc_url is None
+    finally:
+        get_settings.cache_clear()
+
+
+def _write_rsa_pair(private_path: Path, public_path: Path) -> None:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    public_path.write_bytes(
+        key.public_key().public_bytes(
+            serialization.Encoding.PEM,
+            serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+    )
+
+
+def _production_key_env(monkeypatch: pytest.MonkeyPatch, private: Path, public: Path) -> None:
+    monkeypatch.setenv("GOATFARM_ENVIRONMENT", "production")
+    monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
+    monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
+    monkeypatch.setenv("GOATFARM_DB_SSLMODE", "require")
+    monkeypatch.setenv("GOATFARM_MIN_PASSWORD_LENGTH", "12")
+    monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", str(private))
+    monkeypatch.setenv("GOATFARM_JWT_PUBLIC_KEY_PATH", str(public))
+    get_settings.cache_clear()
+
+
+def test_production_jwt_keys_are_required_at_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _production_key_env(
+        monkeypatch, tmp_path / "missing-private.pem", tmp_path / "missing-public.pem"
+    )
+    try:
+        with pytest.raises(RuntimeError, match="keypair is missing"):
+            validate_jwt_keypair()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_production_jwt_keypair_must_match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    private = tmp_path / "private.pem"
+    unused_public = tmp_path / "unused-public.pem"
+    other_private = tmp_path / "other-private.pem"
+    public = tmp_path / "public.pem"
+    _write_rsa_pair(private, unused_public)
+    _write_rsa_pair(other_private, public)
+    _production_key_env(monkeypatch, private, public)
+    try:
+        with pytest.raises(RuntimeError, match="do not match"):
+            validate_jwt_keypair()
     finally:
         get_settings.cache_clear()
 

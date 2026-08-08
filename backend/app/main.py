@@ -10,13 +10,14 @@ from contextvars import ContextVar
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.middleware.base import RequestResponseEndpoint
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .api import (
@@ -37,7 +38,7 @@ from .api import (
 from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import purge_expired_refresh_sessions
-from .security import prime_dummy_password_hash
+from .security import prime_dummy_password_hash, validate_jwt_keypair
 from .seed import seed_startup
 
 logger = logging.getLogger("goatfarm")
@@ -46,6 +47,64 @@ logger = logging.getLogger("goatfarm")
 # _RequestIdFilter so a user report can be correlated with server logs.
 _request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+class RequestBodyLimitMiddleware:
+    """Bound request bodies both with and without a Content-Length header.
+
+    The receive wrapper counts streamed/chunked bodies before the framework
+    concatenates or JSON-decodes them, preventing an unauthenticated client
+    from turning an otherwise bounded schema field into process-memory DoS.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {name.lower(): value for name, value in scope.get("headers", [])}
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                content_length = int(raw_length)
+            except ValueError:
+                response = JSONResponse(
+                    status_code=400, content={"detail": "Invalid Content-Length"}
+                )
+                await response(scope, receive, send)
+                return
+            if content_length < 0:
+                response = JSONResponse(
+                    status_code=400, content={"detail": "Invalid Content-Length"}
+                )
+                await response(scope, receive, send)
+                return
+            if content_length > self.max_bytes:
+                response = JSONResponse(
+                    status_code=413,
+                    content={"detail": "Request body is too large"},
+                )
+                await response(scope, receive, send)
+                return
+
+        received = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    # Raised while the request is parsed inside FastAPI's
+                    # exception boundary, producing the normal JSON 413.
+                    raise HTTPException(status_code=413, detail="Request body is too large")
+            return message
+
+        await self.app(scope, limited_receive, send)
 
 
 class _RequestIdFilter(logging.Filter):
@@ -75,6 +134,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Schema is owned by Alembic (alembic upgrade head); startup seeds are
     # idempotent reference data, role presets and task backfills.
     logger.info("startup (environment=%s)", get_settings().environment)
+    # Fail before accepting traffic when active/previous production key files
+    # are missing, malformed, weak, duplicate, unreadable, or when the active
+    # pair does not match. Development may generate its active pair here.
+    validate_jwt_keypair()
     # Warm the timing-equalization dummy hash so the first unknown-email
     # login pays no cold-start cost.
     prime_dummy_password_hash()
@@ -161,6 +224,7 @@ def create_app() -> FastAPI:
     )
     app.add_exception_handler(RequestValidationError, request_validation_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -191,6 +255,11 @@ def create_app() -> FastAPI:
         finally:
             _request_id_var.reset(token)
         response.headers["X-Request-ID"] = request_id
+        if request.url.path.startswith("/api/"):
+            # Auth and farm payloads contain private data and bearer-adjacent
+            # state. Shared browsers/proxies must not retain API responses.
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
         return response
 
     app.get("/healthz", include_in_schema=True)(healthz)

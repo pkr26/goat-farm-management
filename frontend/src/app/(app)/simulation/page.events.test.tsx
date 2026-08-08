@@ -138,6 +138,19 @@ function registerApiHandlers(options: {
     http.get("/api/simulation/scenarios", () =>
       HttpResponse.json(options.scenarios ?? []),
     ),
+    http.get("/api/simulation/herd-snapshot", () =>
+      HttpResponse.json({
+        does: 48,
+        bucks: 3,
+        f_kids: 4,
+        f_weaners: 5,
+        f_growers: 6,
+        m_kids: 3,
+        m_weaners: 2,
+        m_growers: 1,
+        total_head: 72,
+      }),
+    ),
     http.post("/api/simulation/run", async ({ request }) => {
       options.onRun?.((await request.json()) as RunBody);
       return HttpResponse.json(options.runResult ?? RESULT);
@@ -196,7 +209,7 @@ describe("SimulationPage herd events", () => {
     await user.type(monthInput, "999");
 
     expect(
-      await screen.findByText("Event 1: month must be a whole number between 1 and 60."),
+      await screen.findByText("Must be at most 60."),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
@@ -214,7 +227,7 @@ describe("SimulationPage herd events", () => {
     await user.type(countInput, "0");
 
     expect(
-      await screen.findByText("Event 1: count must be a positive whole number."),
+      await screen.findByText("Must be greater than 0."),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
@@ -290,7 +303,7 @@ describe("SimulationPage herd events", () => {
 });
 
 describe("SimulationPage numeric input guards", () => {
-  it("clearing an assumptions number keeps the stored value instead of writing 0", async () => {
+  it("marks a required assumption blank and blocks the run without writing 0", async () => {
     const captured: { body: RunBody | null } = { body: null };
     const user = userEvent.setup();
     await renderLoaded({
@@ -303,23 +316,17 @@ describe("SimulationPage numeric input guards", () => {
     expect(rateInput).toHaveValue(0.12);
 
     await user.clear(rateInput);
-    // Blank while editing — the stored 0.12 is untouched (was: silent 0).
+    // Blank remains visibly invalid instead of silently becoming zero.
     expect(rateInput).toHaveValue(null);
-    // On blur the field snaps back to the stored value.
     await user.tab();
-    expect(rateInput).toHaveValue(0.12);
+    expect(rateInput).toHaveValue(null);
+    expect(screen.getByText("A value is required.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
-    const finance = (
-      captured.body?.assumptions as {
-        finance?: { interest_rate_annual?: number };
-      }
-    ).finance;
-    expect(finance?.interest_rate_annual).toBe(0.12);
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+    expect(captured.body).toBeNull();
   });
 
-  it("clearing an event month keeps the stored month and stays runnable", async () => {
+  it("marks a required event month blank and blocks the run", async () => {
     const captured: { body: RunBody | null } = { body: null };
     const user = userEvent.setup();
     await renderLoaded({
@@ -333,12 +340,10 @@ describe("SimulationPage numeric input guards", () => {
     await user.clear(monthInput);
 
     expect(monthInput).toHaveValue(null);
-    // No phantom validation error from a coerced 0.
-    expect(screen.queryByText(/Event 1: month must/)).not.toBeInTheDocument();
+    expect(screen.getByText("A value is required.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
-    expect(captured.body?.assumptions.events?.[0]).toMatchObject({ month: 12 });
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+    expect(captured.body).toBeNull();
   });
 
   it("clears price per head back to null (auto) instead of storing 0", async () => {
@@ -360,6 +365,55 @@ describe("SimulationPage numeric input guards", () => {
     expect(captured.body?.assumptions.events?.[0]).toMatchObject({
       price_per_head: null,
     });
+  });
+
+  it("keeps an invalid event draft blocked when current herd assumptions are loaded", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    const count = screen.getByLabelText("Count");
+    await user.clear(count);
+    await user.type(count, "0");
+    expect(await screen.findByText("Must be greater than 0.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Use current herd" }));
+
+    expect(count).toHaveValue(0);
+    expect(screen.getByText("Must be greater than 0.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+  });
+
+  it("a horizon preset replaces an invalid draft and clears its run gate", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const horizon = screen.getByLabelText("Horizon Months");
+    await user.clear(horizon);
+    await user.type(horizon, "999");
+    expect(await screen.findByText("Must be at most 240.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "10 yr" }));
+
+    expect(screen.getByLabelText("Horizon Months")).toHaveValue(120);
+    expect(screen.queryByText("Must be at most 240.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
+  it("removing another event preserves an invalid draft and its run gate", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    const counts = screen.getAllByLabelText("Count");
+    await user.clear(counts[1]);
+    expect(await screen.findByText("A value is required.")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+
+    expect(screen.getAllByLabelText("Count")).toHaveLength(1);
+    expect(screen.getByLabelText("Count")).toHaveValue(null);
+    expect(screen.getByText("A value is required.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
   });
 });
 

@@ -6,6 +6,7 @@
  */
 
 export interface WorkerCreateIn {
+  /** @maxLength 254 */
   email: string;
   password?: string | null;
   name?: string | null;

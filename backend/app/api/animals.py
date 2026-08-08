@@ -1,9 +1,10 @@
 """Animals module: list/filters, create, profile, bucket moves, weights, status."""
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,9 +43,11 @@ from ..services import (
     generate_unique_tag,
     mark_aborted,
     move_animal,
+    require_bucket_transition,
     skip_pending_tasks_for_animal,
 )
-from ..utils import today
+from ..utils import money, today
+from ._shared import animal_out
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
 
@@ -82,7 +85,12 @@ async def _get_animal(
     return animal
 
 
-async def _animal_out(db: AsyncSession, animal: Animal) -> AnimalOut:
+async def _animal_out(
+    db: AsyncSession,
+    animal: Animal,
+    reference_date: date,
+    timezone_name: str,
+) -> AnimalOut:
     """AnimalOut with computed fields (age, latest weight, pregnancy state...).
     Expire + re-select so relationships are freshly selectin-loaded — FK-only
     child inserts (weight/move) leave previously loaded collections stale, and
@@ -92,7 +100,7 @@ async def _animal_out(db: AsyncSession, animal: Animal) -> AnimalOut:
     result = await db.execute(
         select(Animal).options(*ANIMAL_OUT_LOADS).where(Animal.id == animal_id)
     )
-    return AnimalOut.model_validate(result.scalar_one())
+    return animal_out(result.scalar_one(), reference_date, timezone_name)
 
 
 @router.get("")
@@ -120,17 +128,25 @@ async def list_animals(
         # Escape LIKE wildcards: a literal "%"/"_" in the query
         # must match itself, not act as a pattern metacharacter.
         escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        stmt = stmt.where(Animal.tag_number.ilike(f"%{escaped}%", escape="\\"))
+        pattern = f"%{escaped}%"
+        stmt = stmt.where(
+            or_(
+                Animal.tag_number.ilike(pattern, escape="\\"),
+                Animal.name.ilike(pattern, escape="\\"),
+            )
+        )
     stmt = stmt.order_by(Animal.current_bucket, Animal.tag_number)
     if limit is None and offset == 0:
         # Default (unpaginated) behavior: the full filtered list, as always.
         result = await db.execute(stmt.options(*ANIMAL_OUT_LOADS))
-        animals = [AnimalOut.model_validate(a) for a in result.scalars()]
+        reference_date = today(farm.timezone)
+        animals = [animal_out(a, reference_date, farm.timezone) for a in result.scalars()]
         return AnimalListOut(animals=animals, total=len(animals))
     # Paginated: `total` stays the full filtered count so clients can page.
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     result = await db.execute(stmt.options(*ANIMAL_OUT_LOADS).offset(offset).limit(limit))
-    animals = [AnimalOut.model_validate(a) for a in result.scalars()]
+    reference_date = today(farm.timezone)
+    animals = [animal_out(a, reference_date, farm.timezone) for a in result.scalars()]
     return AnimalListOut(animals=animals, total=total)
 
 
@@ -158,6 +174,7 @@ async def create_animal(
     # forbidden sync refresh on the async session (MissingGreenlet 500
     # instead of the intended retry).
     farm_id = farm.id
+    farm_timezone = farm.timezone
     user_id = user.id
     attempts = 1 if tag_number else 2
     for attempt in range(attempts):
@@ -176,7 +193,9 @@ async def create_animal(
             breed=payload.breed.strip() or "Osmanabadi",
             birth_weight=payload.birth_weight,
             purchase_date=payload.purchase_date,
-            purchase_price=payload.purchase_price,
+            purchase_price=money(payload.purchase_price)
+            if payload.purchase_price is not None
+            else None,
             seller_name=(payload.seller_name or "").strip() or None,
             notes=(payload.notes or "").strip() or None,
             status=AnimalStatus.ACTIVE.value,
@@ -197,14 +216,33 @@ async def create_animal(
                 db.add(
                     WeightRecord(
                         animal_id=animal.id,
-                        date=today(),
+                        date=today(farm_timezone),
                         weight_kg=payload.weight_kg,
                         notes="Entry weight",
                         created_by_id=user_id,
                     )
                 )
+            # Individual and batch purchase entry points must have identical
+            # ledger semantics. An explicitly supplied ₹0 is still a factual
+            # purchase amount and receives an auditable source-linked row.
+            if payload.source == "PURCHASED" and payload.purchase_price is not None:
+                db.add(
+                    Transaction(
+                        farm_id=farm_id,
+                        date=payload.purchase_date or today(farm_timezone),
+                        type=TransactionType.EXPENSE.value,
+                        category=TransactionCategory.ANIMAL_PURCHASE.value,
+                        amount=money(payload.purchase_price),
+                        related_animal_id=animal.id,
+                        notes=f"Purchase of {animal.tag_number}"
+                        + (f" from {animal.seller_name}" if animal.seller_name else ""),
+                        created_by_id=user_id,
+                        source_type="ANIMAL_PURCHASE",
+                        source_id=animal.id,
+                    )
+                )
             await db.commit()
-            return await _animal_out(db, animal)
+            return await _animal_out(db, animal, today(farm_timezone), farm_timezone)
         except IntegrityError:
             # A concurrent insert won the tag race past the pre-check above
             # (uq_animal_tag_per_farm) — answer exactly like the pre-check,
@@ -256,9 +294,10 @@ async def animal_profile(
             reverse=True,
         )
     ]
+    reference_date = today(farm.timezone)
     return AnimalProfileOut(
-        animal=AnimalOut.model_validate(animal),
-        kids=[AnimalOut.model_validate(k) for k in kids_result.scalars()],
+        animal=animal_out(animal, reference_date, farm.timezone),
+        kids=[animal_out(k, reference_date, farm.timezone) for k in kids_result.scalars()],
         weights=[WeightRecordOut.model_validate(w) for w in weights_result.scalars()],
         moves=[BucketMoveOut.model_validate(m) for m in moves_result.scalars()],
         health_events=[HealthEventOut.model_validate(e) for e in health_result.scalars()],
@@ -275,14 +314,25 @@ async def move_bucket(
     user: CurrentUser,
     _perms: Annotated[set[str], Depends(require_perm("animals.move"))],
 ) -> AnimalOut:
-    animal = await _get_animal(db, farm.id, animal_id)
-    # Dead/sold/culled animals are out of the herd lifecycle — no moves.
-    if animal.status != AnimalStatus.ACTIVE.value:
+    # Lock the animal before checking its lifecycle state; status, move and
+    # weight writes must serialize rather than append an after-the-fact move.
+    animal = await _get_animal(db, farm.id, animal_id, for_update=True)
+    try:
+        require_bucket_transition(animal, payload.to_bucket)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    # Batch quarantine can only be released by its guarded day-45 task. A
+    # standalone manually entered animal has no protocol task and remains
+    # movable for historical-data correction.
+    if (
+        animal.current_bucket == Bucket.QUARANTINE.value
+        and payload.to_bucket == Bucket.FOUNDATION.value
+        and animal.purchase_batch_id is not None
+    ):
         raise HTTPException(
-            status_code=400,
-            detail=f"{animal.tag_number} is {animal.status.lower()} — cannot move buckets.",
+            status_code=409,
+            detail="Purchased quarantine animals must be released through the guarded batch task",
         )
-    # move_animal carries the v1 guards (non-ACTIVE / same-bucket no-op).
     move_animal(
         db,
         animal,
@@ -291,7 +341,7 @@ async def move_bucket(
         created_by_id=user.id,
     )
     await db.commit()
-    return await _animal_out(db, animal)
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone)
 
 
 @router.post("/{animal_id}/weight", status_code=201)
@@ -303,7 +353,7 @@ async def record_weight(
     user: CurrentUser,
     _perms: Annotated[set[str], Depends(require_perm("animals.weight"))],
 ) -> WeightRecordOut:
-    animal = await _get_animal(db, farm.id, animal_id)
+    animal = await _get_animal(db, farm.id, animal_id, for_update=True)
     if animal.status != AnimalStatus.ACTIVE.value:
         raise HTTPException(
             status_code=400,
@@ -312,7 +362,7 @@ async def record_weight(
     # finite/positive/future-date/bcs-range guards from v1 live in WeightIn's validators.
     record = WeightRecord(
         animal_id=animal.id,
-        date=payload.date or today(),
+        date=payload.date or today(farm.timezone),
         weight_kg=payload.weight_kg,
         bcs=payload.bcs,
         notes=(payload.notes or "").strip() or None,
@@ -341,10 +391,29 @@ async def change_status(
             status_code=400,
             detail=f"{animal.tag_number} is already {animal.status.lower()}.",
         )
-    status_date = payload.date or today()
+    if payload.new_status in (AnimalStatus.SOLD.value, AnimalStatus.CULLED.value) and (
+        animal.movement_restricted or animal.suspected_scheduled_disease
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Sale/cull is blocked by an active movement restriction; "
+                "record an authorised health clearance first"
+            ),
+        )
+    status_date = payload.date or today(farm.timezone)
     animal.status = payload.new_status
     animal.status_date = status_date
     animal.status_notes = (payload.notes or "").strip() or None
+    if payload.new_status == AnimalStatus.DEAD.value:
+        animal.mortality_cause = (payload.mortality_cause or "").strip() or None
+        animal.mortality_reported_at = payload.mortality_reported_at
+        if payload.suspected_scheduled_disease:
+            animal.suspected_scheduled_disease = True
+            animal.suspected_disease = (payload.suspected_disease or "").strip() or None
+            animal.authority_notified_at = payload.authority_notified_at
+            animal.movement_restricted = True
+            animal.restriction_reason = "Scheduled-disease suspicion recorded with mortality"
     # new_status is never ACTIVE here: clear the cull flag and stop the
     # animal's pending tasks (a dead/sold animal must not generate work).
     animal.cull_candidate = False
@@ -390,12 +459,14 @@ async def change_status(
         # Move-by-sex mirrors the natural weaning transition in
         # complete_task (WEANING).
         orphans_result = await db.execute(
-            select(Animal).where(
+            select(Animal)
+            .where(
                 Animal.farm_id == farm.id,
                 Animal.dam_id == animal.id,
                 Animal.status == AnimalStatus.ACTIVE.value,
                 Animal.current_bucket == Bucket.RECOVERY.value,
             )
+            .with_for_update()
         )
         orphan_reason = f"Dam marked {payload.new_status.lower()} — early wean"
         for kid in orphans_result.scalars():
@@ -405,21 +476,23 @@ async def change_status(
     await skip_pending_tasks_for_animal(db, farm.id, animal.id)
 
     if payload.new_status == AnimalStatus.SOLD.value:
-        animal.sale_price = payload.sale_price
+        animal.sale_price = money(payload.sale_price) if payload.sale_price is not None else None
         animal.buyer_name = (payload.buyer_name or "").strip() or None
-        if payload.sale_price and payload.sale_price > 0:
+        if payload.sale_price is not None:
             db.add(
                 Transaction(
                     farm_id=farm.id,
                     date=status_date,
                     type=TransactionType.INCOME.value,
                     category=TransactionCategory.ANIMAL_SALE.value,
-                    amount=payload.sale_price,
+                    amount=money(payload.sale_price),
                     related_animal_id=animal.id,
                     notes=f"Sale of {animal.tag_number}"
                     + (f" to {animal.buyer_name}" if animal.buyer_name else ""),
                     created_by_id=user.id,
+                    source_type="ANIMAL_SALE",
+                    source_id=animal.id,
                 )
             )
     await db.commit()
-    return await _animal_out(db, animal)
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone)

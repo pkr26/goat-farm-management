@@ -3,7 +3,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .breeding import BreedingRecordOut
 from .common import BoundedId, NonNegativeWeightKgFloat, PastOrTodayDate
@@ -18,6 +18,13 @@ class KidIn(BaseModel):
     sex: Literal["M", "F"]
     birth_weight: NonNegativeWeightKgFloat | None = None
     status: KidStatusStr = "ALIVE"
+    mortality_reported_at: PastOrTodayDate | None = None
+
+    @model_validator(mode="after")
+    def _mortality_report_only_for_died_kid(self) -> "KidIn":
+        if self.status != "DIED" and self.mortality_reported_at is not None:
+            raise ValueError("mortality_reported_at is only valid when kid status is DIED")
+        return self
 
 
 class KiddingCreateIn(BaseModel):
@@ -38,6 +45,7 @@ class KidEntryOut(BaseModel):
     sex: str
     birth_weight: float | None
     status: str
+    mortality_reported_at: date | None
     animal_id: int | None
 
 
@@ -58,3 +66,6 @@ class KiddingListOut(BaseModel):
     records: list[KiddingRecordOut]
     upcoming: list[BreedingRecordOut]  # confirmed, due within 30 days, not overdue
     overdue: list[BreedingRecordOut]  # confirmed, past expected kidding date
+    total: int
+    limit: int
+    offset: int

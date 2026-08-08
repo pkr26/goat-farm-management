@@ -21,7 +21,7 @@ from ..models import (
     expected_kidding_date,
     planned_ultrasound_date,
 )
-from ..utils import utcnow
+from ..utils import today, utcnow
 from ._common import _add_task, _kidding_record_of, _load_doe, _pending_tasks_for
 from .animals import move_animal
 
@@ -62,27 +62,27 @@ async def breeding_candidate_does(db: AsyncSession, farm: Farm) -> list[Animal]:
         for doe_id, outcome, kidding_id in open_result.all()
         if outcome == BreedingOutcome.PENDING.value or kidding_id is None
     }
-    return [d for d in does if is_breeding_candidate(d, has_open_breeding=d.id in busy_doe_ids)]
-
-
-def is_breeding_candidate(doe: Animal, *, has_open_breeding: bool) -> bool:
-    """One-doe form of the candidate predicate, shared by the picker query
-    above and create_breeding's targeted membership check."""
-    if has_open_breeding:
-        return False
-    return bool(
-        doe.is_breeding_ready
-        or (
-            # Re-breeding branch: a doe already in the BREEDING bucket needs
-            # only age ≥10 months — deliberately no ≥22 kg weight floor
-            # (she was weighed in at her first breeding; re-weighing is not
-            # part of the farm's heat-cycle routine). Diverges from the
-            # README's first-breeding criteria on purpose.
-            doe.current_bucket == Bucket.BREEDING.value
-            and not doe.is_currently_pregnant
-            and (doe.age_months or 0) >= 10
+    reference_date = today(farm.timezone)
+    return [
+        d
+        for d in does
+        if is_breeding_candidate(
+            d,
+            has_open_breeding=d.id in busy_doe_ids,
+            reference_date=reference_date,
         )
-    )
+    ]
+
+
+def is_breeding_candidate(
+    doe: Animal, *, has_open_breeding: bool, reference_date: date | None = None
+) -> bool:
+    """Canonical picker and write-path predicate for a doe.
+
+    Re-service after a failed cycle is allowed from BREEDING, but it retains
+    the exact same age/weight/pregnancy requirements as first service.
+    """
+    return not has_open_breeding and doe.is_breeding_eligible_on(reference_date or today())
 
 
 async def doe_has_open_breeding(db: AsyncSession, doe_id: int) -> bool:
@@ -112,6 +112,9 @@ async def create_breeding_record(
     heat_cycle_number: int = 1,
     created_by_id: int | None = None,
 ) -> BreedingRecord:
+    for animal, role in ((doe, "Doe"), (buck, "Buck")):
+        if animal.effective_dob and breeding_date < animal.effective_dob:
+            raise ValueError(f"{role} breeding chronology cannot predate its recorded birth date")
     history = await db.execute(
         select(BreedingRecord)
         .options(selectinload(BreedingRecord.kidding_record))
@@ -158,6 +161,7 @@ async def record_ultrasound_result(
     br: BreedingRecord,
     pregnant: bool,
     kid_count: int | None = None,
+    result_date: date | None = None,
     created_by_id: int | None = None,
 ) -> BreedingRecord:
     """Record ultrasound outcome. Pregnant → CONFIRMED_PREGNANT + 3 follow-up
@@ -179,7 +183,14 @@ async def record_ultrasound_result(
         raise ValueError(
             f"{doe.tag_number} is {doe.status.lower()} — cannot record an ultrasound result"
         )
+    if (
+        result_date is not None
+        and br.ultrasound_date is not None
+        and result_date < br.ultrasound_date
+    ):
+        raise ValueError("Ultrasound result cannot predate its planned check date")
     br.ultrasound_done = True
+    br.ultrasound_result_date = result_date
     br.pregnant = pregnant
     br.kid_count_detected = kid_count if pregnant else None
 
@@ -282,5 +293,8 @@ async def mark_aborted(db: AsyncSession, br: BreedingRecord) -> BreedingRecord:
     for task in await _pending_tasks_for(db, br.farm_id, for_update=True, breeding_record_id=br.id):
         if task.status == TaskStatus.PENDING.value:
             task.status = TaskStatus.SKIPPED.value
+            task.skipped_by_id = None
+            task.skipped_at = utcnow()
+            task.skip_reason = "Pregnancy aborted"
     await db.flush()
     return br

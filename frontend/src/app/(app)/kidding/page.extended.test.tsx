@@ -15,7 +15,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, utcToday } from "@/lib/format";
+import { addDays, farmToday } from "@/lib/format";
 
 import KiddingPage from "./page";
 
@@ -43,15 +43,12 @@ beforeAll(() => {
 
 /** UTC-relative fixture dates: the page compares against utcToday()
  *, so browser-local fixtures drift a day near midnight. */
-const TODAY = utcToday();
+const TODAY = farmToday();
 
 /** Browser-local today — matches the forms' write-side date defaults (the
  * backend accepts one day of headroom, so writes stay local). */
 function localTodayISO(): string {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return farmToday();
 }
 function daysFromToday(delta: number): string {
   return addDays(TODAY, delta);
@@ -66,6 +63,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     method: "NATURAL",
     heat_cycle_number: 1,
     ultrasound_date: "2026-04-02",
+    ultrasound_result_date: null,
     ultrasound_done: true,
     pregnant: true,
     kid_count_detected: 2,
@@ -100,8 +98,24 @@ const HISTORY = makeKidding({
   ease: "ASSISTED",
   notes: "big twins",
   kids: [
-    { id: 1, tag: "G-101", sex: "F", birth_weight: 2.4, status: "ALIVE", animal_id: 55 },
-    { id: 2, tag: null, sex: "M", birth_weight: null, status: "STILLBORN", animal_id: null },
+    {
+      id: 1,
+      tag: "G-101",
+      sex: "F",
+      birth_weight: 2.4,
+      status: "ALIVE",
+      mortality_reported_at: null,
+      animal_id: 55,
+    },
+    {
+      id: 2,
+      tag: null,
+      sex: "M",
+      birth_weight: null,
+      status: "STILLBORN",
+      mortality_reported_at: null,
+      animal_id: null,
+    },
   ],
 });
 
@@ -118,12 +132,22 @@ describe("KiddingPage", () => {
     records: KiddingRecordOut[];
     upcoming: BreedingRecordOut[];
     overdue: BreedingRecordOut[];
+    total: number;
+    limit: number;
+    offset: number;
   };
 
   beforeEach(() => {
     listCalls = 0;
     postBody = null;
-    payload = { records: [HISTORY], upcoming: [UPCOMING_REC], overdue: [OVERDUE_REC] };
+    payload = {
+      records: [HISTORY],
+      upcoming: [UPCOMING_REC],
+      overdue: [OVERDUE_REC],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    };
     server.use(
       http.get("/api/kidding", () => {
         listCalls += 1;

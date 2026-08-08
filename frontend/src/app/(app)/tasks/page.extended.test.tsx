@@ -17,7 +17,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, utcToday } from "@/lib/format";
+import { addDays, farmToday, formatFarmDateTime } from "@/lib/format";
 
 import TasksPage from "./page";
 
@@ -43,17 +43,12 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-/** UTC-relative fixture dates: the page compares against utcToday()
- *, so browser-local fixtures drift a day near midnight. */
-const TODAY = utcToday();
+/** Farm-calendar fixture dates: operational due dates follow the active farm timezone. */
+const TODAY = farmToday();
 
-/** Browser-local today — matches the create form's write-side date default
- * (the backend accepts one day of headroom, so writes stay local). */
+/** Matches the create form's farm-calendar date default. */
 function localTodayISO(): string {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
+  return farmToday();
 }
 const THREE_DAYS_AGO = addDays(TODAY, -3);
 const NEXT_WEEK = addDays(TODAY, 7);
@@ -72,12 +67,15 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     assigned_role_id: null,
     assigned_user_id: null,
     recur_days: null,
+    recurring_series_id: null,
     completed_by_id: null,
     completed_at: null,
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
     skipped_by_id: null,
+    skipped_at: null,
+    skip_reason: null,
     action_url: null,
     ...overrides,
   };
@@ -151,6 +149,9 @@ type TabsPayload = {
   upcoming: TaskOut[];
   awaiting: TaskOut[];
   completed: TaskOut[];
+  completed_total: number;
+  completed_limit: number;
+  completed_offset: number;
 };
 
 function fullPayload(): TabsPayload {
@@ -160,6 +161,9 @@ function fullPayload(): TabsPayload {
     upcoming: [UPCOMING_TASK],
     awaiting: [AWAITING_TASK],
     completed: [AWAITING_TASK, VERIFIED_TASK],
+    completed_total: 2,
+    completed_limit: 50,
+    completed_offset: 0,
   };
 }
 
@@ -196,6 +200,12 @@ describe("TasksPage (extended)", () => {
         teamCalls += 1;
         return HttpResponse.json(TEAM_PAYLOAD);
       }),
+      http.get("/api/animals", () =>
+        HttpResponse.json({
+          animals: [{ id: 7, tag_number: "G-007", name: "Radha" }],
+          total: 1,
+        }),
+      ),
       http.post("/api/tasks", async ({ request }) => {
         createBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeTask({ id: 50 }), { status: 201 });
@@ -232,7 +242,7 @@ describe("TasksPage (extended)", () => {
     expect(
       screen.getByRole("tab", { name: "Awaiting verification (1)" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Completed" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Completed (2)" })).toBeInTheDocument();
   });
 
   it("hides the verification tabs without tasks.verify", async () => {
@@ -241,7 +251,7 @@ describe("TasksPage (extended)", () => {
     expect(
       screen.queryByRole("tab", { name: /Awaiting verification/ }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Completed" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Completed (2)" })).toBeInTheDocument();
   });
 
   it("switches tabs to show their tasks", async () => {
@@ -294,23 +304,61 @@ describe("TasksPage (extended)", () => {
   it("completed tab shows status, awaiting marker and formatted completion time", async () => {
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("tab", { name: "Completed" }));
+    await user.click(screen.getByRole("tab", { name: "Completed (2)" }));
 
     const awaitingRow = rowOf("Deep-clean kidding pen");
     expect(within(awaitingRow).getByText("DONE")).toBeInTheDocument();
     expect(within(awaitingRow).getByText("awaiting")).toBeInTheDocument();
-    // completed_at is naive UTC: the cell renders that instant in local time
-    // (was: the naive string passed off as browser-local).
-    const expectedCompletedAt = (() => {
-      const d = new Date("2026-08-05T14:07:00Z");
-      const p = (n: number) => String(n).padStart(2, "0");
-      return `${p(d.getDate())}-${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
-    })();
+    // completed_at is naive UTC and renders in the active farm's timezone.
+    const expectedCompletedAt = formatFarmDateTime("2026-08-05T14:07:00");
     expect(within(awaitingRow).getByText(expectedCompletedAt)).toBeInTheDocument();
 
     const verifiedRow = rowOf("Weekly sweep");
     expect(within(verifiedRow).getByText("VERIFIED")).toBeInTheDocument();
     expect(within(verifiedRow).queryByText("awaiting")).not.toBeInTheDocument();
+  });
+
+  it("shows skipped timestamps and reasons in completed history", async () => {
+    payload.completed = [
+      makeTask({
+        id: 20,
+        title: "Evening ration check",
+        status: "SKIPPED",
+        skipped_at: "2026-08-05T13:00:00",
+        skip_reason: "No animals in pen",
+      }),
+    ];
+    payload.completed_total = 1;
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("tab", { name: "Completed (1)" }));
+
+    const row = rowOf("Evening ration check");
+    expect(within(row).getByText("SKIPPED")).toBeInTheDocument();
+    expect(within(row).getByText("Reason: No animals in pen")).toBeInTheDocument();
+    expect(within(row).getByText(formatFarmDateTime("2026-08-05T13:00:00"))).toBeInTheDocument();
+  });
+
+  it("pages completed history using the backend total", async () => {
+    let requestedOffset = "";
+    server.use(
+      http.get("/api/tasks", ({ request }) => {
+        listCalls += 1;
+        requestedOffset = new URL(request.url).searchParams.get("completed_offset") ?? "";
+        return HttpResponse.json({
+          ...payload,
+          completed_total: 120,
+          completed_limit: 50,
+          completed_offset: Number(requestedOffset || 0),
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("tab", { name: "Completed (120)" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() => expect(requestedOffset).toBe("50"));
   });
 
   it("shows the server error detail when tasks fail to load", async () => {
@@ -379,11 +427,29 @@ describe("TasksPage (extended)", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
+    await user.click(await screen.findByRole("button", { name: "Skip task" }));
 
     await waitFor(() =>
-      expect(actionCalls).toContainEqual({ action: "skip", taskId: "1", body: null }),
+      expect(actionCalls).toContainEqual({ action: "skip", taskId: "1", body: { reason: null } }),
     );
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
+  });
+
+  it("records a trimmed skip reason in the task audit history", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
+    const dialog = await screen.findByRole("dialog", { name: "Skip this task?" });
+    await user.type(within(dialog).getByLabelText("Reason (optional)"), "  feed already issued  ");
+    await user.click(within(dialog).getByRole("button", { name: "Skip task" }));
+
+    await waitFor(() =>
+      expect(actionCalls).toContainEqual({
+        action: "skip",
+        taskId: "1",
+        body: { reason: "feed already issued" },
+      }),
+    );
   });
 
   it("does not refetch when skipping fails on the server", async () => {
@@ -397,6 +463,7 @@ describe("TasksPage (extended)", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
+    await user.click(await screen.findByRole("button", { name: "Skip task" }));
 
     await waitFor(() => expect(failed).toBe(1));
     expect(listCalls).toBe(1);
@@ -542,11 +609,36 @@ describe("TasksPage (extended)", () => {
       due_date: localTodayISO(),
       category: "OTHER",
       recur_days: null,
+      animal_id: null,
       assigned_role_id: null,
       assigned_user_id: null,
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
+  });
+
+  it("links a manually created duty to an authorised animal", async () => {
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/title/i), "Check Radha");
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Animal (optional)" }),
+      "G-007 — Radha",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
+
+    await waitFor(() => expect(createBody).not.toBeNull());
+    expect(createBody).toMatchObject({ animal_id: 7 });
+  });
+
+  it("explains why the animal selector is unavailable without animals.view", async () => {
+    server.use(permissionsHandler(["tasks.view", "tasks.create", "tasks.complete"]));
+    const { dialog } = await openDialog();
+
+    expect(within(dialog).queryByLabelText("Animal (optional)")).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/don't have animal access.*without an animal link/i),
+    ).toBeInTheDocument();
   });
 
   it("accepts the boundary recurrence of 3650 days", async () => {
@@ -567,14 +659,14 @@ describe("TasksPage (extended)", () => {
     await user.type(within(dialog).getByLabelText(/title/i), "Herd check");
 
     const combos = () => within(dialog).getAllByRole("combobox");
-    // Order: category, role, worker. Pick a worker first, then a role — the
+    // Order: category, animal, role, worker. Pick a worker first, then a role — the
     // role selection clears the worker.
-    await pickOption(user, combos()[2], /Raju \(Vet\)/);
-    await pickOption(user, combos()[1], "Vet");
+    await pickOption(user, combos()[3], /Raju \(Vet\)/);
+    await pickOption(user, combos()[2], "Vet");
 
     // Closed triggers show labels, not raw ids; picking a role cleared the worker.
-    expect(combos()[1]).toHaveTextContent("Vet");
-    expect(combos()[2]).toHaveTextContent("— none —");
+    expect(combos()[2]).toHaveTextContent("Vet");
+    expect(combos()[3]).toHaveTextContent("— none —");
 
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
     await waitFor(() => expect(createBody).not.toBeNull());
@@ -583,7 +675,7 @@ describe("TasksPage (extended)", () => {
 
   it("lists only active workers in the worker select", async () => {
     const { user, dialog } = await openDialog();
-    const workerSelect = within(dialog).getAllByRole("combobox")[2];
+    const workerSelect = within(dialog).getAllByRole("combobox")[3];
     await user.click(workerSelect);
     const options = await screen.findAllByRole("option");
     const names = options.map((o) => o.textContent ?? "");

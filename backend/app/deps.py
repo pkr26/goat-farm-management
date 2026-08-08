@@ -14,7 +14,7 @@ from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, User
 from .permissions import ALL_PERMISSIONS
 from .schemas.common import MAX_INT32_ID
-from .security import decode_token
+from .security import decode_access_claims
 from .utils import utcnow
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -31,12 +31,14 @@ async def current_user(
 ) -> User:
     if not authorization or not authorization.startswith("Bearer "):
         raise _unauthenticated("Missing bearer token")
-    user_id = decode_token(authorization.removeprefix("Bearer "), "access")
-    if user_id is None:
+    claims = decode_access_claims(authorization.removeprefix("Bearer "))
+    if claims is None:
         raise _unauthenticated("Invalid or expired token")
-    user = await db.get(User, user_id)
+    user = await db.get(User, claims.user_id)
     if user is None:
         raise _unauthenticated("Account no longer exists")
+    if user.token_version != claims.token_version:
+        raise _unauthenticated("Session has been revoked")
     return user
 
 

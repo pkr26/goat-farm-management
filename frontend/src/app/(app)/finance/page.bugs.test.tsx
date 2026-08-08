@@ -32,6 +32,9 @@ vi.mock("next/navigation", () => ({
 
 const PAYLOAD = {
   transactions: [],
+  transactions_total: 0,
+  limit: 50,
+  offset: 0,
   total_income: 0,
   total_expense: 0,
   pnl: [{ month: "2026-01", income: 100, expense: 0, net: 100, categories: {} }],

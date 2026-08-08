@@ -8,13 +8,14 @@ field now has a domain cap (money ≤ ₹1e9, feed quantities ≤ 1e6 kg, weight
 """
 
 import json
-import math
 from datetime import date, timedelta
 
 import httpx
+import pytest
+from sqlalchemy.exc import DBAPIError
 
 from app.db import get_sessionmaker
-from app.models import Transaction, TransactionType
+from app.models import Transaction
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -106,7 +107,7 @@ async def test_health_cost_bounds(client: httpx.AsyncClient) -> None:
     for bad in (1e308, 1e309, MONEY_CAP + 0.01, float("nan")):
         resp = await post_raw_json(client, "/api/health/events", base | {"cost": bad}, owner)
         assert resp.status_code == 422, bad
-    assert (await client.get("/api/health/events", headers=owner)).json() == []
+    assert (await client.get("/api/health/events", headers=owner)).json()["events"] == []
     resp = await client.post("/api/health/events", json=base | {"cost": MONEY_CAP}, headers=owner)
     assert resp.status_code == 201, resp.text
 
@@ -225,12 +226,16 @@ async def test_animal_create_weight_bounds(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     base = {"tag_number": "G-1", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"}
     for field in ("birth_weight", "weight_kg"):
+        # Birth weight is valid only for a farm-born animal; entry weight is
+        # valid for either source. Keep the fixture provenance coherent so
+        # this test reaches the numeric boundary it is intended to exercise.
+        field_base = base | ({"source": "BORN"} if field == "birth_weight" else {})
         for bad in (1e308, 1e309, WEIGHT_KG_CAP + 0.5, float("nan")):
-            resp = await post_raw_json(client, "/api/animals", base | {field: bad}, owner)
+            resp = await post_raw_json(client, "/api/animals", field_base | {field: bad}, owner)
             assert resp.status_code == 422, (field, bad)
         resp = await client.post(
             "/api/animals",
-            json=base | {"tag_number": f"OK-{field}", field: WEIGHT_KG_CAP},
+            json=field_base | {"tag_number": f"OK-{field}", field: WEIGHT_KG_CAP},
             headers=owner,
         )
         assert resp.status_code == 201, (field, resp.text)
@@ -306,7 +311,7 @@ async def test_purchase_avg_weight_bounds(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Defense in depth: rows poisoned before the bounds existed
+# Defense in depth: the exact-money database type rejects poisoned rows
 # ---------------------------------------------------------------------------
 async def test_finance_survives_previously_poisoned_rows(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
@@ -317,32 +322,28 @@ async def test_finance_survives_previously_poisoned_rows(client: httpx.AsyncClie
             headers=owner,
         )
         assert resp.status_code == 201, resp.text
-    # Legacy poison, straight into the DB (the API can no longer write these).
+    # The legacy Float schema could store non-finite values. The hardening
+    # migration sanitizes those rows before converting to NUMERIC(14, 2);
+    # after migration even a direct ORM write is rejected by PostgreSQL.
     farm_id = int(owner["X-Farm-Id"])
-    async with get_sessionmaker()() as db:
-        for type_, amount in (
-            (TransactionType.INCOME.value, float("inf")),
-            (TransactionType.EXPENSE.value, float("nan")),
-        ):
+    for amount in (float("inf"), float("nan")):
+        async with get_sessionmaker()() as db:
             db.add(
                 Transaction(
                     farm_id=farm_id,
                     date=today(),
-                    type=type_,
+                    type="INCOME",
                     category="OTHER",
                     amount=amount,
                 )
             )
-        await db.commit()
+            with pytest.raises(DBAPIError):
+                await db.commit()
+            await db.rollback()
 
     resp = await client.get("/api/finance", headers=owner)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["total_income"] == 5000  # poisoned rows skipped, finite rows counted
+    assert body["total_income"] == 5000
     assert body["total_expense"] == 1000
-    assert len(body["transactions"]) == 2  # unserializable rows not served
-    for row in body["pnl"]:
-        assert math.isfinite(row["income"]) and math.isfinite(row["expense"])
-        assert math.isfinite(row["net"])
-        for cat in row["categories"].values():
-            assert math.isfinite(cat["income"]) and math.isfinite(cat["expense"])
+    assert len(body["transactions"]) == 2

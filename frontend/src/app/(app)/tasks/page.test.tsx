@@ -10,9 +10,9 @@ import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TaskOut } from "@/api/generated/models";
-import { server } from "@/test/msw-server";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, utcToday } from "@/lib/format";
+import { addDays, farmToday } from "@/lib/format";
 
 import TasksPage from "./page";
 
@@ -25,7 +25,7 @@ vi.mock("next/navigation", () => ({
 
 /** UTC-relative fixture dates: the page compares against utcToday()
  *, so browser-local fixtures drift a day near midnight. */
-const TODAY = utcToday();
+const TODAY = farmToday();
 const TOMORROW = addDays(TODAY, 1);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
@@ -42,12 +42,15 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     assigned_role_id: null,
     assigned_user_id: null,
     recur_days: null,
+    recurring_series_id: null,
     completed_by_id: null,
     completed_at: null,
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
     skipped_by_id: null,
+    skipped_at: null,
+    skip_reason: null,
     action_url: null,
     ...overrides,
   };
@@ -57,6 +60,8 @@ const FORM_TASK = makeTask({
   id: 1,
   title: "Vaccinate goats",
   category: "VACCINE",
+  animal_id: 7,
+  animal_tag: "G-007",
   action_url: "/health/new?task=1",
 });
 const MANUAL_TASK = makeTask({ id: 2, title: "Clean water troughs" });
@@ -84,6 +89,9 @@ describe("TasksPage row guards", () => {
           upcoming: [],
           awaiting: [],
           completed: [],
+          completed_total: 0,
+          completed_limit: 50,
+          completed_offset: 0,
         }),
       ),
     );
@@ -119,6 +127,19 @@ describe("TasksPage row guards", () => {
     const row = rowOf("Weigh batch kids");
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
+  });
+
+  it("does not link a form or animal that the task worker cannot access", async () => {
+    server.use(permissionsHandler(["tasks.view", "tasks.complete"]));
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Vaccinate goats");
+
+    const row = rowOf("Vaccinate goats");
+    expect(within(row).getByText("G-007")).toBeInTheDocument();
+    expect(within(row).queryByRole("link", { name: "G-007" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();
+    expect(within(row).getByText(/Linked form unavailable/)).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
   });
 });

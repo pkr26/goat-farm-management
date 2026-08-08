@@ -418,12 +418,15 @@ async def test_create_response_shape(client: httpx.AsyncClient) -> None:
         "assigned_role_id",
         "assigned_user_id",
         "recur_days",
+        "recurring_series_id",
         "completed_by_id",
         "completed_at",
         "verified_by_id",
         "verified_at",
         "verification_note",
         "skipped_by_id",
+        "skipped_at",
+        "skip_reason",
         "assigned_role_name",
         "assigned_user_name",
         "animal_tag",
@@ -889,8 +892,18 @@ async def test_mover_cannot_create_duty(client: httpx.AsyncClient) -> None:
 async def test_empty_farm_tabs_all_empty(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     tabs = await get_tabs(client, owner)
-    assert set(tabs) == {"today", "overdue", "upcoming", "awaiting", "completed"}
-    assert all(tabs[key] == [] for key in tabs)
+    assert set(tabs) == {
+        "today",
+        "overdue",
+        "upcoming",
+        "awaiting",
+        "completed",
+        "completed_total",
+        "completed_limit",
+        "completed_offset",
+    }
+    assert all(tabs[key] == [] for key in ("today", "overdue", "upcoming", "awaiting", "completed"))
+    assert tabs["completed_total"] == 0
 
 
 async def test_pending_duty_not_in_completed_or_awaiting(client: httpx.AsyncClient) -> None:
@@ -981,6 +994,12 @@ async def test_completed_tab_capped_at_100(client: httpx.AsyncClient) -> None:
         assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     tabs = await get_tabs(client, owner)
     assert len(tabs["completed"]) == 100
+    assert tabs["completed_total"] == 105
+    page_two = await client.get(
+        "/api/tasks", params={"completed_limit": 10, "completed_offset": 100}, headers=owner
+    )
+    assert page_two.status_code == 200, page_two.text
+    assert len(page_two.json()["completed"]) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -1246,6 +1265,35 @@ async def test_auto_duty_due_today_completes(client: httpx.AsyncClient) -> None:
     assert resp.json()["status"] == "DONE"
 
 
+async def test_pregnancy_move_duty_cannot_hide_a_recorded_movement_hold(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    doe, _br = await make_pregnancy(client, owner, today() - timedelta(days=135))
+    held = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": doe["id"],
+            "type": "TREATMENT",
+            "disease_target": "Reportable-condition concern",
+            "suspected_scheduled_disease": True,
+        },
+        headers=owner,
+    )
+    assert held.status_code == 201, held.text
+    move = next(
+        task
+        for task in all_tasks(await get_tabs(client, owner))
+        if task["category"] == "BUCKET_MOVE"
+    )
+
+    resp = await complete_duty(client, owner, move["id"])
+    assert resp.status_code == 409
+    assert "restriction" in resp.json()["detail"].lower()
+    assert find_task(await get_tabs(client, owner), move["id"])["status"] == "PENDING"
+
+
 async def test_double_complete_spawns_only_one_occurrence(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Weekly", recur_days=7)
@@ -1448,6 +1496,32 @@ async def test_reject_then_recomplete_does_not_duplicate_spawn(client: httpx.Asy
     assert len(spawned) == 1  # deduped per series
 
 
+async def test_recomplete_after_spawned_occurrence_finished_does_not_hit_unique_constraint(
+    client: httpx.AsyncClient,
+) -> None:
+    """A slow review may reject occurrence N after N+1 was already done."""
+    owner = await owner_with_farm(client)
+    manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "late-review@farm.in")
+    first = await make_duty(client, owner, "Late-reviewed sweep", category="CLEANING", recur_days=1)
+    assert (await complete_duty(client, owner, first["id"])).status_code == 200
+    second = next(
+        task
+        for task in (await get_tabs(client, owner))["upcoming"]
+        if task["title"] == "Late-reviewed sweep"
+    )
+    assert (await complete_duty(client, owner, second["id"])).status_code == 200
+    rejected = await client.post(
+        f"/api/tasks/{first['id']}/reject",
+        json={"note": "Redo the first occurrence"},
+        headers=manager,
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    recompleted = await complete_duty(client, owner, first["id"])
+    assert recompleted.status_code == 200, recompleted.text
+    assert recompleted.json()["status"] == "DONE"
+
+
 async def test_parallel_series_same_title_stay_independent(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     rid_cleaner = await role_id(client, owner, "CLEANER")
@@ -1460,6 +1534,27 @@ async def test_parallel_series_same_title_stay_independent(client: httpx.AsyncCl
     spawned = [t for t in tabs["upcoming"] if t["title"] == "Sweep"]
     assert len(spawned) == 2
     assert {t["assigned_role_id"] for t in spawned} == {rid_cleaner, rid_mover}
+
+
+async def test_identical_parallel_recurring_series_do_not_merge(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    a = await make_duty(client, owner, "Identical sweep", recur_days=1)
+    b = await make_duty(client, owner, "Identical sweep", recur_days=1)
+    assert a["recurring_series_id"] != b["recurring_series_id"]
+    assert (await complete_duty(client, owner, a["id"])).status_code == 200
+    assert (await complete_duty(client, owner, b["id"])).status_code == 200
+    spawned = [
+        task
+        for task in (await get_tabs(client, owner))["upcoming"]
+        if task["title"] == "Identical sweep"
+    ]
+    assert len(spawned) == 2
+    assert {task["recurring_series_id"] for task in spawned} == {
+        a["recurring_series_id"],
+        b["recurring_series_id"],
+    }
 
 
 async def test_recurring_personal_assignment_carried(client: httpx.AsyncClient) -> None:
@@ -1865,27 +1960,38 @@ async def test_ultrasound_form_closes_the_duty(client: httpx.AsyncClient) -> Non
     assert us["id"] in {t["id"] for t in tabs["completed"]}
 
 
-async def test_manual_vaccine_duty_generic_complete_409(client: httpx.AsyncClient) -> None:
-    """Even a manual VACCINE duty must be closed through the health form."""
+async def test_unlinked_manual_vaccine_duty_is_a_plain_checklist(
+    client: httpx.AsyncClient,
+) -> None:
+    """Only an animal-linked clinical duty routes through the health form."""
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "PPR round", category="VACCINE")
-    assert duty["action_url"] == f"/health/new?task_id={duty['id']}"
+    duty = await make_duty(client, owner, "PPR vaccine due", category="VACCINE")
+    assert duty["action_url"] is None
     resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 409
+    assert resp.status_code == 200
 
 
-async def test_manual_deworming_duty_generic_complete_409(client: httpx.AsyncClient) -> None:
+async def test_unlinked_manual_deworming_duty_is_a_plain_checklist(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Deworm herd", category="DEWORMING")
     resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 409
+    assert resp.status_code == 200
 
 
 async def test_manual_vaccine_duty_completed_via_health_form(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
     animal_id = await make_animal(client, owner)
-    duty = await make_duty(client, owner, "PPR round", category="VACCINE")
+    duty = await make_duty(
+        client,
+        owner,
+        "PPR vaccine due",
+        category="VACCINE",
+        animal_id=animal_id,
+    )
+    assert duty["action_url"] == f"/health/new?task_id={duty['id']}&animal_id={animal_id}"
     resp = await client.post(
         "/api/health/events",
         json={
@@ -1943,16 +2049,23 @@ async def test_skip_stamps_skipped_by(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
     duty = await make_duty(client, owner, "Job")
-    resp = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/skip",
+        json={"reason": "Pen unavailable"},
+        headers=owner,
+    )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "SKIPPED"
     assert body["skipped_by_id"] == owner_id
+    assert body["skipped_at"] is not None
+    assert body["skip_reason"] == "Pen unavailable"
     skipped = find_task(await get_tabs(client, owner), duty["id"])
     assert skipped["skipped_by_id"] == owner_id
+    assert skipped["skipped_at"] is not None
 
 
-async def test_health_form_ignores_non_vaccine_task_id(client: httpx.AsyncClient) -> None:
+async def test_health_form_rejects_non_vaccine_task_id(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal_id = await make_animal(client, owner)
     duty = await make_duty(client, owner, "Plain duty")
@@ -1967,7 +2080,7 @@ async def test_health_form_ignores_non_vaccine_task_id(client: httpx.AsyncClient
         },
         headers=owner,
     )
-    assert resp.status_code == 201, resp.text  # event still recorded
+    assert resp.status_code == 409, resp.text
     tabs = await get_tabs(client, owner)
     assert find_task(tabs, duty["id"])["status"] == "PENDING"  # duty untouched
 

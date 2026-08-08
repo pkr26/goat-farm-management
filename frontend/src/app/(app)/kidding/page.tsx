@@ -12,9 +12,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getBreedingListApiBreedingGetQueryKey,
-  getKiddingListApiKiddingGetQueryKey,
-  getListAnimalsApiAnimalsGetQueryKey,
   useCreateKiddingApiKiddingPost,
   useKiddingListApiKiddingGet,
 } from "@/api/generated/endpoints";
@@ -22,6 +19,7 @@ import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,14 +49,12 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, utcToday } from "@/lib/format";
+import { farmToday, formatDate } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 /** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
@@ -221,9 +217,9 @@ function RecordKiddingDialog({
             {fields.map((field, index) => (
               <div
                 key={field.id}
-                className="grid grid-cols-[1fr_90px_110px_120px_auto] items-end gap-2"
+                className="grid grid-cols-2 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_90px_110px_120px_auto] sm:items-end sm:border-0 sm:p-0"
               >
-                <div className="space-y-1">
+                <div className="col-span-2 space-y-1 sm:col-span-1">
                   <Label className="text-xs">Tag (auto if blank)</Label>
                   <Input {...register(`kids.${index}.tag`)} placeholder="auto" />
                 </div>
@@ -284,6 +280,7 @@ function RecordKiddingDialog({
                   aria-label="Remove kid"
                   disabled={fields.length <= 1}
                   onClick={() => remove(index)}
+                  className="justify-self-end"
                 >
                   <X />
                 </Button>
@@ -319,7 +316,13 @@ function RecordKiddingDialog({
 }
 
 /** Kids of a kidding record, inline: "tag (sex, status), …" with animal links. */
-function KidsCell({ kidding }: { kidding: KiddingRecordOut }) {
+function KidsCell({
+  kidding,
+  canViewAnimals,
+}: {
+  kidding: KiddingRecordOut;
+  canViewAnimals: boolean;
+}) {
   const kids = kidding.kids ?? [];
   if (kids.length === 0) return <span>—</span>;
   return (
@@ -327,7 +330,7 @@ function KidsCell({ kidding }: { kidding: KiddingRecordOut }) {
       {kids.map((kid, i) => (
         <span key={kid.id}>
           {i > 0 && ", "}
-          {kid.animal_id ? (
+          {kid.animal_id && canViewAnimals ? (
             <Link href={`/animals/${kid.animal_id}`} className="text-primary underline">
               {kid.tag ?? "kid"}
             </Link>
@@ -346,11 +349,16 @@ export default function KiddingPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("kidding.view");
   const canManage = can("kidding.manage");
-  const query = useKiddingListApiKiddingGet({ query: { enabled: allowed } });
-  const payload = query.data?.status === 200 ? query.data.data : undefined;
-
+  const canViewAnimals = can("animals.view");
   const [recordFor, setRecordFor] = useState<BreedingRecordOut | null>(null);
   const [prefillDone, setPrefillDone] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
+  const query = useKiddingListApiKiddingGet(
+    { limit, offset },
+    { query: { enabled: allowed } },
+  );
+  const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   // /kidding/new?breeding_id=… redirects here: auto-open the record dialog
   // for that breeding record once the list has loaded.
@@ -368,9 +376,7 @@ export default function KiddingPage() {
   }, [canManage, payload, prefillDone]);
 
   function refresh() {
-    queryClient.invalidateQueries({ queryKey: getKiddingListApiKiddingGetQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getBreedingListApiBreedingGetQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListAnimalsApiAnimalsGetQueryKey() });
+    invalidateFarmData(queryClient);
   }
 
   if (permsLoading) {
@@ -400,7 +406,7 @@ export default function KiddingPage() {
   }
 
   // "Xd late" compares against the backend's UTC today, not local (7-5).
-  const today = utcToday();
+  const today = farmToday();
 
   function recordButton(r: BreedingRecordOut) {
     if (!canManage) return null;
@@ -433,12 +439,16 @@ export default function KiddingPage() {
               {payload.overdue.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>
-                    <Link
-                      href={`/animals/${r.doe_id}`}
-                      className="text-primary underline"
-                    >
-                      {r.doe_tag ?? `Doe #${r.doe_id}`}
-                    </Link>
+                    {canViewAnimals ? (
+                      <Link
+                        href={`/animals/${r.doe_id}`}
+                        className="text-primary underline"
+                      >
+                        {r.doe_tag ?? `Doe #${r.doe_id}`}
+                      </Link>
+                    ) : (
+                      r.doe_tag ?? `Doe #${r.doe_id}`
+                    )}
                   </TableCell>
                   <TableCell>
                     was due {formatDate(r.expected_kidding_date)}{" "}
@@ -481,12 +491,16 @@ export default function KiddingPage() {
               {payload.upcoming.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>
-                    <Link
-                      href={`/animals/${r.doe_id}`}
-                      className="text-primary underline"
-                    >
-                      {r.doe_tag ?? `Doe #${r.doe_id}`}
-                    </Link>
+                    {canViewAnimals ? (
+                      <Link
+                        href={`/animals/${r.doe_id}`}
+                        className="text-primary underline"
+                      >
+                        {r.doe_tag ?? `Doe #${r.doe_id}`}
+                      </Link>
+                    ) : (
+                      r.doe_tag ?? `Doe #${r.doe_id}`
+                    )}
                   </TableCell>
                   <TableCell>{formatDate(r.breeding_date)}</TableCell>
                   <TableCell>{formatDate(r.expected_kidding_date)}</TableCell>
@@ -532,18 +546,22 @@ export default function KiddingPage() {
                 <TableRow key={k.id}>
                   <TableCell>{formatDate(k.date)}</TableCell>
                   <TableCell>
-                    <Link
-                      href={`/animals/${k.doe_id}`}
-                      className="text-primary underline"
-                    >
-                      {k.doe_tag ?? `Doe #${k.doe_id}`}
-                    </Link>
+                    {canViewAnimals ? (
+                      <Link
+                        href={`/animals/${k.doe_id}`}
+                        className="text-primary underline"
+                      >
+                        {k.doe_tag ?? `Doe #${k.doe_id}`}
+                      </Link>
+                    ) : (
+                      k.doe_tag ?? `Doe #${k.doe_id}`
+                    )}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={k.ease}>{k.ease}</StatusBadge>
                   </TableCell>
                   <TableCell>
-                    <KidsCell kidding={k} />
+                    <KidsCell kidding={k} canViewAnimals={canViewAnimals} />
                   </TableCell>
                   <TableCell>{k.notes ?? ""}</TableCell>
                 </TableRow>
@@ -551,6 +569,13 @@ export default function KiddingPage() {
             </TableBody>
           </Table>
         )}
+        <PaginationControls
+          total={payload.total}
+          limit={payload.limit}
+          offset={payload.offset}
+          onOffsetChange={setOffset}
+          label="kidding records"
+        />
       </DataTableCard>
 
       {recordFor && (

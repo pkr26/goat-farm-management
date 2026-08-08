@@ -11,7 +11,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { server, TEST_FARMS, TEST_USER } from "@/test/msw-server";
+import { permissionsHandler, server, TEST_FARMS, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import RootPage from "./page";
@@ -28,17 +28,23 @@ vi.mock("next/navigation", () => ({
 describe("RootPage redirect hub", () => {
   beforeEach(() => replaceMock.mockClear());
 
-  it("renders the Loading… placeholder", () => {
+  it("renders the Loading… placeholder", async () => {
     renderWithProviders(<RootPage />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // Let the shared refresh promise settle before the next test installs a
+    // different refresh handler.
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
   });
 
   it("does not redirect while the session bootstrap is still pending", async () => {
     let refreshRequested = false;
+    let releaseRefresh: (() => void) | undefined;
     server.use(
       http.post("/api/auth/refresh", () => {
         refreshRequested = true;
-        return new Promise<Response>(() => {});
+        return new Promise<Response>((resolve) => {
+          releaseRefresh = () => resolve(new HttpResponse(null, { status: 401 }));
+        });
       }),
     );
 
@@ -50,6 +56,8 @@ describe("RootPage redirect hub", () => {
     // can have reached the redirect — loading never settles without it.
     await waitFor(() => expect(refreshRequested).toBe(true));
     expect(replaceMock).not.toHaveBeenCalled();
+    releaseRefresh?.();
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("redirects to /login when there is no session", async () => {
@@ -75,6 +83,15 @@ describe("RootPage redirect hub", () => {
 
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
     expect(localStorage.getItem("goatfarm.farmId")).toBe(String(TEST_FARMS[0].id));
+  });
+
+  it("redirects a restricted role to its first permitted module", async () => {
+    server.use(permissionsHandler(["health.view"]));
+
+    renderWithProviders(<RootPage />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/health"));
+    expect(replaceMock).not.toHaveBeenCalledWith("/dashboard");
   });
 
   it("redirects to /dashboard with multiple farms (first one auto-selected)", async () => {

@@ -22,7 +22,7 @@ from ..models import (
     TransactionType,
     quarantine_schedule,
 )
-from ..utils import add_months
+from ..utils import add_months, money
 from ._common import _add_task
 
 
@@ -56,6 +56,7 @@ async def create_purchase_batch(
         raise ValueError(f"Average age must be between 0 and {MAX_AGE_MONTHS} months")
     if avg_weight_kg is not None and avg_weight_kg < 0:
         raise ValueError("Average weight cannot be negative")
+    exact_total_price = money(total_price) if total_price is not None else None
     batch = PurchaseBatch(
         farm_id=farm.id,
         date=batch_date,
@@ -63,7 +64,7 @@ async def create_purchase_batch(
         count=count,
         avg_age_months=avg_age_months,
         avg_weight_kg=avg_weight_kg,
-        total_price=total_price,
+        total_price=exact_total_price,
         notes=notes or None,
     )
     db.add(batch)
@@ -73,10 +74,10 @@ async def create_purchase_batch(
         # Per-head price: even split, but the first animal absorbs the paise
         # rounding remainder so Σ purchase_price equals the booked expense
         # (same trick as record_health_event's cost split).
-        per_head = round(total_price / count, 2) if total_price is not None else None
+        per_head = money(exact_total_price / count) if exact_total_price is not None else None
         first_head = (
-            round(total_price - per_head * (count - 1), 2)
-            if total_price is not None and per_head is not None
+            money(exact_total_price - per_head * (count - 1))
+            if exact_total_price is not None and per_head is not None
             else None
         )
         for i in range(1, count + 1):
@@ -121,17 +122,19 @@ async def create_purchase_batch(
             purchase_batch_id=batch.id,
         )
 
-    if total_price is not None:  # an explicit ₹0 still books a ₹0 expense
+    if exact_total_price is not None:  # an explicit ₹0 still books a ₹0 expense
         db.add(
             Transaction(
                 farm_id=farm.id,
                 date=batch_date,
                 type=TransactionType.EXPENSE.value,
                 category=TransactionCategory.ANIMAL_PURCHASE.value,
-                amount=total_price,
+                amount=exact_total_price,
                 notes=f"Purchase batch #{batch.id}: {count} animals"
                 + (f" from {supplier}" if supplier else ""),
                 created_by_id=created_by_id,
+                source_type="PURCHASE_BATCH",
+                source_id=batch.id,
             )
         )
     await db.flush()

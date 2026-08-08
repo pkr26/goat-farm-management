@@ -1,5 +1,5 @@
 /**
- * Register page: rendering, zod validation (email format, 8-character
+ * Register page: rendering, zod validation (email format, 12-character
  * password minimum with the exact boundary, optional name capped at 120
  * chars), the submit contract (blank name → null in the POST body, token
  * stored via signIn, navigation to /farm-select), and server-error
@@ -74,7 +74,7 @@ describe("RegisterPage", () => {
     await user.type(screen.getByLabelText(/email/i), overrides.email ?? "new@goatfarm.in");
     await user.type(
       screen.getByLabelText(/password/i),
-      overrides.password ?? "secret123",
+      overrides.password ?? "secret123456",
     );
   }
 
@@ -125,7 +125,7 @@ describe("RegisterPage", () => {
 
       expect(await screen.findByText("Enter a valid email address")).toBeInTheDocument();
       expect(
-        screen.getByText("Password must be at least 8 characters"),
+        screen.getByText("Password must be at least 12 characters"),
       ).toBeInTheDocument();
       expect(register.count).toBe(0);
       expect(pushMock).not.toHaveBeenCalled();
@@ -143,31 +143,31 @@ describe("RegisterPage", () => {
       expect(register.count).toBe(0);
     });
 
-    it("rejects a 7-character password (just below the minimum)", async () => {
+    it("rejects an 11-character password (just below the minimum)", async () => {
       const register = trackRegisterRequests();
       const user = userEvent.setup();
       renderWithProviders(<RegisterPage />);
 
-      await fillValid(user, { password: "1234567" });
+      await fillValid(user, { password: "12345678901" });
       await user.click(screen.getByRole("button", { name: /create account/i }));
 
       expect(
-        await screen.findByText("Password must be at least 8 characters"),
+        await screen.findByText("Password must be at least 12 characters"),
       ).toBeInTheDocument();
       expect(register.count).toBe(0);
       expect(pushMock).not.toHaveBeenCalled();
     });
 
-    it("accepts an 8-character password (exact boundary)", async () => {
+    it("accepts a 12-character password (exact boundary)", async () => {
       const register = registerSuccess();
       const user = userEvent.setup();
       renderWithProviders(<RegisterPage />);
 
-      await fillValid(user, { password: "12345678" });
+      await fillValid(user, { password: "123456789012" });
       await user.click(screen.getByRole("button", { name: /create account/i }));
 
       await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
-      expect(register.body).toMatchObject({ password: "12345678" });
+      expect(register.body).toMatchObject({ password: "123456789012" });
     });
 
     it("rejects a name longer than 120 characters", async () => {
@@ -205,7 +205,7 @@ describe("RegisterPage", () => {
       expect(register.body).toEqual({
         name: "New Farmer",
         email: "new@goatfarm.in",
-        password: "secret123",
+        password: "secret123456",
       });
       // signIn stored the access token: the farms fetch carried it.
       expect(farmsAuthorization).toBe("Bearer register-token");
@@ -225,7 +225,7 @@ describe("RegisterPage", () => {
       expect(register.body).toEqual({
         name: null,
         email: "new@goatfarm.in",
-        password: "secret123",
+        password: "secret123456",
       });
     });
 

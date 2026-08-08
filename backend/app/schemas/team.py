@@ -2,12 +2,12 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .auth import EmailMixin
+from .auth import MAX_EMAIL_LENGTH, EmailMixin
 from .common import BoundedId
 
 
 class WorkerCreateIn(EmailMixin):
-    email: str
+    email: str = Field(max_length=MAX_EMAIL_LENGTH)
     password: str | None = Field(default=None, max_length=128)  # required for a new account
     name: str | None = Field(default=None, max_length=120)
     role_id: BoundedId
@@ -29,6 +29,8 @@ class MembershipOut(BaseModel):
     role_id: int | None
     role_name: str | None
     is_active: bool
+    can_reset_password: bool
+    reset_password_block_reason: str | None
 
 
 class RoleIn(BaseModel):

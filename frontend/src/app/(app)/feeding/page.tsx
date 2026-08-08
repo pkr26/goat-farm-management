@@ -6,14 +6,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm , useWatch} from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getFeedingTodayApiFeedingPlanGetQueryKey,
   useDispenseApiFeedingDispensePost,
+  useFeedingHistoryApiFeedingRecordsGet,
   useFeedingTodayApiFeedingPlanGet,
   useListRecipesApiFeedingRecipesGet,
   useSaveSettingApiFeedingSettingsPost,
@@ -27,6 +27,7 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,6 +55,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { farmToday, formatDate } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** Sentinel for "no recipe" in the dispense select (empty string is not a valid item value). */
@@ -76,10 +79,7 @@ function toShiftCell(raw: unknown): ShiftCell {
 }
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 function mutationError(err: unknown): string {
@@ -125,11 +125,16 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<SettingInput, unknown, SettingValues>({
     resolver: zodResolver(settingSchema),
     defaultValues: { daily_kg_per_head: line.kg_per_head },
   });
+
+  useEffect(() => {
+    reset({ daily_kg_per_head: line.kg_per_head });
+  }, [line.kg_per_head, reset]);
 
   async function onSubmit(values: SettingValues) {
     try {
@@ -140,7 +145,8 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
         },
       });
       toast.success(`Saved ${values.daily_kg_per_head} kg/head for ${line.bucket}.`);
-      queryClient.invalidateQueries({ queryKey: getFeedingTodayApiFeedingPlanGetQueryKey() });
+      reset({ daily_kg_per_head: values.daily_kg_per_head });
+      invalidateFarmData(queryClient);
       setOpen(false);
     } catch (err) {
       toast.error(mutationError(err));
@@ -164,10 +170,20 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
               type="number"
               step="0.1"
               min="0.1"
+              aria-invalid={Boolean(errors.daily_kg_per_head) || undefined}
+              aria-describedby={
+                errors.daily_kg_per_head ? `kg-${line.bucket}-error` : undefined
+              }
               {...register("daily_kg_per_head")}
             />
             {errors.daily_kg_per_head && (
-              <p className="text-sm text-destructive">{errors.daily_kg_per_head.message}</p>
+              <p
+                id={`kg-${line.bucket}-error`}
+                role="alert"
+                className="text-sm text-destructive"
+              >
+                {errors.daily_kg_per_head.message}
+              </p>
             )}
           </div>
           <DialogFooter>
@@ -212,9 +228,25 @@ export default function FeedingPage() {
   const queryClient = useQueryClient();
 
   const [dispenseOpen, setDispenseOpen] = useState(false);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const historyLimit = 50;
+  const invalidHistoryRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
 
   const query = useFeedingTodayApiFeedingPlanGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const historyQuery = useFeedingHistoryApiFeedingRecordsGet(
+    {
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+      limit: historyLimit,
+      offset: historyOffset,
+    },
+    { query: { enabled: allowed && !invalidHistoryRange } },
+  );
+  const history =
+    historyQuery.data?.status === 200 ? historyQuery.data.data : undefined;
 
   const recipesQuery = useListRecipesApiFeedingRecipesGet({ query: { enabled: canManage } });
   const recipes = recipesQuery.data?.status === 200 ? recipesQuery.data.data.recipes : [];
@@ -253,7 +285,7 @@ export default function FeedingPage() {
         },
       });
       toast.success("Dispensing recorded.");
-      queryClient.invalidateQueries({ queryKey: getFeedingTodayApiFeedingPlanGetQueryKey() });
+      invalidateFarmData(queryClient);
       setDispenseOpen(false);
     } catch (err) {
       toast.error(mutationError(err));
@@ -365,9 +397,9 @@ export default function FeedingPage() {
                       {canManage && <KgPerHeadDialog line={line} />}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{line.daily_kg}</TableCell>
-                    {shifts.map((s) => (
+                    {shifts.map((s, index) => (
                       <TableCell
-                        key={s.shift}
+                        key={`${s.shift}:${index}`}
                         title={`${s.shift} ${s.time}`}
                         className="text-right tabular-nums"
                       >
@@ -426,6 +458,114 @@ export default function FeedingPage() {
               ))}
             </TableBody>
           </Table>
+        )}
+      </DataTableCard>
+
+      <DataTableCard
+        title="Dispensing history"
+        description="Browse earlier and backdated dispensing entries; the total comes from the full ledger."
+      >
+        <div className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="feeding-history-from">From date</Label>
+            <Input
+              id="feeding-history-from"
+              type="date"
+              value={dateFrom}
+              max={dateTo || today}
+              aria-invalid={invalidHistoryRange || undefined}
+              aria-describedby={invalidHistoryRange ? "feeding-history-range-error" : undefined}
+              onChange={(event) => {
+                setDateFrom(event.target.value);
+                setHistoryOffset(0);
+              }}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="feeding-history-to">To date</Label>
+            <Input
+              id="feeding-history-to"
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              max={today}
+              aria-invalid={invalidHistoryRange || undefined}
+              aria-describedby={invalidHistoryRange ? "feeding-history-range-error" : undefined}
+              onChange={(event) => {
+                setDateTo(event.target.value);
+                setHistoryOffset(0);
+              }}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!dateFrom && !dateTo}
+            onClick={() => {
+              setDateFrom("");
+              setDateTo("");
+              setHistoryOffset(0);
+            }}
+          >
+            Clear dates
+          </Button>
+        </div>
+        {invalidHistoryRange && (
+          <p id="feeding-history-range-error" role="alert" className="mb-3 text-sm text-destructive">
+            From date must be on or before to date.
+          </p>
+        )}
+        {!invalidHistoryRange && historyQuery.isLoading && (
+          <p className="py-6 text-center text-sm text-muted-foreground">Loading history…</p>
+        )}
+        {!invalidHistoryRange && historyQuery.isError && (
+          <p role="alert" className="py-3 text-sm text-destructive">
+            {historyQuery.error instanceof ApiError
+              ? historyQuery.error.detail
+              : "Could not load dispensing history."}
+          </p>
+        )}
+        {!invalidHistoryRange && history && history.records.length === 0 && (
+          <EmptyState
+            icon={Wheat}
+            title="No dispensing records in this date range."
+            description="Clear or widen the dates, or record a dispensing entry."
+          />
+        )}
+        {!invalidHistoryRange && history && history.records.length > 0 && (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Shift</TableHead>
+                  <TableHead>Bucket</TableHead>
+                  <TableHead>Recipe</TableHead>
+                  <TableHead className="text-right">Qty (kg)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {history.records.map((record) => (
+                  <TableRow key={record.id}>
+                    <TableCell>{formatDate(record.date)}</TableCell>
+                    <TableCell>{record.shift}</TableCell>
+                    <TableCell>{record.bucket}</TableCell>
+                    <TableCell>{record.recipe_code ?? "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {record.qty_kg.toFixed(1)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <PaginationControls
+              total={history.total}
+              limit={history.limit}
+              offset={history.offset}
+              onOffsetChange={setHistoryOffset}
+              label="dispensing records"
+            />
+          </>
         )}
       </DataTableCard>
 
@@ -504,16 +644,31 @@ export default function FeedingPage() {
                   step="0.1"
                   min="0.1"
                   placeholder="kg"
+                  aria-invalid={Boolean(errors.qty_kg) || undefined}
+                  aria-describedby={errors.qty_kg ? "qty-kg-error" : undefined}
                   {...register("qty_kg")}
                 />
                 {errors.qty_kg && (
-                  <p className="text-sm text-destructive">{errors.qty_kg.message}</p>
+                  <p id="qty-kg-error" role="alert" className="text-sm text-destructive">
+                    {errors.qty_kg.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="dispense_date">Date</Label>
-                <Input id="dispense_date" type="date" max={today} {...register("date")} />
-                {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
+                <Input
+                  id="dispense_date"
+                  type="date"
+                  max={today}
+                  aria-invalid={Boolean(errors.date) || undefined}
+                  aria-describedby={errors.date ? "dispense-date-error" : undefined}
+                  {...register("date")}
+                />
+                {errors.date && (
+                  <p id="dispense-date-error" role="alert" className="text-sm text-destructive">
+                    {errors.date.message}
+                  </p>
+                )}
               </div>
             </div>
             <DialogFooter>

@@ -25,6 +25,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str | None] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Included in access JWTs and checked on every authenticated request.
+    # Password changes/resets, deactivation and logout increment the value so
+    # already-issued bearer tokens stop working immediately.
+    token_version: Mapped[int] = mapped_column(default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     farms: Mapped[list[Farm]] = relationship(back_populates="owner")
@@ -41,7 +45,8 @@ class Farm(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     location: Mapped[str | None] = mapped_column(String(120))
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kolkata")
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     owner: Mapped[User] = relationship(back_populates="farms")
@@ -93,10 +98,14 @@ class FarmMembership(Base):
     __table_args__ = (UniqueConstraint("user_id", "farm_id", name="uq_membership_user_farm"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id", ondelete="CASCADE"), index=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id", ondelete="RESTRICT"), index=True)
     is_active: Mapped[bool] = mapped_column(default=True)
+    # True only when this farm created the underlying global User. Legacy and
+    # externally registered accounts fail closed: their password may not be
+    # rewritten by a farm manager.
+    account_provisioned_by_farm: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     user: Mapped[User] = relationship(back_populates="memberships")
@@ -124,5 +133,9 @@ class RefreshSession(Base):
     family_id: Mapped[str] = mapped_column(String(64), index=True)
     expires_at: Mapped[datetime] = mapped_column()
     consumed_at: Mapped[datetime | None] = mapped_column()
+    # The successor JTI makes a very short concurrent replay idempotent: two
+    # tabs presenting the same cookie receive the exact same replacement
+    # token instead of falsely triggering family-wide theft revocation.
+    replacement_jti: Mapped[str | None] = mapped_column(String(64))
     revoked_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow)

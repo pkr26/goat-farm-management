@@ -11,4 +11,7 @@ export interface KiddingListOut {
   records: KiddingRecordOut[];
   upcoming: BreedingRecordOut[];
   overdue: BreedingRecordOut[];
+  total: number;
+  limit: number;
+  offset: number;
 }

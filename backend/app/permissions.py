@@ -45,6 +45,26 @@ PERMISSIONS: list[tuple[str, str]] = [
 
 ALL_PERMISSIONS: set[str] = {code for code, _ in PERMISSIONS}
 
+# An action permission is not usable unless its module can also be viewed.
+# The frontend mirrors this mapping for immediate editor feedback, while the
+# API remains authoritative for direct and older clients.
+PERMISSION_DEPENDENCIES: dict[str, str] = {
+    "animals.create": "animals.view",
+    "animals.move": "animals.view",
+    "animals.weight": "animals.view",
+    "animals.status": "animals.view",
+    "breeding.manage": "breeding.view",
+    "kidding.manage": "kidding.view",
+    "health.manage": "health.view",
+    "purchases.manage": "purchases.view",
+    "feeding.manage": "feeding.view",
+    "tasks.create": "tasks.view",
+    "tasks.complete": "tasks.view",
+    "tasks.verify": "tasks.view",
+    "finance.manage": "finance.view",
+    "simulation.manage": "simulation.view",
+}
+
 # (group label, [permission codes]) — drives the role editor matrix.
 PERMISSION_GROUPS: list[tuple[str, list[str]]] = [
     ("Dashboard", ["dashboard.view"]),

@@ -226,6 +226,15 @@ describe("usePermissions — loading and error states", () => {
   });
 
   it("exposes is_owner false for a worker membership", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({
+          is_owner: false,
+          permissions: ["animals.view"],
+        }),
+      ),
+    );
+
     renderWithProviders(<Probe codes={["animals.view"]} />);
 
     await waitFor(() =>

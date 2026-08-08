@@ -31,8 +31,9 @@ export interface GrowthAssumptions {
   adult_weight_buck_kg?: number;
   /**
      * @minItems 13
-     * @maxItems 1200
+     * @maxItems 13
      * @items.maximum 1000
+     * @items.exclusiveMinimum 0
      */
   weight_by_age_months?: number[];
   /**

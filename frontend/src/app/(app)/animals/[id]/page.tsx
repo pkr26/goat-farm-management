@@ -4,19 +4,18 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { AlertTriangle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { Controller, useForm , useWatch} from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getAnimalProfileApiAnimalsAnimalIdGetQueryKey,
-  getListAnimalsApiAnimalsGetQueryKey,
   useAnimalProfileApiAnimalsAnimalIdGet,
   useChangeStatusApiAnimalsAnimalIdStatusPost,
+  useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost,
   useMoveBucketApiAnimalsAnimalIdMovePost,
   useRecordWeightApiAnimalsAnimalIdWeightPost,
 } from "@/api/generated/endpoints";
@@ -30,6 +29,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -56,7 +56,8 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, formatMoney } from "@/lib/format";
+import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 const BUCKETS = Object.values(MoveInToBucket);
@@ -74,10 +75,7 @@ const optNum = (schema: z.ZodNumber) =>
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 function Detail({ label, children }: { label: string; children: ReactNode }) {
@@ -92,10 +90,8 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 function useProfileRefresh(animalId: number) {
   const queryClient = useQueryClient();
   return () => {
-    queryClient.invalidateQueries({
-      queryKey: getAnimalProfileApiAnimalsAnimalIdGetQueryKey(animalId),
-    });
-    queryClient.invalidateQueries({ queryKey: getListAnimalsApiAnimalsGetQueryKey() });
+    void animalId;
+    invalidateFarmData(queryClient);
   };
 }
 
@@ -153,20 +149,43 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <div className="space-y-1.5">
             <Label htmlFor="w_date">Date (defaults to today)</Label>
-            <Input id="w_date" type="date" max={localToday()} {...register("date")} />
-            {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
+            <Input
+              id="w_date"
+              type="date"
+              max={localToday()}
+              aria-invalid={Boolean(errors.date) || undefined}
+              aria-describedby={errors.date ? "weight-date-error" : undefined}
+              {...register("date")}
+            />
+            {errors.date && <p id="weight-date-error" role="alert" className="text-sm text-destructive">{errors.date.message}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="w_kg">Weight (kg) *</Label>
-            <Input id="w_kg" type="number" step="0.01" min="0" {...register("weight_kg")} />
+            <Input
+              id="w_kg"
+              type="number"
+              step="0.01"
+              min="0"
+              aria-invalid={Boolean(errors.weight_kg) || undefined}
+              aria-describedby={errors.weight_kg ? "weight-kg-error" : undefined}
+              {...register("weight_kg")}
+            />
             {errors.weight_kg && (
-              <p className="text-sm text-destructive">{errors.weight_kg.message}</p>
+              <p id="weight-kg-error" role="alert" className="text-sm text-destructive">{errors.weight_kg.message}</p>
             )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="w_bcs">BCS (1–5)</Label>
-            <Input id="w_bcs" type="number" min="1" max="5" {...register("bcs")} />
-            {errors.bcs && <p className="text-sm text-destructive">{errors.bcs.message}</p>}
+            <Input
+              id="w_bcs"
+              type="number"
+              min="1"
+              max="5"
+              aria-invalid={Boolean(errors.bcs) || undefined}
+              aria-describedby={errors.bcs ? "weight-bcs-error" : undefined}
+              {...register("bcs")}
+            />
+            {errors.bcs && <p id="weight-bcs-error" role="alert" className="text-sm text-destructive">{errors.bcs.message}</p>}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="w_notes">Notes</Label>
@@ -205,7 +224,7 @@ function MoveBucketDialog({
     control,
     register,
     reset,
-    formState: { isSubmitting },
+    formState: { errors, isSubmitting },
   } = useForm<MoveValues>({ resolver: zodResolver(moveSchema) });
 
   async function onSubmit(values: MoveValues) {
@@ -237,13 +256,18 @@ function MoveBucketDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <div className="space-y-1.5">
-            <Label>To bucket *</Label>
+            <Label htmlFor="move-to-bucket">To bucket *</Label>
             <Controller
               control={control}
               name="to_bucket"
               render={({ field }) => (
                 <Select value={field.value ?? ""} onValueChange={field.onChange} items={BUCKET_ITEMS}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger
+                    id="move-to-bucket"
+                    className="w-full"
+                    aria-invalid={Boolean(errors.to_bucket) || undefined}
+                    aria-describedby={errors.to_bucket ? "move-to-bucket-error" : undefined}
+                  >
                     <SelectValue placeholder="Choose bucket…" />
                   </SelectTrigger>
                   <SelectContent>
@@ -255,7 +279,12 @@ function MoveBucketDialog({
                   </SelectContent>
                 </Select>
               )}
-            />
+              />
+            {errors.to_bucket && (
+              <p id="move-to-bucket-error" role="alert" className="text-sm text-destructive">
+                {errors.to_bucket.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="m_reason">Reason</Label>
@@ -272,17 +301,37 @@ function MoveBucketDialog({
   );
 }
 
-const statusSchema = z.object({
-  new_status: z.enum([
-    StatusChangeInNewStatus.SOLD,
-    StatusChangeInNewStatus.DEAD,
-    StatusChangeInNewStatus.CULLED,
-  ]),
-  date: z.string().optional(),
-  sale_price: optNum(z.number().nonnegative()),
-  buyer_name: z.string().max(120).optional(),
-  notes: z.string().max(255).optional(),
-});
+const statusSchema = z
+  .object({
+    new_status: z.enum([
+      StatusChangeInNewStatus.SOLD,
+      StatusChangeInNewStatus.DEAD,
+      StatusChangeInNewStatus.CULLED,
+    ]),
+    date: z.string().optional(),
+    sale_price: optNum(z.number().nonnegative()),
+    buyer_name: z.string().max(120).optional(),
+    notes: z.string().max(255).optional(),
+    mortality_cause: z.string().max(120).optional(),
+    mortality_reported_at: z.string().optional(),
+    suspected_scheduled_disease: z.boolean(),
+    suspected_disease: z.string().max(120).optional(),
+    authority_notified_at: z.string().optional(),
+  })
+  .superRefine((values, context) => {
+    for (const field of ["date", "mortality_reported_at", "authority_notified_at"] as const) {
+      if (values[field] && values[field] > localToday()) {
+        context.addIssue({ code: "custom", path: [field], message: "Date can't be in the future" });
+      }
+    }
+    if (values.suspected_scheduled_disease && !values.suspected_disease?.trim()) {
+      context.addIssue({
+        code: "custom",
+        path: ["suspected_disease"],
+        message: "Identify the suspected scheduled disease",
+      });
+    }
+  });
 type StatusInput = z.input<typeof statusSchema>;
 type StatusValues = z.output<typeof statusSchema>;
 
@@ -299,13 +348,21 @@ function StatusDialog({
     register,
     handleSubmit,
     control,
+    setValue,
     reset,
     formState: { errors, isSubmitting },
   } = useForm<StatusInput, unknown, StatusValues>({
     resolver: zodResolver(statusSchema),
-    defaultValues: { new_status: StatusChangeInNewStatus.SOLD },
+    defaultValues: {
+      new_status: StatusChangeInNewStatus.SOLD,
+      suspected_scheduled_disease: false,
+    },
   });
   const newStatus = useWatch({ control, name: "new_status" });
+  const suspectedScheduledDisease = useWatch({
+    control,
+    name: "suspected_scheduled_disease",
+  });
 
   async function onSubmit(values: StatusValues) {
     try {
@@ -323,6 +380,27 @@ function StatusDialog({
               ? emptyToNull(values.buyer_name)
               : null,
           notes: emptyToNull(values.notes),
+          mortality_cause:
+            values.new_status === StatusChangeInNewStatus.DEAD
+              ? emptyToNull(values.mortality_cause)
+              : null,
+          mortality_reported_at:
+            values.new_status === StatusChangeInNewStatus.DEAD
+              ? emptyToNull(values.mortality_reported_at)
+              : null,
+          suspected_scheduled_disease:
+            values.new_status === StatusChangeInNewStatus.DEAD &&
+            values.suspected_scheduled_disease,
+          suspected_disease:
+            values.new_status === StatusChangeInNewStatus.DEAD &&
+            values.suspected_scheduled_disease
+              ? emptyToNull(values.suspected_disease)
+              : null,
+          authority_notified_at:
+            values.new_status === StatusChangeInNewStatus.DEAD &&
+            values.suspected_scheduled_disease
+              ? emptyToNull(values.authority_notified_at)
+              : null,
         },
       });
       toast.success(`Marked ${values.new_status}.`);
@@ -345,13 +423,13 @@ function StatusDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
           <div className="space-y-1.5">
-            <Label>New status *</Label>
+            <Label htmlFor="animal-new-status">New status *</Label>
             <Controller
               control={control}
               name="new_status"
               render={({ field }) => (
                 <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="animal-new-status" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -365,7 +443,15 @@ function StatusDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="s_date">Date (defaults to today)</Label>
-            <Input id="s_date" type="date" {...register("date")} />
+            <Input
+              id="s_date"
+              type="date"
+              max={localToday()}
+              aria-invalid={Boolean(errors.date) || undefined}
+              aria-describedby={errors.date ? "status-date-error" : undefined}
+              {...register("date")}
+            />
+            {errors.date && <p id="status-date-error" role="alert" className="text-sm text-destructive">{errors.date.message}</p>}
           </div>
           {newStatus === StatusChangeInNewStatus.SOLD && (
             <>
@@ -376,10 +462,12 @@ function StatusDialog({
                   type="number"
                   step="0.01"
                   min="0"
+                  aria-invalid={Boolean(errors.sale_price) || undefined}
+                  aria-describedby={errors.sale_price ? "status-sale-price-error" : undefined}
                   {...register("sale_price")}
                 />
                 {errors.sale_price && (
-                  <p className="text-sm text-destructive">{errors.sale_price.message}</p>
+                  <p id="status-sale-price-error" role="alert" className="text-sm text-destructive">{errors.sale_price.message}</p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -387,6 +475,85 @@ function StatusDialog({
                 <Input id="s_buyer" {...register("buyer_name")} />
               </div>
             </>
+          )}
+          {newStatus === StatusChangeInNewStatus.DEAD && (
+            <fieldset className="space-y-3 rounded-lg border p-3">
+              <legend className="px-1 text-sm font-medium">Mortality & disease reporting</legend>
+              <div className="space-y-1.5">
+                <Label htmlFor="mortality-cause">Mortality cause</Label>
+                <Input
+                  id="mortality-cause"
+                  maxLength={120}
+                  placeholder="confirmed or suspected cause"
+                  {...register("mortality_cause")}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mortality-reported-at">Mortality reported date</Label>
+                <Input
+                  id="mortality-reported-at"
+                  type="date"
+                  max={localToday()}
+                  aria-invalid={Boolean(errors.mortality_reported_at) || undefined}
+                  aria-describedby={errors.mortality_reported_at ? "mortality-reported-error" : undefined}
+                  {...register("mortality_reported_at")}
+                />
+                {errors.mortality_reported_at && (
+                  <p id="mortality-reported-error" role="alert" className="text-sm text-destructive">
+                    {errors.mortality_reported_at.message}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="mortality-scheduled-disease"
+                  checked={suspectedScheduledDisease}
+                  onCheckedChange={(checked) =>
+                    setValue("suspected_scheduled_disease", checked === true, {
+                      shouldValidate: true,
+                    })
+                  }
+                />
+                <Label htmlFor="mortality-scheduled-disease" className="font-normal">
+                  Suspected scheduled/notifiable disease
+                </Label>
+              </div>
+              {suspectedScheduledDisease && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="suspected-disease">Suspected disease *</Label>
+                    <Input
+                      id="suspected-disease"
+                      maxLength={120}
+                      aria-invalid={Boolean(errors.suspected_disease) || undefined}
+                      aria-describedby={errors.suspected_disease ? "suspected-disease-error" : undefined}
+                      {...register("suspected_disease")}
+                    />
+                    {errors.suspected_disease && (
+                      <p id="suspected-disease-error" role="alert" className="text-sm text-destructive">
+                        {errors.suspected_disease.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="mortality-authority-notified">Authority notified date</Label>
+                    <Input
+                      id="mortality-authority-notified"
+                      type="date"
+                      max={localToday()}
+                      aria-invalid={Boolean(errors.authority_notified_at) || undefined}
+                      aria-describedby={errors.authority_notified_at ? "mortality-authority-error" : undefined}
+                      {...register("authority_notified_at")}
+                    />
+                    {errors.authority_notified_at && (
+                      <p id="mortality-authority-error" role="alert" className="text-sm text-destructive">
+                        {errors.authority_notified_at.message}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </fieldset>
           )}
           <div className="space-y-1.5">
             <Label htmlFor="s_notes">Notes</Label>
@@ -398,6 +565,90 @@ function StatusDialog({
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ClearRestrictionDialog({
+  animalId,
+  onDone,
+}: {
+  animalId: number;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reference, setReference] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const mutation = useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost();
+
+  async function clearRestriction() {
+    const clearanceReference = reference.trim();
+    if (!clearanceReference) {
+      setError("A veterinary or authority clearance reference is required.");
+      return;
+    }
+    setError(null);
+    try {
+      await mutation.mutateAsync({
+        animalId,
+        data: { clearance_reference: clearanceReference },
+      });
+      toast.success("Movement restriction cleared with an audit reference.");
+      setReference("");
+      setOpen(false);
+      onDone();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.detail : "Could not clear the restriction.");
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+        Record clearance
+      </Button>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Clear movement restriction?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Only record a factual release issued by a veterinarian or competent authority. The
+          hold and this clearance remain in the audit trail.
+        </p>
+        <div className="space-y-1.5">
+          <Label htmlFor={`clearance-reference-${animalId}`}>Clearance reference *</Label>
+          <Input
+            id={`clearance-reference-${animalId}`}
+            value={reference}
+            maxLength={255}
+            placeholder="certificate/order number and issuing authority"
+            aria-invalid={Boolean(error) || undefined}
+            aria-describedby={error ? `clearance-reference-${animalId}-error` : undefined}
+            onChange={(event) => setReference(event.target.value)}
+          />
+          {error && (
+            <p
+              id={`clearance-reference-${animalId}-error`}
+              role="alert"
+              className="text-sm text-destructive"
+            >
+              {error}
+            </p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!reference.trim() || mutation.isPending}
+            onClick={() => void clearRestriction()}
+          >
+            {mutation.isPending ? "Recording…" : "Confirm clearance"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -431,7 +682,7 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
             active && (
               <>
                 {can("animals.weight") && <AddWeightDialog animalId={a.id} onDone={refresh} />}
-                {can("animals.move") && (
+                {can("animals.move") && !a.movement_restricted && (
                   <MoveBucketDialog
                     animalId={a.id}
                     currentBucket={a.current_bucket}
@@ -444,6 +695,36 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
           }
         />
       </div>
+
+      {a.movement_restricted && (
+        <Card className="border-red-300 bg-red-50/70 dark:border-red-900 dark:bg-red-950/30">
+          <CardContent className="flex flex-wrap items-start justify-between gap-4 pt-6">
+            <div className="space-y-1">
+              <h2 className="flex items-center gap-2 font-medium text-red-800 dark:text-red-300">
+                <AlertTriangle className="size-4" aria-hidden />
+                Movement restricted
+              </h2>
+              <p className="text-sm text-red-800/90 dark:text-red-200">
+                {a.restriction_reason ?? "A health hold is active for this animal."}
+              </p>
+              {a.suspected_disease && (
+                <p className="text-sm">Suspected disease: {a.suspected_disease}</p>
+              )}
+              {a.authority_notified_at && (
+                <p className="text-xs text-muted-foreground">
+                  Authority notified {formatDate(a.authority_notified_at)}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Bucket movement is unavailable until a factual clearance is recorded.
+              </p>
+            </div>
+            {can("health.manage") && (
+              <ClearRestrictionDialog animalId={a.id} onDone={refresh} />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -484,6 +765,35 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
                 {a.status === "SOLD" && (
                   <Detail label="Sale price">{formatMoney(a.sale_price)}</Detail>
                 )}
+                {a.status === "DEAD" && (
+                  <>
+                    <Detail label="Mortality cause">{a.mortality_cause ?? "—"}</Detail>
+                    <Detail label="Mortality reported">
+                      {formatDate(a.mortality_reported_at)}
+                    </Detail>
+                    <Detail label="Scheduled disease suspected">
+                      {a.suspected_scheduled_disease ? "Yes" : "No"}
+                    </Detail>
+                    {a.suspected_disease && (
+                      <Detail label="Suspected disease">{a.suspected_disease}</Detail>
+                    )}
+                    {a.authority_notified_at && (
+                      <Detail label="Authority notified">
+                        {formatDate(a.authority_notified_at)}
+                      </Detail>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+            {a.restriction_cleared_at && (
+              <>
+                <Detail label="Restriction cleared">
+                  {formatFarmDateTime(a.restriction_cleared_at)}
+                </Detail>
+                <Detail label="Clearance reference">
+                  {a.restriction_clearance_reference ?? "—"}
+                </Detail>
               </>
             )}
             {a.dam_id != null && (
@@ -578,6 +888,7 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
                   <TableHead>Product</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                   <TableHead>Next due</TableHead>
+                  <TableHead>Traceability</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -588,6 +899,22 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
                     <TableCell>{h.product_name ?? h.disease_target ?? "—"}</TableCell>
                     <TableCell className="text-right">{formatMoney(h.cost)}</TableCell>
                     <TableCell>{formatDate(h.next_due_date)}</TableCell>
+                    <TableCell>
+                      <span className="text-xs">
+                        {[
+                          h.product_lot ? `Lot ${h.product_lot}` : null,
+                          h.certificate_number ? `Cert ${h.certificate_number}` : null,
+                          h.withdrawal_until
+                            ? `Withdrawal to ${formatDate(h.withdrawal_until)}`
+                            : null,
+                          h.suspected_scheduled_disease
+                            ? "Scheduled-disease hold"
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </span>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

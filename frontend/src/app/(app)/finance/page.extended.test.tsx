@@ -12,6 +12,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { farmToday } from "@/lib/format";
 
 import FinancePage from "./page";
 
@@ -33,10 +34,7 @@ beforeAll(() => {
 });
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 const TXN_INCOME = {
@@ -48,6 +46,13 @@ const TXN_INCOME = {
   notes: "sold 10 bucks",
   related_animal_id: 11,
   animal_tag: "G-011",
+  created_at: "2026-01-05T05:30:00Z",
+  source_type: null,
+  source_id: null,
+  correction_of_id: null,
+  voided_at: null,
+  voided_by_id: null,
+  void_reason: null,
 };
 
 const TXN_EXPENSE = {
@@ -59,10 +64,20 @@ const TXN_EXPENSE = {
   notes: null,
   related_animal_id: null,
   animal_tag: null,
+  created_at: "2026-01-07T05:30:00Z",
+  source_type: null,
+  source_id: null,
+  correction_of_id: null,
+  voided_at: null,
+  voided_by_id: null,
+  void_reason: null,
 };
 
 const PAYLOAD = {
   transactions: [TXN_INCOME, TXN_EXPENSE],
+  transactions_total: 2,
+  limit: 50,
+  offset: 0,
   total_income: 150000,
   total_expense: 90000,
   pnl: [
@@ -92,12 +107,24 @@ const ANIMAL = {
   purchase_price: null,
   seller_name: null,
   cull_candidate: false,
+  movement_restricted: false,
+  restriction_reason: null,
+  suspected_scheduled_disease: false,
+  suspected_disease: null,
+  authority_notified_at: null,
+  restriction_cleared_at: null,
+  restriction_cleared_by_id: null,
+  restriction_clearance_reference: null,
+  mortality_cause: null,
+  mortality_reported_at: null,
   notes: null,
   created_at: "2026-01-01T05:30:00Z",
 };
 
 function financeHandler(payload: Record<string, unknown>) {
-  return http.get("/api/finance", () => HttpResponse.json(payload));
+  return http.get("/api/finance", () =>
+    HttpResponse.json({ transactions_total: 0, limit: 50, offset: 0, ...payload }),
+  );
 }
 
 async function renderLoaded() {
@@ -158,6 +185,30 @@ describe("FinancePage totals and P&L", () => {
     const feedRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
     expect(within(feedRow).getByText("EXPENSE")).toBeInTheDocument();
     expect(within(feedRow).getByText("—")).toBeInTheDocument(); // no animal
+  });
+
+  it("marks voided rows and retains their audit reason without offering another correction", async () => {
+    server.use(
+      financeHandler({
+        ...PAYLOAD,
+        transactions: [
+          {
+            ...TXN_INCOME,
+            voided_at: "2026-08-08T10:00:00Z",
+            voided_by_id: 7,
+            void_reason: "Wrong sale amount",
+          },
+        ],
+        transactions_total: 1,
+      }),
+    );
+    await renderLoaded();
+
+    const row = screen.getByText("sold 10 bucks").closest("tr") as HTMLElement;
+    expect(within(row).getByText("VOID")).toBeInTheDocument();
+    expect(within(row).getByText("Void reason: Wrong sale amount")).toBeInTheDocument();
+    expect(within(row).getByText("₹1,50,000")).toHaveClass("line-through");
+    expect(within(row).queryByRole("button", { name: "Correct" })).not.toBeInTheDocument();
   });
 });
 
@@ -242,6 +293,20 @@ describe("FinancePage filters", () => {
     );
     expect(screen.getByLabelText("Filter by month")).toHaveValue("");
   });
+
+  it("uses the API total to page through the full ledger", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("/api/finance", ({ request }) => {
+        lastParams = new URL(request.url).searchParams;
+        return HttpResponse.json({ ...PAYLOAD, transactions_total: 120 });
+      }),
+    );
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(lastParams.get("offset")).toBe("50"));
+  });
 });
 
 describe("FinancePage RBAC and errors", () => {
@@ -265,6 +330,7 @@ describe("FinancePage RBAC and errors", () => {
     renderWithProviders(<FinancePage />);
     expect(await screen.findByText("Total income")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New transaction" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Correct" })).not.toBeInTheDocument();
   });
 
   it("shows the error detail when the finance GET fails", async () => {
@@ -275,6 +341,109 @@ describe("FinancePage RBAC and errors", () => {
     );
     renderWithProviders(<FinancePage />);
     expect(await screen.findByText("ledger unavailable")).toBeInTheDocument();
+  });
+});
+
+describe("FinancePage correction dialog", () => {
+  let correctionBody: Record<string, unknown> | null;
+  let correctionCalls: number;
+
+  beforeEach(() => {
+    correctionBody = null;
+    correctionCalls = 0;
+    server.use(
+      financeHandler(PAYLOAD),
+      http.get("/api/animals", () => HttpResponse.json({ animals: [ANIMAL], total: 1 })),
+      http.post("/api/finance/transactions/1/correct", async ({ request }) => {
+        correctionCalls += 1;
+        correctionBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { ...TXN_INCOME, id: 3, correction_of_id: 1, amount: 145000 },
+          { status: 201 },
+        );
+      }),
+    );
+  });
+
+  async function openCorrection() {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = screen.getByText("sold 10 bucks").closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Correct" }));
+    return { user, dialog: await screen.findByRole("dialog", { name: "Correct transaction #1" }) };
+  }
+
+  it("requires an audit reason before creating the replacement", async () => {
+    const { user, dialog } = await openCorrection();
+    await user.clear(within(dialog).getByLabelText("Correction reason *"));
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "no");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    expect(await within(dialog).findByText("Reason must be at least 3 characters")).toBeInTheDocument();
+    expect(correctionCalls).toBe(0);
+  });
+
+  it("posts a full replacement while preserving the original as an audit row", async () => {
+    const { user, dialog } = await openCorrection();
+    const amount = within(dialog).getByLabelText("Amount (₹) *");
+    await user.clear(amount);
+    await user.type(amount, "145000");
+    const notes = within(dialog).getByLabelText("Notes");
+    await user.clear(notes);
+    await user.type(notes, "  corrected sale receipt  ");
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Duplicate kid count");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    await waitFor(() => expect(correctionCalls).toBe(1));
+    expect(correctionBody).toEqual({
+      date: "2026-01-05",
+      type: "INCOME",
+      category: "ANIMAL_SALE",
+      amount: 145000,
+      notes: "corrected sale receipt",
+      related_animal_id: 11,
+      reason: "Duplicate kid count",
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("preserves an existing animal link read-only without animals.view", async () => {
+    let animalCalls = 0;
+    server.use(
+      permissionsHandler(["finance.view", "finance.manage"]),
+      http.get("/api/animals", () => {
+        animalCalls += 1;
+        return HttpResponse.json({ animals: [ANIMAL], total: 1 });
+      }),
+    );
+    const { user, dialog } = await openCorrection();
+
+    expect(screen.queryByRole("link", { name: "G-011" })).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Linked animal")).toHaveTextContent("G-011");
+    expect(
+      within(dialog).getByText(/correction preserves the existing link/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole("combobox", { name: /Animal/ })).not.toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Correct receipt");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+    await waitFor(() => expect(correctionCalls).toBe(1));
+    expect(correctionBody).toMatchObject({ related_animal_id: 11 });
+    expect(animalCalls).toBe(0);
+  });
+
+  it("surfaces a server rejection and keeps the correction open", async () => {
+    server.use(
+      http.post("/api/finance/transactions/1/correct", () =>
+        HttpResponse.json({ detail: "transaction is already voided" }, { status: 409 }),
+      ),
+    );
+    const { user, dialog } = await openCorrection();
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Wrong amount");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    expect(await within(dialog).findByText("transaction is already voided")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
 
@@ -371,6 +540,29 @@ describe("FinancePage new-transaction dialog", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(getCalls).toBeGreaterThan(callsBefore));
+  });
+
+  it("saves without an animal link and does not browse animals without animals.view", async () => {
+    let animalCalls = 0;
+    server.use(
+      permissionsHandler(["finance.view", "finance.manage"]),
+      http.get("/api/animals", () => {
+        animalCalls += 1;
+        return HttpResponse.json({ animals: [ANIMAL], total: 1 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+
+    expect(
+      within(dialog).getByText(/transaction will be saved without an animal link/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole("combobox", { name: /Animal/ })).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(/Amount/), "250");
+    await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
+
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postBody).toMatchObject({ related_animal_id: null });
+    expect(animalCalls).toBe(0);
   });
 
   it("POSTs trimmed notes and the selected animal id", async () => {

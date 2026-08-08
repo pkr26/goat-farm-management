@@ -101,6 +101,48 @@ export async function pickSelectOption(
   }
 }
 
+/**
+ * Open a server-backed RemotePicker by its accessible combobox label, search
+ * the bounded result set when requested, and choose an option from the linked
+ * picker dialog. Unlike the static Select helper above, this follows the
+ * trigger's aria-controls relationship and exercises the user-visible search.
+ */
+export async function pickRemoteOption(
+  scope: Locator,
+  label: string,
+  option: string | RegExp | null,
+  query?: string,
+): Promise<void> {
+  const page = scope.page();
+  const trigger = scope.getByRole("combobox", { name: label, exact: true });
+  await expect(trigger).toBeVisible();
+  const dialogId = await trigger.getAttribute("aria-controls");
+  if (!dialogId) throw new Error(`Remote picker "${label}" has no aria-controls target.`);
+
+  await trigger.click();
+  const picker = page.locator(`[id="${dialogId}"]`);
+  await expect(picker).toHaveRole("dialog");
+  await expect(picker).toBeVisible();
+  if (query !== undefined) {
+    await picker.getByRole("searchbox").fill(query);
+  }
+
+  const options = picker.getByRole("option");
+  if (option === null) {
+    await expect(options.first()).toBeVisible({ timeout: 20_000 });
+    await options.first().click();
+  } else if (typeof option === "string") {
+    const match = picker.getByRole("option", { name: option, exact: true });
+    await expect(match).toBeVisible({ timeout: 20_000 });
+    await match.click();
+  } else {
+    const match = picker.getByRole("option", { name: option }).first();
+    await expect(match).toBeVisible({ timeout: 20_000 });
+    await match.click();
+  }
+  await expect(picker).toBeHidden();
+}
+
 export interface NewAnimal {
   tag: string;
   sex?: "F" | "M";
@@ -137,7 +179,7 @@ export async function createAnimal(page: Page, animal: NewAnimal): Promise<void>
 /** Find an animal by tag via the list search and open its profile page. */
 export async function openAnimalProfile(page: Page, tag: string): Promise<void> {
   await page.goto("/animals");
-  await page.getByPlaceholder("Search tag or name…").fill(tag);
+  await page.getByPlaceholder("Search by tag…").fill(tag);
   await page.getByRole("link", { name: tag, exact: true }).click();
   await expect(page).toHaveURL(/\/animals\/\d+$/, { timeout: 15_000 });
   await expect(page.getByRole("heading", { name: new RegExp(tag) })).toBeVisible({
@@ -167,21 +209,35 @@ export async function createBreeding(
   await page.goto("/breeding");
   await page.getByRole("button", { name: "Add breeding" }).click();
   let dialog = page.getByRole("dialog", { name: "Add breeding" });
-  // The form only renders once the animal pickers have loaded.
-  await expect(dialog.getByText("Buck *", { exact: true })).toBeVisible({ timeout: 20_000 });
+  const noEligibleBuck = dialog.getByText(/No eligible bucks are available/);
+  let buckPicker = dialog.getByRole("combobox", { name: "Buck *", exact: true });
+  // Buck eligibility is checked against the canonical scoped endpoint. Wait
+  // until it either enables the picker or reports a truthful empty state.
+  await expect
+    .poll(
+      async () => (await buckPicker.isEnabled()) || (await noEligibleBuck.isVisible()),
+      { timeout: 20_000 },
+    )
+    .toBe(true);
 
-  if (await dialog.getByText("No active bucks on this farm").isVisible()) {
+  if (await noEligibleBuck.isVisible()) {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
-    await createAnimal(page, { tag: uniqueTag("E2E-BUCK"), sex: "M" });
+    await createAnimal(page, {
+      tag: uniqueTag("E2E-BUCK"),
+      sex: "M",
+      bucket: "BREEDING",
+      dateOfBirth: monthsAgo(14),
+    });
     await page.goto("/breeding");
     await page.getByRole("button", { name: "Add breeding" }).click();
     dialog = page.getByRole("dialog", { name: "Add breeding" });
-    await expect(dialog.getByText("Buck *", { exact: true })).toBeVisible({ timeout: 20_000 });
+    buckPicker = dialog.getByRole("combobox", { name: "Buck *", exact: true });
+    await expect(buckPicker).toBeEnabled({ timeout: 20_000 });
   }
 
-  await pickSelectOption(dialog, "Doe *", new RegExp(doeTag));
-  await pickSelectOption(dialog, "Buck *", null);
+  await pickRemoteOption(dialog, "Doe *", new RegExp(doeTag), doeTag);
+  await pickRemoteOption(dialog, "Buck *", null);
   if (breedingDate) {
     await dialog.getByLabel("Breeding date *").fill(breedingDate);
   }

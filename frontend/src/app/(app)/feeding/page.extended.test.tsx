@@ -12,6 +12,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, farmToday } from "@/lib/format";
 
 import FeedingPage from "./page";
 
@@ -33,10 +34,7 @@ beforeAll(() => {
 });
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 const SHIFTS = [
@@ -266,6 +264,85 @@ describe("FeedingPage errors and RBAC", () => {
   });
 });
 
+describe("FeedingPage dispensing history", () => {
+  let historyParams: URLSearchParams;
+
+  beforeEach(() => {
+    historyParams = new URLSearchParams();
+    server.use(
+      planHandler({ lines: [LINE_BREEDING], records: [] }),
+      recipesHandler(),
+      http.get("/api/feeding/records", ({ request }) => {
+        historyParams = new URL(request.url).searchParams;
+        return HttpResponse.json({
+          records: [
+            {
+              id: 88,
+              date: "2026-01-01",
+              shift: "NIGHT",
+              bucket: "BREEDING",
+              recipe_code: null,
+              qty_kg: 7.25,
+            },
+          ],
+          total: 120,
+          limit: 50,
+          offset: Number(historyParams.get("offset") ?? 0),
+        });
+      }),
+    );
+  });
+
+  it("makes backdated dispensing discoverable with exact-total pagination", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen.getByText("Dispensing history").closest('[data-slot="card"]') as HTMLElement;
+
+    expect(within(card).getByText("1 Jan 2026")).toBeInTheDocument();
+    expect(within(card).getByText("7.3")).toBeInTheDocument();
+    expect(within(card).getByText("Showing 1–50 of 120 dispensing records")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(historyParams.get("offset")).toBe("50"));
+  });
+
+  it("sends date filters and clears them without losing history access", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-01-01" },
+    });
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-01-31" },
+    });
+    await waitFor(() => {
+      expect(historyParams.get("date_from")).toBe("2026-01-01");
+      expect(historyParams.get("date_to")).toBe("2026-01-31");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Clear dates" }));
+    await waitFor(() => {
+      expect(historyParams.has("date_from")).toBe(false);
+      expect(historyParams.has("date_to")).toBe(false);
+    });
+  });
+
+  it("blocks an inverted date range before sending it", async () => {
+    await renderLoaded();
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-02-01" },
+    });
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-01-01" },
+    });
+
+    expect(
+      await screen.findByText("From date must be on or before to date."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("From date")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("To date")).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
 describe("FeedingPage dispense dialog", () => {
   let dispenseCalls: number;
   let dispenseBody: Record<string, unknown> | null;
@@ -317,11 +394,8 @@ describe("FeedingPage dispense dialog", () => {
   it("rejects a future date (typed input bypasses the max attribute)", async () => {
     const { user, dialog } = await openDialog();
 
-    const tomorrow = new Date(Date.now() + 86_400_000);
-    const m = String(tomorrow.getMonth() + 1).padStart(2, "0");
-    const d = String(tomorrow.getDate()).padStart(2, "0");
     fireEvent.change(within(dialog).getByLabelText("Date"), {
-      target: { value: `${tomorrow.getFullYear()}-${m}-${d}` },
+      target: { value: addDays(farmToday(), 1) },
     });
     await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "4");
     await user.click(within(dialog).getByRole("button", { name: "Record" }));
@@ -330,6 +404,18 @@ describe("FeedingPage dispense dialog", () => {
       await within(dialog).findByText("Date can't be in the future"),
     ).toBeInTheDocument();
     expect(dispenseCalls).toBe(0);
+  });
+
+  it("accepts a backdated record so it can appear in dated history", async () => {
+    const { user, dialog } = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText("Date"), {
+      target: { value: "2026-01-01" },
+    });
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "4");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+
+    await waitFor(() => expect(dispenseCalls).toBe(1));
+    expect(dispenseBody).toMatchObject({ date: "2026-01-01", qty_kg: 4 });
   });
 
   it("POSTs the mapped payload (no recipe → null) and invalidates the plan", async () => {
@@ -448,5 +534,37 @@ describe("FeedingPage kg/head override dialog", () => {
     await waitFor(() => expect(settingsBody).not.toBeNull());
     expect(settingsBody).toEqual({ bucket: "BREEDING", daily_kg_per_head: 1.8 });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows the refreshed ration value when the editor is reopened", async () => {
+    let currentKg = 1;
+    server.use(
+      http.get("/api/feeding/plan", () =>
+        HttpResponse.json({
+          lines: [{ ...LINE_BREEDING, kg_per_head: currentKg, daily_kg: currentKg * 20 }],
+          records: [],
+        }),
+      ),
+      http.post("/api/feeding/settings", async ({ request }) => {
+        const body = (await request.json()) as { daily_kg_per_head: number };
+        currentKg = body.daily_kg_per_head;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    let dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByLabelText(/kg per head per day/);
+    await user.clear(input);
+    await user.type(input, "1.8");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(currentKg).toBe(1.8));
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(1.8);
   });
 });

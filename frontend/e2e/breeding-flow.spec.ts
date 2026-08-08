@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import {
   createAnimal,
   createBreeding,
+  daysAgo,
   monthsAgo,
   openAnimalProfile,
   profileDetail,
@@ -30,7 +31,9 @@ test.describe("breeding flow", () => {
     });
 
     // Breed her (creates an active buck first if the farm has none).
-    await createBreeding(page, doeTag);
+    // The ultrasound result is only recordable on/after its planned date
+    // (breeding + 32 days), so use a historical but still pending breeding.
+    await createBreeding(page, doeTag, daysAgo(40));
 
     // The record shows as PENDING on the breeding list.
     const row = page.getByRole("row", { name: new RegExp(doeTag) });

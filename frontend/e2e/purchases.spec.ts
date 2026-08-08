@@ -61,7 +61,7 @@ test.describe("purchases", () => {
     // The herd list's quarantine bucket shows the stubbed animal. (The day-45
     // release is due 44 days out — not automatable without date travel.)
     await page.goto("/animals?bucket=QUARANTINE");
-    await page.getByPlaceholder("Search tag or name…").fill(firstTag);
+    await page.getByPlaceholder("Search by tag…").fill(firstTag);
     const herdRow = page.getByRole("row", { name: new RegExp(firstTag) });
     await expect(herdRow).toBeVisible({ timeout: 15_000 });
     await expect(herdRow.getByRole("cell", { name: "QUARANTINE" })).toBeVisible();

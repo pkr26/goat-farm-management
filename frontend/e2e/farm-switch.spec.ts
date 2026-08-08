@@ -69,7 +69,7 @@ test.describe("farm switching", () => {
       page.getByRole("heading", { name: `${E2E_FARM_NAME} — Dashboard` }),
     ).toBeVisible({ timeout: 20_000 });
     await nav.getByRole("link", { name: "Animals", exact: true }).click();
-    await page.getByPlaceholder("Search tag or name…").fill(tagA);
+    await page.getByPlaceholder("Search by tag…").fill(tagA);
     await expect(page.getByRole("link", { name: tagA, exact: true })).toBeVisible({
       timeout: 15_000,
     });

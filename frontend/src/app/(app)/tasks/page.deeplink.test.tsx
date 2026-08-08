@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskOut } from "@/api/generated/models";
 import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, farmToday } from "@/lib/format";
 
 import TasksPage from "./page";
 
@@ -25,12 +26,8 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-/** UTC YYYY-MM-DD (the page compares against utcToday now,). */
-function utcISO(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-const TODAY = utcISO(new Date());
-const THREE_DAYS_AGO = utcISO(new Date(Date.now() - 3 * 86_400_000));
+const TODAY = farmToday();
+const THREE_DAYS_AGO = addDays(TODAY, -3);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
@@ -46,12 +43,15 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     assigned_role_id: null,
     assigned_user_id: null,
     recur_days: null,
+    recurring_series_id: null,
     completed_by_id: null,
     completed_at: null,
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
     skipped_by_id: null,
+    skipped_at: null,
+    skip_reason: null,
     action_url: null,
     ...overrides,
   };
@@ -68,6 +68,9 @@ function tasksHandler(tasks: TaskOut[] = [TODAY_TASK, OVERDUE_TASK]) {
       upcoming: [],
       awaiting: tasks.filter((t) => t.status === "DONE"),
       completed: [],
+      completed_total: 0,
+      completed_limit: 50,
+      completed_offset: 0,
     }),
   );
 }

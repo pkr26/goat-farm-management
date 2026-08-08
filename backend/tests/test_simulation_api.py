@@ -515,7 +515,7 @@ async def test_run_limiter_is_per_farm(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stale scenario rows (9-6): skipped in listings, 422 elsewhere, never a 500
+# Stale scenario rows (9-6): visible-but-disabled in listings, 422 elsewhere
 # ---------------------------------------------------------------------------
 async def _corrupt_scenario_row(scenario_id: int) -> None:
     """Simulate a row stored under an older/looser assumptions schema."""
@@ -535,10 +535,17 @@ async def test_stale_scenario_row_never_500s(client: httpx.AsyncClient) -> None:
     stale = await create_scenario(client, headers, "Stale", assumptions)
     await _corrupt_scenario_row(stale["id"])
 
-    # The list endpoint skips the bad row instead of 500ing the whole farm.
+    # Keep the bad row visible so a farmer can understand and repair/delete it;
+    # silently dropping stored work made it look as though data had vanished.
     listing = await client.get("/api/simulation/scenarios", headers=headers)
     assert listing.status_code == 200, listing.text
-    assert [s["name"] for s in listing.json()] == ["Good"]
+    listed = listing.json()
+    assert [s["name"] for s in listed] == ["Good", "Stale"]
+    assert listed[0]["valid"] is True
+    assert listed[0]["assumptions"] is not None
+    assert listed[1]["valid"] is False
+    assert listed[1]["assumptions"] is None
+    assert "current schema" in listed[1]["validation_error"]
 
     # Get / run / compare surface a clean 422 for the affected scenario.
     resp = await client.get(f"/api/simulation/scenarios/{stale['id']}", headers=headers)

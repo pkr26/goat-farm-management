@@ -14,6 +14,7 @@ export interface TaskCreateIn {
   title: string;
   due_date: string;
   category?: TaskCreateInCategory;
+  animal_id?: number | null;
   assigned_role_id?: number | null;
   assigned_user_id?: number | null;
   recur_days?: number | null;

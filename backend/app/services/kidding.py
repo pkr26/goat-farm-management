@@ -37,6 +37,7 @@ class KidSpec(TypedDict):
     sex: str
     birth_weight: float | None
     status: str
+    mortality_reported_at: date | None
 
 
 async def record_kidding(
@@ -87,7 +88,8 @@ async def record_kidding(
     await db.flush()
 
     alive_count = sum(1 for k in kids if k["status"] == KidStatus.ALIVE.value)
-    if alive_count >= 5:
+    born_count = sum(1 for k in kids if k["status"] != KidStatus.STILLBORN.value)
+    if born_count >= 5:
         birth_type: BirthType | None = BirthType.MULTIPLET
     else:
         birth_type = {
@@ -95,7 +97,7 @@ async def record_kidding(
             2: BirthType.TWIN,
             3: BirthType.TRIPLET,
             4: BirthType.QUADRUPLET,
-        }.get(alive_count)
+        }.get(born_count)
 
     # Tags are unique per farm; auto tags ("<doe>-K<n>") collide on a doe's
     # second kidding, so uniquify instead of crashing on the constraint. Probe
@@ -118,10 +120,14 @@ async def record_kidding(
             sex=kid["sex"],
             birth_weight=kid["birth_weight"],
             status=kid["status"],
+            mortality_reported_at=kid["mortality_reported_at"],
         )
         db.add(entry)
         await db.flush()
-        if kid["status"] == KidStatus.ALIVE.value:
+        # DIED is a neonatal mortality after a live birth, not a stillbirth:
+        # retain an Animal record in DEAD state for lineage and mortality
+        # traceability, while keeping it out of the active herd.
+        if kid["status"] != KidStatus.STILLBORN.value:
             tag = await _unique_tag(kid["tag"])
             animal = Animal(
                 farm_id=farm.id,
@@ -135,7 +141,16 @@ async def record_kidding(
                 sire_id=br.buck_id,
                 birth_weight=kid["birth_weight"],
                 current_bucket=Bucket.RECOVERY.value,
-                status=AnimalStatus.ACTIVE.value,
+                status=(
+                    AnimalStatus.ACTIVE.value
+                    if kid["status"] == KidStatus.ALIVE.value
+                    else AnimalStatus.DEAD.value
+                ),
+                status_date=(kidding_date if kid["status"] == KidStatus.DIED.value else None),
+                status_notes=(
+                    "Neonatal mortality recorded" if kid["status"] == KidStatus.DIED.value else None
+                ),
+                mortality_reported_at=kid["mortality_reported_at"],
             )
             db.add(animal)
             await db.flush()
@@ -179,14 +194,18 @@ async def record_kidding(
     for task in await _pending_tasks_for(db, farm.id, for_update=True, breeding_record_id=br.id):
         if task.status == TaskStatus.PENDING.value:
             task.status = TaskStatus.SKIPPED.value
+            task.skipped_by_id = None
+            task.skipped_at = utcnow()
+            task.skip_reason = "Kidding recorded; remaining pregnancy duty no longer applies"
 
-    await _add_task(
-        db,
-        farm.id,
-        f"Wean kids of {doe.tag_number}; doe → RESTING",
-        kidding_date + timedelta(days=WEANING_DAYS),
-        TaskCategory.WEANING,
-        animal_id=doe.id,
-    )
+    if alive_count:
+        await _add_task(
+            db,
+            farm.id,
+            f"Wean kids of {doe.tag_number}; doe → RESTING",
+            kidding_date + timedelta(days=WEANING_DAYS),
+            TaskCategory.WEANING,
+            animal_id=doe.id,
+        )
     await db.flush()
     return record

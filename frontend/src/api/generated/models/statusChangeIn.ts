@@ -12,4 +12,9 @@ export interface StatusChangeIn {
   sale_price?: number | null;
   buyer_name?: string | null;
   notes?: string | null;
+  mortality_cause?: string | null;
+  mortality_reported_at?: string | null;
+  suspected_scheduled_disease?: boolean;
+  suspected_disease?: string | null;
+  authority_notified_at?: string | null;
 }

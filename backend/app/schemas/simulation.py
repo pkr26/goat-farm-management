@@ -46,7 +46,9 @@ class ScenarioOut(BaseModel):
     farm_id: int
     name: str
     notes: str
-    assumptions: SimulationAssumptions
+    assumptions: SimulationAssumptions | None
+    valid: bool = True
+    validation_error: str | None = None
     created_at: datetime
     updated_at: datetime
 

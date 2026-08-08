@@ -18,6 +18,7 @@ booking as an ANIMAL_PURCHASE transaction.
 from datetime import date, timedelta
 
 import httpx
+import pytest
 
 from app.utils import add_months, today
 
@@ -77,7 +78,7 @@ async def record_event(client: httpx.AsyncClient, headers: dict, **payload: obje
 async def list_events(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     resp = await client.get("/api/health/events", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return resp.json()["events"]
 
 
 async def get_schedule(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
@@ -93,13 +94,38 @@ def row_by_name(schedule: dict, name: str) -> dict:
 async def list_batches(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     resp = await client.get("/api/purchases", headers=headers)
     assert resp.status_code == 200, resp.text
-    return resp.json()
+    return resp.json()["batches"]
 
 
 async def get_batch(client: httpx.AsyncClient, headers: dict, batch_id: int) -> dict:
     resp = await client.get(f"/api/purchases/{batch_id}", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+async def complete_quarantine_prerequisites(
+    client: httpx.AsyncClient, headers: dict, detail: dict
+) -> None:
+    """Complete every recorded prerequisite through its own audited workflow."""
+    batch_id = detail["batch"]["id"]
+    for task in detail["tasks"]:
+        if task["category"] == "BUCKET_MOVE":
+            continue
+        if task["category"] in {"VACCINE", "DEWORMING"}:
+            response = await client.post(
+                "/api/health/events",
+                json={
+                    "scope": "batch",
+                    "purchase_batch_id": batch_id,
+                    "type": task["category"],
+                    "task_id": task["id"],
+                },
+                headers=headers,
+            )
+        else:
+            response = await client.post(f"/api/tasks/{task['id']}/complete", headers=headers)
+        expected_status = 201 if task["category"] in {"VACCINE", "DEWORMING"} else 200
+        assert response.status_code == expected_status, response.text
 
 
 async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
@@ -193,6 +219,8 @@ async def test_record_event_full_fields_roundtrip(client: httpx.AsyncClient) -> 
         vet_name="Dr. Rao",
         cost=150.5,
         next_due_date=iso(future),
+        schedule_template_name="Deworming",
+        next_due_authority="Farm veterinarian record",
         notes="first round",
     )
     event = events[0]
@@ -444,6 +472,7 @@ async def test_batch_scope_still_targets_animals_after_release(
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=2, date=iso(today() - timedelta(days=50)))
     detail = await get_batch(client, headers, batch["id"])
+    await complete_quarantine_prerequisites(client, headers, detail)
     footbath = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
     resp = await client.post(f"/api/tasks/{footbath['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -681,9 +710,55 @@ async def test_event_next_due_far_future_accepted(client: httpx.AsyncClient) -> 
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
     events = await record_event(
-        client, headers, animal_id=animal["id"], type="VACCINE", next_due_date="2099-01-01"
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        next_due_date="2099-01-01",
+        schedule_template_name="FMD",
+        next_due_authority="Farm veterinarian record",
     )
     assert events[0]["next_due_date"] == "2099-01-01"
+
+
+async def test_omitted_event_date_validates_followup_against_farm_today(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers)
+
+    def farm_today(timezone_name: str) -> date:
+        assert timezone_name == "Asia/Kolkata"
+        return date(2099, 1, 2)
+
+    monkeypatch.setattr("app.api.health.today", farm_today)
+    response = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        next_due_date="2099-01-01",
+        schedule_template_name="FMD",
+        next_due_authority="Farm veterinarian record",
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "next_due_date must be after the health event date"
+
+
+async def test_selected_schedule_template_must_match_recorded_disease_target(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers)
+    response = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        schedule_template_name="PPR",
+        disease_target="FMD",
+    )
+    assert response.status_code == 422
 
 
 async def test_event_task_id_boundaries_422(client: httpx.AsyncClient) -> None:
@@ -746,13 +821,12 @@ async def test_event_completes_linked_deworming_task(client: httpx.AsyncClient) 
     assert batch[0]["open_tasks"] == 7  # 8 protocol duties minus the completed one
 
 
-async def test_event_ignores_quarantine_category_task_id(client: httpx.AsyncClient) -> None:
-    """Only VACCINE/DEWORMING duties may be closed through the health form;
-    a smuggled QUARANTINE task_id is ignored while the event is recorded."""
+async def test_event_rejects_incompatible_quarantine_task_id(client: httpx.AsyncClient) -> None:
+    """A health entry cannot smuggle an unrelated quarantine task to completion."""
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers)
     rest_task = next(t for t in detail["tasks"] if t["category"] == "QUARANTINE")
-    await record_event(
+    response = await post_event(
         client,
         headers,
         scope="batch",
@@ -760,18 +834,18 @@ async def test_event_ignores_quarantine_category_task_id(client: httpx.AsyncClie
         type="VITAMIN",
         task_id=rest_task["id"],
     )
+    assert response.status_code == 409
     detail = await get_batch(client, headers, detail["batch"]["id"])
     task = next(t for t in detail["tasks"] if t["id"] == rest_task["id"])
     assert task["status"] == "PENDING"
 
 
-async def test_event_ignores_bucket_move_task_id(client: httpx.AsyncClient) -> None:
-    """The day-45 release duty cannot be closed via the health form — and the
-    release side effect must not fire either."""
+async def test_event_rejects_bucket_move_task_id(client: httpx.AsyncClient) -> None:
+    """The day-45 release duty cannot be closed through a generic health form."""
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers)
     release_task = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
-    await record_event(
+    response = await post_event(
         client,
         headers,
         scope="batch",
@@ -780,13 +854,14 @@ async def test_event_ignores_bucket_move_task_id(client: httpx.AsyncClient) -> N
         product_name="10% Zinc Sulfate",
         task_id=release_task["id"],
     )
+    assert response.status_code == 409
     detail = await get_batch(client, headers, detail["batch"]["id"])
     task = next(t for t in detail["tasks"] if t["id"] == release_task["id"])
     assert task["status"] == "PENDING"
     assert all(a["current_bucket"] == "QUARANTINE" for a in detail["animals"])
 
 
-async def test_event_with_already_done_task_id_is_harmless(client: httpx.AsyncClient) -> None:
+async def test_event_with_already_done_task_id_is_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers)
     ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
@@ -796,22 +871,23 @@ async def test_event_with_already_done_task_id_is_harmless(client: httpx.AsyncCl
         "type": "VACCINE",
         "task_id": ppr_task["id"],
     }
-    await record_event(client, headers, **payload)
-    # replay with the same (now DONE) task_id: event still recorded, no error
     events = await record_event(client, headers, **payload)
+    # Replaying a completed task cannot create a second unlinked health record.
+    replay = await post_event(client, headers, **payload)
+    assert replay.status_code == 409
     assert len(events) == 2
     detail = await get_batch(client, headers, detail["batch"]["id"])
     task = next(t for t in detail["tasks"] if t["id"] == ppr_task["id"])
     assert task["status"] == "DONE"
 
 
-async def test_event_with_nonexistent_task_id_still_records(client: httpx.AsyncClient) -> None:
+async def test_event_with_nonexistent_task_id_is_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers)
-    events = await record_event(
+    response = await post_event(
         client, headers, animal_id=animal["id"], type="VACCINE", task_id=999999
     )
-    assert len(events) == 1
+    assert response.status_code == 409
 
 
 async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient) -> None:
@@ -826,7 +902,9 @@ async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient)
     ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])  # auto-assigned: VET role
 
     # Worker holding health.manage via a custom role the duty is NOT assigned to.
-    floater_role = await make_custom_role(client, headers, "Floater", ["health.manage"])
+    floater_role = await make_custom_role(
+        client, headers, "Floater", ["health.view", "health.manage"]
+    )
     await add_worker(client, headers, floater_role, "floater@farm.in")
     floater, floater_id = await login_user(client, "floater@farm.in")
     floater |= {"X-Farm-Id": headers["X-Farm-Id"]}
@@ -863,7 +941,8 @@ async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient)
     assert done["status"] == "DONE"
     assert done["completed_by_id"] == vet_id
 
-    # Direct user assignment (no matching role) also satisfies the rule.
+    # A manually created generic health task has no animal/batch target, so it
+    # cannot be closed through a health record (there is no exact correlation).
     deworm_task = next(t for t in detail["tasks"] if t["category"] == "DEWORMING")
     resp = await client.post(
         "/api/tasks",
@@ -877,7 +956,7 @@ async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient)
     )
     assert resp.status_code == 201, resp.text
     manual_duty_id = resp.json()["id"]
-    events = await record_event(
+    response = await post_event(
         client,
         floater,
         scope="batch",
@@ -886,14 +965,12 @@ async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient)
         product_name="Albendazole",
         task_id=manual_duty_id,
     )
-    assert len(events) == 2
+    assert response.status_code == 422
     detail = await get_batch(client, headers, batch_id)
     assert next(t for t in detail["tasks"] if t["id"] == deworm_task["id"])["status"] == "PENDING"
-    # ...while floater's own directly-assigned duty was closed and attributed.
     resp = await client.get("/api/tasks", headers=headers)
-    manual = next(t for t in resp.json()["completed"] if t["id"] == manual_duty_id)
-    assert manual["status"] == "DONE"
-    assert manual["completed_by_id"] == floater_id
+    manual = next(task for task in resp.json()["today"] if task["id"] == manual_duty_id)
+    assert manual["status"] == "PENDING"
 
 
 # ---------------------------------------------------------------------------
@@ -1253,6 +1330,34 @@ async def test_list_batches_newest_first(client: httpx.AsyncClient) -> None:
     assert [b["id"] for b in batches] == [newer["id"], older["id"]]
 
 
+async def test_list_batches_pagination_reports_total(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    for i in range(3):
+        await make_batch(client, headers, count=1, supplier=f"Supplier {i}")
+    response = await client.get("/api/purchases", params={"limit": 1, "offset": 1}, headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["batches"]) == 1
+    assert body["total"] == 3
+    assert body["limit"] == 1
+    assert body["offset"] == 1
+
+
+async def test_list_batches_searches_supplier_and_exact_id(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    first = await make_batch(client, headers, count=1, supplier="Literal 100% Farm")
+    await make_batch(client, headers, count=1, supplier="Other Seller")
+
+    by_supplier = await client.get("/api/purchases", params={"q": "100%"}, headers=headers)
+    assert by_supplier.status_code == 200, by_supplier.text
+    assert [row["id"] for row in by_supplier.json()["batches"]] == [first["id"]]
+    assert by_supplier.json()["total"] == 1
+
+    by_id = await client.get("/api/purchases", params={"q": f"#{first['id']}"}, headers=headers)
+    assert by_id.status_code == 200, by_id.text
+    assert [row["id"] for row in by_id.json()["batches"]] == [first["id"]]
+
+
 async def test_batch_detail_counts(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=4)
@@ -1336,6 +1441,7 @@ async def test_quarantine_task_titles_fallback_without_supplier(
 async def test_day45_completion_releases_animals_to_foundation(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers, days=50, count=3)
+    await complete_quarantine_prerequisites(client, headers, detail)
     release = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -1343,7 +1449,98 @@ async def test_day45_completion_releases_animals_to_foundation(client: httpx.Asy
     detail = await get_batch(client, headers, detail["batch"]["id"])
     # SPEC: day-45 footbath → release to FOUNDATION bucket
     assert all(a["current_bucket"] == "FOUNDATION" for a in detail["animals"])
-    assert detail["batch"]["open_tasks"] == 7
+    assert detail["batch"]["open_tasks"] == 0
+
+
+async def test_quarantine_release_requires_completed_records_and_no_disease_hold(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
+    release = next(task for task in detail["tasks"] if task["category"] == "BUCKET_MOVE")
+    incomplete = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
+    assert incomplete.status_code == 409
+    assert "prerequisite" in incomplete.json()["detail"].lower()
+
+    await complete_quarantine_prerequisites(client, headers, detail)
+    held = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "batch",
+            "purchase_batch_id": detail["batch"]["id"],
+            "type": "TREATMENT",
+            "disease_target": "Reportable-condition concern",
+            "suspected_scheduled_disease": True,
+        },
+        headers=headers,
+    )
+    assert held.status_code == 201, held.text
+    blocked = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
+    assert blocked.status_code == 409
+    assert "restriction" in blocked.json()["detail"].lower()
+
+
+async def test_movement_hold_blocks_sale_until_referenced_clearance(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="HOLD-1")
+    held = await post_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=animal["id"],
+        type="TREATMENT",
+        disease_target="Reportable-condition concern",
+        suspected_scheduled_disease=True,
+    )
+    assert held.status_code == 201, held.text
+
+    blocked = await client.post(
+        f"/api/animals/{animal['id']}/status",
+        json={"new_status": "SOLD", "sale_price": 1000},
+        headers=headers,
+    )
+    assert blocked.status_code == 409
+    assert "clearance" in blocked.json()["detail"].lower()
+    blank = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={"clearance_reference": "   "},
+        headers=headers,
+    )
+    assert blank.status_code == 422
+
+    cleared = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={"clearance_reference": "District AHD clearance AHD-2026-184"},
+        headers=headers,
+    )
+    assert cleared.status_code == 204, cleared.text
+    after = await get_animal(client, headers, animal["id"])
+    assert after["movement_restricted"] is False
+    assert after["suspected_scheduled_disease"] is False
+    assert after["restriction_reason"] is None
+    assert after["restriction_cleared_at"] is not None
+    assert after["restriction_cleared_by_id"] is not None
+    assert after["restriction_clearance_reference"] == "District AHD clearance AHD-2026-184"
+
+    sold = await client.post(
+        f"/api/animals/{animal['id']}/status",
+        json={"new_status": "SOLD", "sale_price": 1000},
+        headers=headers,
+    )
+    assert sold.status_code == 200, sold.text
+
+
+async def test_clear_restriction_requires_an_active_hold(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="NO-HOLD")
+    response = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={"clearance_reference": "Not applicable"},
+        headers=headers,
+    )
+    assert response.status_code == 409
 
 
 async def test_day45_completion_leaves_dead_animals_untouched(client: httpx.AsyncClient) -> None:
@@ -1351,6 +1548,7 @@ async def test_day45_completion_leaves_dead_animals_untouched(client: httpx.Asyn
     detail = await _backdated_batch_with_tasks(client, headers, days=50, count=2)
     dead, live = detail["animals"][0], detail["animals"][1]
     await mark_dead(client, headers, dead["id"])
+    await complete_quarantine_prerequisites(client, headers, detail)
     release = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -1364,6 +1562,7 @@ async def test_day45_completion_leaves_dead_animals_untouched(client: httpx.Asyn
 async def test_day45_completion_not_idempotent_via_api(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers, days=50)
+    await complete_quarantine_prerequisites(client, headers, detail)
     release = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -1662,17 +1861,17 @@ async def test_event_with_foreign_batch_id_rejected(client: httpx.AsyncClient) -
     assert resp.status_code == 400, resp.text
 
 
-async def test_event_with_foreign_task_id_ignored(client: httpx.AsyncClient) -> None:
+async def test_event_with_foreign_task_id_is_rejected(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, "a@farm.in", "Farm A")
     owner_b = await owner_with_farm(client, "b@farm.in", "Farm B")
     detail_a = await _backdated_batch_with_tasks(client, owner_a, days=50, count=1)
     ppr_task_a = next(t for t in detail_a["tasks"] if "PPR" in t["title"])
     animal_b = await make_animal(client, owner_b, tag="B-ONLY")
-    # B records an event but smuggles A's task id — ignored, event still recorded
-    events = await record_event(
+    # B cannot smuggle A's task id into an otherwise valid local event.
+    response = await post_event(
         client, owner_b, animal_id=animal_b["id"], type="VACCINE", task_id=ppr_task_a["id"]
     )
-    assert len(events) == 1
+    assert response.status_code == 409
     detail_a = await get_batch(client, owner_a, detail_a["batch"]["id"])
     task = next(t for t in detail_a["tasks"] if t["id"] == ppr_task_a["id"])
     assert task["status"] == "PENDING"  # A's duty untouched
@@ -1746,17 +1945,16 @@ async def test_cleaner_worker_forbidden_everywhere_here(client: httpx.AsyncClien
 # ---------------------------------------------------------------------------
 # Health + purchases integration
 # ---------------------------------------------------------------------------
-async def test_quarantine_deworming_via_bucket_scope(client: httpx.AsyncClient) -> None:
-    """Day-4 protocol step executed the way the SPEC describes: deworm the
-    whole quarantine ward at once."""
+async def test_quarantine_deworming_via_linked_batch_scope(client: httpx.AsyncClient) -> None:
+    """A day-4 batch task can only be closed through that exact batch scope."""
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers, days=10, count=3)
     deworm_task = next(t for t in detail["tasks"] if t["category"] == "DEWORMING")
     events = await record_event(
         client,
         headers,
-        scope="bucket",
-        bucket="QUARANTINE",
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
         type="DEWORMING",
         product_name="Albendazole/Closantel oral + Ivermectin SC",
         task_id=deworm_task["id"],
@@ -1914,15 +2112,36 @@ async def test_health_log_orders_across_mixed_scopes(client: httpx.AsyncClient) 
     assert {e["purchase_batch_id"] for e in events[:2]} == {batch["id"]}
 
 
+async def test_health_log_pagination_reports_full_count(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="PAGE-HEALTH")
+    created_ids = []
+    for note in ("first", "second", "third"):
+        events = await record_event(
+            client,
+            headers,
+            animal_id=animal["id"],
+            type="TREATMENT",
+            notes=note,
+        )
+        created_ids.append(events[0]["id"])
+    response = await client.get("/api/health/events?limit=2&offset=1", headers=headers)
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert (page["total"], page["limit"], page["offset"]) == (3, 2, 1)
+    assert [event["id"] for event in page["events"]] == [created_ids[1], created_ids[0]]
+
+
 async def test_two_batches_have_independent_counts(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     detail_a = await _backdated_batch_with_tasks(client, headers, days=50, count=2)
     batch_b = await make_batch(client, headers, count=5, supplier="Second Supplier")
+    await complete_quarantine_prerequisites(client, headers, detail_a)
     release = next(t for t in detail_a["tasks"] if t["category"] == "BUCKET_MOVE")
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     batches = {b["id"]: b for b in await list_batches(client, headers)}
-    assert batches[detail_a["batch"]["id"]]["open_tasks"] == 7
+    assert batches[detail_a["batch"]["id"]]["open_tasks"] == 0
     assert batches[detail_a["batch"]["id"]]["animals_created"] == 2
     assert batches[batch_b["id"]]["open_tasks"] == 8  # untouched by A's completion
     assert batches[batch_b["id"]]["animals_created"] == 5

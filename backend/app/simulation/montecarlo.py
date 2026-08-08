@@ -61,9 +61,10 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     variant.reproduction.litter_size = min(
         4.0, variant.reproduction.litter_size * draws["litter_size"]
     )
-    # Conception rate is capped at 0.98 even under favourable draws.
+    # Preserve a schema-valid base of 1.0 when this risk is disabled. The old
+    # 0.98 cap changed deterministic assumptions even for a multiplier of 1.
     variant.reproduction.conception_rate = min(
-        0.98, variant.reproduction.conception_rate * draws["conception_rate"]
+        1.0, variant.reproduction.conception_rate * draws["conception_rate"]
     )
     return variant
 

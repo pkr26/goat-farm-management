@@ -22,6 +22,19 @@ export interface HealthEventIn {
   vet_name?: string | null;
   cost?: number | null;
   next_due_date?: string | null;
+  schedule_template_name?: string | null;
+  next_due_authority?: string | null;
+  product_lot?: string | null;
+  product_manufactured_on?: string | null;
+  product_expires_on?: string | null;
+  vaccine_valid_until?: string | null;
+  certificate_number?: string | null;
+  official_tag_number?: string | null;
+  administered_by?: string | null;
+  withdrawal_until?: string | null;
+  suspected_scheduled_disease?: boolean;
+  authority_notified_at?: string | null;
+  isolation_started_at?: string | null;
   notes?: string | null;
   task_id?: number | null;
 }

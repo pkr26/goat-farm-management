@@ -43,6 +43,7 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 export default function ReportsPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("reports.view");
+  const canViewAnimals = can("animals.view");
   const query = useReportsApiDashboardReportsGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -77,11 +78,11 @@ export default function ReportsPage() {
       <PageHeader
         title="Reports"
         description="Key herd, breeding and mortality numbers at a glance."
-        actions={
+        actions={can("finance.view") ? (
           <Link href="/finance" className={buttonVariants({ variant: "outline" })}>
             Financial summary →
           </Link>
-        }
+        ) : undefined}
       />
 
       <DataTableCard
@@ -147,15 +148,24 @@ export default function ReportsPage() {
                 {breeding.cull_candidates.length}
                 {breeding.cull_candidates.length > 0 && (
                   <span className="ml-2 inline-flex flex-wrap gap-1">
-                    {breeding.cull_candidates.map((a) => (
-                      <Link
-                        key={a.id}
-                        href={`/animals/${a.id}`}
-                        className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
-                      >
-                        {animalName(a)}
-                      </Link>
-                    ))}
+                    {breeding.cull_candidates.map((a) =>
+                      canViewAnimals ? (
+                        <Link
+                          key={a.id}
+                          href={`/animals/${a.id}`}
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+                        >
+                          {animalName(a)}
+                        </Link>
+                      ) : (
+                        <span
+                          key={a.id}
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                        >
+                          {animalName(a)}
+                        </span>
+                      ),
+                    )}
                   </span>
                 )}
               </TableCell>

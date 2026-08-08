@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { farmToday } from "@/lib/format";
 
 import PurchasesPage from "./page";
 
@@ -23,10 +24,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 const BATCH_1 = {
@@ -105,7 +103,9 @@ const ANIMAL_STUB = {
 };
 
 function listHandler(batches: unknown[]) {
-  return http.get("/api/purchases", () => HttpResponse.json(batches));
+  return http.get("/api/purchases", () =>
+    HttpResponse.json({ batches, total: batches.length, limit: 50, offset: 0 }),
+  );
 }
 
 async function renderLoaded() {
@@ -175,7 +175,7 @@ describe("PurchasesPage RBAC", () => {
       permissionsHandler(["animals.view"]),
       http.get("/api/purchases", () => {
         calls += 1;
-        return HttpResponse.json([]);
+        return HttpResponse.json({ batches: [], total: 0, limit: 50, offset: 0 });
       }),
     );
     renderWithProviders(<PurchasesPage />);
@@ -204,7 +204,7 @@ describe("PurchasesPage new-batch dialog", () => {
     server.use(
       http.get("/api/purchases", () => {
         listCalls += 1;
-        return HttpResponse.json([BATCH_1]);
+        return HttpResponse.json({ batches: [BATCH_1], total: 1, limit: 50, offset: 0 });
       }),
       http.post("/api/purchases/new", async ({ request }) => {
         postCalls += 1;

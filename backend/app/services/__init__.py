@@ -74,8 +74,10 @@ from ..models import (
 from ._common import ANIMAL_OUT_LOADS
 from .animals import (
     TAG_ALPHABET,
+    bucket_transition_error,
     generate_unique_tag,
     move_animal,
+    require_bucket_transition,
     skip_pending_tasks_for_animal,
 )
 from .breeding import (
@@ -102,7 +104,13 @@ from .feeding import (
     set_daily_kg_per_head,
 )
 from .finance import monthly_pnl
-from .health import record_health_event, vaccination_schedule_for_animal
+from .health import (
+    record_health_event,
+    target_matches_template,
+    template_name_for_task,
+    vaccination_schedule_for_animal,
+    validated_template_name,
+)
 from .kidding import KidSpec, record_kidding
 from .purchases import create_purchase_batch
 from .tasks import (
@@ -167,6 +175,7 @@ __all__ = [
     "VaccineTemplate",
     "add_feed_stock",
     "breeding_candidate_does",
+    "bucket_transition_error",
     "complete_task",
     "create_breeding_record",
     "create_manual_task",
@@ -190,11 +199,15 @@ __all__ = [
     "record_kidding",
     "record_ultrasound_result",
     "reject_task",
+    "require_bucket_transition",
     "set_daily_kg_per_head",
     "skip_pending_tasks_for_animal",
     "skip_task",
     "spawn_next_occurrence",
+    "target_matches_template",
     "task_scope",
+    "template_name_for_task",
     "vaccination_schedule_for_animal",
+    "validated_template_name",
     "verify_task",
 ]

@@ -138,7 +138,7 @@ async def test_reset_password_blocked_for_cross_farm_affiliated_account(
         headers=owner_a,
     )
     assert resp.status_code == 400
-    assert "another farm" in resp.json()["detail"]
+    assert resp.json()["detail"] == "This account must use self-service password recovery."
     # Password unchanged: the old one still works, the attacker's does not.
     await login(client, "victim@farm.in", "victimpass123")
     resp = await client.post(
@@ -147,16 +147,54 @@ async def test_reset_password_blocked_for_cross_farm_affiliated_account(
     assert resp.status_code == 401
 
 
+async def test_legacy_membership_without_provisioning_provenance_cannot_reset(
+    client: httpx.AsyncClient,
+) -> None:
+    """Affiliation counts are not proof that a farm created the identity.
+    Existing/legacy membership rows default false and fail closed."""
+    owner = await owner_with_farm(client)
+    await register(client, email="legacy-member@farm.in", password="hisownpass1")
+    await _seed_membership("legacy-member@farm.in", int(owner["X-Farm-Id"]))
+    async with get_sessionmaker()() as db:
+        membership = (
+            await db.execute(
+                select(FarmMembership).where(FarmMembership.farm_id == int(owner["X-Farm-Id"]))
+            )
+        ).scalar_one()
+
+    resp = await client.post(
+        f"/api/team/workers/{membership.id}/reset-password",
+        json={"password": "pwnedpass123"},
+        headers=owner,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "This account must use self-service password recovery."
+    await login(client, "legacy-member@farm.in", "hisownpass1")
+    assert (
+        await client.post(
+            "/api/auth/login",
+            json={"email": "legacy-member@farm.in", "password": "pwnedpass123"},
+        )
+    ).status_code == 401
+
+
 async def test_unaffiliated_account_add_and_created_account_reset_still_work(
     client: httpx.AsyncClient,
 ) -> None:
-    """Happy paths: an existing account with zero memberships anywhere may be
-    added, and a created-via-worker-flow account's password may be reset."""
+    """A pre-existing identity requires a future consent/invitation flow;
+    owner-provisioned worker accounts remain safely resettable."""
     owner = await owner_with_farm(client)
     await register(client, email="free@farm.in", password="hisownpass1")
-    resp = await _add_worker(client, owner, "free@farm.in", password=None)
-    assert resp.status_code == 201, resp.text
+    resp = await _add_worker(client, owner, "free@farm.in", password="pwnedpass123")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
     await login(client, "free@farm.in", "hisownpass1")  # his own password intact
+    assert (
+        await client.post(
+            "/api/auth/login",
+            json={"email": "free@farm.in", "password": "pwnedpass123"},
+        )
+    ).status_code == 401
 
     resp = await _add_worker(client, owner, "new@farm.in", password="workerpass123")
     assert resp.status_code == 201, resp.text
@@ -491,6 +529,28 @@ def test_pruned_buckets_are_forgotten() -> None:
     # recording still works after a prune-to-empty (the deque is re-stored)
     limiter.record("login", "ip-fresh", 300)
     assert limiter.is_blocked("login", "ip-fresh", 1, 300)
+
+
+def test_global_sweep_forgets_stale_unique_keys_without_revisiting_them() -> None:
+    """A unique-key spray must not live forever merely because none of the
+    original keys is queried again."""
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0], sweep_interval_seconds=10)
+    for i in range(100):
+        limiter.record("login", f"one-shot-{i}", 30)
+    now[0] += 31
+    # Touch one entirely different key after the sweep interval.
+    assert not limiter.is_blocked("login", "unrelated", 3, 30)
+    assert limiter._hits == {}
+
+
+def test_sliding_window_cardinality_is_hard_bounded() -> None:
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0], max_keys=25, sweep_interval_seconds=60)
+    for i in range(500):
+        limiter.record("register", f"unique-{i}", 300)
+    assert len(limiter._hits) == 25
+    assert len(limiter._windows) == 25
 
 
 def test_client_key_falls_back_when_client_is_none() -> None:

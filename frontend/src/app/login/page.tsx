@@ -21,7 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { TokenOut } from "@/api/generated/models";
+import type { PermissionsOut, TokenOut } from "@/api/generated/models";
+import { firstPermittedPathFromList } from "@/lib/permission-navigation";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address"),
@@ -65,7 +66,14 @@ export default function LoginPage() {
         { method: "POST", body: JSON.stringify(values) },
       );
       await signIn(body.access_token, body.user);
-      router.push("/dashboard");
+      try {
+        const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
+        router.push(firstPermittedPathFromList(permissions.permissions));
+      } catch {
+        // A user with no farm has no permissions context yet; farm selection
+        // is also the safe recovery path for a transient discovery failure.
+        router.push("/farm-select");
+      }
     } catch (err) {
       // Surface the server's own message for every API error (429 rate
       // limit, 422 password policy, 5xx) — only a network failure gets the

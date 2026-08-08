@@ -13,6 +13,7 @@ export interface BreedingRecordOut {
   method: string;
   heat_cycle_number: number;
   ultrasound_date: string | null;
+  ultrasound_result_date: string | null;
   ultrasound_done: boolean;
   pregnant: boolean | null;
   kid_count_detected: number | null;

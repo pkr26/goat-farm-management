@@ -11,5 +11,6 @@ export interface KidEntryOut {
   sex: string;
   birth_weight: number | null;
   status: string;
+  mortality_reported_at: string | null;
   animal_id: number | null;
 }

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -51,7 +52,28 @@ class FeedInventory(Base):
     unit: Mapped[str] = mapped_column(String(10), default="kg")
     qty_on_hand: Mapped[float] = mapped_column(default=0.0)
     reorder_level: Mapped[float | None]
-    last_purchase_price_per_kg: Mapped[float | None]
+    last_purchase_price_per_kg: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+
+
+class FeedFinishedStock(Base):
+    """Farm-scoped stock of a recipe after its ingredients have been mixed.
+
+    Ingredient inventory and ready-to-dispense feed are deliberately separate:
+    mixing consumes the former and creates the latter; dispensing consumes the
+    latter.  Without this row a successful mix disappeared from inventory and
+    operators could dispense unlimited quantities that had never been made.
+    """
+
+    __tablename__ = "feed_finished_stock"
+    __table_args__ = (
+        UniqueConstraint("farm_id", "recipe_code", name="uq_finished_feed_farm_recipe"),
+        CheckConstraint("qty_on_hand >= 0", name="ck_finished_feed_qty_nonneg"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
+    recipe_code: Mapped[str] = mapped_column(ForeignKey("feed_recipes.code"), index=True)
+    qty_on_hand: Mapped[float] = mapped_column(default=0.0)
 
 
 class FeedingRecord(Base):

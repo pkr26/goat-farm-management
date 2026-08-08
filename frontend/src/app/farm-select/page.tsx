@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import type { PermissionsOut } from "@/api/generated/models";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,10 +24,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
+import { firstPermittedPathFromList } from "@/lib/permission-navigation";
 
 const farmSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
   location: z.string().max(120).optional(),
+  timezone: z.string().min(1, "Timezone is required").max(64),
 });
 type FarmValues = z.infer<typeof farmSchema>;
 
@@ -34,16 +37,31 @@ export default function FarmSelectPage() {
   const router = useRouter();
   const { user, farms, farmId, loading, selectFarm, refreshFarms } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
+  const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<FarmValues>({ resolver: zodResolver(farmSchema) });
+  } = useForm<FarmValues>({
+    resolver: zodResolver(farmSchema),
+    defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
+  });
 
-  function pick(farm: FarmEntry) {
+  async function pick(farm: FarmEntry) {
+    setServerError(null);
+    setSelectingFarmId(farm.id);
     selectFarm(farm.id);
-    router.push("/dashboard");
+    try {
+      const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
+      router.push(firstPermittedPathFromList(permissions.permissions));
+    } catch (error) {
+      setServerError(
+        error instanceof ApiError ? error.detail : "Could not load permissions for this farm.",
+      );
+    } finally {
+      setSelectingFarmId(null);
+    }
   }
 
   async function onSubmit(values: FarmValues) {
@@ -54,8 +72,8 @@ export default function FarmSelectPage() {
         body: JSON.stringify({ ...values, location: values.location || null }),
       });
       await refreshFarms();
-      reset();
-      pick(farm);
+      reset({ name: "", location: "", timezone: "Asia/Kolkata" });
+      await pick(farm);
     } catch (err) {
       setServerError(
         err instanceof ApiError ? err.detail : "Could not create the farm.",
@@ -94,7 +112,9 @@ export default function FarmSelectPage() {
           {farms.map((farm) => (
             <button
               key={farm.id}
-              onClick={() => pick(farm)}
+              type="button"
+              disabled={selectingFarmId !== null}
+              onClick={() => void pick(farm)}
               className="rounded-xl border bg-card p-4 text-left shadow-sm transition hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <div className="flex items-center justify-between gap-2">
@@ -102,12 +122,17 @@ export default function FarmSelectPage() {
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                     <Home className="size-4" />
                   </span>
-                  <span className="truncate font-medium">{farm.name}</span>
+                  <span className="truncate font-medium">
+                    {selectingFarmId === farm.id ? "Opening…" : farm.name}
+                  </span>
                 </span>
                 {farm.id === farmId && <Badge>current</Badge>}
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 {farm.location ?? "—"} · {farm.role ?? "Owner"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {(farm as FarmEntry & { timezone?: string }).timezone ?? "Asia/Kolkata"}
               </p>
             </button>
           ))}
@@ -122,16 +147,55 @@ export default function FarmSelectPage() {
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
               <div className="space-y-1.5">
                 <Label htmlFor="name">Farm name</Label>
-                <Input id="name" {...register("name")} />
+                <Input
+                  id="name"
+                  aria-invalid={Boolean(errors.name) || undefined}
+                  aria-describedby={errors.name ? "farm-name-error" : undefined}
+                  {...register("name")}
+                />
                 {errors.name && (
-                  <p className="text-sm text-destructive">{errors.name.message}</p>
+                  <p id="farm-name-error" role="alert" className="text-sm text-destructive">
+                    {errors.name.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="location">Location (optional)</Label>
                 <Input id="location" {...register("location")} />
               </div>
-              {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+              <div className="space-y-1.5">
+                <Label htmlFor="timezone">Farm timezone</Label>
+                <Input
+                  id="timezone"
+                  list="common-timezones"
+                  autoComplete="off"
+                  aria-invalid={Boolean(errors.timezone) || undefined}
+                  aria-describedby="timezone-hint"
+                  {...register("timezone")}
+                />
+                <datalist id="common-timezones">
+                  <option value="Asia/Kolkata" />
+                  <option value="America/Phoenix" />
+                  <option value="America/Los_Angeles" />
+                  <option value="America/Chicago" />
+                  <option value="America/New_York" />
+                  <option value="Europe/London" />
+                  <option value="Australia/Sydney" />
+                </datalist>
+                <p id="timezone-hint" className="text-xs text-muted-foreground">
+                  IANA name used for due dates and daily records, for example Asia/Kolkata.
+                </p>
+                {errors.timezone && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {errors.timezone.message}
+                  </p>
+                )}
+              </div>
+              {serverError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {serverError}
+                </p>
+              )}
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creating…" : "Create farm"}
               </Button>

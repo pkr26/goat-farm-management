@@ -15,6 +15,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AnimalOut, BreedingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, farmToday } from "@/lib/format";
 
 import BreedingPage from "./page";
 
@@ -40,13 +41,7 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-/** Local YYYY-MM-DD (mirrors the page's localToday). */
-function localISO(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-const TODAY = localISO(new Date());
+const TODAY = farmToday();
 
 function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
   return {
@@ -70,6 +65,16 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     purchase_price: null,
     seller_name: null,
     cull_candidate: false,
+    movement_restricted: false,
+    restriction_reason: null,
+    suspected_scheduled_disease: false,
+    suspected_disease: null,
+    authority_notified_at: null,
+    restriction_cleared_at: null,
+    restriction_cleared_by_id: null,
+    restriction_clearance_reference: null,
+    mortality_cause: null,
+    mortality_reported_at: null,
     notes: null,
     created_at: "2026-01-01T05:30:00Z",
     ...overrides,
@@ -85,7 +90,6 @@ const DOE = makeAnimal({
   latest_weight_kg: 30,
 });
 const BUCK = makeAnimal({ id: 20, tag_number: "G-020", sex: "M", age_months: 24 });
-const NOT_CANDIDATE = makeAnimal({ id: 30, tag_number: "G-030", sex: "F" });
 
 function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
   return {
@@ -96,6 +100,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     method: "NATURAL",
     heat_cycle_number: 1,
     ultrasound_date: "2026-08-02",
+    ultrasound_result_date: null,
     ultrasound_done: false,
     pregnant: null,
     kid_count_detected: null,
@@ -167,6 +172,9 @@ describe("BreedingPage", () => {
     records: BreedingRecordOut[];
     candidate_doe_ids: number[];
     active_buck_ids: number[];
+    total: number;
+    limit: number;
+    offset: number;
   };
 
   beforeEach(() => {
@@ -179,15 +187,31 @@ describe("BreedingPage", () => {
       records: [PENDING_REC, PREGNANT_REC, KIDDED_REC, FAILED_REC, ABORTED_REC],
       candidate_doe_ids: [10],
       active_buck_ids: [20],
+      total: 5,
+      limit: 50,
+      offset: 0,
     };
     server.use(
       http.get("/api/breeding", () => {
         listCalls += 1;
         return HttpResponse.json(listPayload);
       }),
-      http.get("/api/animals", () =>
-        HttpResponse.json({ animals: [DOE, BUCK, NOT_CANDIDATE], total: 3 }),
-      ),
+      http.get("/api/breeding/candidates", ({ request }) => {
+        const url = new URL(request.url);
+        const candidates = url.searchParams.get("kind") === "doe" ? [DOE] : [BUCK];
+        return HttpResponse.json({
+          candidates: candidates.map((animal) => ({
+            id: animal.id,
+            tag_number: animal.tag_number,
+            name: animal.name,
+            age_months: animal.age_months ?? null,
+            latest_weight_kg: animal.latest_weight_kg ?? null,
+          })),
+          total: candidates.length,
+          limit: 50,
+          offset: 0,
+        });
+      }),
       http.post("/api/breeding", async ({ request }) => {
         breedingPostBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeRecord({ id: 99 }), { status: 201 });
@@ -297,6 +321,26 @@ describe("BreedingPage", () => {
     expect(screen.queryByRole("button", { name: "Abort" })).not.toBeInTheDocument();
   });
 
+  it("uses breeding-scoped candidates and plain tags for a module-only manager", async () => {
+    let generalAnimalCalls = 0;
+    server.use(
+      permissionsHandler(["breeding.view", "breeding.manage"]),
+      http.get("/api/animals", () => {
+        generalAnimalCalls += 1;
+        return HttpResponse.json({ animals: [], total: 0 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    expect(screen.queryByRole("link", { name: "G-010" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add breeding" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add breeding" });
+    await user.click(within(dialog).getByRole("combobox", { name: "Doe *" }));
+    expect(await screen.findByRole("option", { name: /G-010 · Lakshmi/ })).toBeInTheDocument();
+    expect(generalAnimalCalls).toBe(0);
+  });
+
   it("shows management actions per row state with breeding.manage", async () => {
     await renderLoaded();
     expect(within(rowOf("PENDING")).getByRole("button", { name: "Ultrasound result" }))
@@ -311,6 +355,17 @@ describe("BreedingPage", () => {
     expect(
       within(rowOf("FAILED")).queryByRole("button"),
     ).not.toBeInTheDocument();
+  });
+
+  it("withholds the result action until the planned ultrasound date", async () => {
+    const futureDate = addDays(TODAY, 5);
+    listPayload.records = [makeRecord({ id: 80, ultrasound_date: futureDate })];
+    renderWithProviders(<BreedingPage />);
+    const pending = await screen.findByText("PENDING");
+    const row = pending.closest("tr") as HTMLElement;
+
+    expect(within(row).queryByRole("button", { name: "Ultrasound result" })).not.toBeInTheDocument();
+    expect(within(row).getByText(/^Result available /)).toBeInTheDocument();
   });
 
   // ---------- Add-breeding dialog ----------
@@ -379,8 +434,34 @@ describe("BreedingPage", () => {
     listPayload.active_buck_ids = [];
     const { dialog } = await openNewDialog();
     expect(
-      await within(dialog).findByText("No active bucks on this farm — add one first."),
+      await within(dialog).findByText(/No eligible bucks are available/),
     ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save breeding" })).toBeDisabled();
+  });
+
+  it("does not treat a held active male as a selectable buck", async () => {
+    server.use(
+      http.get("/api/breeding/candidates", ({ request }) => {
+        const url = new URL(request.url);
+        const candidates = url.searchParams.get("kind") === "doe" ? [DOE] : [];
+        return HttpResponse.json({
+          candidates: candidates.map((animal) => ({
+            id: animal.id,
+            tag_number: animal.tag_number,
+            name: animal.name,
+            age_months: animal.age_months ?? null,
+            latest_weight_kg: animal.latest_weight_kg ?? null,
+          })),
+          total: candidates.length,
+          limit: 50,
+          offset: 0,
+        });
+      }),
+    );
+
+    const { dialog } = await openNewDialog();
+    expect(await within(dialog).findByText(/No eligible bucks are available/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("combobox", { name: "Buck *" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Save breeding" })).toBeDisabled();
   });
 
@@ -403,7 +484,7 @@ describe("BreedingPage", () => {
     await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
     await pickOption(user, buckTrigger, /G-020 — 24 mo/);
     fireEvent.change(within(dialog).getByLabelText(/breeding date/i), {
-      target: { value: localISO(new Date(Date.now() + 86_400_000)) },
+      target: { value: addDays(TODAY, 1) },
     });
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
 
@@ -474,7 +555,7 @@ describe("BreedingPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save result" }));
 
     await waitFor(() => expect(ultrasoundBody).not.toBeNull());
-    expect(ultrasoundBody).toEqual({ pregnant: true, kid_count: 2 });
+    expect(ultrasoundBody).toEqual({ pregnant: true, date: farmToday(), kid_count: 2 });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
@@ -485,7 +566,20 @@ describe("BreedingPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save result" }));
 
     await waitFor(() => expect(ultrasoundBody).not.toBeNull());
-    expect(ultrasoundBody).toEqual({ pregnant: true, kid_count: 3 });
+    expect(ultrasoundBody).toEqual({ pregnant: true, date: farmToday(), kid_count: 3 });
+  });
+
+  it("rejects a result date before the planned scan date", async () => {
+    const { dialog } = await openUltrasound();
+    fireEvent.change(within(dialog).getByLabelText("Result date *"), {
+      target: { value: "2026-08-01" },
+    });
+
+    expect(
+      within(dialog).getByText("Result date cannot be before 2 Aug 2026"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save result" })).toBeDisabled();
+    expect(ultrasoundBody).toBeNull();
   });
 
   it("hides the kid count and posts kid_count null when not pregnant", async () => {
@@ -495,7 +589,7 @@ describe("BreedingPage", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Save result" }));
     await waitFor(() => expect(ultrasoundBody).not.toBeNull());
-    expect(ultrasoundBody).toEqual({ pregnant: false, kid_count: null });
+    expect(ultrasoundBody).toEqual({ pregnant: false, date: farmToday(), kid_count: null });
   });
 
   it("Cancel closes the dialog without posting", async () => {
@@ -583,6 +677,17 @@ describe("BreedingPage", () => {
       window.history.replaceState({}, "", "/breeding?ultrasound_id=2");
       await renderLoaded();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("fetches and opens an older linked record outside the current page", async () => {
+      const older = makeRecord({ id: 99, breeding_date: "2026-06-01", ultrasound_date: "2026-07-03" });
+      server.use(http.get("/api/breeding/99", () => HttpResponse.json(older)));
+      window.history.replaceState({}, "", "/breeding?ultrasound_id=99");
+      renderWithProviders(<BreedingPage />);
+
+      const dialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
+      expect(within(dialog).getByText(/bred 1 Jun 2026/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/planned scan 3 Jul 2026/)).toBeInTheDocument();
     });
   });
 });

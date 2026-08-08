@@ -6,6 +6,7 @@
  */
 
 export interface RegisterIn {
+  /** @maxLength 254 */
   email: string;
   /**
      * @minLength 1

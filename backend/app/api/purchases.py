@@ -3,18 +3,24 @@
 from collections.abc import Sequence
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import Animal, PurchaseBatch, Task, TaskStatus
-from ..schemas.animals import AnimalOut
 from ..schemas.common import MAX_INT32_ID
-from ..schemas.purchases import PurchaseBatchDetailOut, PurchaseBatchIn, PurchaseBatchOut
+from ..schemas.purchases import (
+    PurchaseBatchDetailOut,
+    PurchaseBatchIn,
+    PurchaseBatchListOut,
+    PurchaseBatchOut,
+)
 from ..schemas.tasks import TaskOut
 from ..services import ANIMAL_OUT_LOADS, create_purchase_batch
+from ..utils import today
+from ._shared import animal_out
 
 router = APIRouter(prefix="/api/purchases", tags=["purchases"])
 
@@ -55,15 +61,41 @@ async def _batch_out(db: AsyncSession, batches: Sequence[PurchaseBatch]) -> list
 
 @router.get("")
 async def list_batches(
-    db: DbSession, farm: CurrentFarm, perms: PurchasesView
-) -> list[PurchaseBatchOut]:
-    """All purchase batches for this farm, newest first."""
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: PurchasesView,
+    q: Annotated[str | None, Query(max_length=120)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PurchaseBatchListOut:
+    """Searched, paginated purchase batches for this farm, newest first.
+
+    Text searches supplier names literally (LIKE wildcards are escaped); a
+    numeric query, with an optional leading ``#``, also matches an exact batch
+    id. This keeps selectors bounded without hiding old purchase batches.
+    """
+    base = select(PurchaseBatch).where(PurchaseBatch.farm_id == farm.id)
+    if q and q.strip():
+        raw = q.strip()
+        escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        supplier_match = PurchaseBatch.supplier.ilike(f"%{escaped}%", escape="\\")
+        numeric = raw.removeprefix("#")
+        if numeric.isascii() and numeric.isdigit() and int(numeric) <= MAX_INT32_ID:
+            base = base.where(or_(supplier_match, PurchaseBatch.id == int(numeric)))
+        else:
+            base = base.where(supplier_match)
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     result = await db.execute(
-        select(PurchaseBatch)
-        .where(PurchaseBatch.farm_id == farm.id)
-        .order_by(PurchaseBatch.date.desc(), PurchaseBatch.id.desc())
+        base.order_by(PurchaseBatch.date.desc(), PurchaseBatch.id.desc())
+        .offset(offset)
+        .limit(limit)
     )
-    return await _batch_out(db, list(result.scalars().all()))
+    return PurchaseBatchListOut(
+        batches=await _batch_out(db, list(result.scalars().all())),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/new", status_code=201)
@@ -130,6 +162,9 @@ async def batch_detail(
     )
     return PurchaseBatchDetailOut(
         batch=(await _batch_out(db, [batch]))[0],
-        animals=[AnimalOut.model_validate(animal) for animal in animal_result.scalars().all()],
+        animals=[
+            animal_out(animal, today(farm.timezone), farm.timezone)
+            for animal in animal_result.scalars().all()
+        ],
         tasks=[TaskOut.model_validate(task) for task in task_result.scalars().all()],
     )

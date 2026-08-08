@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from ..utils import today, utcnow
+from ..utils import DEFAULT_BUSINESS_TIMEZONE, business_date, today, utcnow
 from .constants import BREEDING_READY_BUCKETS, MIN_BREEDING_AGE_MONTHS, MIN_BREEDING_WEIGHT_KG
 from .enums import AnimalStatus, BreedingOutcome, Sex
 
@@ -21,7 +33,26 @@ if TYPE_CHECKING:
 
 class Animal(Base):
     __tablename__ = "animals"
-    __table_args__ = (UniqueConstraint("farm_id", "tag_number", name="uq_animal_tag_per_farm"),)
+    __table_args__ = (
+        UniqueConstraint("farm_id", "tag_number", name="uq_animal_tag_per_farm"),
+        Index(
+            "ix_animals_farm_active",
+            "farm_id",
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+        CheckConstraint(
+            "birth_weight IS NULL OR birth_weight >= 0",
+            name="ck_animals_birth_weight_nonneg",
+        ),
+        CheckConstraint(
+            "purchase_price IS NULL OR purchase_price >= 0",
+            name="ck_animals_purchase_price_nonneg",
+        ),
+        CheckConstraint(
+            "sale_price IS NULL OR sale_price >= 0",
+            name="ck_animals_sale_price_nonneg",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
@@ -36,24 +67,45 @@ class Animal(Base):
 
     # Purchased animals
     purchase_date: Mapped[date | None]
-    purchase_price: Mapped[float | None]
+    purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     seller_name: Mapped[str | None] = mapped_column(String(120))
     purchase_batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("purchase_batches.id"), index=True
     )
 
     # Born animals
-    dam_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)
-    sire_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
+    dam_id: Mapped[int | None] = mapped_column(
+        ForeignKey("animals.id", ondelete="SET NULL"), index=True
+    )
+    sire_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id", ondelete="SET NULL"))
     birth_weight: Mapped[float | None]
 
     current_bucket: Mapped[str] = mapped_column(String(20))  # Bucket enum
     status: Mapped[str] = mapped_column(String(10), default=AnimalStatus.ACTIVE.value)
     status_date: Mapped[date | None]  # when sold/dead/culled
     status_notes: Mapped[str | None] = mapped_column(String(255))
-    sale_price: Mapped[float | None]
+    sale_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     buyer_name: Mapped[str | None] = mapped_column(String(120))
     cull_candidate: Mapped[bool] = mapped_column(default=False)
+    # A movement hold is deliberately a factual operational state, not a
+    # diagnosis or treatment instruction.  It lets task and sale/release
+    # workflows fail closed when a farm has recorded a restriction or a
+    # possible scheduled disease pending local-veterinary/AHD direction.
+    movement_restricted: Mapped[bool] = mapped_column(Boolean, default=False)
+    restriction_reason: Mapped[str | None] = mapped_column(String(255))
+    suspected_scheduled_disease: Mapped[bool] = mapped_column(Boolean, default=False)
+    suspected_disease: Mapped[str | None] = mapped_column(String(120))
+    authority_notified_at: Mapped[date | None] = mapped_column(Date)
+    # Most recent documented authority/veterinary clearance. The current
+    # booleans above remain authoritative; retaining the last clearance even
+    # if a later hold is placed preserves useful operational history.
+    restriction_cleared_at: Mapped[datetime | None]
+    restriction_cleared_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT")
+    )
+    restriction_clearance_reference: Mapped[str | None] = mapped_column(String(255))
+    mortality_cause: Mapped[str | None] = mapped_column(String(120))
+    mortality_reported_at: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
@@ -86,12 +138,15 @@ class Animal(Base):
     @property
     def age_months(self) -> int | None:
         """Age in whole months from DOB (or estimated DOB); None if unknown."""
+        return self.age_months_on(today())
+
+    def age_months_on(self, reference_date: date) -> int | None:
+        """Age in whole months on an explicit farm-local business date."""
         dob = self.effective_dob
         if dob is None:
             return None
-        ref = today()
-        months = (ref.year - dob.year) * 12 + (ref.month - dob.month)
-        if ref.day < dob.day:
+        months = (reference_date.year - dob.year) * 12 + (reference_date.month - dob.month)
+        if reference_date.day < dob.day:
             months -= 1
         return max(months, 0)
 
@@ -114,12 +169,20 @@ class Animal(Base):
 
     @property
     def days_in_current_bucket(self) -> int:
+        return self.days_in_current_bucket_on(today())
+
+    def days_in_current_bucket_on(
+        self,
+        reference_date: date,
+        timezone_name: str = DEFAULT_BUSINESS_TIMEZONE,
+    ) -> int:
+        """Elapsed bucket days on an explicit farm-local business date."""
         move = self.last_bucket_move
         ref: datetime | date | None = move.moved_at if move else self.created_at
         if ref is None:
             return 0
-        moved_date = ref.date() if isinstance(ref, datetime) else ref
-        return max((today() - moved_date).days, 0)
+        moved_date = business_date(ref, timezone_name) if isinstance(ref, datetime) else ref
+        return max((reference_date - moved_date).days, 0)
 
     @property
     def is_currently_pregnant(self) -> bool:
@@ -132,11 +195,17 @@ class Animal(Base):
     def is_breeding_ready(self) -> bool:
         """Breeding-ready doe: female, ACTIVE, >=10 mo, >=22 kg, not pregnant,
         living in FOUNDATION / FEMALE_KIDS / RESTING (per SPEC)."""
+        return self.is_breeding_ready_on(today())
+
+    def is_breeding_ready_on(self, reference_date: date) -> bool:
+        """Breeding readiness on an explicit farm-local business date."""
         if self.sex != Sex.F.value or self.status != AnimalStatus.ACTIVE.value:
+            return False
+        if self.movement_restricted or self.suspected_scheduled_disease:
             return False
         if self.current_bucket not in [b.value for b in BREEDING_READY_BUCKETS]:
             return False
-        age = self.age_months
+        age = self.age_months_on(reference_date)
         if age is None or age < MIN_BREEDING_AGE_MONTHS:
             return False
         weight = self.latest_weight_kg
@@ -147,12 +216,60 @@ class Animal(Base):
         return True
 
     @property
+    def is_breeding_eligible(self) -> bool:
+        """Canonical doe eligibility for both first service and re-service.
+
+        A doe already parked in BREEDING remains eligible after a failed cycle,
+        but she does not get to bypass the same age, weight, active-status and
+        non-pregnancy safeguards used for a first service.
+        """
+        return self.is_breeding_eligible_on(today())
+
+    def is_breeding_eligible_on(self, reference_date: date) -> bool:
+        """First-service/re-service eligibility on a farm-local date."""
+        if self.sex != Sex.F.value or self.status != AnimalStatus.ACTIVE.value:
+            return False
+        if self.movement_restricted or self.suspected_scheduled_disease:
+            return False
+        if self.current_bucket not in [*BREEDING_READY_BUCKETS, "BREEDING"]:
+            return False
+        age = self.age_months_on(reference_date)
+        weight = self.latest_weight_kg
+        return bool(
+            age is not None
+            and age >= MIN_BREEDING_AGE_MONTHS
+            and weight is not None
+            and weight >= MIN_BREEDING_WEIGHT_KG
+            and not self.is_currently_pregnant
+        )
+
+    @property
+    def is_buck_eligible(self) -> bool:
+        """Minimal canonical buck guard without inventing a clinical threshold."""
+        return bool(
+            self.sex == Sex.M.value
+            and self.status == AnimalStatus.ACTIVE.value
+            and self.current_bucket
+            not in {"QUARANTINE", "PREGNANCY_EARLY", "PREGNANCY_LATE", "DELIVERY"}
+            and not self.movement_restricted
+            and not self.suspected_scheduled_disease
+        )
+
+    @property
     def display_name(self) -> str:
         return f"{self.tag_number}" + (f" · {self.name}" if self.name else "")
 
 
 class WeightRecord(Base):
     __tablename__ = "weight_records"
+    __table_args__ = (
+        Index("ix_weight_records_date", "date"),
+        CheckConstraint("weight_kg > 0", name="ck_weight_records_weight_positive"),
+        CheckConstraint(
+            "bcs IS NULL OR bcs BETWEEN 1 AND 5",
+            name="ck_weight_records_bcs_range",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)

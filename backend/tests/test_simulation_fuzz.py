@@ -241,13 +241,15 @@ async def test_derived_overflow_is_a_clean_422_never_500(client: httpx.AsyncClie
 async def test_simulation_lists_are_capped(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     assumptions = await default_assumptions(client, headers)
-    assumptions["growth"]["weight_by_age_months"] = [10.0] * 1201
+    assumptions["growth"]["weight_by_age_months"] = [10.0] * 14
     resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )
     assert resp.status_code == 422
     assumptions = await default_assumptions(client, headers)
-    assumptions["growth"]["weight_by_age_months"] = [10.0] * 1200  # at the cap: runs
+    # The curve has one value for each exact age 0..12; accepting longer
+    # tables used to bypass the adult-weight branch in the engine.
+    assumptions["growth"]["weight_by_age_months"] = [10.0] * 13  # at the cap: runs
     resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )

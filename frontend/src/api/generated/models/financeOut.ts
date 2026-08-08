@@ -9,6 +9,9 @@ import type { TransactionOut } from './transactionOut';
 
 export interface FinanceOut {
   transactions: TransactionOut[];
+  transactions_total: number;
+  limit: number;
+  offset: number;
   total_income: number;
   total_expense: number;
   pnl: PnlRowOut[];

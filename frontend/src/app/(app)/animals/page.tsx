@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getListAnimalsApiAnimalsGetQueryKey,
   useCreateAnimalApiAnimalsPost,
   useListAnimalsApiAnimalsGet,
 } from "@/api/generated/endpoints";
@@ -58,6 +57,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 const ALL = "ALL";
@@ -391,7 +391,7 @@ function AnimalsPageContent() {
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   function refresh() {
-    queryClient.invalidateQueries({ queryKey: getListAnimalsApiAnimalsGetQueryKey() });
+    invalidateFarmData(queryClient);
   }
 
   if (permsLoading) {
@@ -425,7 +425,7 @@ function AnimalsPageContent() {
 
       <div className="flex flex-wrap items-center gap-3">
         <Select value={bucket} onValueChange={setBucket} items={BUCKET_FILTER_ITEMS}>
-          <SelectTrigger>
+          <SelectTrigger aria-label="Filter animals by bucket">
             <SelectValue placeholder="All buckets" />
           </SelectTrigger>
           <SelectContent>
@@ -438,7 +438,7 @@ function AnimalsPageContent() {
           </SelectContent>
         </Select>
         <Select value={sex} onValueChange={setSex} items={SEX_FILTER_ITEMS}>
-          <SelectTrigger>
+          <SelectTrigger aria-label="Filter animals by sex">
             <SelectValue placeholder="Both sexes" />
           </SelectTrigger>
           <SelectContent>
@@ -448,7 +448,7 @@ function AnimalsPageContent() {
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger>
+          <SelectTrigger aria-label="Filter animals by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
@@ -465,7 +465,8 @@ function AnimalsPageContent() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search tag or name…"
+            placeholder="Search by tag…"
+            aria-label="Search animals by tag"
             className="w-56 pl-8"
           />
         </div>

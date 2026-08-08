@@ -1,11 +1,11 @@
 """Pydantic schemas for the finance module."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .common import BoundedId, MoneyFloat, PastOrTodayDate
+from .common import BoundedId, MoneyFloat, NonNegativeMoneyFloat, PastOrTodayDate
 
 TransactionTypeStr = Literal["INCOME", "EXPENSE"]
 # Mirrors models.TransactionCategory exactly (v1 validated against the enum).
@@ -43,6 +43,29 @@ class TransactionOut(BaseModel):
     notes: str | None
     related_animal_id: int | None
     animal_tag: str | None = None
+    created_at: datetime
+    source_type: str | None
+    source_id: int | None
+    correction_of_id: int | None
+    voided_at: datetime | None
+    voided_by_id: int | None
+    void_reason: str | None
+
+
+class TransactionCorrectionIn(BaseModel):
+    """Audited replacement for an existing ledger row.
+
+    Zero is allowed here so an erroneous system-generated amount can be
+    neutralized without deleting its provenance.
+    """
+
+    date: PastOrTodayDate
+    type: TransactionTypeStr
+    category: TransactionCategoryStr
+    amount: NonNegativeMoneyFloat
+    notes: str | None = Field(default=None, max_length=255)
+    related_animal_id: BoundedId | None = None
+    reason: str = Field(min_length=3, max_length=255)
 
 
 class PnlRowOut(BaseModel):
@@ -55,6 +78,9 @@ class PnlRowOut(BaseModel):
 
 class FinanceOut(BaseModel):
     transactions: list[TransactionOut]
+    transactions_total: int
+    limit: int
+    offset: int
     total_income: float
     total_expense: float
     pnl: list[PnlRowOut]

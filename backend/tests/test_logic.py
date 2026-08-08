@@ -170,6 +170,30 @@ async def find_animal_by_tag(client: httpx.AsyncClient, headers: dict, tag: str)
     return animals[0]
 
 
+async def complete_quarantine_prerequisites(
+    client: httpx.AsyncClient, headers: dict, batch_id: int, tasks: list[dict]
+) -> None:
+    """Close each prerequisite through its matching auditable workflow."""
+    for task in tasks:
+        if task["category"] == "BUCKET_MOVE":
+            continue
+        if task["category"] in {"VACCINE", "DEWORMING"}:
+            response = await client.post(
+                "/api/health/events",
+                json={
+                    "scope": "batch",
+                    "purchase_batch_id": batch_id,
+                    "type": task["category"],
+                    "task_id": task["id"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 201, response.text
+        else:
+            response = await client.post(f"/api/tasks/{task['id']}/complete", headers=headers)
+            assert response.status_code == 200, response.text
+
+
 # ---------------------------------------------------------------------------
 # Phase 1: pure domain-logic tests (unchanged from v1 — the functions live in
 # app.models / app.services and need no database)
@@ -463,7 +487,8 @@ async def test_quarantine_batch_creates_45_day_task_set(client: httpx.AsyncClien
     assert tasks[-1]["category"] == "BUCKET_MOVE"
     assert tasks[-1]["due_date"] == "2026-04-14"
 
-    # completing day-45 footbath releases all batch animals to FOUNDATION
+    await complete_quarantine_prerequisites(client, headers, batch_id, tasks)
+    # The guarded release follows completed, recorded prerequisites.
     resp = await client.post(f"/api/tasks/{tasks[-1]['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     resp = await client.get(f"/api/purchases/{batch_id}", headers=headers)
@@ -536,6 +561,7 @@ async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_list
     # stubs surface as bucks, never as candidate does.
     detail = resp.json()
     release = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
+    await complete_quarantine_prerequisites(client, headers, buck_batch_id, detail["tasks"])
     resp = await client.post(f"/api/tasks/{release['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
     assert all(
@@ -673,17 +699,24 @@ async def test_mix_batch_decrements_and_refuses_when_short(client: httpx.AsyncCl
 
 async def test_monthly_pnl_aggregation(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
+    current_month = today().replace(day=1)
+    previous_month = (current_month - timedelta(days=1)).replace(day=1)
     txns = [
-        ("2026-07-05", "INCOME", "ANIMAL_SALE", 23000.0),
-        ("2026-07-10", "EXPENSE", "FEED", 8000.0),
-        ("2026-07-20", "EXPENSE", "VET", 1500.0),
-        ("2026-08-02", "INCOME", "MANURE", 1500.0),
-        ("2026-08-03", "EXPENSE", "LABOUR", 9000.0),
+        (previous_month, "INCOME", "ANIMAL_SALE", 23000.0),
+        (previous_month, "EXPENSE", "FEED", 8000.0),
+        (previous_month, "EXPENSE", "VET", 1500.0),
+        (current_month, "INCOME", "MANURE", 1500.0),
+        (current_month, "EXPENSE", "LABOUR", 9000.0),
     ]
     for d, txn_type, category, amount in txns:
         resp = await client.post(
             "/api/finance/new",
-            json={"date": d, "type": txn_type, "category": category, "amount": amount},
+            json={
+                "date": d.isoformat(),
+                "type": txn_type,
+                "category": category,
+                "amount": amount,
+            },
             headers=headers,
         )
         assert resp.status_code == 201, resp.text
@@ -691,11 +724,21 @@ async def test_monthly_pnl_aggregation(client: httpx.AsyncClient) -> None:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
     pnl = resp.json()["pnl"]
-    assert [r["month"] for r in pnl] == ["2026-08", "2026-07"]  # most recent first
-    aug, july = pnl[0], pnl[1]
-    assert july["income"] == 23000.0 and july["expense"] == 9500.0 and july["net"] == 13500.0
-    assert aug["income"] == 1500.0 and aug["expense"] == 9000.0 and aug["net"] == -7500.0
-    assert july["categories"]["FEED"]["expense"] == 8000.0
+    assert len(pnl) == 12
+    assert [r["month"] for r in pnl[:2]] == [
+        current_month.strftime("%Y-%m"),
+        previous_month.strftime("%Y-%m"),
+    ]
+    current, previous = pnl[0], pnl[1]
+    assert (
+        previous["income"] == 23000.0
+        and previous["expense"] == 9500.0
+        and previous["net"] == 13500.0
+    )
+    assert current["income"] == 1500.0
+    assert current["expense"] == 9000.0
+    assert current["net"] == -7500.0
+    assert previous["categories"]["FEED"]["expense"] == 8000.0
 
 
 # ---------------------------------------------------------------------------

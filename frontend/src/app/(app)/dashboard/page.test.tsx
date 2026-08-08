@@ -18,7 +18,7 @@ import type {
 } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, utcToday } from "@/lib/format";
+import { addDays, farmToday } from "@/lib/format";
 
 import DashboardPage from "./page";
 
@@ -32,7 +32,7 @@ vi.mock("next/navigation", () => ({
 /** UTC-relative fixture dates: the page compares due dates against
  * utcToday(), so fixtures built from browser-local dates drift
  * one day whenever the local and UTC dates differ. */
-const TODAY = utcToday();
+const TODAY = farmToday();
 const THREE_DAYS_AGO = addDays(TODAY, -3);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
@@ -49,12 +49,15 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     assigned_role_id: null,
     assigned_user_id: null,
     recur_days: null,
+    recurring_series_id: null,
     completed_by_id: null,
     completed_at: null,
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
     skipped_by_id: null,
+    skipped_at: null,
+    skip_reason: null,
     action_url: null,
     ...overrides,
   };
@@ -82,6 +85,16 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     purchase_price: null,
     seller_name: null,
     cull_candidate: false,
+    movement_restricted: false,
+    restriction_reason: null,
+    suspected_scheduled_disease: false,
+    suspected_disease: null,
+    authority_notified_at: null,
+    restriction_cleared_at: null,
+    restriction_cleared_by_id: null,
+    restriction_clearance_reference: null,
+    mortality_cause: null,
+    mortality_reported_at: null,
     notes: null,
     created_at: "2024-01-10T00:00:00Z",
     ...overrides,
@@ -97,6 +110,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     method: "NATURAL",
     heat_cycle_number: 1,
     ultrasound_date: null,
+    ultrasound_result_date: null,
     ultrasound_done: true,
     pregnant: true,
     kid_count_detected: 2,
@@ -551,5 +565,9 @@ describe("DashboardPage — loading, error and permission states", () => {
     expect(
       await screen.findByRole("heading", { name: "Test Goat Farm — Dashboard" }),
     ).toBeInTheDocument();
+    expect(screen.getAllByText("Action unavailable").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("D-101").length).toBeGreaterThan(0);
+    expect(screen.getByText("G-077 · Lakshmi")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

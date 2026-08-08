@@ -24,12 +24,17 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AccountDeleteIn,
+  AccountExportOut,
   AnimalCreateIn,
   AnimalListOut,
   AnimalOut,
   AnimalProfileOut,
   BreedDefaultsApiSimulationDefaultsGetParams,
+  BreedingCandidateListOut,
+  BreedingCandidatesApiBreedingCandidatesGetParams,
   BreedingCreateIn,
+  BreedingListApiBreedingGetParams,
   BreedingListOut,
   BreedingRecordOut,
   BreedsOut,
@@ -43,28 +48,42 @@ import type {
   FeedInventoryOut,
   FeedRecipeOut,
   FeedSettingIn,
+  FeedingHistoryApiFeedingRecordsGetParams,
+  FeedingHistoryOut,
   FeedingPlanOut,
   FeedingRecordOut,
   FinanceOut,
+  FinishedFeedStockOut,
   HTTPValidationError,
+  HealthAnimalOptionListOut,
+  HealthAnimalOptionsApiHealthAnimalsGetParams,
   HealthEventIn,
+  HealthEventListOut,
   HealthEventOut,
+  HealthPurchaseBatchOptionListOut,
+  HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams,
   HealthzHealthzGet200,
   HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
   KiddingCreateIn,
+  KiddingListApiKiddingGetParams,
   KiddingListOut,
   KiddingRecordOut,
   ListAnimalsApiAnimalsGetParams,
+  ListBatchesApiPurchasesGetParams,
+  ListEventsApiHealthEventsGetParams,
+  ListTasksApiTasksGetParams,
   ListTransactionsApiFinanceGetParams,
   LoginIn,
   MembershipOut,
   MixIn,
   MoveIn,
+  MovementRestrictionClearIn,
   PasswordResetIn,
   PermissionsOut,
   PurchaseBatchDetailOut,
   PurchaseBatchIn,
+  PurchaseBatchListOut,
   PurchaseBatchOut,
   RecipeListOut,
   RegisterIn,
@@ -86,9 +105,11 @@ import type {
   TaskCreateIn,
   TaskOut,
   TaskRejectIn,
+  TaskSkipIn,
   TaskTabsOut,
   TeamOut,
   TokenOut,
+  TransactionCorrectionIn,
   TransactionIn,
   TransactionOut,
   UltrasoundIn,
@@ -907,6 +928,224 @@ export function useMeApiAuthMeGet<TData = Awaited<ReturnType<typeof meApiAuthMeG
 
 
 
+
+export type exportAccountApiAuthAccountExportGetResponse200 = {
+  data: AccountExportOut
+  status: 200
+}
+
+export type exportAccountApiAuthAccountExportGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type exportAccountApiAuthAccountExportGetResponseSuccess = (exportAccountApiAuthAccountExportGetResponse200) & {
+  headers: Headers;
+};
+export type exportAccountApiAuthAccountExportGetResponseError = (exportAccountApiAuthAccountExportGetResponse422) & {
+  headers: Headers;
+};
+
+export type exportAccountApiAuthAccountExportGetResponse = (exportAccountApiAuthAccountExportGetResponseSuccess | exportAccountApiAuthAccountExportGetResponseError)
+
+export const getExportAccountApiAuthAccountExportGetUrl = () => {
+
+
+
+
+  return `/api/auth/account/export`
+}
+
+/**
+ * Export the caller's identity and tenant relationships as JSON.
+ *
+ * Deliberately excludes farm-domain records: a worker's attribution to a
+ * transaction, animal, or duty does not entitle them to export another
+ * tenant's operational data. Farm owners receive farm metadata only here;
+ * domain-specific exports can be added separately with explicit tenancy
+ * authorization.
+ * @summary Export Account
+ */
+export const exportAccountApiAuthAccountExportGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<exportAccountApiAuthAccountExportGetResponse> => {
+
+  return customInstance<exportAccountApiAuthAccountExportGetResponse>(getExportAccountApiAuthAccountExportGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportAccountApiAuthAccountExportGetQueryKey = () => {
+    return [
+    `/api/auth/account/export`
+    ] as const;
+    }
+
+
+export const getExportAccountApiAuthAccountExportGetQueryOptions = <TData = Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportAccountApiAuthAccountExportGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>> = ({ signal }) => exportAccountApiAuthAccountExportGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ExportAccountApiAuthAccountExportGetQueryResult = NonNullable<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>>
+export type ExportAccountApiAuthAccountExportGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useExportAccountApiAuthAccountExportGet<TData = Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError = ErrorType<HTTPValidationError>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>,
+          TError,
+          Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportAccountApiAuthAccountExportGet<TData = Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>,
+          TError,
+          Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportAccountApiAuthAccountExportGet<TData = Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Export Account
+ */
+
+export function useExportAccountApiAuthAccountExportGet<TData = Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportAccountApiAuthAccountExportGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getExportAccountApiAuthAccountExportGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type deleteAccountApiAuthAccountDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deleteAccountApiAuthAccountDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deleteAccountApiAuthAccountDeleteResponseSuccess = (deleteAccountApiAuthAccountDeleteResponse204) & {
+  headers: Headers;
+};
+export type deleteAccountApiAuthAccountDeleteResponseError = (deleteAccountApiAuthAccountDeleteResponse422) & {
+  headers: Headers;
+};
+
+export type deleteAccountApiAuthAccountDeleteResponse = (deleteAccountApiAuthAccountDeleteResponseSuccess | deleteAccountApiAuthAccountDeleteResponseError)
+
+export const getDeleteAccountApiAuthAccountDeleteUrl = () => {
+
+
+
+
+  return `/api/auth/account`
+}
+
+/**
+ * Permanently remove a non-owner account after password confirmation.
+ * @summary Delete Account
+ */
+export const deleteAccountApiAuthAccountDelete = async (accountDeleteIn: AccountDeleteIn, options?: Parameters<typeof customInstance>[1]): Promise<deleteAccountApiAuthAccountDeleteResponse> => {
+
+  return customInstance<deleteAccountApiAuthAccountDeleteResponse>(getDeleteAccountApiAuthAccountDeleteUrl(),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(accountDeleteIn)
+  }
+);}
+
+
+
+
+
+export const getDeleteAccountApiAuthAccountDeleteMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAccountApiAuthAccountDelete>>, TError,{data: AccountDeleteIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAccountApiAuthAccountDelete>>, TError,{data: AccountDeleteIn}, TContext> => {
+
+const mutationKey = ['deleteAccountApiAuthAccountDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAccountApiAuthAccountDelete>>, {data: AccountDeleteIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  deleteAccountApiAuthAccountDelete(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAccountApiAuthAccountDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAccountApiAuthAccountDelete>>>
+    export type DeleteAccountApiAuthAccountDeleteMutationBody = AccountDeleteIn
+    export type DeleteAccountApiAuthAccountDeleteMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Delete Account
+ */
+export const useDeleteAccountApiAuthAccountDelete = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAccountApiAuthAccountDelete>>, TError,{data: AccountDeleteIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAccountApiAuthAccountDelete>>,
+        TError,
+        {data: AccountDeleteIn},
+        TContext
+      > => {
+      return useMutation(getDeleteAccountApiAuthAccountDeleteMutationOptions(options), queryClient);
+    }
 
 export type permissionsApiAuthPermissionsGetResponse200 = {
   data: PermissionsOut
@@ -1987,20 +2226,27 @@ export type breedingListApiBreedingGetResponseError = (breedingListApiBreedingGe
 
 export type breedingListApiBreedingGetResponse = (breedingListApiBreedingGetResponseSuccess | breedingListApiBreedingGetResponseError)
 
-export const getBreedingListApiBreedingGetUrl = () => {
+export const getBreedingListApiBreedingGetUrl = (params?: BreedingListApiBreedingGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/breeding`
+  return stringifiedParams.length > 0 ? `/api/breeding?${stringifiedParams}` : `/api/breeding`
 }
 
 /**
  * @summary Breeding List
  */
-export const breedingListApiBreedingGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<breedingListApiBreedingGetResponse> => {
+export const breedingListApiBreedingGet = async (params?: BreedingListApiBreedingGetParams, options?: Parameters<typeof customInstance>[1]): Promise<breedingListApiBreedingGetResponse> => {
 
-  return customInstance<breedingListApiBreedingGetResponse>(getBreedingListApiBreedingGetUrl(),
+  return customInstance<breedingListApiBreedingGetResponse>(getBreedingListApiBreedingGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -2013,23 +2259,23 @@ export const breedingListApiBreedingGet = async ( options?: Parameters<typeof cu
 
 
 
-export const getBreedingListApiBreedingGetQueryKey = () => {
+export const getBreedingListApiBreedingGetQueryKey = (params?: BreedingListApiBreedingGetParams,) => {
     return [
-    `/api/breeding`
+    `/api/breeding`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getBreedingListApiBreedingGetQueryOptions = <TData = Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getBreedingListApiBreedingGetQueryOptions = <TData = Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError = ErrorType<HTTPValidationError>>(params?: BreedingListApiBreedingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getBreedingListApiBreedingGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getBreedingListApiBreedingGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof breedingListApiBreedingGet>>> = ({ signal }) => breedingListApiBreedingGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof breedingListApiBreedingGet>>> = ({ signal }) => breedingListApiBreedingGet(params, { signal, ...requestOptions });
 
 
 
@@ -2043,7 +2289,7 @@ export type BreedingListApiBreedingGetQueryError = ErrorType<HTTPValidationError
 
 
 export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>> & Pick<
+ params: undefined |  BreedingListApiBreedingGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof breedingListApiBreedingGet>>,
           TError,
@@ -2053,7 +2299,7 @@ export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof 
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>> & Pick<
+ params?: BreedingListApiBreedingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof breedingListApiBreedingGet>>,
           TError,
@@ -2063,7 +2309,7 @@ export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: BreedingListApiBreedingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -2071,11 +2317,11 @@ export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof 
  */
 
 export function useBreedingListApiBreedingGet<TData = Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: BreedingListApiBreedingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingListApiBreedingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getBreedingListApiBreedingGetQueryOptions(options)
+  const queryOptions = getBreedingListApiBreedingGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -2177,6 +2423,138 @@ export const useCreateBreedingApiBreedingPost = <TError = ErrorType<HTTPValidati
       > => {
       return useMutation(getCreateBreedingApiBreedingPostMutationOptions(options), queryClient);
     }
+
+export type breedingCandidatesApiBreedingCandidatesGetResponse200 = {
+  data: BreedingCandidateListOut
+  status: 200
+}
+
+export type breedingCandidatesApiBreedingCandidatesGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type breedingCandidatesApiBreedingCandidatesGetResponseSuccess = (breedingCandidatesApiBreedingCandidatesGetResponse200) & {
+  headers: Headers;
+};
+export type breedingCandidatesApiBreedingCandidatesGetResponseError = (breedingCandidatesApiBreedingCandidatesGetResponse422) & {
+  headers: Headers;
+};
+
+export type breedingCandidatesApiBreedingCandidatesGetResponse = (breedingCandidatesApiBreedingCandidatesGetResponseSuccess | breedingCandidatesApiBreedingCandidatesGetResponseError)
+
+export const getBreedingCandidatesApiBreedingCandidatesGetUrl = (params: BreedingCandidatesApiBreedingCandidatesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/breeding/candidates?${stringifiedParams}` : `/api/breeding/candidates`
+}
+
+/**
+ * Search a bounded page of animals eligible for the breeding form.
+ *
+ * This domain-scoped summary deliberately does not grant access to the full
+ * animal register. Doe eligibility comes from the same canonical service as
+ * the create path; bucks are active farm-local males.
+ * @summary Breeding Candidates
+ */
+export const breedingCandidatesApiBreedingCandidatesGet = async (params: BreedingCandidatesApiBreedingCandidatesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<breedingCandidatesApiBreedingCandidatesGetResponse> => {
+
+  return customInstance<breedingCandidatesApiBreedingCandidatesGetResponse>(getBreedingCandidatesApiBreedingCandidatesGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getBreedingCandidatesApiBreedingCandidatesGetQueryKey = (params?: BreedingCandidatesApiBreedingCandidatesGetParams,) => {
+    return [
+    `/api/breeding/candidates`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getBreedingCandidatesApiBreedingCandidatesGetQueryOptions = <TData = Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError = ErrorType<HTTPValidationError>>(params: BreedingCandidatesApiBreedingCandidatesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getBreedingCandidatesApiBreedingCandidatesGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>> = ({ signal }) => breedingCandidatesApiBreedingCandidatesGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type BreedingCandidatesApiBreedingCandidatesGetQueryResult = NonNullable<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>>
+export type BreedingCandidatesApiBreedingCandidatesGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useBreedingCandidatesApiBreedingCandidatesGet<TData = Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: BreedingCandidatesApiBreedingCandidatesGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>,
+          TError,
+          Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useBreedingCandidatesApiBreedingCandidatesGet<TData = Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: BreedingCandidatesApiBreedingCandidatesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>,
+          TError,
+          Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useBreedingCandidatesApiBreedingCandidatesGet<TData = Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: BreedingCandidatesApiBreedingCandidatesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Breeding Candidates
+ */
+
+export function useBreedingCandidatesApiBreedingCandidatesGet<TData = Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: BreedingCandidatesApiBreedingCandidatesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof breedingCandidatesApiBreedingCandidatesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getBreedingCandidatesApiBreedingCandidatesGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export type getBreedingRecordApiBreedingRecordIdGetResponse200 = {
   data: BreedingRecordOut
@@ -2498,20 +2876,27 @@ export type kiddingListApiKiddingGetResponseError = (kiddingListApiKiddingGetRes
 
 export type kiddingListApiKiddingGetResponse = (kiddingListApiKiddingGetResponseSuccess | kiddingListApiKiddingGetResponseError)
 
-export const getKiddingListApiKiddingGetUrl = () => {
+export const getKiddingListApiKiddingGetUrl = (params?: KiddingListApiKiddingGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/kidding`
+  return stringifiedParams.length > 0 ? `/api/kidding?${stringifiedParams}` : `/api/kidding`
 }
 
 /**
  * @summary Kidding List
  */
-export const kiddingListApiKiddingGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<kiddingListApiKiddingGetResponse> => {
+export const kiddingListApiKiddingGet = async (params?: KiddingListApiKiddingGetParams, options?: Parameters<typeof customInstance>[1]): Promise<kiddingListApiKiddingGetResponse> => {
 
-  return customInstance<kiddingListApiKiddingGetResponse>(getKiddingListApiKiddingGetUrl(),
+  return customInstance<kiddingListApiKiddingGetResponse>(getKiddingListApiKiddingGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -2524,23 +2909,23 @@ export const kiddingListApiKiddingGet = async ( options?: Parameters<typeof cust
 
 
 
-export const getKiddingListApiKiddingGetQueryKey = () => {
+export const getKiddingListApiKiddingGetQueryKey = (params?: KiddingListApiKiddingGetParams,) => {
     return [
-    `/api/kidding`
+    `/api/kidding`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getKiddingListApiKiddingGetQueryOptions = <TData = Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getKiddingListApiKiddingGetQueryOptions = <TData = Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError = ErrorType<HTTPValidationError>>(params?: KiddingListApiKiddingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getKiddingListApiKiddingGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getKiddingListApiKiddingGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>> = ({ signal }) => kiddingListApiKiddingGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>> = ({ signal }) => kiddingListApiKiddingGet(params, { signal, ...requestOptions });
 
 
 
@@ -2554,7 +2939,7 @@ export type KiddingListApiKiddingGetQueryError = ErrorType<HTTPValidationError>
 
 
 export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>> & Pick<
+ params: undefined |  KiddingListApiKiddingGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof kiddingListApiKiddingGet>>,
           TError,
@@ -2564,7 +2949,7 @@ export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof ki
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>> & Pick<
+ params?: KiddingListApiKiddingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof kiddingListApiKiddingGet>>,
           TError,
@@ -2574,7 +2959,7 @@ export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof ki
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: KiddingListApiKiddingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -2582,11 +2967,11 @@ export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof ki
  */
 
 export function useKiddingListApiKiddingGet<TData = Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: KiddingListApiKiddingGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingListApiKiddingGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getKiddingListApiKiddingGetQueryOptions(options)
+  const queryOptions = getKiddingListApiKiddingGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -2689,8 +3074,366 @@ export const useCreateKiddingApiKiddingPost = <TError = ErrorType<HTTPValidation
       return useMutation(getCreateKiddingApiKiddingPostMutationOptions(options), queryClient);
     }
 
+export type healthAnimalOptionsApiHealthAnimalsGetResponse200 = {
+  data: HealthAnimalOptionListOut
+  status: 200
+}
+
+export type healthAnimalOptionsApiHealthAnimalsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type healthAnimalOptionsApiHealthAnimalsGetResponseSuccess = (healthAnimalOptionsApiHealthAnimalsGetResponse200) & {
+  headers: Headers;
+};
+export type healthAnimalOptionsApiHealthAnimalsGetResponseError = (healthAnimalOptionsApiHealthAnimalsGetResponse422) & {
+  headers: Headers;
+};
+
+export type healthAnimalOptionsApiHealthAnimalsGetResponse = (healthAnimalOptionsApiHealthAnimalsGetResponseSuccess | healthAnimalOptionsApiHealthAnimalsGetResponseError)
+
+export const getHealthAnimalOptionsApiHealthAnimalsGetUrl = (params?: HealthAnimalOptionsApiHealthAnimalsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/health/animals?${stringifiedParams}` : `/api/health/animals`
+}
+
+/**
+ * Farm-local active-animal summaries for health schedules and events.
+ *
+ * A numeric query, optionally prefixed by ``#``, resolves an exact selected
+ * id without requiring access to the full animal profile endpoint.
+ * @summary Health Animal Options
+ */
+export const healthAnimalOptionsApiHealthAnimalsGet = async (params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<healthAnimalOptionsApiHealthAnimalsGetResponse> => {
+
+  return customInstance<healthAnimalOptionsApiHealthAnimalsGetResponse>(getHealthAnimalOptionsApiHealthAnimalsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getHealthAnimalOptionsApiHealthAnimalsGetQueryKey = (params?: HealthAnimalOptionsApiHealthAnimalsGetParams,) => {
+    return [
+    `/api/health/animals`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getHealthAnimalOptionsApiHealthAnimalsGetQueryOptions = <TData = Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError = ErrorType<HTTPValidationError>>(params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getHealthAnimalOptionsApiHealthAnimalsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>> = ({ signal }) => healthAnimalOptionsApiHealthAnimalsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type HealthAnimalOptionsApiHealthAnimalsGetQueryResult = NonNullable<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>>
+export type HealthAnimalOptionsApiHealthAnimalsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useHealthAnimalOptionsApiHealthAnimalsGet<TData = Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  HealthAnimalOptionsApiHealthAnimalsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthAnimalOptionsApiHealthAnimalsGet<TData = Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthAnimalOptionsApiHealthAnimalsGet<TData = Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Health Animal Options
+ */
+
+export function useHealthAnimalOptionsApiHealthAnimalsGet<TData = Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: HealthAnimalOptionsApiHealthAnimalsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthAnimalOptionsApiHealthAnimalsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getHealthAnimalOptionsApiHealthAnimalsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse200 = {
+  data: HealthPurchaseBatchOptionListOut
+  status: 200
+}
+
+export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseSuccess = (healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse200) & {
+  headers: Headers;
+};
+export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseError = (healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse422) & {
+  headers: Headers;
+};
+
+export type healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse = (healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseSuccess | healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponseError)
+
+export const getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetUrl = (params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/health/purchase-batches?${stringifiedParams}` : `/api/health/purchase-batches`
+}
+
+/**
+ * Targetable batch summaries without exposing the purchase ledger.
+ *
+ * Batches with no active animals are omitted because the health write path
+ * cannot apply an event to them.
+ * @summary Health Purchase Batch Options
+ */
+export const healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet = async (params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse> => {
+
+  return customInstance<healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse>(getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryKey = (params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams,) => {
+    return [
+    `/api/health/purchase-batches`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryOptions = <TData = Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError = ErrorType<HTTPValidationError>>(params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>> = ({ signal }) => healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryResult = NonNullable<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>>
+export type HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGet<TData = Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGet<TData = Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>,
+          TError,
+          Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGet<TData = Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Health Purchase Batch Options
+ */
+
+export function useHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGet<TData = Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse204 = {
+  data: void
+  status: 204
+}
+
+export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseSuccess = (clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse204) & {
+  headers: Headers;
+};
+export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseError = (clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse422) & {
+  headers: Headers;
+};
+
+export type clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse = (clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseSuccess | clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponseError)
+
+export const getClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostUrl = (animalId: number,) => {
+
+
+
+
+  return `/api/health/restrictions/${animalId}/clear`
+}
+
+/**
+ * Record a factual authority/veterinary clearance and release a hold.
+ *
+ * This does not diagnose or treat an animal. It only makes a previously
+ * recorded operational restriction reversible through an attributed,
+ * referenced action instead of a database edit.
+ * @summary Clear Movement Restriction
+ */
+export const clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost = async (animalId: number,
+    movementRestrictionClearIn: MovementRestrictionClearIn, options?: Parameters<typeof customInstance>[1]): Promise<clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse> => {
+
+  return customInstance<clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostResponse>(getClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostUrl(animalId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(movementRestrictionClearIn)
+  }
+);}
+
+
+
+
+
+export const getClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost>>, TError,{animalId: number;data: MovementRestrictionClearIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost>>, TError,{animalId: number;data: MovementRestrictionClearIn}, TContext> => {
+
+const mutationKey = ['clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost>>, {animalId: number;data: MovementRestrictionClearIn}> = (props) => {
+          const {animalId,data} = props ?? {};
+
+          return  clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost(animalId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostMutationResult = NonNullable<Awaited<ReturnType<typeof clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost>>>
+    export type ClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostMutationBody = MovementRestrictionClearIn
+    export type ClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Clear Movement Restriction
+ */
+export const useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost>>, TError,{animalId: number;data: MovementRestrictionClearIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof clearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost>>,
+        TError,
+        {animalId: number;data: MovementRestrictionClearIn},
+        TContext
+      > => {
+      return useMutation(getClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPostMutationOptions(options), queryClient);
+    }
+
 export type listEventsApiHealthEventsGetResponse200 = {
-  data: HealthEventOut[]
+  data: HealthEventListOut
   status: 200
 }
 
@@ -2708,21 +3451,28 @@ export type listEventsApiHealthEventsGetResponseError = (listEventsApiHealthEven
 
 export type listEventsApiHealthEventsGetResponse = (listEventsApiHealthEventsGetResponseSuccess | listEventsApiHealthEventsGetResponseError)
 
-export const getListEventsApiHealthEventsGetUrl = () => {
+export const getListEventsApiHealthEventsGetUrl = (params?: ListEventsApiHealthEventsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/health/events`
+  return stringifiedParams.length > 0 ? `/api/health/events?${stringifiedParams}` : `/api/health/events`
 }
 
 /**
- * Latest 100 events on the farm, newest first (v1 ordering).
+ * A requested page of health events, newest first, with its full count.
  * @summary List Events
  */
-export const listEventsApiHealthEventsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listEventsApiHealthEventsGetResponse> => {
+export const listEventsApiHealthEventsGet = async (params?: ListEventsApiHealthEventsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listEventsApiHealthEventsGetResponse> => {
 
-  return customInstance<listEventsApiHealthEventsGetResponse>(getListEventsApiHealthEventsGetUrl(),
+  return customInstance<listEventsApiHealthEventsGetResponse>(getListEventsApiHealthEventsGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -2735,23 +3485,23 @@ export const listEventsApiHealthEventsGet = async ( options?: Parameters<typeof 
 
 
 
-export const getListEventsApiHealthEventsGetQueryKey = () => {
+export const getListEventsApiHealthEventsGetQueryKey = (params?: ListEventsApiHealthEventsGetParams,) => {
     return [
-    `/api/health/events`
+    `/api/health/events`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListEventsApiHealthEventsGetQueryOptions = <TData = Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListEventsApiHealthEventsGetQueryOptions = <TData = Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError = ErrorType<HTTPValidationError>>(params?: ListEventsApiHealthEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListEventsApiHealthEventsGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListEventsApiHealthEventsGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>> = ({ signal }) => listEventsApiHealthEventsGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>> = ({ signal }) => listEventsApiHealthEventsGet(params, { signal, ...requestOptions });
 
 
 
@@ -2765,7 +3515,7 @@ export type ListEventsApiHealthEventsGetQueryError = ErrorType<HTTPValidationErr
 
 
 export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>> & Pick<
+ params: undefined |  ListEventsApiHealthEventsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>,
           TError,
@@ -2775,7 +3525,7 @@ export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeo
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>> & Pick<
+ params?: ListEventsApiHealthEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>,
           TError,
@@ -2785,7 +3535,7 @@ export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeo
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListEventsApiHealthEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -2793,11 +3543,11 @@ export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeo
  */
 
 export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListEventsApiHealthEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiHealthEventsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListEventsApiHealthEventsGetQueryOptions(options)
+  const queryOptions = getListEventsApiHealthEventsGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -2838,11 +3588,11 @@ export const getRecordEventApiHealthEventsPostUrl = () => {
 }
 
 /**
- * One HealthEvent row per targeted ACTIVE animal; the total cost is
- * split evenly inside record_health_event (first animal absorbs the
- * rounding remainder). A linked VACCINE/DEWORMING task_id is completed;
- * any other task_id is ignored while the event is still recorded, as v1
- * did.
+ * One HealthEvent row per targeted ACTIVE animal.
+ *
+ * A task-linked event must match the task's exact scope, health type and
+ * seeded schedule template. This prevents a generic health note from
+ * completing an unrelated quarantine vaccine duty.
  * @summary Record Event
  */
 export const recordEventApiHealthEventsPost = async (healthEventIn: HealthEventIn, options?: Parameters<typeof customInstance>[1]): Promise<recordEventApiHealthEventsPostResponse> => {
@@ -3045,12 +3795,19 @@ export type listTasksApiTasksGetResponseError = (listTasksApiTasksGetResponse422
 
 export type listTasksApiTasksGetResponse = (listTasksApiTasksGetResponseSuccess | listTasksApiTasksGetResponseError)
 
-export const getListTasksApiTasksGetUrl = () => {
+export const getListTasksApiTasksGetUrl = (params?: ListTasksApiTasksGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/tasks`
+  return stringifiedParams.length > 0 ? `/api/tasks?${stringifiedParams}` : `/api/tasks`
 }
 
 /**
@@ -3058,9 +3815,9 @@ export const getListTasksApiTasksGetUrl = () => {
  * (the completed history keeps v1's 100-row cap).
  * @summary List Tasks
  */
-export const listTasksApiTasksGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listTasksApiTasksGetResponse> => {
+export const listTasksApiTasksGet = async (params?: ListTasksApiTasksGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listTasksApiTasksGetResponse> => {
 
-  return customInstance<listTasksApiTasksGetResponse>(getListTasksApiTasksGetUrl(),
+  return customInstance<listTasksApiTasksGetResponse>(getListTasksApiTasksGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -3073,23 +3830,23 @@ export const listTasksApiTasksGet = async ( options?: Parameters<typeof customIn
 
 
 
-export const getListTasksApiTasksGetQueryKey = () => {
+export const getListTasksApiTasksGetQueryKey = (params?: ListTasksApiTasksGetParams,) => {
     return [
-    `/api/tasks`
+    `/api/tasks`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListTasksApiTasksGetQueryOptions = <TData = Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListTasksApiTasksGetQueryOptions = <TData = Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError = ErrorType<HTTPValidationError>>(params?: ListTasksApiTasksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListTasksApiTasksGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListTasksApiTasksGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTasksApiTasksGet>>> = ({ signal }) => listTasksApiTasksGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTasksApiTasksGet>>> = ({ signal }) => listTasksApiTasksGet(params, { signal, ...requestOptions });
 
 
 
@@ -3103,7 +3860,7 @@ export type ListTasksApiTasksGetQueryError = ErrorType<HTTPValidationError>
 
 
 export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>> & Pick<
+ params: undefined |  ListTasksApiTasksGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listTasksApiTasksGet>>,
           TError,
@@ -3113,7 +3870,7 @@ export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTa
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>> & Pick<
+ params?: ListTasksApiTasksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listTasksApiTasksGet>>,
           TError,
@@ -3123,7 +3880,7 @@ export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTa
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListTasksApiTasksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -3131,11 +3888,11 @@ export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTa
  */
 
 export function useListTasksApiTasksGet<TData = Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListTasksApiTasksGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listTasksApiTasksGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListTasksApiTasksGetQueryOptions(options)
+  const queryOptions = getListTasksApiTasksGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -3360,14 +4117,15 @@ export const getSkipApiTasksTaskIdSkipPostUrl = (taskId: number,) => {
 /**
  * @summary Skip
  */
-export const skipApiTasksTaskIdSkipPost = async (taskId: number, options?: Parameters<typeof customInstance>[1]): Promise<skipApiTasksTaskIdSkipPostResponse> => {
+export const skipApiTasksTaskIdSkipPost = async (taskId: number,
+    taskSkipInNull?: TaskSkipIn | null, options?: Parameters<typeof customInstance>[1]): Promise<skipApiTasksTaskIdSkipPostResponse> => {
 
   return customInstance<skipApiTasksTaskIdSkipPostResponse>(getSkipApiTasksTaskIdSkipPostUrl(taskId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(taskSkipInNull)
   }
 );}
 
@@ -3376,8 +4134,8 @@ export const skipApiTasksTaskIdSkipPost = async (taskId: number, options?: Param
 
 
 export const getSkipApiTasksTaskIdSkipPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data?: TaskSkipIn | null}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data?: TaskSkipIn | null}, TContext> => {
 
 const mutationKey = ['skipApiTasksTaskIdSkipPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -3389,10 +4147,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, {taskId: number}> = (props) => {
-          const {taskId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, {taskId: number;data?: TaskSkipIn | null}> = (props) => {
+          const {taskId,data} = props ?? {};
 
-          return  skipApiTasksTaskIdSkipPost(taskId,requestOptions)
+          return  skipApiTasksTaskIdSkipPost(taskId,data,requestOptions)
         }
 
 
@@ -3403,18 +4161,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type SkipApiTasksTaskIdSkipPostMutationResult = NonNullable<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>>
-
+    export type SkipApiTasksTaskIdSkipPostMutationBody = TaskSkipIn | null | undefined
     export type SkipApiTasksTaskIdSkipPostMutationError = ErrorType<HTTPValidationError>
 
     /**
  * @summary Skip
  */
 export const useSkipApiTasksTaskIdSkipPost = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>, TError,{taskId: number;data?: TaskSkipIn | null}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof skipApiTasksTaskIdSkipPost>>,
         TError,
-        {taskId: number},
+        {taskId: number;data?: TaskSkipIn | null},
         TContext
       > => {
       return useMutation(getSkipApiTasksTaskIdSkipPostMutationOptions(options), queryClient);
@@ -3904,6 +4662,134 @@ export const useDispenseApiFeedingDispensePost = <TError = ErrorType<HTTPValidat
       return useMutation(getDispenseApiFeedingDispensePostMutationOptions(options), queryClient);
     }
 
+export type feedingHistoryApiFeedingRecordsGetResponse200 = {
+  data: FeedingHistoryOut
+  status: 200
+}
+
+export type feedingHistoryApiFeedingRecordsGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type feedingHistoryApiFeedingRecordsGetResponseSuccess = (feedingHistoryApiFeedingRecordsGetResponse200) & {
+  headers: Headers;
+};
+export type feedingHistoryApiFeedingRecordsGetResponseError = (feedingHistoryApiFeedingRecordsGetResponse422) & {
+  headers: Headers;
+};
+
+export type feedingHistoryApiFeedingRecordsGetResponse = (feedingHistoryApiFeedingRecordsGetResponseSuccess | feedingHistoryApiFeedingRecordsGetResponseError)
+
+export const getFeedingHistoryApiFeedingRecordsGetUrl = (params?: FeedingHistoryApiFeedingRecordsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/feeding/records?${stringifiedParams}` : `/api/feeding/records`
+}
+
+/**
+ * Paginated dispensing history, including backdated records.
+ * @summary Feeding History
+ */
+export const feedingHistoryApiFeedingRecordsGet = async (params?: FeedingHistoryApiFeedingRecordsGetParams, options?: Parameters<typeof customInstance>[1]): Promise<feedingHistoryApiFeedingRecordsGetResponse> => {
+
+  return customInstance<feedingHistoryApiFeedingRecordsGetResponse>(getFeedingHistoryApiFeedingRecordsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getFeedingHistoryApiFeedingRecordsGetQueryKey = (params?: FeedingHistoryApiFeedingRecordsGetParams,) => {
+    return [
+    `/api/feeding/records`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getFeedingHistoryApiFeedingRecordsGetQueryOptions = <TData = Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError = ErrorType<HTTPValidationError>>(params?: FeedingHistoryApiFeedingRecordsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getFeedingHistoryApiFeedingRecordsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>> = ({ signal }) => feedingHistoryApiFeedingRecordsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type FeedingHistoryApiFeedingRecordsGetQueryResult = NonNullable<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>>
+export type FeedingHistoryApiFeedingRecordsGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useFeedingHistoryApiFeedingRecordsGet<TData = Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  FeedingHistoryApiFeedingRecordsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>,
+          TError,
+          Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useFeedingHistoryApiFeedingRecordsGet<TData = Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: FeedingHistoryApiFeedingRecordsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>,
+          TError,
+          Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useFeedingHistoryApiFeedingRecordsGet<TData = Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: FeedingHistoryApiFeedingRecordsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Feeding History
+ */
+
+export function useFeedingHistoryApiFeedingRecordsGet<TData = Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: FeedingHistoryApiFeedingRecordsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof feedingHistoryApiFeedingRecordsGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getFeedingHistoryApiFeedingRecordsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export type listRecipesApiFeedingRecipesGetResponse200 = {
   data: RecipeListOut
   status: 200
@@ -4013,6 +4899,127 @@ export function useListRecipesApiFeedingRecipesGet<TData = Awaited<ReturnType<ty
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getListRecipesApiFeedingRecipesGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type listFinishedStockApiFeedingFinishedStockGetResponse200 = {
+  data: FinishedFeedStockOut[]
+  status: 200
+}
+
+export type listFinishedStockApiFeedingFinishedStockGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listFinishedStockApiFeedingFinishedStockGetResponseSuccess = (listFinishedStockApiFeedingFinishedStockGetResponse200) & {
+  headers: Headers;
+};
+export type listFinishedStockApiFeedingFinishedStockGetResponseError = (listFinishedStockApiFeedingFinishedStockGetResponse422) & {
+  headers: Headers;
+};
+
+export type listFinishedStockApiFeedingFinishedStockGetResponse = (listFinishedStockApiFeedingFinishedStockGetResponseSuccess | listFinishedStockApiFeedingFinishedStockGetResponseError)
+
+export const getListFinishedStockApiFeedingFinishedStockGetUrl = () => {
+
+
+
+
+  return `/api/feeding/finished-stock`
+}
+
+/**
+ * Ready-to-dispense recipe balances created by successful mixes.
+ * @summary List Finished Stock
+ */
+export const listFinishedStockApiFeedingFinishedStockGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listFinishedStockApiFeedingFinishedStockGetResponse> => {
+
+  return customInstance<listFinishedStockApiFeedingFinishedStockGetResponse>(getListFinishedStockApiFeedingFinishedStockGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListFinishedStockApiFeedingFinishedStockGetQueryKey = () => {
+    return [
+    `/api/feeding/finished-stock`
+    ] as const;
+    }
+
+
+export const getListFinishedStockApiFeedingFinishedStockGetQueryOptions = <TData = Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListFinishedStockApiFeedingFinishedStockGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>> = ({ signal }) => listFinishedStockApiFeedingFinishedStockGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListFinishedStockApiFeedingFinishedStockGetQueryResult = NonNullable<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>>
+export type ListFinishedStockApiFeedingFinishedStockGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useListFinishedStockApiFeedingFinishedStockGet<TData = Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError = ErrorType<HTTPValidationError>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>,
+          TError,
+          Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListFinishedStockApiFeedingFinishedStockGet<TData = Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>,
+          TError,
+          Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListFinishedStockApiFeedingFinishedStockGet<TData = Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Finished Stock
+ */
+
+export function useListFinishedStockApiFeedingFinishedStockGet<TData = Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listFinishedStockApiFeedingFinishedStockGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListFinishedStockApiFeedingFinishedStockGetQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -4364,8 +5371,9 @@ export const getListTransactionsApiFinanceGetUrl = (params?: ListTransactionsApi
 }
 
 /**
- * Transactions (newest first, max 200) with optional month/type/category
- * filters, all-time totals and the 12-month P&L.
+ * Paginated transactions with optional filters, all-time totals and a
+ * true rolling 12-calendar-month P&L. ``transactions_total`` always reports
+ * the full filtered count so clients can expose honest pagination.
  * @summary List Transactions
  */
 export const listTransactionsApiFinanceGet = async (params?: ListTransactionsApiFinanceGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listTransactionsApiFinanceGetResponse> => {
@@ -4549,8 +5557,100 @@ export const useAddTransactionApiFinanceNewPost = <TError = ErrorType<HTTPValida
       return useMutation(getAddTransactionApiFinanceNewPostMutationOptions(options), queryClient);
     }
 
+export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse201 = {
+  data: TransactionOut
+  status: 201
+}
+
+export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseSuccess = (correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse201) & {
+  headers: Headers;
+};
+export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseError = (correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse422) & {
+  headers: Headers;
+};
+
+export type correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse = (correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseSuccess | correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponseError)
+
+export const getCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostUrl = (transactionId: number,) => {
+
+
+
+
+  return `/api/finance/transactions/${transactionId}/correct`
+}
+
+/**
+ * Void one ledger row and create its audited replacement atomically.
+ * @summary Correct Transaction
+ */
+export const correctTransactionApiFinanceTransactionsTransactionIdCorrectPost = async (transactionId: number,
+    transactionCorrectionIn: TransactionCorrectionIn, options?: Parameters<typeof customInstance>[1]): Promise<correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse> => {
+
+  return customInstance<correctTransactionApiFinanceTransactionsTransactionIdCorrectPostResponse>(getCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostUrl(transactionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(transactionCorrectionIn)
+  }
+);}
+
+
+
+
+
+export const getCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctTransactionApiFinanceTransactionsTransactionIdCorrectPost>>, TError,{transactionId: number;data: TransactionCorrectionIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof correctTransactionApiFinanceTransactionsTransactionIdCorrectPost>>, TError,{transactionId: number;data: TransactionCorrectionIn}, TContext> => {
+
+const mutationKey = ['correctTransactionApiFinanceTransactionsTransactionIdCorrectPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof correctTransactionApiFinanceTransactionsTransactionIdCorrectPost>>, {transactionId: number;data: TransactionCorrectionIn}> = (props) => {
+          const {transactionId,data} = props ?? {};
+
+          return  correctTransactionApiFinanceTransactionsTransactionIdCorrectPost(transactionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostMutationResult = NonNullable<Awaited<ReturnType<typeof correctTransactionApiFinanceTransactionsTransactionIdCorrectPost>>>
+    export type CorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostMutationBody = TransactionCorrectionIn
+    export type CorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Correct Transaction
+ */
+export const useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof correctTransactionApiFinanceTransactionsTransactionIdCorrectPost>>, TError,{transactionId: number;data: TransactionCorrectionIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof correctTransactionApiFinanceTransactionsTransactionIdCorrectPost>>,
+        TError,
+        {transactionId: number;data: TransactionCorrectionIn},
+        TContext
+      > => {
+      return useMutation(getCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPostMutationOptions(options), queryClient);
+    }
+
 export type listBatchesApiPurchasesGetResponse200 = {
-  data: PurchaseBatchOut[]
+  data: PurchaseBatchListOut
   status: 200
 }
 
@@ -4568,21 +5668,32 @@ export type listBatchesApiPurchasesGetResponseError = (listBatchesApiPurchasesGe
 
 export type listBatchesApiPurchasesGetResponse = (listBatchesApiPurchasesGetResponseSuccess | listBatchesApiPurchasesGetResponseError)
 
-export const getListBatchesApiPurchasesGetUrl = () => {
+export const getListBatchesApiPurchasesGetUrl = (params?: ListBatchesApiPurchasesGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/purchases`
+  return stringifiedParams.length > 0 ? `/api/purchases?${stringifiedParams}` : `/api/purchases`
 }
 
 /**
- * All purchase batches for this farm, newest first.
+ * Searched, paginated purchase batches for this farm, newest first.
+ *
+ * Text searches supplier names literally (LIKE wildcards are escaped); a
+ * numeric query, with an optional leading ``#``, also matches an exact batch
+ * id. This keeps selectors bounded without hiding old purchase batches.
  * @summary List Batches
  */
-export const listBatchesApiPurchasesGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiPurchasesGetResponse> => {
+export const listBatchesApiPurchasesGet = async (params?: ListBatchesApiPurchasesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listBatchesApiPurchasesGetResponse> => {
 
-  return customInstance<listBatchesApiPurchasesGetResponse>(getListBatchesApiPurchasesGetUrl(),
+  return customInstance<listBatchesApiPurchasesGetResponse>(getListBatchesApiPurchasesGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -4595,23 +5706,23 @@ export const listBatchesApiPurchasesGet = async ( options?: Parameters<typeof cu
 
 
 
-export const getListBatchesApiPurchasesGetQueryKey = () => {
+export const getListBatchesApiPurchasesGetQueryKey = (params?: ListBatchesApiPurchasesGetParams,) => {
     return [
-    `/api/purchases`
+    `/api/purchases`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListBatchesApiPurchasesGetQueryOptions = <TData = Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListBatchesApiPurchasesGetQueryOptions = <TData = Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError = ErrorType<HTTPValidationError>>(params?: ListBatchesApiPurchasesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListBatchesApiPurchasesGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListBatchesApiPurchasesGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>> = ({ signal }) => listBatchesApiPurchasesGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>> = ({ signal }) => listBatchesApiPurchasesGet(params, { signal, ...requestOptions });
 
 
 
@@ -4625,7 +5736,7 @@ export type ListBatchesApiPurchasesGetQueryError = ErrorType<HTTPValidationError
 
 
 export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>> & Pick<
+ params: undefined |  ListBatchesApiPurchasesGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>,
           TError,
@@ -4635,7 +5746,7 @@ export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof 
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>> & Pick<
+ params?: ListBatchesApiPurchasesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>,
           TError,
@@ -4645,7 +5756,7 @@ export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof 
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListBatchesApiPurchasesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -4653,11 +5764,11 @@ export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof 
  */
 
 export function useListBatchesApiPurchasesGet<TData = Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListBatchesApiPurchasesGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listBatchesApiPurchasesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListBatchesApiPurchasesGetQueryOptions(options)
+  const queryOptions = getListBatchesApiPurchasesGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -5273,15 +6384,13 @@ export const getCreateWorkerApiTeamWorkersPostUrl = () => {
 }
 
 /**
- * Add a worker: create a brand-new account, or enroll an existing one
- * that owns no farm and belongs to no other farm's team. Accounts and
- * passwords are global, so absorbing an account affiliated with another
- * farm would hand this farm a cross-tenant takeover path (reset-password
- * rewrites the global password). Cross-farm refusals share ONE generic
- * message so probing arbitrary emails can't reveal other farms'
- * roster state. Residual limitation: there is no invitation/consent flow
- * yet — an unaffiliated account is enrolled without the account holder's
- * say-so.
+ * Provision a new worker account owned by this farm.
+ *
+ * A pre-existing global account is always refused. Supporting those users
+ * safely requires an invitation that they explicitly accept while signed in
+ * (or through a verified one-time email link); silent enrollment is an
+ * account-takeover primitive because farm managers can reset provisioned
+ * worker passwords.
  * @summary Create Worker
  */
 export const createWorkerApiTeamWorkersPost = async (workerCreateIn: WorkerCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createWorkerApiTeamWorkersPostResponse> => {
@@ -5553,11 +6662,7 @@ export const getResetPasswordApiTeamWorkersMembershipIdResetPasswordPostUrl = (m
 }
 
 /**
- * Rewrite a worker's GLOBAL password. Restricted to accounts whose sole
- * farm affiliation is this one (the accounts this farm created): resetting
- * the password of an account tied to another farm would be a cross-tenant
- * takeover. All of the worker's live refresh sessions are revoked (HIGH
- * 0-1) — a reset done because the account is suspect must end its sessions.
+ * Reset only a global account this farm demonstrably provisioned.
  * @summary Reset Password
  */
 export const resetPasswordApiTeamWorkersMembershipIdResetPasswordPost = async (membershipId: number,

@@ -140,15 +140,12 @@ test.describe("simulation", () => {
     await page.getByRole("button", { name: "Add event" }).click();
     await page.getByRole("spinbutton", { name: "Month", exact: true }).fill("121");
 
-    await expect(
-      page.getByText("Event 1: month must be a whole number between 1 and 120."),
-    ).toBeVisible();
+    await expect(page.getByText("Must be at most 120.", { exact: true })).toBeVisible();
 
-    // The run is blocked client-side: the error stays and no results render.
-    await page.getByRole("button", { name: "Run simulation" }).click();
-    await expect(page.getByRole("heading", { name: "Results" })).toHaveCount(0);
-    await expect(
-      page.getByText("Event 1: month must be a whole number between 1 and 120."),
-    ).toBeVisible();
+    // The run is blocked client-side: the action is disabled, the inline
+    // field error stays visible, and no result section is created.
+    await expect(page.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+    await expect(page.getByRole("heading", { name: "Results", exact: true })).toHaveCount(0);
+    await expect(page.getByText("Must be at most 120.", { exact: true })).toBeVisible();
   });
 });

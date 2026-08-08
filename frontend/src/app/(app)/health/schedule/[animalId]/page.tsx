@@ -82,6 +82,8 @@ function dateOrDash(value: string | null): string {
 export default function VaccinationSchedulePage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("health.view");
+  const canManage = can("health.manage");
+  const canViewAnimals = can("animals.view");
   const params = useParams<{ animalId: string }>();
   const animalId = Number(params.animalId);
   const validId = Number.isInteger(animalId) && animalId > 0;
@@ -126,9 +128,13 @@ export default function VaccinationSchedulePage() {
         title={
           <>
             Vaccination schedule —{" "}
-            <Link href={`/animals/${payload.animal_id}`} className="text-primary underline">
-              Animal #{payload.animal_id}
-            </Link>
+            {canViewAnimals ? (
+              <Link href={`/animals/${payload.animal_id}`} className="text-primary underline">
+                Animal #{payload.animal_id}
+              </Link>
+            ) : (
+              `Animal #${payload.animal_id}`
+            )}
           </>
         }
         description="Due dates and boosters from the vaccination templates that apply to this animal."
@@ -137,9 +143,14 @@ export default function VaccinationSchedulePage() {
             <Link href="/health" className={buttonVariants({ variant: "outline" })}>
               Back to health log
             </Link>
-            <Link href="/health" className={buttonVariants()}>
-              + Add event
-            </Link>
+            {canManage && (
+              <Link
+                href={`/health/new?animal_id=${payload.animal_id}`}
+                className={buttonVariants()}
+              >
+                + Add event
+              </Link>
+            )}
           </>
         }
       />

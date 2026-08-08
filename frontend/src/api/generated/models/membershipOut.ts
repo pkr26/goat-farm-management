@@ -13,4 +13,6 @@ export interface MembershipOut {
   role_id: number | null;
   role_name: string | null;
   is_active: boolean;
+  can_reset_password: boolean;
+  reset_password_block_reason: string | null;
 }

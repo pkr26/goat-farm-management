@@ -6,11 +6,15 @@ This module is the single source of truth; names are public-style because the
 routers share them.
 """
 
+from datetime import date
+
 from sqlalchemy.orm import selectinload
 
-from ..models import BreedingRecord, Farm, FarmMembership, Task, TaskCategory, User
+from ..models import Animal, BreedingRecord, Farm, FarmMembership, Task, TaskCategory, User
+from ..schemas.animals import AnimalOut
 from ..schemas.breeding import BreedingRecordOut
 from ..schemas.tasks import TaskOut
+from ..utils import DEFAULT_BUSINESS_TIMEZONE
 
 # Display enrichment needs these loaded up front — async forbids lazy loads.
 TASK_LOADS = (
@@ -20,6 +24,24 @@ TASK_LOADS = (
 )
 
 
+def animal_out(
+    animal: Animal,
+    reference_date: date,
+    timezone_name: str = DEFAULT_BUSINESS_TIMEZONE,
+) -> AnimalOut:
+    """Serialize computed animal fields on the active farm's local date.
+
+    The model properties retain a sensible India-default for pure/domain use,
+    but an API response has an explicit farm context and must not leak that
+    default into farms configured in another timezone.
+    """
+    out = AnimalOut.model_validate(animal)
+    out.age_months = animal.age_months_on(reference_date)
+    out.days_in_current_bucket = animal.days_in_current_bucket_on(reference_date, timezone_name)
+    out.is_breeding_ready = animal.is_breeding_ready_on(reference_date)
+    return out
+
+
 def task_action_url(task: Task) -> str | None:
     """Frontend path of the form that closes this duty, when completing it
     means recording data (v1's task_action_url, paths unchanged)."""
@@ -27,7 +49,9 @@ def task_action_url(task: Task) -> str | None:
         return f"/breeding/{task.breeding_record_id}/ultrasound"
     if task.category == TaskCategory.KIDDING_DUE.value and task.breeding_record_id:
         return f"/kidding/new?breeding_id={task.breeding_record_id}"
-    if task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value):
+    if task.category in (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value) and (
+        task.animal_id or task.purchase_batch_id
+    ):
         params = f"task_id={task.id}"
         if task.animal_id:
             params += f"&animal_id={task.animal_id}"
@@ -60,6 +84,7 @@ def breeding_out(br: BreedingRecord) -> BreedingRecordOut:
         method=br.method,
         heat_cycle_number=br.heat_cycle_number,
         ultrasound_date=br.ultrasound_date,
+        ultrasound_result_date=br.ultrasound_result_date,
         ultrasound_done=br.ultrasound_done,
         pregnant=br.pregnant,
         kid_count_detected=br.kid_count_detected,

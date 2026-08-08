@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { farmToday } from "@/lib/format";
 
 import FeedingPage from "./page";
 
@@ -20,10 +21,6 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
 }));
-
-function utcToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 const SHIFTS = [
   { shift: "MORNING", pct: 40, kg: 8, time: "6:30 AM" },
@@ -60,7 +57,7 @@ function planWith(dispensedKg: number) {
           ? [
               {
                 id: 1,
-                date: utcToday(),
+                date: farmToday(),
                 shift: "MORNING",
                 bucket: "BREEDING",
                 recipe_code: "LACTATING_60_40",

@@ -6,7 +6,7 @@
  * and no-farm redirect states.
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,7 +75,7 @@ describe("AppLayout — header", () => {
 
     expect(await screen.findByText("Test Goat Farm")).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "GoatFarm dashboard" }),
+      await screen.findByRole("link", { name: "GoatFarm — go to Dashboard" }),
     ).toHaveAttribute("href", "/dashboard");
     expect(screen.getByRole("link", { name: "switch farm" })).toHaveAttribute(
       "href",
@@ -132,6 +132,132 @@ describe("AppLayout — header", () => {
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
+
+  it("validates password confirmation before submitting", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/auth/change-password", () => {
+        calls += 1;
+        return HttpResponse.json({ access_token: "rotated", user: TEST_USER });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Test Goat Farm");
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+    await user.type(
+      within(dialog).getByLabelText("Current password for password change"),
+      "old-password",
+    );
+    await user.type(within(dialog).getByLabelText("New password"), "new-password");
+    await user.type(within(dialog).getByLabelText("Confirm new password"), "different");
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+
+    expect(await within(dialog).findByText("Passwords do not match")).toBeInTheDocument();
+    expect(calls).toBe(0);
+  });
+
+  it("changes the current user's password through the account dialog", async () => {
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.post("/api/auth/change-password", async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ access_token: "rotated", user: TEST_USER });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Test Goat Farm");
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+    await user.type(
+      within(dialog).getByLabelText("Current password for password change"),
+      "old-password",
+    );
+    await user.type(within(dialog).getByLabelText("New password"), "new-password");
+    await user.type(within(dialog).getByLabelText("Confirm new password"), "new-password");
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toEqual({ current_password: "old-password", new_password: "new-password" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("downloads the authenticated account export", async () => {
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/account/export", () => {
+        calls += 1;
+        return HttpResponse.json({
+          exported_at: "2026-08-08T12:00:00Z",
+          account: TEST_USER,
+          owned_farms: [],
+          memberships: [],
+        });
+      }),
+    );
+    const createObjectURL = vi.fn(() => "blob:account-export");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Test Goat Farm");
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+    await user.click(within(dialog).getByRole("button", { name: "Download my data" }));
+
+    await waitFor(() => expect(calls).toBe(1));
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:account-export");
+  });
+
+  it("requires a password and surfaces the owned-farm restriction when deleting", async () => {
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.delete("/api/auth/account", async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          {
+            detail:
+              "Account deletion is unavailable while this account owns a farm; farm ownership cannot currently be transferred or deleted.",
+          },
+          { status: 409 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Test Goat Farm");
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    const confirm = within(dialog).getByRole("button", {
+      name: "Permanently delete account",
+    });
+    expect(confirm).toBeDisabled();
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "owner-password",
+    );
+    await user.click(confirm);
+
+    expect(
+      await within(dialog).findByText(
+        "Account deletion is unavailable while this account owns a farm; farm ownership cannot currently be transferred or deleted.",
+      ),
+    ).toBeInTheDocument();
+    expect(body).toEqual({ current_password: "owner-password" });
+  });
 });
 
 describe("AppLayout — permission-gated nav", () => {
@@ -162,6 +288,17 @@ describe("AppLayout — permission-gated nav", () => {
     for (const label of ["Breeding", "Health", "Finance", "Reports", "Team"]) {
       expect(screen.queryByRole("link", { name: label })).not.toBeInTheDocument();
     }
+  });
+
+  it("points the brand at the first permitted page instead of a forbidden dashboard", async () => {
+    server.use(permissionsHandler(["health.view"]));
+
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    expect(
+      await screen.findByRole("link", { name: "GoatFarm — go to Health" }),
+    ).toHaveAttribute("href", "/health");
+    expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
   });
 
   it("hides the Team link unless team.manage is held", async () => {
@@ -195,6 +332,9 @@ describe("AppLayout — permission-gated nav", () => {
     await screen.findByText("Test Goat Farm");
     // Let the permissions query settle (it resolves to an empty set).
     await waitFor(() => expect(navLinks()).toHaveLength(0));
+    expect(
+      screen.getByRole("link", { name: "GoatFarm — go to access status" }),
+    ).toHaveAttribute("href", "/no-access");
   });
 
   it("keeps the nav hidden while permissions are still loading", async () => {
@@ -253,14 +393,28 @@ describe("AppLayout — loading and no-farm states", () => {
   });
 
   it("shows 'Loading…' while the session bootstrap is pending", async () => {
+    let releaseRefresh: (() => void) | undefined;
     server.use(
-      http.post("/api/auth/refresh", () => new Promise<Response>(() => {})),
+      http.post(
+        "/api/auth/refresh",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseRefresh = () =>
+              resolve(
+                HttpResponse.json({ access_token: "tok", user: TEST_USER }),
+              );
+          }),
+      ),
     );
 
     renderWithProviders(<AppLayout>{null}</AppLayout>);
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByRole("nav")).not.toBeInTheDocument();
+    // Release the module-level refresh promise so this test cannot poison the
+    // following AuthProvider bootstrap when files run serially.
+    releaseRefresh?.();
+    await screen.findByText("Test Goat Farm");
   });
 
   it("redirects to /farm-select when logged in without any farm", async () => {

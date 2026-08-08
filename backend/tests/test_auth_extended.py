@@ -22,11 +22,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.config import get_settings
 from app.db import get_sessionmaker
-from app.models import RefreshSession, User
+from app.models import FarmMembership, RefreshSession, User
 from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS
 from app.ratelimit import auth_limiter
 from app.security import (
@@ -39,6 +39,7 @@ from app.security import (
     password_policy_error,
     verify_password,
 )
+from app.utils import today
 
 from .conftest import OWNER_PW, login, owner_with_farm, register
 
@@ -483,7 +484,7 @@ async def test_login_sql_injection_email(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         "/api/auth/login", json={"email": "' OR '1'='1' -- @x.in", "password": OWNER_PW}
     )
-    assert resp.status_code == 401  # treated as an unknown email, not a bypass
+    assert resp.status_code == 422  # rejected before limiter/SQL lookup
 
 
 async def test_login_validation_garbage_payloads(client: httpx.AsyncClient) -> None:
@@ -631,6 +632,20 @@ async def test_refresh_old_token_reuse_revokes_family(client: httpx.AsyncClient)
     assert resp.status_code == 200, resp.text
     rotated = client.cookies.get(COOKIE)
     assert rotated and rotated != old
+    old_claims = decode_refresh_claims(old)
+    assert old_claims is not None
+    # Immediate duplicate delivery is the concurrent-tab grace case. Age the
+    # consumed row beyond that narrow window to exercise theft detection.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(RefreshSession)
+            .where(RefreshSession.jti == old_claims.jti)
+            .values(
+                consumed_at=datetime.now(UTC).replace(tzinfo=None)
+                - timedelta(seconds=get_settings().refresh_reuse_grace_seconds + 1)
+            )
+        )
+        await db.commit()
     set_refresh_cookie(client, old)  # attacker replays the pre-rotation token
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 401
@@ -639,6 +654,39 @@ async def test_refresh_old_token_reuse_revokes_family(client: httpx.AsyncClient)
     assert resp.status_code == 401
     # and the account can still log in fresh (revocation ≠ lockout)
     await login(client, "reuse@farm.in", OWNER_PW)
+
+
+async def test_immediate_refresh_replay_returns_exact_successor(
+    client: httpx.AsyncClient,
+) -> None:
+    """Two tabs can send the same cookie before either sees the rotation.
+    The loser gets the already-created successor instead of revoking the
+    legitimate family."""
+    resp = await client.post(
+        "/api/auth/register", json={"email": "tabs@farm.in", "password": OWNER_PW}
+    )
+    user_id = resp.json()["user"]["id"]
+    old = client.cookies.get(COOKIE)
+    assert old
+
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    successor = client.cookies.get(COOKIE)
+    assert successor and successor != old
+
+    set_refresh_cookie(client, old)
+    replay = await client.post("/api/auth/refresh")
+    assert replay.status_code == 200, replay.text
+    assert replay.cookies.get(COOKIE) == successor
+
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(select(RefreshSession).where(RefreshSession.user_id == user_id))
+            ).scalars()
+        )
+    assert len(rows) == 2
+    assert sum(r.consumed_at is None and r.revoked_at is None for r in rows) == 1
+    assert all(r.revoked_at is None for r in rows)
 
 
 async def test_refresh_with_unknown_jti_is_401(client: httpx.AsyncClient) -> None:
@@ -699,6 +747,30 @@ async def test_refresh_is_rate_limited_per_ip(client: httpx.AsyncClient) -> None
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 429
     assert "Too many" in resp.json()["detail"]
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_successful_refreshes_do_not_consume_invalid_attempt_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    resp = await client.post(
+        "/api/auth/register", json={"email": "reloads@farm.in", "password": OWNER_PW}
+    )
+    assert resp.status_code == 201, resp.text
+    valid_cookie = client.cookies.get(COOKIE)
+    assert valid_cookie
+
+    # Fill the rejected-token budget for this shared IP.
+    for _ in range(3):
+        set_refresh_cookie(client, "garbage")
+        assert (await client.post("/api/auth/refresh")).status_code == 401
+
+    # A legitimate page reload is still allowed and rotates normally; repeated
+    # successes stay allowed rather than eventually forcing a login redirect.
+    set_refresh_cookie(client, valid_cookie)
+    for _ in range(8):
+        resp = await client.post("/api/auth/refresh")
+        assert resp.status_code == 200, resp.text
 
 
 async def test_refresh_malformed_cookie_is_401(client: httpx.AsyncClient) -> None:
@@ -855,6 +927,15 @@ async def test_logout_revokes_the_presented_session(client: httpx.AsyncClient) -
     assert resp.status_code == 401
 
 
+async def test_logout_invalidates_already_issued_access_token(client: httpx.AsyncClient) -> None:
+    headers = await register(client, "accessout@farm.in")
+    assert (await client.get("/api/auth/me", headers=headers)).status_code == 200
+    assert (await client.post("/api/auth/logout", headers=headers)).status_code == 204
+    resp = await client.get("/api/auth/me", headers=headers)
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Session has been revoked"
+
+
 # ---------------------------------------------------------------------------
 # POST /api/auth/change-password
 # ---------------------------------------------------------------------------
@@ -872,6 +953,10 @@ async def test_change_password_happy_path_revokes_other_sessions(
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
+    # The access token used to authorize the change is revoked immediately.
+    stale = await client.get("/api/auth/me", headers=headers)
+    assert stale.status_code == 401
+    assert stale.json()["detail"] == "Session has been revoked"
     # fresh pair for this device, immediately usable
     assert (
         await client.get("/api/auth/me", headers=bearer(resp.json()["access_token"]))
@@ -935,6 +1020,157 @@ async def test_me_happy_path(client: httpx.AsyncClient) -> None:
     assert body["email"] == "me@farm.in"
     assert body["name"] == "Meena"
     assert set(body) == {"id", "email", "name"}
+
+
+async def test_account_export_is_machine_readable_and_tenant_minimal(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="owner@farm.in", farm_name="Private Farm")
+    team = (await client.get("/api/team", headers=owner)).json()
+    role = next(role for role in team["roles"] if role["code"] == "CLEANER")
+    created = await client.post(
+        "/api/team/workers",
+        json={
+            "email": "exporter@farm.in",
+            "password": "workerpass123",
+            "role_id": role["id"],
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    worker_id = created.json()["user_id"]
+    task = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Commercially sensitive treatment note",
+            "due_date": today().isoformat(),
+            "assigned_user_id": worker_id,
+        },
+        headers=owner,
+    )
+    assert task.status_code == 201, task.text
+
+    worker = await login(client, "exporter@farm.in", "workerpass123")
+    resp = await client.get("/api/auth/account/export", headers=worker)
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-disposition"].startswith("attachment;")
+    body = resp.json()
+    assert body["account"]["email"] == "exporter@farm.in"
+    assert body["owned_farms"] == []
+    assert body["memberships"] == [
+        {
+            "farm_id": int(owner["X-Farm-Id"]),
+            "farm_name": "Private Farm",
+            "role_id": role["id"],
+            "role_name": "Cleaner",
+            "is_active": True,
+            "created_at": body["memberships"][0]["created_at"],
+        }
+    ]
+    # Relationship metadata is personal data; the tenant's operational record
+    # and sensitive task title are deliberately absent.
+    assert "Commercially sensitive" not in resp.text
+
+
+async def test_account_export_includes_owned_farm_metadata(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client, farm_name="My Farm")
+    resp = await client.get("/api/auth/account/export", headers=owner)
+    assert resp.status_code == 200, resp.text
+    assert [farm["name"] for farm in resp.json()["owned_farms"]] == ["My Farm"]
+
+
+async def test_account_delete_requires_password_rejects_owners_and_cleans_worker(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="owner@farm.in", farm_name="Alpha Farm")
+    # Owners must explicitly dispose of or transfer tenant data first.
+    resp = await client.request(
+        "DELETE",
+        "/api/auth/account",
+        json={"current_password": OWNER_PW},
+        headers=owner,
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == (
+        "Account deletion is unavailable while this account owns a farm; "
+        "farm ownership cannot currently be transferred or deleted."
+    )
+
+    team = (await client.get("/api/team", headers=owner)).json()
+    role = next(role for role in team["roles"] if role["code"] == "CLEANER")
+    created = await client.post(
+        "/api/team/workers",
+        json={
+            "email": "departing@farm.in",
+            "password": "workerpass123",
+            "role_id": role["id"],
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    worker_id = created.json()["user_id"]
+    membership_id = created.json()["id"]
+    duty = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Still needs doing",
+            "due_date": today().isoformat(),
+            "assigned_user_id": worker_id,
+        },
+        headers=owner,
+    )
+    assert duty.status_code == 201, duty.text
+
+    worker = await login(client, "departing@farm.in", "workerpass123")
+    stolen_refresh = client.cookies.get(COOKIE)
+    wrong = await client.request(
+        "DELETE",
+        "/api/auth/account",
+        json={"current_password": "wrongpass123"},
+        headers=worker,
+    )
+    assert wrong.status_code == 400
+    assert (await client.get("/api/auth/me", headers=worker)).status_code == 200
+
+    deleted = await client.request(
+        "DELETE",
+        "/api/auth/account",
+        json={"current_password": "workerpass123"},
+        headers=worker,
+    )
+    assert deleted.status_code == 204, deleted.text
+    assert not client.cookies.get(COOKIE)
+    assert (await client.get("/api/auth/me", headers=worker)).status_code == 401
+    assert (
+        await client.post(
+            "/api/auth/login",
+            json={"email": "departing@farm.in", "password": "workerpass123"},
+        )
+    ).status_code == 401
+    set_refresh_cookie(client, stolen_refresh)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+
+    async with get_sessionmaker()() as db:
+        assert await db.get(User, worker_id) is None
+        assert await db.get(FarmMembership, membership_id) is None
+        sessions = (
+            (await db.execute(select(RefreshSession).where(RefreshSession.user_id == worker_id)))
+            .scalars()
+            .all()
+        )
+        assert sessions == []
+
+    tasks = (await client.get("/api/tasks", headers=owner)).json()
+    duty_id = duty.json()["id"]
+    reassigned = next(
+        row
+        for rows in tasks.values()
+        if isinstance(rows, list)
+        for row in rows
+        if row["id"] == duty_id
+    )
+    assert reassigned["assigned_user_id"] is None
+    assert reassigned["assigned_role_id"] == role["id"]
 
 
 async def test_me_without_authorization_is_401(client: httpx.AsyncClient) -> None:
@@ -1109,8 +1345,8 @@ async def test_permissions_deactivated_worker_loses_access(client: httpx.AsyncCl
     resp = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.get("/api/auth/permissions", headers=worker)
-    # membership no longer active → 404 like any unknown farm
-    assert resp.status_code == 404
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Session has been revoked"
 
 
 async def test_permissions_owner_of_two_farms(client: httpx.AsyncClient) -> None:
@@ -1147,7 +1383,7 @@ async def test_farms_lists_owned_farms_with_none_role(client: httpx.AsyncClient)
     assert [f["id"] for f in farms] == created
     assert {f["name"] for f in farms} == {"Alpha", "Beta"}
     assert all(f["role"] is None for f in farms)  # None = owner
-    assert all(set(f) == {"id", "name", "location", "role"} for f in farms)
+    assert all(set(f) == {"id", "name", "location", "timezone", "role"} for f in farms)
 
 
 async def test_farms_never_lists_other_users_farms(client: httpx.AsyncClient) -> None:
@@ -1193,7 +1429,8 @@ async def test_farms_excludes_deactivated_membership(client: httpx.AsyncClient) 
     resp = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.get("/api/auth/farms", headers=worker)
-    assert resp.json() == []
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Session has been revoked"
 
 
 async def test_farms_without_auth_is_401(client: httpx.AsyncClient) -> None:

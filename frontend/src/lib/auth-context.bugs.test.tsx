@@ -90,6 +90,22 @@ describe("AuthProvider bootstrap — refresh failure handling", () => {
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
+
+  it("a farms failure after a valid refresh does not partially commit the user", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json({ detail: "temporarily unavailable" }, { status: 503 }),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+  });
 });
 
 describe("AuthProvider — query cache cleared on farm switch / sign-out", () => {

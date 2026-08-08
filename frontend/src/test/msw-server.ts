@@ -22,7 +22,13 @@ export const TEST_USER = {
 };
 
 export const TEST_FARMS = [
-  { id: 1, name: "Test Goat Farm", location: "Solapur", role: null },
+  {
+    id: 1,
+    name: "Test Goat Farm",
+    location: "Solapur",
+    timezone: "Asia/Kolkata",
+    role: null,
+  },
 ];
 
 /** Mirror of backend app/permissions.py ALL_PERMISSIONS (owner holds all). */
@@ -68,5 +74,11 @@ export const server = setupServer(
     HttpResponse.json({ access_token: TEST_ACCESS_TOKEN, user: TEST_USER }),
   ),
   http.get("/api/auth/farms", () => HttpResponse.json(TEST_FARMS)),
-  permissionsHandler(ALL_PERMISSIONS),
+  http.get("/api/feeding/records", () =>
+    HttpResponse.json({ records: [], total: 0, limit: 50, offset: 0 }),
+  ),
+  http.get("/api/feeding/finished-stock", () => HttpResponse.json([])),
+  http.get("/api/auth/permissions", () =>
+    HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }),
+  ),
 );

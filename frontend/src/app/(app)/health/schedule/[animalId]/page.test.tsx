@@ -159,7 +159,14 @@ describe("VaccinationSchedulePage", () => {
     );
     expect(screen.getByRole("link", { name: "+ Add event" })).toHaveAttribute(
       "href",
-      "/health",
+      "/health/new?animal_id=7",
     );
+  });
+
+  it("hides add-event for a read-only health viewer", async () => {
+    server.use(permissionsHandler(["health.view"]));
+    renderWithProviders(<VaccinationSchedulePage />);
+    await screen.findByText("PPR");
+    expect(screen.queryByRole("link", { name: "+ Add event" })).not.toBeInTheDocument();
   });
 });

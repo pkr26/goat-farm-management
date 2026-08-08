@@ -130,7 +130,12 @@ async def get_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
 
 
 def task_titles(tabs: dict) -> set[str]:
-    return {t["title"] for rows in tabs.values() for t in rows}
+    # Pagination metadata is scalar; only these fields contain task rows.
+    return {
+        task["title"]
+        for tab in ("today", "overdue", "upcoming", "awaiting", "completed")
+        for task in tabs[tab]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -272,12 +277,14 @@ async def test_worker_landing_and_deactivation(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
+    # Deactivation increments the account's token version, revoking the
+    # bearer immediately instead of leaving it usable until normal expiry.
     resp = await client.get("/api/tasks", headers=cleaner)
-    # A deactivated member's farm answers 404 like an unknown farm.
-    assert resp.status_code == 404
-    assert resp.json()["detail"] == "Farm not found"
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Session has been revoked"
     resp = await client.get("/api/auth/farms", headers=cleaner)
-    assert resp.json() == []
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Session has been revoked"
 
 
 async def test_cannot_add_same_person_twice_or_owner(client: httpx.AsyncClient) -> None:
@@ -288,11 +295,12 @@ async def test_cannot_add_same_person_twice_or_owner(client: httpx.AsyncClient) 
 
     resp = await add_worker(client, owner, rid, "cleaner@farm.in")
     assert resp.status_code == 400  # duplicate
-    assert resp.json()["detail"] == "That person is already on this farm's team."
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
     resp = await add_worker(client, owner, rid, "owner@farm.in")
     assert resp.status_code == 400  # the owner
-    assert resp.json()["detail"] == "That is the farm owner — owners already have full access."
+    # A generic response avoids disclosing account or membership existence.
+    assert resp.json()["detail"] == "That email can't be added to this farm's team."
 
 
 async def test_role_edit_takes_effect_immediately(client: httpx.AsyncClient) -> None:

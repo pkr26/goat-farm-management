@@ -13,14 +13,13 @@ shared/     openapi.json — the API contract (exported from the backend)
 
 ## Quick start
 
-Prereqs: Python 3.13, PostgreSQL 14+ running locally, Node 24+ with pnpm 9
-(`corepack enable`).
+Prereqs: Python 3.13, uv 0.12.1, PostgreSQL 14+ running locally, Node 24+
+with pnpm 9 (`corepack enable`).
 
 ```bash
 # 1. Backend
 cd backend
-python3.13 -m venv .venv
-./.venv/bin/pip install -e '.[dev]'   # or, reproducibly from the lockfile: uv sync --extra dev
+uv sync --frozen --extra dev           # creates backend/.venv from uv.lock
 createdb goatfarm                      # once
 ./.venv/bin/alembic upgrade head
 ./.venv/bin/uvicorn app.main:app --reload --port 8000
@@ -38,7 +37,7 @@ definitions, TMR recipes, vaccine templates, role presets) is seeded
 automatically at startup and farm creation.
 
 `backend/uv.lock` pins the full transitive dependency graph (runtime + dev):
-`uv sync --extra dev` reproduces it exactly, and `uv lock --upgrade`
+`uv sync --frozen --extra dev` reproduces it exactly, and `uv lock --upgrade`
 re-resolves it after changing `pyproject.toml`.
 
 Configuration is via `GOATFARM_*` env vars (`backend/app/core/config.py`; see
@@ -49,11 +48,16 @@ TTLs, Argon2 parameters, `GOATFARM_CORS_ORIGINS`, `GOATFARM_COOKIE_SECURE`
 (set `true` behind HTTPS), `GOATFARM_ENVIRONMENT`
 (`development`/`production`), `GOATFARM_AUTH_RATE_LIMIT_*` (login/register
 throttling), `GOATFARM_MAX_FARMS_PER_USER`, and the `GOATFARM_DB_POOL_*` /
-`GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards. RS256 key pairs are
-auto-generated into `backend/keys/` on first run (gitignored). With
+`GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards. Requests are capped at 1 MiB
+by default (`GOATFARM_MAX_REQUEST_BODY_BYTES`); configure the edge proxy to
+the same or a smaller limit. RS256 key pairs are
+auto-generated into `backend/keys/` on first run in development only
+(gitignored). Production must mount a stable matching RSA keypair (at least
+2048 bits); startup fails immediately if it is missing or invalid. With
 `GOATFARM_ENVIRONMENT=production` the app **refuses to boot** if
-`GOATFARM_COOKIE_SECURE` is false or any CORS origin is localhost, and
-`/docs`, `/redoc` and `/openapi.json` are not served. The auth rate limiter
+`GOATFARM_COOKIE_SECURE` is false, the password minimum is below 12, database
+TLS is not required, or CORS contains anything other than exact non-loopback
+HTTPS origins; `/docs`, `/redoc` and `/openapi.json` are not served. The auth rate limiter
 is in-memory and per process: run exactly **one** uvicorn worker / replica
 (with N workers the effective limit multiplies by N).
 
@@ -64,9 +68,13 @@ is in-memory and per process: run exactly **one** uvicorn worker / replica
   (14 d, httpOnly `SameSite=Lax` cookie scoped to `/api/auth`). Every
   refresh token is backed by a server-side **session row**: refresh consumes
   the presented token and rotates it, presenting an already-consumed or
-  revoked token is treated as theft and revokes the whole token family, and
+  revoked token is treated as theft and revokes the whole token family (with
+  a three-second idempotent grace for simultaneous tabs), and
   logout / password change / owner-initiated worker password reset /
-  deactivation revoke the user's sessions server-side.
+  deactivation revoke the user's sessions server-side. Access JWTs carry a
+  server-checked revocation version, so those security events invalidate
+  already-issued bearer tokens as well as refresh sessions. API responses are
+  marked `Cache-Control: no-store`.
   `POST /api/auth/change-password` gives users self-service password change
   (requires the current password; revokes all other sessions).
 - Farm context travels in the **`X-Farm-Id` header**, validated per request
@@ -81,17 +89,20 @@ is in-memory and per process: run exactly **one** uvicorn worker / replica
   client IP + email; all register attempts per client IP) and farm ownership
   is capped per user. Behind a reverse proxy, set
   `GOATFARM_TRUSTED_PROXY_HOSTS` so real client IPs key the limiter.
-- Team consent guards: an account that already belongs to another farm's
-  team (active or not) cannot be absorbed into yours, and worker password
-  resets apply only to accounts whose sole farm affiliation is yours —
-  passwords are global, so cross-farm resets are refused.
+- Rejected refresh attempts are IP-throttled; successful page-load refreshes
+  do not consume the abuse budget. The SPA coordinates refresh across tabs
+  with the browser Web Locks API when available.
+- Team consent guard: until verified invitations are implemented, **every
+  pre-existing account is refused** by worker provisioning. Password resets
+  are allowed only for new accounts explicitly provisioned by that farm; the
+  provenance is stored on the membership and legacy rows fail closed.
 
 ## Development
 
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 2329 tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 2408 tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
@@ -99,7 +110,7 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test            # 682 Vitest + MSW tests
+pnpm test            # 756 Vitest + MSW tests
 pnpm exec playwright test   # 22 browser e2e tests across 14 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
@@ -113,7 +124,11 @@ export **and** `pnpm orval`.
 CI (`.github/workflows/ci.yml`) runs the full gate on every push/PR: backend
 pytest against a Postgres service, `ruff format --check`, `ruff check`,
 `mypy --strict`, `pip-audit`; frontend `pnpm install --frozen-lockfile`,
-`pnpm test`, `pnpm build`, `pnpm audit`.
+`pnpm test`, `pnpm build`, `pnpm audit`; Playwright against the real frontend,
+API, and PostgreSQL; and a backend container build. A separate pinned-action
+security workflow runs CodeQL, full-history secret scanning, produces an SPDX
+container SBOM, and fails on fixable high/critical image vulnerabilities.
+Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
 ## Production
 
@@ -125,31 +140,97 @@ pytest against a Postgres service, `ruff format --check`, `ruff check`,
   ```bash
   docker build -t goatfarm-backend .
   docker run -p 8000:8000 \
+    -v /secure/goatfarm-jwt:/app/keys:ro \
     -e GOATFARM_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/goatfarm \
     -e GOATFARM_ENVIRONMENT=production \
     -e GOATFARM_COOKIE_SECURE=true \
     -e GOATFARM_CORS_ORIGINS='["https://app.example.com"]' \
     -e GOATFARM_DB_SSLMODE=require \
+    -e GOATFARM_MIN_PASSWORD_LENGTH=12 \
+    -e GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem \
+    -e GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem \
     goatfarm-backend
   ```
 
   The container entrypoint runs `alembic upgrade head`, then serves with
   uvicorn as a non-root user. `docker-compose.yml` spins up Postgres +
-  backend locally (kept in `development` mode on purpose).
+  backend locally (kept in `development` mode on purpose); its `jwtkeys`
+  volume keeps the generated development identity stable across restarts.
 - Run **one** worker/replica (in-memory rate limiter, see Configuration),
   behind a TLS-terminating proxy; set `GOATFARM_TRUSTED_PROXY_HOSTS` to the
   proxy's IPs so rate limiting keys on real client IPs.
 - Serve the frontend as a static Next.js build (`pnpm build`) from the same
   site as the API so the refresh cookie stays first-party.
 
-**JWT key rotation** (current limitation — see AUDIT 11-M8): tokens carry no
-`kid` header and keys are cached in memory at first use, so rotation is a
-hard cutover: (1) generate a new RS256 pair, (2) replace
-`backend/keys/jwt_private.pem` / `jwt_public.pem` (or point
-`GOATFARM_JWT_*_KEY_PATH` at them), (3) restart the process. All existing
-sessions are invalidated immediately — users simply log in again. Overlapping
-verification with a previous key (`kid`-based zero-downtime rotation) is a
-documented future hardening, not yet implemented.
+**Zero-downtime JWT key rotation:** every newly issued token carries a
+deterministic `kid` (the base64url SHA-256 fingerprint of its RSA public key).
+The API signs only with the active private key and verifies by `kid` against
+the active public key plus at most three verification-only public keys from
+`GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS` (a JSON path array). Tokens issued
+before `kid` was introduced are tried against that same bounded keyring during
+migration; a token that supplies an unknown `kid` is rejected without fallback.
+Startup validates every key as RSA >=2048 bits, rejects duplicate key IDs, and
+checks that the active pair matches.
+
+Use a two-phase rollout so mixed old/new API instances can verify one another's
+tokens throughout a rolling deployment:
+
+1. Generate a new RSA pair at new secret paths; do not overwrite the running
+   pair in place. Keep the old private key secured for emergency rollback, but
+   never put a private-key path in the previous-key list.
+2. Pre-stage the new **public** key: keep the old pair active, add the new
+   public path to `GOATFARM_JWT_PREVIOUS_PUBLIC_KEY_PATHS`, and roll/restart
+   every instance. No instance signs with the new key yet, but every instance
+   can verify it before cutover begins.
+3. Roll the signing cutover: point `GOATFARM_JWT_PRIVATE_KEY_PATH` /
+   `GOATFARM_JWT_PUBLIC_KEY_PATH` at the new pair and replace the staged entry
+   with the old **public** path, for example
+   `["/run/secrets/goatfarm_jwt_2026_07_public.pem"]`. During this rollout, old
+   instances have old-active/new-verification and new instances have
+   new-active/old-verification, so both token generations work everywhere.
+4. Keep the old public key configured for at least the refresh-token lifetime
+   after the final old-key signer stopped (currently 14 days), plus the
+   60-second clock-skew allowance. Monitor authentication failures throughout
+   the overlap.
+5. After that window, remove the old public path and restart all instances.
+   Tokens carrying its `kid`—and legacy no-`kid` tokens signed by it—are then
+   rejected. Securely retire the old private key under the deployment's key
+   retention policy.
+
+### Backups and disaster recovery
+
+Run `backend/scripts/backup.sh` nightly against production and store the dump
+off-host. The script creates a custom-format PostgreSQL dump plus SHA-256
+checksum, retains the newest 30 dumps by default, can encrypt the dump for a
+GPG recipient, and can upload both files to S3. Off-site backups should always
+be encrypted and protected with separate, least-privilege credentials.
+
+```bash
+GOATFARM_DATABASE_URL='postgresql+asyncpg://user:pass@host/goatfarm' \
+GOATFARM_BACKUP_GPG_RECIPIENT='backup@example.com' \
+GOATFARM_BACKUP_S3_URI='s3://company-backups/goatfarm' \
+./backend/scripts/backup.sh /var/backups/goatfarm
+```
+
+The baseline target is a 24-hour recovery-point objective (nightly full
+backup) and recovery within four hours. Enable PostgreSQL WAL archiving and
+point-in-time recovery when a tighter recovery point is required.
+
+Restore only into a newly created, empty database. The restore helper verifies
+the checksum and archive before writing, refuses a non-empty target, and
+requires the target database name as an explicit confirmation:
+
+```bash
+GOATFARM_RESTORE_CONFIRM=goatfarm_restore_test \
+./backend/scripts/restore.sh /secure/goatfarm-2026-08-08.dump \
+  'postgresql://user:pass@host/goatfarm_restore_test'
+```
+
+Run and document a restore drill at least quarterly. Verify the Alembic
+revision, representative row counts, `/readyz`, authentication, and the core
+animal/health/feeding/finance screens; record the elapsed time against the
+four-hour recovery target. Decrypt `.gpg` backups only into a protected
+temporary location and securely remove the plaintext after the drill.
 
 ## The bucket system
 
@@ -211,7 +292,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          23 tables, domain enums, computed properties — split per
+    models/          24 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,
@@ -225,11 +306,11 @@ backend/
     api/             auth, animals, buckets, breeding, kidding, health, tasks,
                      feeding, finance, purchases, dashboard (incl. reports),
                      team, simulation; shared out-builders in api/_shared.py
-  alembic/           Migrations (single linear head: initial schema +
-                     simulation scenarios, concurrency/performance indexes,
-                     refresh sessions)
-  scripts/           export_openapi.py
-  tests/             2329 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  alembic/           Migrations (single linear head: initial schema through
+                     auth/session, domain-traceability, finance/feed/task and
+                     movement-clearance hardening)
+  scripts/           export_openapi.py, backup.sh, restore.sh
+  tests/             2408 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout
@@ -256,10 +337,11 @@ frontend/
 
 ## Notes
 
-- All datetimes are stored naive UTC and "today" is the UTC date everywhere
-  (`backend/app/utils.py`). Date-only inputs accept one day of "future"
-  headroom so clients east of UTC (India is UTC+5:30) can enter their local
-  today during 00:00–05:30 local; genuinely future dates are still rejected.
+- Instants are stored as naive UTC datetimes. Date-only business rules use the
+  active farm's IANA timezone (default `Asia/Kolkata`), so dashboards, due
+  dates, feeding plans, and daily records change day at the farm's midnight.
+  Existing date validation retains one day of clock-skew headroom for clients;
+  genuinely future dates are still rejected.
 - Passkeys are a **future amendment**: neither `webauthn` nor
   `@simplewebauthn/browser` is installed in this release.
 - The refresh cookie is `Secure`-flaggable via `GOATFARM_COOKIE_SECURE=true`

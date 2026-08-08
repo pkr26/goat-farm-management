@@ -12,4 +12,7 @@ export interface TaskTabsOut {
   upcoming: TaskOut[];
   awaiting: TaskOut[];
   completed: TaskOut[];
+  completed_total: number;
+  completed_limit: number;
+  completed_offset: number;
 }

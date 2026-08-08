@@ -9,5 +9,6 @@ export interface FarmOut {
   id: number;
   name: string;
   location: string | null;
+  timezone?: string;
   role?: string | null;
 }

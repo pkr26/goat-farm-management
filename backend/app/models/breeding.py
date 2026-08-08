@@ -31,6 +31,8 @@ class BreedingRecord(Base):
             unique=True,
             postgresql_where=text("outcome = 'PENDING'"),
         ),
+        Index("ix_breeding_records_breeding_date", "breeding_date"),
+        Index("ix_breeding_records_expected_kidding_date", "expected_kidding_date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -41,6 +43,7 @@ class BreedingRecord(Base):
     method: Mapped[str] = mapped_column(String(10), default=BreedingMethod.NATURAL.value)
     heat_cycle_number: Mapped[int] = mapped_column(default=1)
     ultrasound_date: Mapped[date | None]  # planned: breeding_date + 32
+    ultrasound_result_date: Mapped[date | None]
     ultrasound_done: Mapped[bool] = mapped_column(default=False)
     pregnant: Mapped[bool | None]
     kid_count_detected: Mapped[int | None]  # 1/2/3
@@ -61,7 +64,10 @@ class KiddingRecord(Base):
     __tablename__ = "kidding_records"
     # One kidding per pregnancy — backs the router's check-then-act with a
     # real constraint so a concurrent double-submit can't duplicate kids.
-    __table_args__ = (UniqueConstraint("breeding_record_id", name="uq_kidding_breeding_record"),)
+    __table_args__ = (
+        UniqueConstraint("breeding_record_id", name="uq_kidding_breeding_record"),
+        Index("ix_kidding_records_doe_id", "doe_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
@@ -88,6 +94,7 @@ class KidEntry(Base):
     sex: Mapped[str] = mapped_column(String(1))
     birth_weight: Mapped[float | None]
     status: Mapped[str] = mapped_column(String(10), default=KidStatus.ALIVE.value)
+    mortality_reported_at: Mapped[date | None]
     animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))  # auto-created Animal
 
     kidding_record: Mapped[KiddingRecord] = relationship(back_populates="kids")

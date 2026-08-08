@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getListBatchesApiPurchasesGetQueryKey,
   useBatchDetailApiPurchasesBatchIdGet,
   useCreateBatchApiPurchasesNewPost,
   useListBatchesApiPurchasesGet,
@@ -22,6 +21,7 @@ import { PurchaseBatchInSex } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,14 +51,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, formatMoney } from "@/lib/format";
+import { farmToday, formatDate, formatMoney } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 function mutationError(err: unknown): string {
@@ -109,7 +107,15 @@ type BatchInput = z.input<typeof batchSchema>;
 type BatchValues = z.output<typeof batchSchema>;
 
 /** Created animals + open quarantine tasks for one batch. */
-function BatchDetailDialog({ batchId, onClose }: { batchId: number | null; onClose: () => void }) {
+function BatchDetailDialog({
+  batchId,
+  canViewAnimals,
+  onClose,
+}: {
+  batchId: number | null;
+  canViewAnimals: boolean;
+  onClose: () => void;
+}) {
   const query = useBatchDetailApiPurchasesBatchIdGet(batchId ?? 0, {
     query: { enabled: batchId !== null },
   });
@@ -160,9 +166,13 @@ function BatchDetailDialog({ batchId, onClose }: { batchId: number | null; onClo
                       {detail.animals.map((a) => (
                         <TableRow key={a.id}>
                           <TableCell>
-                            <Link href={`/animals/${a.id}`} className="text-primary underline">
-                              {a.tag_number}
-                            </Link>
+                            {canViewAnimals ? (
+                              <Link href={`/animals/${a.id}`} className="text-primary underline">
+                                {a.tag_number}
+                              </Link>
+                            ) : (
+                              a.tag_number
+                            )}
                           </TableCell>
                           <TableCell>{a.sex}</TableCell>
                           <TableCell>{a.current_bucket}</TableCell>
@@ -215,13 +225,19 @@ export default function PurchasesPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("purchases.view");
   const canManage = can("purchases.manage");
+  const canViewAnimals = can("animals.view");
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
 
-  const query = useListBatchesApiPurchasesGet({ query: { enabled: allowed } });
-  const batches = query.data?.status === 200 ? query.data.data : undefined;
+  const query = useListBatchesApiPurchasesGet(
+    { limit, offset },
+    { query: { enabled: allowed } },
+  );
+  const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const createMutation = useCreateBatchApiPurchasesNewPost();
   const {
@@ -258,7 +274,7 @@ export default function PurchasesPage() {
         },
       });
       toast.success("Purchase batch created.");
-      queryClient.invalidateQueries({ queryKey: getListBatchesApiPurchasesGetQueryKey() });
+      invalidateFarmData(queryClient);
       setOpen(false);
       reset();
     } catch (err) {
@@ -279,7 +295,7 @@ export default function PurchasesPage() {
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
-  if (query.isLoading || !batches) {
+  if (query.isLoading || !payload) {
     if (query.isError) {
       return (
         <p className="text-sm text-destructive">
@@ -289,6 +305,8 @@ export default function PurchasesPage() {
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+
+  const batches = payload.batches;
 
   function openNewBatch() {
     reset({
@@ -329,7 +347,7 @@ export default function PurchasesPage() {
       ) : (
         <DataTableCard
           title="All batches"
-          description={`${batches.length} batch${batches.length === 1 ? "" : "es"} recorded`}
+          description={`${payload.total} batch${payload.total === 1 ? "" : "es"} recorded`}
         >
           <Table>
             <TableHeader>
@@ -373,10 +391,21 @@ export default function PurchasesPage() {
               ))}
             </TableBody>
           </Table>
+          <PaginationControls
+            total={payload.total}
+            limit={payload.limit}
+            offset={payload.offset}
+            onOffsetChange={setOffset}
+            label="purchase batches"
+          />
         </DataTableCard>
       )}
 
-      <BatchDetailDialog batchId={detailId} onClose={() => setDetailId(null)} />
+      <BatchDetailDialog
+        batchId={detailId}
+        canViewAnimals={canViewAnimals}
+        onClose={() => setDetailId(null)}
+      />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

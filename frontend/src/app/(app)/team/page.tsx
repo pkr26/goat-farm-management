@@ -76,13 +76,13 @@ const workerSchema = z.object({
   role_id: z.string().min(1, "Pick a role"),
   password: z
     .string()
-    .refine((s) => s === "" || s.length >= 8, "Password must be at least 8 characters")
-    .optional(),
+    .min(12, "Password must be at least 12 characters")
+    .max(128, "Password must be at most 128 characters"),
 });
 type WorkerValues = z.infer<typeof workerSchema>;
 
 const resetSchema = z.object({
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z.string().min(12, "Password must be at least 12 characters").max(128),
 });
 type ResetValues = z.infer<typeof resetSchema>;
 
@@ -92,16 +92,41 @@ const roleSchema = z.object({
 });
 type RoleValues = z.infer<typeof roleSchema>;
 
+/** Every action is unusable in the UI unless its module's view permission is
+ * also present. Keep this dependency visible and enforce it while roles are
+ * edited instead of allowing action-only combinations that lead to a page
+ * denial or a missing button. */
+const PERMISSION_DEPENDENCIES: Record<string, string> = {
+  "animals.create": "animals.view",
+  "animals.move": "animals.view",
+  "animals.weight": "animals.view",
+  "animals.status": "animals.view",
+  "breeding.manage": "breeding.view",
+  "kidding.manage": "kidding.view",
+  "health.manage": "health.view",
+  "purchases.manage": "purchases.view",
+  "feeding.manage": "feeding.view",
+  "tasks.create": "tasks.view",
+  "tasks.complete": "tasks.view",
+  "tasks.verify": "tasks.view",
+  "finance.manage": "finance.view",
+  "simulation.manage": "simulation.view",
+};
+
 /** Per-row worker controls: role reassign, activate/deactivate (never for self), reset password. */
 function WorkerRow({
   m,
   roles,
   isSelf,
+  protectedTarget,
+  isOwner,
   onReset,
 }: {
   m: MembershipOut;
   roles: RoleOut[];
   isSelf: boolean;
+  protectedTarget: boolean;
+  isOwner: boolean;
   onReset: (m: MembershipOut) => void;
 }) {
   const invalidate = useInvalidateTeam();
@@ -109,6 +134,9 @@ function WorkerRow({
   const toggleMutation = useToggleWorkerApiTeamWorkersMembershipIdTogglePost();
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
+  const assignableRoles = roles.filter(
+    (role) => isOwner || !role.permissions.includes("team.manage"),
+  );
   const roleItems: Record<string, string> = {
     [NONE]: "No role",
     ...Object.fromEntries(roles.map((r) => [String(r.id), r.name])),
@@ -138,7 +166,7 @@ function WorkerRow({
               })
               .catch((err) => toast.error(mutationError(err)));
           }}
-          disabled={roleMutation.isPending}
+          disabled={roleMutation.isPending || isSelf || protectedTarget}
           items={roleItems}
         >
           <SelectTrigger size="sm" className="w-full">
@@ -150,7 +178,7 @@ function WorkerRow({
                 No role
               </SelectItem>
             )}
-            {roles.map((r) => (
+            {assignableRoles.map((r) => (
               <SelectItem key={r.id} value={String(r.id)}>
                 {r.name}
               </SelectItem>
@@ -164,7 +192,13 @@ function WorkerRow({
       <TableCell>
         <div className="flex flex-wrap items-center gap-2">
           {isSelf ? (
-            <span className="text-xs text-muted-foreground">you</span>
+            <span className="text-xs text-muted-foreground">
+              Manage your password from Account.
+            </span>
+          ) : protectedTarget ? (
+            <span className="text-xs text-muted-foreground">
+              Only the farm owner can manage another team manager.
+            </span>
           ) : (
             <Button
               size="sm"
@@ -183,9 +217,29 @@ function WorkerRow({
               {m.is_active ? "Deactivate" : "Activate"}
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={() => onReset(m)}>
-            Reset password
-          </Button>
+          {!isSelf && !protectedTarget && (
+            <div className="space-y-1">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!m.can_reset_password}
+                aria-describedby={
+                  !m.can_reset_password ? `reset-password-reason-${m.id}` : undefined
+                }
+                onClick={() => m.can_reset_password && onReset(m)}
+              >
+                Reset password
+              </Button>
+              {!m.can_reset_password && m.reset_password_block_reason && (
+                <p
+                  id={`reset-password-reason-${m.id}`}
+                  className="max-w-64 text-xs text-muted-foreground"
+                >
+                  {m.reset_password_block_reason}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </TableCell>
     </TableRow>
@@ -230,8 +284,7 @@ function AddWorkerDialog({
           email: values.email.trim(),
           name: values.name?.trim() || null,
           role_id: Number(values.role_id),
-          // Blank password → backend only requires one when the email is a new account.
-          password: values.password ? values.password : null,
+          password: values.password,
         },
       });
       toast.success("Worker added.");
@@ -253,8 +306,8 @@ function AddWorkerDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
           The worker logs in with this email and password and sees only what the selected role
-          allows. If the email already has an account, it is linked to this farm and the password
-          field is ignored.
+          allows. This form creates a new worker account; an email that is already registered
+          cannot be enrolled here.
         </p>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           {formError && <p className="text-sm text-destructive">{formError}</p>}
@@ -269,11 +322,11 @@ function AddWorkerDialog({
             {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="worker-password">Password (min 8 chars)</Label>
+            <Label htmlFor="worker-password">Password (min 12 chars) *</Label>
             <Input
               id="worker-password"
               type="password"
-              placeholder="only for new accounts"
+              autoComplete="new-password"
               {...register("password")}
             />
             {errors.password && (
@@ -351,7 +404,7 @@ function ResetPasswordDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           {formError && <p className="text-sm text-destructive">{formError}</p>}
           <div className="space-y-1.5">
-            <Label htmlFor="reset-password">New password (min 8 chars) *</Label>
+            <Label htmlFor="reset-password">New password (min 12 chars) *</Label>
             <Input id="reset-password" type="password" {...register("password")} />
             {errors.password && (
               <p className="text-sm text-destructive">{errors.password.message}</p>
@@ -368,25 +421,38 @@ function ResetPasswordDialog({
   );
 }
 
-/** Create/edit role dialog with grouped permission matrix, clamped to permissions the editor holds. */
+/** Create/edit role dialog. Permissions the editor cannot grant remain
+ * visible and, when already selected, are preserved in the update payload. */
 function RoleDialog({
   role,
   team,
   can,
+  isOwner,
   onClose,
 }: {
   role: RoleOut | null;
   team: TeamOut;
   can: (code: string) => boolean;
+  isOwner: boolean;
   onClose: () => void;
 }) {
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateRoleApiTeamRolesPost();
   const updateMutation = useUpdateRoleApiTeamRolesRoleIdPut();
   const [formError, setFormError] = useState<string | null>(null);
-  // Backend clamps to permissions the editor holds (_clean_permissions); mirror it here.
+  const canGrant = (code: string) => can(code) && (isOwner || code !== "team.manage");
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set((role?.permissions ?? []).filter(can)),
+    () => {
+      const initial = new Set(role?.permissions ?? []);
+      // Repair an action-only role when this editor can grant its missing
+      // view dependency. Dependencies they cannot grant stay untouched and
+      // visibly flagged rather than being silently discarded.
+      for (const code of initial) {
+        const dependency = PERMISSION_DEPENDENCIES[code];
+        if (dependency && canGrant(dependency)) initial.add(dependency);
+      }
+      return initial;
+    },
   );
   const {
     register,
@@ -400,8 +466,13 @@ function RoleDialog({
   function togglePerm(code: string, checked: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (checked) next.add(code);
-      else next.delete(code);
+      if (checked) {
+        next.add(code);
+        const dependency = PERMISSION_DEPENDENCIES[code];
+        if (dependency && canGrant(dependency)) next.add(dependency);
+      } else {
+        next.delete(code);
+      }
       return next;
     });
   }
@@ -458,28 +529,71 @@ function RoleDialog({
           <div className="space-y-2">
             <h3 className="text-sm font-medium">Permissions</h3>
             <p className="text-sm text-muted-foreground">
-              Workers with this role can open only the pages and actions ticked here. You can only
-              grant permissions you hold yourself.
+              Selecting an action also selects the view permission needed to reach it. Permissions
+              you do not hold are shown disabled; existing checked ones are retained when you save.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
-              {team.permission_groups.map((g) => {
-                const grantable = g.codes.filter(can);
-                if (grantable.length === 0) return null;
-                return (
-                  <fieldset key={g.group} className="space-y-1.5">
-                    <legend className="text-sm font-medium">{g.group}</legend>
-                    {grantable.map((code) => (
-                      <label key={code} className="flex items-center gap-2 text-sm">
+              {team.permission_groups.map((g) => (
+                <fieldset key={g.group} className="space-y-1.5">
+                  <legend className="text-sm font-medium">{g.group}</legend>
+                  {g.codes.map((code) => {
+                    const held = can(code);
+                    const grantable = canGrant(code);
+                    const checked = selected.has(code);
+                    const dependency = PERMISSION_DEPENDENCIES[code];
+                    const missingDependency = dependency ? !selected.has(dependency) : false;
+                    const requiredBy = Object.entries(PERMISSION_DEPENDENCIES)
+                      .filter(([action, view]) => view === code && selected.has(action))
+                      .map(([action]) => action);
+                    const disabled =
+                      !grantable ||
+                      (checked && requiredBy.length > 0) ||
+                      (!checked && Boolean(dependency) && missingDependency && !canGrant(dependency));
+                    const controlId = `permission-${code.replaceAll(".", "-")}`;
+                    const labelId = `${controlId}-label`;
+                    return (
+                      <div
+                        key={code}
+                        className="flex items-start gap-2 text-sm data-[disabled=true]:text-muted-foreground"
+                        data-disabled={disabled}
+                      >
                         <Checkbox
-                          checked={selected.has(code)}
-                          onCheckedChange={(c) => togglePerm(code, c === true)}
+                          id={controlId}
+                          aria-labelledby={labelId}
+                          checked={checked}
+                          disabled={disabled}
+                          onCheckedChange={(value) => togglePerm(code, value === true)}
                         />
-                        {team.permission_labels[code] ?? code}
-                      </label>
-                    ))}
-                  </fieldset>
-                );
-              })}
+                        <span>
+                          <Label id={labelId} htmlFor={controlId} className="inline text-sm">
+                            {team.permission_labels[code] ?? code}
+                          </Label>
+                          {!grantable && checked && (
+                            <span className="ml-1 text-xs">(retained; you cannot change this)</span>
+                          )}
+                          {!grantable && !checked && (
+                            <span className="ml-1 text-xs">
+                              {held && code === "team.manage"
+                                ? "(only the farm owner can grant this)"
+                                : "(you cannot grant this)"}
+                            </span>
+                          )}
+                          {missingDependency && (
+                            <span className="block text-xs text-amber-700 dark:text-amber-300">
+                              Requires {team.permission_labels[dependency] ?? dependency}.
+                            </span>
+                          )}
+                          {requiredBy.length > 0 && (
+                            <span className="block text-xs text-muted-foreground">
+                              Required by {requiredBy.map((action) => team.permission_labels[action] ?? action).join(", ")}.
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </fieldset>
+              ))}
             </div>
           </div>
           <DialogFooter>
@@ -496,20 +610,26 @@ function RoleDialog({
 function RoleCard({
   role,
   team,
+  isOwner,
   onEdit,
 }: {
   role: RoleOut;
   team: TeamOut;
+  isOwner: boolean;
   onEdit: (role: RoleOut) => void;
 }) {
   const invalidate = useInvalidateTeam();
   const deleteMutation = useDeleteRoleApiTeamRolesRoleIdDelete();
   const memberCount = role.member_count ?? 0;
-  const deleteHint = role.code
+  const managerRole = role.permissions.includes("team.manage");
+  const ownerOnlyHint = !isOwner && managerRole
+    ? "Only the farm owner can edit or delete a team-manager role."
+    : undefined;
+  const deleteHint = ownerOnlyHint ?? (role.code
     ? "Preset roles can't be deleted."
     : memberCount > 0
       ? "Role still has workers assigned — reassign them first."
-      : undefined;
+      : undefined);
 
   return (
     <Card className="gap-3 p-4">
@@ -530,7 +650,13 @@ function RoleCard({
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          <Button size="sm" variant="outline" onClick={() => onEdit(role)}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={ownerOnlyHint !== undefined}
+            title={ownerOnlyHint}
+            onClick={() => onEdit(role)}
+          >
             Edit
           </Button>
           <Button
@@ -570,7 +696,7 @@ function RoleCard({
 
 export default function TeamPage() {
   const { user } = useAuth();
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, isOwner, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("team.manage");
 
   const [workerOpen, setWorkerOpen] = useState(false);
@@ -603,6 +729,10 @@ export default function TeamPage() {
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
+
+  const assignableRoles = payload.roles.filter(
+    (role) => isOwner || !role.permissions.includes("team.manage"),
+  );
 
   return (
     <div className="space-y-6">
@@ -648,6 +778,15 @@ export default function TeamPage() {
                   m={m}
                   roles={payload.roles}
                   isSelf={m.email === user?.email}
+                  isOwner={isOwner}
+                  protectedTarget={
+                    !isOwner &&
+                    Boolean(
+                      payload.roles
+                        .find((role) => role.id === m.role_id)
+                        ?.permissions.includes("team.manage"),
+                    )
+                  }
                   onReset={setResetTarget}
                 />
               ))}
@@ -670,13 +809,23 @@ export default function TeamPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {payload.roles.map((r) => (
-              <RoleCard key={r.id} role={r} team={payload} onEdit={(role) => setRoleDialog({ role })} />
+              <RoleCard
+                key={r.id}
+                role={r}
+                team={payload}
+                isOwner={isOwner}
+                onEdit={(role) => setRoleDialog({ role })}
+              />
             ))}
           </div>
         )}
       </DataTableCard>
 
-      <AddWorkerDialog open={workerOpen} onOpenChange={setWorkerOpen} roles={payload.roles} />
+      <AddWorkerDialog
+        open={workerOpen}
+        onOpenChange={setWorkerOpen}
+        roles={assignableRoles}
+      />
       {resetTarget && (
         <ResetPasswordDialog
           key={resetTarget.id}
@@ -690,6 +839,7 @@ export default function TeamPage() {
           role={roleDialog.role}
           team={payload}
           can={can}
+          isOwner={isOwner}
           onClose={() => setRoleDialog(null)}
         />
       )}

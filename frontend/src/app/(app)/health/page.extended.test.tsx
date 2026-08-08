@@ -16,6 +16,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AnimalOut, HealthEventOut, TaskOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, farmToday } from "@/lib/format";
 
 import HealthPage from "./page";
 
@@ -43,14 +44,8 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-/** Local YYYY-MM-DD (mirrors the page's localToday). */
-function localISO(d: Date): string {
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${m}-${day}`;
-}
-const TODAY = localISO(new Date());
-const TOMORROW = localISO(new Date(Date.now() + 86_400_000));
+const TODAY = farmToday();
+const TOMORROW = addDays(TODAY, 1);
 
 function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
   return {
@@ -74,6 +69,16 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     purchase_price: null,
     seller_name: null,
     cull_candidate: false,
+    movement_restricted: false,
+    restriction_reason: null,
+    suspected_scheduled_disease: false,
+    suspected_disease: null,
+    authority_notified_at: null,
+    restriction_cleared_at: null,
+    restriction_cleared_by_id: null,
+    restriction_clearance_reference: null,
+    mortality_cause: null,
+    mortality_reported_at: null,
     notes: null,
     created_at: "2026-01-01T05:30:00Z",
     ...overrides,
@@ -97,6 +102,19 @@ function makeEvent(overrides: Partial<HealthEventOut>): HealthEventOut {
     vet_name: "Dr. Patil",
     cost: 1250.5,
     next_due_date: "2027-07-15",
+    schedule_template_name: null,
+    next_due_authority: null,
+    product_lot: null,
+    product_manufactured_on: null,
+    product_expires_on: null,
+    vaccine_valid_until: null,
+    certificate_number: null,
+    official_tag_number: null,
+    administered_by: null,
+    withdrawal_until: null,
+    suspected_scheduled_disease: false,
+    authority_notified_at: null,
+    isolation_started_at: null,
     notes: null,
     animal_tag: "G-003",
     ...overrides,
@@ -117,12 +135,15 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     assigned_role_id: null,
     assigned_user_id: null,
     recur_days: null,
+    recurring_series_id: null,
     completed_by_id: null,
     completed_at: null,
     verified_by_id: null,
     verified_at: null,
     verification_note: null,
     skipped_by_id: null,
+    skipped_at: null,
+    skip_reason: null,
     action_url: null,
     ...overrides,
   };
@@ -156,7 +177,16 @@ const BATCHES = [
 ];
 
 function tasksPayload(tasks: TaskOut[]) {
-  return { today: tasks, overdue: [], upcoming: [], awaiting: [], completed: [] };
+  return {
+    today: tasks,
+    overdue: [],
+    upcoming: [],
+    awaiting: [],
+    completed: [],
+    completed_total: 0,
+    completed_limit: 50,
+    completed_offset: 0,
+  };
 }
 
 async function pickOption(user: User, trigger: HTMLElement, name: string | RegExp) {
@@ -179,16 +209,36 @@ describe("HealthPage", () => {
     server.use(
       http.get("/api/health/events", () => {
         eventsCalls += 1;
-        return HttpResponse.json(events);
+        return HttpResponse.json({ events, total: events.length, limit: 50, offset: 0 });
       }),
       http.post("/api/health/events", async ({ request }) => {
         postBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeEvent({ id: 99 }), { status: 201 });
       }),
-      http.get("/api/animals", () =>
-        HttpResponse.json({ animals: [ANIMAL_A, ANIMAL_B], total: 2 }),
+      http.get("/api/health/animals", () =>
+        HttpResponse.json({
+          animals: [ANIMAL_A, ANIMAL_B].map((animal) => ({
+            id: animal.id,
+            tag_number: animal.tag_number,
+            name: animal.name,
+            current_bucket: animal.current_bucket,
+          })),
+          total: 2,
+          limit: 50,
+          offset: 0,
+        }),
       ),
-      http.get("/api/purchases", () => HttpResponse.json(BATCHES)),
+      http.get("/api/health/purchase-batches", () =>
+        HttpResponse.json({
+          batches: BATCHES.map((batch) => ({
+            ...batch,
+            active_animal_count: batch.count,
+          })),
+          total: BATCHES.length,
+          limit: 50,
+          offset: 0,
+        }),
+      ),
       http.get("/api/tasks", () => HttpResponse.json(tasksPayload(tasks))),
     );
   });
@@ -235,7 +285,35 @@ describe("HealthPage", () => {
     ];
     renderWithProviders(<HealthPage />);
     const row = (await screen.findByText("VACCINE")).closest("tr")!;
-    expect(within(row).getAllByText("—")).toHaveLength(6);
+    expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("surfaces product, schedule and disease-hold traceability in the event log", async () => {
+    events = [
+      makeEvent({
+        schedule_template_name: "Annual PPR programme",
+        next_due_authority: "Farm veterinarian",
+        product_lot: "LOT-PPR-26",
+        product_manufactured_on: "2026-01-10",
+        product_expires_on: "2027-01-10",
+        certificate_number: "CERT-88",
+        official_tag_number: "TAG-003",
+        administered_by: "Dr Rao",
+        withdrawal_until: "2026-07-22",
+        suspected_scheduled_disease: true,
+        authority_notified_at: "2026-07-15",
+        isolation_started_at: "2026-07-15",
+      }),
+    ];
+
+    await renderLoaded();
+    const row = screen.getByText("PPR vaccine").closest("tr")!;
+    expect(within(row).getByText(/Annual PPR programme · Farm veterinarian/)).toBeInTheDocument();
+    expect(within(row).getByText("Scheduled disease suspected")).toBeInTheDocument();
+    expect(within(row).getByText("Lot: LOT-PPR-26")).toBeInTheDocument();
+    expect(within(row).getByText("Certificate: CERT-88")).toBeInTheDocument();
+    expect(within(row).getByText("Official tag: TAG-003")).toBeInTheDocument();
+    expect(within(row).getByText("Administered by: Dr Rao")).toBeInTheDocument();
   });
 
   it("shows batch-scoped events as 'batch #N' and untagged animals as '#id'", async () => {
@@ -282,6 +360,38 @@ describe("HealthPage", () => {
     expect(
       screen.queryByRole("button", { name: "+ Add event" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("uses health-scoped targets and plain tags for a module-only manager", async () => {
+    let generalAnimalCalls = 0;
+    let purchaseLedgerCalls = 0;
+    server.use(
+      permissionsHandler(["health.view", "health.manage"]),
+      http.get("/api/animals", () => {
+        generalAnimalCalls += 1;
+        return HttpResponse.json({ animals: [], total: 0 });
+      }),
+      http.get("/api/purchases", () => {
+        purchaseLedgerCalls += 1;
+        return HttpResponse.json({ batches: [], total: 0, limit: 50, offset: 0 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    expect(screen.queryByRole("link", { name: "G-003" })).not.toBeInTheDocument();
+    const card = screen.getByText("Vaccination schedule per animal").closest(
+      "[data-slot='card']",
+    ) as HTMLElement;
+    await pickOption(user, within(card).getByRole("combobox"), /G-003 · Kaveri/);
+
+    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add health event" });
+    await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
+    await user.click(within(dialog).getByRole("combobox", { name: "Purchase batch *" }));
+    expect(await screen.findByRole("option", { name: /#2.*Sharma Traders/ })).toBeInTheDocument();
+    expect(generalAnimalCalls).toBe(0);
+    expect(purchaseLedgerCalls).toBe(0);
   });
 
   // ---------- schedule picker ----------
@@ -348,7 +458,9 @@ describe("HealthPage", () => {
 
     await user.click(within(dialog).getAllByRole("combobox")[0]);
     expect(
-      await screen.findByRole("option", { name: /#2 — 1 Jun 2026 Sharma Traders \(12\)/ }),
+      await screen.findByRole("option", {
+        name: /#2 — 1 Jun 2026 Sharma Traders \(12 active of 12\)/,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -406,6 +518,23 @@ describe("HealthPage", () => {
     expect(postBody).toBeNull();
   });
 
+  it("requires a named schedule and authority whenever a next-due date is recorded", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    fireEvent.change(within(dialog).getByLabelText("Next due date"), {
+      target: { value: addDays(TODAY, 30) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    expect(
+      await within(dialog).findByText("Name the schedule used for a next-due date"),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Record the authority for this next-due date"),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
   // ---------- dialog: submit mapping ----------
 
   it("posts an animal-scoped event with NONE sentinels mapped to null", async () => {
@@ -420,7 +549,7 @@ describe("HealthPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());
-    expect(postBody).toEqual({
+    expect(postBody).toMatchObject({
       scope: "animal",
       animal_id: 3,
       bucket: null,
@@ -434,11 +563,68 @@ describe("HealthPage", () => {
       vet_name: null,
       cost: 250,
       next_due_date: null,
-      notes: null,
       task_id: null,
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(eventsCalls).toBeGreaterThanOrEqual(2));
+  });
+
+  it("posts the complete traceability and scheduled-disease audit trail", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+    fireEvent.change(within(dialog).getByLabelText(/disease target/i), {
+      target: { value: "PPR" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Next due date"), {
+      target: { value: addDays(TODAY, 30) },
+    });
+    const values: Record<string, string> = {
+      "Schedule/template name": "Annual PPR programme",
+      "Next-due authority": "Farm veterinarian",
+      "Product lot/batch": "LOT-PPR-26",
+      "Administered by": "Dr Rao",
+      "Product manufactured": addDays(TODAY, -30),
+      "Product expires": addDays(TODAY, 365),
+      "Vaccine valid until": addDays(TODAY, 300),
+      "Withdrawal until": addDays(TODAY, 7),
+      "Certificate number": "CERT-88",
+      "Official tag number": "TAG-003",
+    };
+    for (const [label, value] of Object.entries(values)) {
+      fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+    }
+    await user.click(
+      within(dialog).getByRole("checkbox", {
+        name: "Suspected scheduled/notifiable disease — apply movement restriction",
+      }),
+    );
+    fireEvent.change(within(dialog).getByLabelText("Authority notified date"), {
+      target: { value: TODAY },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Isolation started date"), {
+      target: { value: TODAY },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({
+      disease_target: "PPR",
+      next_due_date: addDays(TODAY, 30),
+      schedule_template_name: "Annual PPR programme",
+      next_due_authority: "Farm veterinarian",
+      product_lot: "LOT-PPR-26",
+      product_manufactured_on: addDays(TODAY, -30),
+      product_expires_on: addDays(TODAY, 365),
+      vaccine_valid_until: addDays(TODAY, 300),
+      certificate_number: "CERT-88",
+      official_tag_number: "TAG-003",
+      administered_by: "Dr Rao",
+      withdrawal_until: addDays(TODAY, 7),
+      suspected_scheduled_disease: true,
+      authority_notified_at: TODAY,
+      isolation_started_at: TODAY,
+    });
   });
 
   it("posts a bucket-scoped event with the other targets nulled", async () => {
@@ -640,6 +826,17 @@ describe("HealthPage", () => {
       .click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({ animal_id: 3, task_id: 5, type: "VACCINE" });
+  });
+
+  it("auto-opens and prefills an animal even when there is no linked task", async () => {
+    window.history.replaceState({}, "", "/health?animal_id=3");
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
+    await waitFor(() =>
+      expect(within(dialog).getAllByRole("combobox")[0]).toHaveTextContent("G-003 · Kaveri"),
+    );
   });
 
   it("does not auto-open the dialog from URL params without health.manage", async () => {

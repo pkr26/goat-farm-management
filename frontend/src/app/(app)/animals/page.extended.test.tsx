@@ -237,7 +237,7 @@ describe("AnimalsPage extended", () => {
     it("sends the trimmed search text as q", async () => {
       const user = userEvent.setup();
       await renderLoaded();
-      await user.type(screen.getByPlaceholderText("Search tag or name…"), " G-9 ");
+      await user.type(screen.getByPlaceholderText("Search by tag…"), " G-9 ");
       await waitFor(() => {
         expect(seenParams.at(-1)?.get("q")).toBe("G-9");
       });
@@ -246,7 +246,7 @@ describe("AnimalsPage extended", () => {
     it("drops the q param when the search box is cleared", async () => {
       const user = userEvent.setup();
       await renderLoaded();
-      const input = screen.getByPlaceholderText("Search tag or name…");
+      const input = screen.getByPlaceholderText("Search by tag…");
       await user.type(input, "G-9");
       await waitFor(() => expect(seenParams.at(-1)?.get("q")).toBe("G-9"));
       await user.clear(input);
@@ -256,7 +256,7 @@ describe("AnimalsPage extended", () => {
     it("debounces the search: one request after typing stops, none per keystroke", async () => {
       const user = userEvent.setup();
       await renderLoaded();
-      await user.type(screen.getByPlaceholderText("Search tag or name…"), "G-9");
+      await user.type(screen.getByPlaceholderText("Search by tag…"), "G-9");
       // No request has carried a q yet (debounce window still open)…
       expect(seenParams.some((p) => p.get("q") !== null)).toBe(false);
       // …then exactly one request fires with the settled value.

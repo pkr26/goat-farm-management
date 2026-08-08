@@ -31,9 +31,12 @@ test.describe("feeding and finance", () => {
     await expect(page.getByText("Dispensing recorded.")).toBeVisible();
     await expect(dialog).toBeHidden();
 
-    // Today's dispensing log lists exactly this record (row identity, not a
-    // count delta — audit 10-H1).
-    const logRow = page.getByRole("row", { name: /MORNING QUARANTINE/ });
+    // The same record is intentionally shown in both today's summary and the
+    // paginated history. Scope identity/count assertions to today's card.
+    const todayLog = page
+      .getByText("Today's dispensing log", { exact: true })
+      .locator('xpath=ancestor::*[@data-slot="card"][1]');
+    const logRow = todayLog.getByRole("row", { name: /MORNING QUARANTINE/ });
     await expect(logRow).toHaveCount(1, { timeout: 15_000 });
     await expect(logRow.getByRole("cell", { name: "3.7", exact: true })).toBeVisible();
   });

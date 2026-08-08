@@ -26,7 +26,10 @@ import type { TokenOut } from "@/api/generated/models";
 const registerSchema = z.object({
   name: z.string().max(120).optional(),
   email: z.string().email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: z
+    .string()
+    .min(12, "Password must be at least 12 characters")
+    .max(128, "Password must be at most 128 characters"),
 });
 type RegisterValues = z.infer<typeof registerSchema>;
 
@@ -65,7 +68,7 @@ export default function RegisterPage() {
         "/api/auth/register",
         {
           method: "POST",
-          body: JSON.stringify({ ...values, name: values.name || null }),
+          body: JSON.stringify({ ...values, name: values.name?.trim() || null }),
         },
       );
       await signIn(body.access_token, body.user);
@@ -132,16 +135,33 @@ export default function RegisterPage() {
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name (optional)</Label>
-                  <Input id="name" autoComplete="name" {...register("name")} />
+                  <Input
+                    id="name"
+                    autoComplete="name"
+                    aria-invalid={Boolean(errors.name) || undefined}
+                    aria-describedby={errors.name ? "register-name-error" : undefined}
+                    {...register("name")}
+                  />
                   {errors.name && (
-                    <p className="text-sm text-destructive">{errors.name.message}</p>
+                    <p id="register-name-error" role="alert" className="text-sm text-destructive">
+                      {errors.name.message}
+                    </p>
                   )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" autoComplete="email" {...register("email")} />
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    aria-invalid={Boolean(errors.email) || undefined}
+                    aria-describedby={errors.email ? "register-email-error" : undefined}
+                    {...register("email")}
+                  />
                   {errors.email && (
-                    <p className="text-sm text-destructive">{errors.email.message}</p>
+                    <p id="register-email-error" role="alert" className="text-sm text-destructive">
+                      {errors.email.message}
+                    </p>
                   )}
                 </div>
                 <div className="space-y-1.5">
@@ -150,13 +170,21 @@ export default function RegisterPage() {
                     id="password"
                     type="password"
                     autoComplete="new-password"
+                    aria-invalid={Boolean(errors.password) || undefined}
+                    aria-describedby={errors.password ? "register-password-error" : undefined}
                     {...register("password")}
                   />
                   {errors.password && (
-                    <p className="text-sm text-destructive">{errors.password.message}</p>
+                    <p id="register-password-error" role="alert" className="text-sm text-destructive">
+                      {errors.password.message}
+                    </p>
                   )}
                 </div>
-                {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+                {serverError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {serverError}
+                  </p>
+                )}
                 <Button type="submit" className="w-full" disabled={isSubmitting}>
                   {isSubmitting ? "Creating account…" : "Create account"}
                 </Button>

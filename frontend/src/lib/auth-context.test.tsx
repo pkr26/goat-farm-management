@@ -45,11 +45,13 @@ function Probe() {
       <button onClick={() => auth.selectFarm(2)}>select-2</button>
       <button
         onClick={() =>
-          void auth.signIn("signin-token", {
-            id: 9,
-            email: "worker@goatfarm.test",
-            name: "Worker",
-          })
+          void auth
+            .signIn("signin-token", {
+              id: 9,
+              email: "worker@goatfarm.test",
+              name: "Worker",
+            })
+            .catch(() => undefined)
         }
       >
         sign-in
@@ -194,7 +196,7 @@ describe("AuthProvider bootstrap — no session", () => {
     await expectLoaded();
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
 
   it("does not redirect away from the public /login path", async () => {
@@ -263,6 +265,33 @@ describe("AuthProvider actions", () => {
     );
     expect(screen.getByTestId("farmId")).toHaveTextContent("5");
     expect(farmsAuthorization).toBe("Bearer signin-token");
+  });
+
+  it("rolls back the staged token and user when farm discovery fails", async () => {
+    rejectRefresh();
+    let farmCalls = 0;
+    let laterAuthorization: string | null = "unset";
+    server.use(
+      http.get("/api/auth/farms", () => {
+        farmCalls += 1;
+        return HttpResponse.json({ detail: "farms unavailable" }, { status: 503 });
+      }),
+      http.get("/api/animals", ({ request }) => {
+        laterAuthorization = request.headers.get("Authorization");
+        return HttpResponse.json([]);
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    await user.click(screen.getByRole("button", { name: "sign-in" }));
+    await waitFor(() => expect(farmCalls).toBe(1));
+
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    await apiFetch("/api/animals");
+    expect(laterAuthorization).toBeNull();
   });
 
   it("signOut posts to /api/auth/logout, clears state and navigates to /login", async () => {

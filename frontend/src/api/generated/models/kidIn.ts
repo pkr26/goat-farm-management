@@ -12,4 +12,5 @@ export interface KidIn {
   sex: KidInSex;
   birth_weight?: number | null;
   status?: KidInStatus;
+  mortality_reported_at?: string | null;
 }

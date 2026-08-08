@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
-  getListTasksApiTasksGetQueryKey,
   useCompleteApiTasksTaskIdCompletePost,
   useCreateTaskApiTasksPost,
   useListTasksApiTasksGet,
@@ -23,9 +22,11 @@ import {
   useVerifyApiTasksTaskIdVerifyPost,
 } from "@/api/generated/endpoints";
 import { TaskCreateInCategory, type TaskOut } from "@/api/generated/models";
+import { AnimalPicker } from "@/components/animal-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -56,7 +57,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { formatDate, utcToday } from "@/lib/format";
+import { farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
+import { invalidateFarmData } from "@/lib/query-invalidation";
+import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn, safeAppPath } from "@/lib/utils";
 
@@ -67,10 +70,7 @@ const NONE = "none";
 const VALID_TABS = new Set(["today", "overdue", "upcoming", "awaiting", "completed"]);
 
 function localToday(): string {
-  const now = new Date();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${m}-${d}`;
+  return farmToday();
 }
 
 /** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
@@ -78,14 +78,6 @@ function daysBetween(from: string, to: string): number {
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
-}
-
-/** Backend datetimes are naive UTC (no offset suffix) — parse as UTC, not
- *  browser-local, then format in the viewer's locale. */
-function fmtDateTime(iso: string): string {
-  const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
-  const d = new Date(hasOffset ? iso : `${iso}Z`);
-  return `${String(d.getDate()).padStart(2, "0")}-${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function mutationError(err: unknown): string {
@@ -98,34 +90,45 @@ function RowActions({
   tab,
   canComplete,
   canVerify,
+  can,
   today,
 }: {
   task: TaskOut;
   tab: string;
   canComplete: boolean;
   canVerify: boolean;
+  can: PermissionCheck;
   today: string;
 }) {
   const queryClient = useQueryClient();
   const [note, setNote] = useState("");
+  const [skipOpen, setSkipOpen] = useState(false);
+  const [skipReason, setSkipReason] = useState("");
   const completeMutation = useCompleteApiTasksTaskIdCompletePost();
   const skipMutation = useSkipApiTasksTaskIdSkipPost();
   const verifyMutation = useVerifyApiTasksTaskIdVerifyPost();
   const rejectMutation = useRejectApiTasksTaskIdRejectPost();
+  const safeAction = safeAppPath(task.action_url);
+  const permittedAction = permittedTaskActionPath(task.action_url, can);
 
   function invalidate() {
-    queryClient.invalidateQueries({ queryKey: getListTasksApiTasksGetQueryKey() });
+    invalidateFarmData(queryClient);
   }
 
   if (task.status === "PENDING" && canComplete) {
     // Auto-generated duties unlock on their due date (backend 409 otherwise).
     const lockedFutureAuto = task.auto_generated && task.due_date > today;
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        {safeAppPath(task.action_url) ? (
-          <Link href={safeAppPath(task.action_url)!} className={buttonVariants({ size: "sm" })}>
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+        {permittedAction ? (
+          <Link href={permittedAction} className={buttonVariants({ size: "sm" })}>
             Open form
           </Link>
+        ) : safeAction ? (
+          <span className="text-xs text-muted-foreground">
+            Linked form unavailable with your permissions.
+          </span>
         ) : (
           !lockedFutureAuto && (
             <Button
@@ -149,19 +152,58 @@ function RowActions({
           size="sm"
           variant="outline"
           disabled={skipMutation.isPending}
-          onClick={() =>
-            skipMutation
-              .mutateAsync({ taskId: task.id })
-              .then(() => {
-                toast.success("Task skipped.");
-                invalidate();
-              })
-              .catch((err) => toast.error(mutationError(err)))
-          }
+          onClick={() => setSkipOpen(true)}
         >
           Skip
         </Button>
-      </div>
+        </div>
+        <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Skip this task?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Skipping moves this duty to its audit history. Add a reason so the team can
+              understand why it was not completed.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor={`skip-reason-${task.id}`}>Reason (optional)</Label>
+              <Input
+                id={`skip-reason-${task.id}`}
+                value={skipReason}
+                onChange={(event) => setSkipReason(event.target.value)}
+                maxLength={255}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setSkipOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={skipMutation.isPending}
+                onClick={() =>
+                  skipMutation
+                    .mutateAsync({
+                      taskId: task.id,
+                      data: { reason: skipReason.trim() || null },
+                    })
+                    .then(() => {
+                      toast.success("Task skipped.");
+                      setSkipReason("");
+                      setSkipOpen(false);
+                      invalidate();
+                    })
+                    .catch((err) => toast.error(mutationError(err)))
+                }
+              >
+                {skipMutation.isPending ? "Skipping…" : "Skip task"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
     );
   }
 
@@ -220,6 +262,8 @@ function TaskTable({
   tab,
   canComplete,
   canVerify,
+  can,
+  canViewAnimals,
   today,
   currentUserId,
   isOwner,
@@ -228,6 +272,8 @@ function TaskTable({
   tab: string;
   canComplete: boolean;
   canVerify: boolean;
+  can: PermissionCheck;
+  canViewAnimals: boolean;
   today: string;
   currentUserId: number | null;
   isOwner: boolean;
@@ -253,7 +299,7 @@ function TaskTable({
             <TableHead>Assigned to</TableHead>
             <TableHead>Animal</TableHead>
             {completedTab && <TableHead>Status</TableHead>}
-            {completedTab && <TableHead>Completed</TableHead>}
+            {completedTab && <TableHead>Finished</TableHead>}
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -295,16 +341,26 @@ function TaskTable({
                       <span className="text-destructive">Sent back: {t.verification_note}</span>
                     </>
                   )}
+                  {completedTab && t.status === "SKIPPED" && t.skip_reason && (
+                    <>
+                      <br />
+                      <span className="text-xs text-muted-foreground">
+                        Reason: {t.skip_reason}
+                      </span>
+                    </>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant="secondary">{t.category}</Badge>
                 </TableCell>
                 <TableCell>{t.assigned_role_name ?? t.assigned_user_name ?? "—"}</TableCell>
                 <TableCell>
-                  {t.animal_tag && t.animal_id ? (
+                  {t.animal_tag && t.animal_id && canViewAnimals ? (
                     <Link href={`/animals/${t.animal_id}`} className="text-primary underline">
                       {t.animal_tag}
                     </Link>
+                  ) : t.animal_tag && t.animal_id ? (
+                    t.animal_tag
                   ) : (
                     "—"
                   )}
@@ -318,13 +374,16 @@ function TaskTable({
                   </TableCell>
                 )}
                 {completedTab && (
-                  <TableCell>{t.completed_at ? fmtDateTime(t.completed_at) : "—"}</TableCell>
+                  <TableCell>
+                    {formatFarmDateTime(t.status === "SKIPPED" ? t.skipped_at : t.completed_at)}
+                  </TableCell>
                 )}
                 <TableCell>
                   <RowActions
                     task={t}
                     tab={tab}
                     canComplete={canComplete}
+                    can={can}
                     canVerify={
                       // The API 409s self-verification for non-owners — don't
                       // offer the action.
@@ -366,6 +425,7 @@ const dutySchema = z.object({
     .optional(),
   assigned_role_id: z.string().optional(),
   assigned_user_id: z.string().optional(),
+  animal_id: z.string().optional(),
 });
 type DutyValues = z.infer<typeof dutySchema>;
 
@@ -377,6 +437,7 @@ function TasksPageContent() {
   const canComplete = can("tasks.complete");
   const canVerify = can("tasks.verify");
   const canSeeTeam = can("team.manage");
+  const canViewAnimals = can("animals.view");
   const queryClient = useQueryClient();
 
   const searchParams = useSearchParams();
@@ -387,8 +448,13 @@ function TasksPageContent() {
     return requested && VALID_TABS.has(requested) ? requested : "today";
   });
   const [open, setOpen] = useState(false);
+  const [completedOffset, setCompletedOffset] = useState(0);
+  const completedLimit = 50;
 
-  const query = useListTasksApiTasksGet({ query: { enabled: allowed } });
+  const query = useListTasksApiTasksGet(
+    { completed_limit: completedLimit, completed_offset: completedOffset },
+    { query: { enabled: allowed } },
+  );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const teamQuery = useTeamPageApiTeamGet({
@@ -409,7 +475,6 @@ function TasksPageContent() {
         .map((m) => [String(m.user_id), `${m.name ?? m.email} (${m.role_name ?? "worker"})`]),
     ),
   };
-
   const createMutation = useCreateTaskApiTasksPost();
   const {
     register,
@@ -427,11 +492,13 @@ function TasksPageContent() {
       recur_days: "",
       assigned_role_id: NONE,
       assigned_user_id: NONE,
+      animal_id: NONE,
     },
   });
   const wAssignedRoleId = useWatch({ control, name: "assigned_role_id" });
   const wAssignedUserId = useWatch({ control, name: "assigned_user_id" });
   const wCategory = useWatch({ control, name: "category" });
+  const wAnimalId = useWatch({ control, name: "animal_id" });
 
   async function onSubmit(values: DutyValues) {
     try {
@@ -440,6 +507,8 @@ function TasksPageContent() {
           title: values.title.trim(),
           due_date: values.due_date,
           category: values.category,
+          animal_id:
+            values.animal_id && values.animal_id !== NONE ? Number(values.animal_id) : null,
           recur_days: values.recur_days ? Number(values.recur_days) : null,
           assigned_role_id:
             values.assigned_role_id && values.assigned_role_id !== NONE
@@ -452,7 +521,7 @@ function TasksPageContent() {
         },
       });
       toast.success("Duty created.");
-      queryClient.invalidateQueries({ queryKey: getListTasksApiTasksGetQueryKey() });
+      invalidateFarmData(queryClient);
       setOpen(false);
       reset();
     } catch (err) {
@@ -486,7 +555,7 @@ function TasksPageContent() {
 
   // Comparisons use the backend's UTC today, not the browser's local date
   // (off-by-one in the IST 00:00–05:30 window,).
-  const today = utcToday();
+  const today = farmToday();
   const visibleTabs: { value: string; label: string; tasks: TaskOut[] }[] = [
     { value: "today", label: `Today (${payload.today.length})`, tasks: payload.today },
     { value: "overdue", label: `Overdue (${payload.overdue.length})`, tasks: payload.overdue },
@@ -498,8 +567,15 @@ function TasksPageContent() {
       label: `Awaiting verification (${payload.awaiting.length})`,
       tasks: payload.awaiting,
     });
-    visibleTabs.push({ value: "completed", label: "Completed", tasks: payload.completed });
   }
+  // The API already scopes this history to the current worker. Verification
+  // permission controls the review queue/actions, not whether someone may
+  // review duties they personally completed or skipped.
+  visibleTabs.push({
+    value: "completed",
+    label: `Completed (${payload.completed_total})`,
+    tasks: payload.completed,
+  });
   // A deep-linked tab may not exist for this user (e.g. ?tab=awaiting
   // without tasks.verify) — fall back to "today".
   const activeTab = visibleTabs.some((t) => t.value === tab) ? tab : "today";
@@ -538,10 +614,21 @@ function TasksPageContent() {
               tab={t.value}
               canComplete={canComplete}
               canVerify={canVerify}
+              can={can}
+              canViewAnimals={canViewAnimals}
               today={today}
               currentUserId={user?.id ?? null}
               isOwner={isOwner}
             />
+            {t.value === "completed" && (
+              <PaginationControls
+                total={payload.completed_total}
+                limit={payload.completed_limit}
+                offset={payload.completed_offset}
+                onOffsetChange={setCompletedOffset}
+                label="completed tasks"
+              />
+            )}
           </TabsContent>
         ))}
       </Tabs>
@@ -561,18 +648,36 @@ function TasksPageContent() {
               <Label htmlFor="title">Title *</Label>
               <Input
                 id="title"
-                maxLength={200}
-                placeholder="e.g. Clean water troughs in BREEDING pen"
-                {...register("title")}
-              />
-              {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
+                  maxLength={200}
+                  placeholder="e.g. Clean water troughs in BREEDING pen"
+                  aria-invalid={Boolean(errors.title) || undefined}
+                  aria-describedby={errors.title ? "duty-title-error" : undefined}
+                  {...register("title")}
+                />
+              {errors.title && (
+                <p id="duty-title-error" role="alert" className="text-sm text-destructive">
+                  {errors.title.message}
+                </p>
+              )}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="due_date">Due date *</Label>
-                <Input id="due_date" type="date" {...register("due_date")} />
+                <Input
+                  id="due_date"
+                  type="date"
+                  aria-invalid={Boolean(errors.due_date) || undefined}
+                  aria-describedby={errors.due_date ? "duty-due-date-error" : undefined}
+                  {...register("due_date")}
+                />
                 {errors.due_date && (
-                  <p className="text-sm text-destructive">{errors.due_date.message}</p>
+                  <p
+                    id="duty-due-date-error"
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {errors.due_date.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -597,11 +702,47 @@ function TasksPageContent() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="recur_days">Repeats every (days)</Label>
-                <Input id="recur_days" inputMode="numeric" placeholder="blank = one-off" {...register("recur_days")} />
+                <Input
+                  id="recur_days"
+                  inputMode="numeric"
+                  placeholder="blank = one-off"
+                  aria-invalid={Boolean(errors.recur_days) || undefined}
+                  aria-describedby={errors.recur_days ? "duty-recur-days-error" : undefined}
+                  {...register("recur_days")}
+                />
                 {errors.recur_days && (
-                  <p className="text-sm text-destructive">{errors.recur_days.message}</p>
+                  <p
+                    id="duty-recur-days-error"
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {errors.recur_days.message}
+                  </p>
                 )}
               </div>
+              {canViewAnimals ? (
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="duty-animal">Animal (optional)</Label>
+                <AnimalPicker
+                  id="duty-animal"
+                  value={wAnimalId || NONE}
+                  onValueChange={(value) => setValue("animal_id", value)}
+                  placeholder="No animal"
+                  dialogTitle="Choose an animal for this duty"
+                  labelVariant="name-dash"
+                  staticOptions={[{ value: NONE, label: "— none —" }]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Link vaccine or deworming duties to an animal to open the matching health
+                  form. Unlinked duties remain ordinary checklists.
+                </p>
+              </div>
+              ) : (
+                <p className="text-sm text-muted-foreground sm:col-span-2">
+                  You don&apos;t have animal access, so this duty will be created without an
+                  animal link.
+                </p>
+              )}
             </div>
             {canSeeTeam ? (
               <div className="space-y-2">

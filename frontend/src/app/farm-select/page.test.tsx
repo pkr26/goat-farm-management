@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { server } from "@/test/msw-server";
+import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import FarmSelectPage from "./page";
@@ -41,14 +41,23 @@ describe("FarmSelectPage — loading & logged-out states", () => {
   beforeEach(() => pushMock.mockClear());
 
   it("shows 'Loading…' while the session bootstrap is still pending", async () => {
+    let releaseRefresh: (() => void) | undefined;
     server.use(
-      http.post("/api/auth/refresh", () => new Promise<Response>(() => {})),
+      http.post(
+        "/api/auth/refresh",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseRefresh = () => resolve(new HttpResponse(null, { status: 401 }));
+          }),
+      ),
     );
 
     renderWithProviders(<FarmSelectPage />);
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByText("Your farms")).not.toBeInTheDocument();
+    releaseRefresh?.();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
 
   it("shows 'Loading…' when logged out and the AuthProvider redirects to /login", async () => {
@@ -105,6 +114,21 @@ describe("FarmSelectPage — farm picker", () => {
     await user.click(await screen.findByText("Second Farm"));
 
     expect(pushMock).toHaveBeenCalledWith("/dashboard");
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("2");
+  });
+
+  it("opens a selected farm at the first permitted module", async () => {
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      permissionsHandler(["health.view"]),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/health"));
+    expect(pushMock).not.toHaveBeenCalledWith("/dashboard");
     expect(localStorage.getItem("goatfarm.farmId")).toBe("2");
   });
 
@@ -194,7 +218,11 @@ describe("FarmSelectPage — create a farm", () => {
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     // Blank location → null in the POST body.
-    expect(postBody).toEqual({ name: "New Osmanabadi Farm", location: null });
+    expect(postBody).toEqual({
+      name: "New Osmanabadi Farm",
+      location: null,
+      timezone: "Asia/Kolkata",
+    });
     // refreshFarms re-fetched the list after creation.
     expect(farmFetches).toBeGreaterThanOrEqual(2);
     // The newly created farm (not the previously selected one) is active.
@@ -221,7 +249,11 @@ describe("FarmSelectPage — create a farm", () => {
     await user.click(screen.getByRole("button", { name: /create farm/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
-    expect(postBody).toEqual({ name: "Hillside", location: "Pune" });
+    expect(postBody).toEqual({
+      name: "Hillside",
+      location: "Pune",
+      timezone: "Asia/Kolkata",
+    });
   });
 
   it("disables the button and shows 'Creating…' while in flight", async () => {

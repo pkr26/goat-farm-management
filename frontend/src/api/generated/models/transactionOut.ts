@@ -14,4 +14,11 @@ export interface TransactionOut {
   notes: string | null;
   related_animal_id: number | null;
   animal_tag?: string | null;
+  created_at: string;
+  source_type: string | null;
+  source_id: number | null;
+  correction_of_id: number | null;
+  voided_at: string | null;
+  voided_by_id: number | null;
+  void_reason: string | null;
 }
