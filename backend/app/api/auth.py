@@ -6,10 +6,10 @@ import logging
 import uuid
 from datetime import timedelta
 from typing import NoReturn
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -26,26 +26,18 @@ from ..deps import (
     revoke_user_sessions,
 )
 from ..models import (
-    Animal,
-    BreedingRecord,
-    BucketMove,
     Farm,
     FarmMembership,
-    FeedingRecord,
-    HealthEvent,
-    KiddingRecord,
     RefreshSession,
-    SimulationScenario,
-    Task,
-    Transaction,
     User,
-    WeightRecord,
 )
+from ..models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
 from ..ratelimit import auth_limiter
 from ..schemas.auth import (
     AccountDeleteIn,
     AccountExportOut,
     AccountIdentityExport,
+    ChangePasswordIn,
     FarmCreateIn,
     FarmOut,
     LoginIn,
@@ -58,16 +50,18 @@ from ..schemas.auth import (
 )
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
+    PasswordWorkCapacityError,
     decode_access_claims,
     decode_refresh_claims,
-    hash_password,
+    hash_password_async,
     issue_access_token,
     issue_refresh_token,
     password_policy_error,
     prime_dummy_password_hash,
-    verify_password,
+    verify_password_async,
 )
 from ..seed import seed_new_farm
+from ..services.idempotency import IdempotencyKey, execute_idempotent
 from ..utils import utcnow
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -76,6 +70,7 @@ logger = logging.getLogger("goatfarm.auth")
 
 ALREADY_REGISTERED = "That email is already registered."
 TOO_MANY_ATTEMPTS = "Too many attempts — please try again later."
+UNTRUSTED_COOKIE_ORIGIN = "Untrusted origin for cookie-authenticated request."
 
 # The composite (IP, email) failure budget is the base ceiling;
 # the IP-agnostic per-email ceiling (distributed guessing against ONE account
@@ -105,6 +100,39 @@ def _client_key(request: Request) -> str:
     # request.client is None on some ASGI servers/transports: those requests
     # share one bucket instead of bypassing the limiter.
     return request.client.host if request.client else "unknown"
+
+
+def _guard_cookie_request_origin(request: Request) -> None:
+    """Reject browser cross-site requests before consuming a refresh cookie.
+
+    SameSite=Lax is the first barrier, but sibling subdomains are still
+    considered same-site. Browsers attach Origin (or, for older clients,
+    Referer) to unsafe requests, so require an exact configured SPA/API origin
+    whenever either signal is present. Header-less server/mobile clients stay
+    supported; a browser that explicitly reports ``Sec-Fetch-Site: cross-site``
+    is never allowed to use that compatibility path.
+    """
+    if request.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
+        raise HTTPException(status_code=403, detail=UNTRUSTED_COOKIE_ORIGIN)
+
+    allowed = set(get_settings().cors_origins)
+    allowed.add(str(request.base_url).rstrip("/"))
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        if origin not in allowed:
+            raise HTTPException(status_code=403, detail=UNTRUSTED_COOKIE_ORIGIN)
+        return
+
+    referer = request.headers.get("Referer")
+    if referer is None:
+        return
+    try:
+        parsed = urlsplit(referer)
+        referer_origin = f"{parsed.scheme}://{parsed.netloc}"
+    except ValueError:
+        referer_origin = ""
+    if referer_origin not in allowed:
+        raise HTTPException(status_code=403, detail=UNTRUSTED_COOKIE_ORIGIN)
 
 
 def _login_key(request: Request, email: str) -> str:
@@ -171,6 +199,28 @@ def _record_attempt(scope: str, key: str) -> None:
         auth_limiter.record(scope, key, s.auth_rate_limit_window_seconds)
 
 
+def _too_many_attempts() -> HTTPException:
+    """Standards-friendly throttle response with a conservative retry hint."""
+    return HTTPException(
+        status_code=429,
+        detail=TOO_MANY_ATTEMPTS,
+        headers={"Retry-After": str(get_settings().auth_rate_limit_window_seconds)},
+    )
+
+
+def _reserve_password_work(scope: str, key: str) -> None:
+    """Admit at most one password workflow per identity at a time.
+
+    Failure counters are recorded only after verification, so a simultaneous
+    same-email burst could otherwise have every request pass the pre-check.
+    This non-waiting reservation closes that gap without revealing whether the
+    normalized email exists: known and unknown identities use the same keying
+    and the same generic retryable 429 response.
+    """
+    if not auth_limiter.try_reserve(scope, key):
+        raise PasswordWorkCapacityError("Password workflow already in flight")
+
+
 def _set_refresh_cookie(response: Response, token: str, *, max_age: int | None = None) -> None:
     s = get_settings()
     response.set_cookie(
@@ -184,6 +234,78 @@ def _set_refresh_cookie(response: Response, token: str, *, max_age: int | None =
     )
 
 
+async def _make_refresh_session_slot(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    family_id: str,
+    new_family: bool,
+) -> None:
+    """Evict a finite oldest session/family before issuing a successor.
+
+    The migration compacts legacy rows to these same hard ceilings. From then
+    on each successful issue removes at most one capped family or one row,
+    keeping password revocation, replay handling and account deletion finite.
+    """
+    settings = get_settings()
+    if new_family:
+        family_rows = (
+            await db.execute(
+                select(
+                    RefreshSession.family_id,
+                    func.max(RefreshSession.created_at).label("latest_created_at"),
+                )
+                .where(RefreshSession.user_id == user_id)
+                .group_by(RefreshSession.family_id)
+                .order_by(func.max(RefreshSession.created_at).desc(), RefreshSession.family_id)
+            )
+        ).all()
+        # Keep the newest max-1 existing families, leaving one slot for this
+        # login/change-password issuance. Rows in evicted families are no
+        # longer usable; deleting them is equivalent to server-side logout.
+        evicted = [
+            existing_family
+            for existing_family, _latest in family_rows[
+                settings.refresh_max_families_per_user - 1 :
+            ]
+            if existing_family != family_id
+        ]
+        if evicted:
+            await db.execute(
+                delete(RefreshSession).where(
+                    RefreshSession.user_id == user_id,
+                    RefreshSession.family_id.in_(evicted),
+                )
+            )
+        return
+
+    at_capacity = (
+        await db.execute(
+            select(RefreshSession.id)
+            .where(
+                RefreshSession.user_id == user_id,
+                RefreshSession.family_id == family_id,
+            )
+            .order_by(RefreshSession.created_at.desc(), RefreshSession.id.desc())
+            .offset(settings.refresh_max_sessions_per_family - 1)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if at_capacity is not None:
+        oldest_id = (
+            await db.execute(
+                select(RefreshSession.id)
+                .where(
+                    RefreshSession.user_id == user_id,
+                    RefreshSession.family_id == family_id,
+                )
+                .order_by(RefreshSession.created_at, RefreshSession.id)
+                .limit(1)
+            )
+        ).scalar_one()
+        await db.execute(delete(RefreshSession).where(RefreshSession.id == oldest_id))
+
+
 async def _issue_tokens(
     db: AsyncSession,
     user: User,
@@ -194,14 +316,23 @@ async def _issue_tokens(
 ) -> TokenOut:
     """Mint the access/refresh pair and persist the refresh jti's session row
     (new family unless rotating within `family_id`). The caller commits."""
+    if user.deleted_at is not None:
+        raise HTTPException(status_code=401, detail="Account no longer exists")
     s = get_settings()
     jti = uuid.uuid4().hex
+    effective_family_id = family_id or uuid.uuid4().hex
+    await _make_refresh_session_slot(
+        db,
+        user_id=user.id,
+        family_id=effective_family_id,
+        new_family=family_id is None,
+    )
     issued_at = utcnow()
     expires_at = issued_at + timedelta(seconds=s.refresh_token_ttl_seconds)
     session = RefreshSession(
         user_id=user.id,
         jti=jti,
-        family_id=family_id or uuid.uuid4().hex,
+        family_id=effective_family_id,
         expires_at=expires_at,
         created_at=issued_at,
     )
@@ -211,7 +342,13 @@ async def _issue_tokens(
         replacement_for.replacement_jti = jti
     _set_refresh_cookie(
         response,
-        issue_refresh_token(user.id, jti=jti, issued_at=issued_at, expires_at=expires_at),
+        issue_refresh_token(
+            user.id,
+            jti=jti,
+            family_id=effective_family_id,
+            issued_at=issued_at,
+            expires_at=expires_at,
+        ),
     )
     return TokenOut(
         access_token=issue_access_token(user.id, user.token_version),
@@ -228,7 +365,7 @@ def _raise_invalid_refresh(request: Request) -> NoReturn:
     """
     rate_key = _client_key(request)
     if _rate_limited("refresh-invalid", rate_key):
-        raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
+        raise _too_many_attempts()
     _record_attempt("refresh-invalid", rate_key)
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
@@ -239,7 +376,7 @@ async def register(
 ) -> TokenOut:
     rate_key = _client_key(request)
     if _rate_limited("register", rate_key):
-        raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
+        raise _too_many_attempts()
     _record_attempt("register", rate_key)
     error = password_policy_error(payload.password)
     if error:
@@ -249,7 +386,7 @@ async def register(
     # enumeration oracle). The explicit 400 remains — without email
     # verification there is no accept-and-notify path, and the per-IP
     # register throttle blunts probing.
-    pw_hash = hash_password(payload.password)
+    pw_hash = await hash_password_async(payload.password)
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=400, detail=ALREADY_REGISTERED)
@@ -272,39 +409,73 @@ async def register(
 @router.post("/login")
 async def login(payload: LoginIn, request: Request, response: Response, db: DbSession) -> TokenOut:
     if _login_blocked(request, payload.email):
-        raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
-    # Serialize login with password resets/changes. If login wins, a following
-    # reset revokes the just-issued session; if reset wins, this request must
-    # verify only the new password hash.
-    result = await db.execute(select(User).where(User.email == payload.email).with_for_update())
-    user = result.scalar_one_or_none()
-    invalid = HTTPException(status_code=401, detail="Invalid email or password.")
-    if user is None:
-        # Equal work either way: verify against a dummy hash so an unknown
-        # email doesn't return measurably earlier than a wrong password.
-        verify_password(payload.password, _dummy_password_hash())
-        _record_login_failure(request, payload.email)
-        raise invalid
-    ok, needs_rehash = verify_password(payload.password, user.password_hash)
-    if not ok:
-        if user.password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-            # A failed legacy pbkdf2 verify is far cheaper than
-            # Argon2, which would distinguish "unknown email" from "known
-            # pre-migration account". Top up with dummy Argon2 work.
-            verify_password(payload.password, _dummy_password_hash())
-        _record_login_failure(request, payload.email)
-        raise invalid
-    _reset_login_failures(request, payload.email)
-    if needs_rehash:  # legacy pbkdf2 → transparent Argon2id upgrade
-        user.password_hash = hash_password(payload.password)
-        logger.info("upgraded legacy pbkdf2 hash to Argon2id (user_id=%s)", user.id)
-    out = await _issue_tokens(db, user, response)
-    await db.commit()
-    return out
+        raise _too_many_attempts()
+    reservation_scope = "login-password-work"
+    _reserve_password_work(reservation_scope, payload.email)
+    try:
+        # Re-check after the atomic admission reservation. A preceding request
+        # may have recorded the threshold immediately before releasing its
+        # slot; no expensive work starts from a stale limiter observation.
+        if _login_blocked(request, payload.email):
+            raise _too_many_attempts()
+
+        # Snapshot immutable scalar values, then end the read transaction so
+        # Argon2 never holds a row lock, transaction, or checked-out DB
+        # connection. The write-class reload below exact-compares this snapshot
+        # before a token can be minted.
+        snapshot = (
+            await db.execute(
+                select(User.id, User.password_hash, User.token_version).where(
+                    User.email == payload.email,
+                    User.deleted_at.is_(None),
+                )
+            )
+        ).one_or_none()
+        await db.rollback()
+
+        invalid = HTTPException(status_code=401, detail="Invalid email or password.")
+        stored_hash = snapshot.password_hash if snapshot is not None else _dummy_password_hash()
+        ok, needs_rehash = await verify_password_async(payload.password, stored_hash)
+        if snapshot is None or not ok:
+            if snapshot is not None and stored_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
+                # A failed legacy pbkdf2 verify is far cheaper than Argon2,
+                # which would distinguish a migrated account from an unknown
+                # one. Top up both rejected paths to equivalent Argon2 work.
+                await verify_password_async(payload.password, _dummy_password_hash())
+            _record_login_failure(request, payload.email)
+            raise invalid
+
+        replacement_hash = await hash_password_async(payload.password) if needs_rehash else None
+        user = (
+            await db.execute(
+                select(User)
+                .where(User.id == snapshot.id, User.deleted_at.is_(None))
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if (
+            user is None
+            or user.token_version != snapshot.token_version
+            or user.password_hash != snapshot.password_hash
+        ):
+            # Reset/change/delete won during verification. The old credential
+            # is no longer valid and the unauthenticated response stays generic.
+            _record_login_failure(request, payload.email)
+            raise invalid
+        if replacement_hash is not None:  # legacy pbkdf2 → Argon2id
+            user.password_hash = replacement_hash
+            logger.info("upgraded legacy pbkdf2 hash to Argon2id (user_id=%s)", user.id)
+        out = await _issue_tokens(db, user, response)
+        await db.commit()
+        _reset_login_failures(request, payload.email)
+        return out
+    finally:
+        auth_limiter.release(reservation_scope, payload.email)
 
 
 @router.post("/refresh")
 async def refresh(request: Request, response: Response, db: DbSession) -> TokenOut:
+    _guard_cookie_request_origin(request)
     token = request.cookies.get(get_settings().refresh_cookie_name)
     claims = decode_refresh_claims(token) if token else None
     if claims is None:
@@ -313,7 +484,11 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
     # Password reset/change holds the same user lock before revoking sessions,
     # preventing a refresh from minting a successor after revocation.
     user = (
-        await db.execute(select(User).where(User.id == claims.user_id).with_for_update())
+        await db.execute(
+            select(User)
+            .where(User.id == claims.user_id, User.deleted_at.is_(None))
+            .with_for_update()
+        )
     ).scalar_one_or_none()
     if user is None:
         _raise_invalid_refresh(request)
@@ -325,7 +500,19 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         )
     ).scalar_one_or_none()
     if session is None:
+        # New refresh tokens carry their signed family id. Consumed rows may
+        # have been compacted, but replay still revokes the bounded current
+        # family rather than degrading to a harmless 401 for the attacker.
+        if claims.family_id is not None:
+            await revoke_session_family(
+                db,
+                claims.family_id,
+                user_id=claims.user_id,
+            )
+            await db.commit()
         _raise_invalid_refresh(request)  # predates session tracking, or never issued here
+    if claims.family_id is not None and claims.family_id != session.family_id:
+        _raise_invalid_refresh(request)
     now = utcnow()
     if session.revoked_at is not None:
         _raise_invalid_refresh(request)
@@ -358,6 +545,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                 issue_refresh_token(
                     user.id,
                     jti=successor.jti,
+                    family_id=successor.family_id,
                     issued_at=successor.created_at,
                     expires_at=successor.expires_at,
                 ),
@@ -367,7 +555,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                 access_token=issue_access_token(user.id, user.token_version),
                 user=UserOut.model_validate(user),
             )
-        await revoke_session_family(db, session.family_id)
+        await revoke_session_family(db, session.family_id, user_id=session.user_id)
         await db.commit()
         logger.warning(
             "refresh-token reuse detected — revoked family %s (user_id=%s)",
@@ -387,6 +575,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
 
 @router.post("/logout", status_code=204)
 async def logout(request: Request, response: Response, db: DbSession) -> Response:
+    _guard_cookie_request_origin(request)
     # Revoke the presented session server-side — deleting the
     # cookie alone leaves an exfiltrated token fully usable.
     token = request.cookies.get(get_settings().refresh_cookie_name)
@@ -402,7 +591,11 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
         candidate_user_id = access_claims.user_id
     logged_out_user = (
         (
-            await db.execute(select(User).where(User.id == candidate_user_id).with_for_update())
+            await db.execute(
+                select(User)
+                .where(User.id == candidate_user_id, User.deleted_at.is_(None))
+                .with_for_update()
+            )
         ).scalar_one_or_none()
         if candidate_user_id is not None
         else None
@@ -420,7 +613,15 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
             and session.revoked_at is None
             and session.expires_at > utcnow()
         ):
-            session.revoked_at = utcnow()
+            # Logout is a family boundary, not merely a one-JTI revocation.
+            # If a concurrent refresh won the User lock first, its committed
+            # successor is already in this family and is revoked by the same
+            # UPDATE. It can never refresh successfully after this 204.
+            await revoke_session_family(
+                db,
+                session.family_id,
+                user_id=session.user_id,
+            )
             candidate_user_id = session.user_id
             cookie_confirmed = True
     if logged_out_user is not None:
@@ -433,6 +634,13 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
             and access_claims.token_version == logged_out_user.token_version
         )
         if cookie_confirmed or bearer_current:
+            if bearer_current and not cookie_confirmed:
+                # With no valid cookie there is no provable family to target.
+                # Revoking only the access-token version would be reversible:
+                # any surviving refresh family could immediately mint a token
+                # carrying the new version. Session caps keep this update
+                # finite, so bearer-only logout means logout everywhere.
+                await revoke_user_sessions(db, logged_out_user.id)
             logged_out_user.token_version += 1
     await db.commit()
     response.delete_cookie(get_settings().refresh_cookie_name, path="/api/auth")
@@ -440,38 +648,78 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     return response
 
 
-class ChangePasswordIn(BaseModel):
-    # max_length: no unbounded input into the (deliberately expensive) Argon2
-    # hasher — same cap as the other password schemas.
-    current_password: str = Field(max_length=128)
-    new_password: str = Field(min_length=1, max_length=128)
-
-
 @router.post("/change-password")
 async def change_password(
-    payload: ChangePasswordIn, response: Response, db: DbSession, user: CurrentUser
+    payload: ChangePasswordIn,
+    request: Request,
+    response: Response,
+    db: DbSession,
+    user: CurrentUser,
 ) -> TokenOut:
     """Self-service password change. Requires the current password,
     revokes EVERY outstanding refresh session, then
     issues a fresh pair so the current device stays signed in."""
-    locked_user = (
-        await db.execute(select(User).where(User.id == user.id).with_for_update())
-    ).scalar_one()
-    ok, _needs_rehash = verify_password(payload.current_password, locked_user.password_hash)
-    if not ok:
-        if locked_user.password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-            # Same legacy-timing equalization as login.
-            verify_password(payload.current_password, _dummy_password_hash())
-        raise HTTPException(status_code=400, detail="Current password is incorrect.")
-    error = password_policy_error(payload.new_password)
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    locked_user.password_hash = hash_password(payload.new_password)
-    locked_user.token_version += 1
-    await revoke_user_sessions(db, locked_user.id)
-    out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
-    await db.commit()
-    return out
+    # Snapshot every scalar before rollback expires the dependency-loaded ORM
+    # object. The auth route is exempt from generic unsafe-domain SHARE locks;
+    # it performs its own exact write-lock revalidation after password work.
+    user_id = user.id
+    authenticated_token_version = user.token_version
+    authenticated_password_hash = user.password_hash
+    rate_key = f"{_client_key(request)}|{user_id}"
+    if _rate_limited("change-password", rate_key):
+        raise _too_many_attempts()
+    reservation_scope = "change-password-work"
+    _reserve_password_work(reservation_scope, str(user_id))
+    try:
+        if _rate_limited("change-password", rate_key):
+            raise _too_many_attempts()
+        # Release CurrentUser's read transaction/connection before Argon2.
+        await db.rollback()
+        ok, _needs_rehash = await verify_password_async(
+            payload.current_password,
+            authenticated_password_hash,
+        )
+        if not ok:
+            if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
+                await verify_password_async(payload.current_password, _dummy_password_hash())
+            _record_attempt("change-password", rate_key)
+            raise HTTPException(status_code=400, detail="Current password is incorrect.")
+        # Knowing the current password proves this is not a guessing request,
+        # so clear the local abuse budget even when replacement policy fails.
+        auth_limiter.reset("change-password", rate_key)
+        if payload.new_password == payload.current_password:
+            raise HTTPException(
+                status_code=400,
+                detail="New password must be different from the current password.",
+            )
+        error = password_policy_error(payload.new_password)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        replacement_hash = await hash_password_async(payload.new_password)
+
+        locked_user = (
+            await db.execute(
+                select(User)
+                .where(User.id == user_id, User.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if locked_user is None:
+            raise HTTPException(status_code=401, detail="Account no longer exists")
+        if (
+            locked_user.token_version != authenticated_token_version
+            or locked_user.password_hash != authenticated_password_hash
+        ):
+            raise HTTPException(status_code=401, detail="Session is no longer valid")
+        locked_user.password_hash = replacement_hash
+        locked_user.token_version += 1
+        await revoke_user_sessions(db, locked_user.id)
+        out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
+        await db.commit()
+        return out
+    finally:
+        auth_limiter.release(reservation_scope, str(user_id))
 
 
 @router.get("/me")
@@ -489,9 +737,23 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
     domain-specific exports can be added separately with explicit tenancy
     authorization.
     """
+    affiliation_cap = get_settings().max_account_affiliations_per_response
     owned = list(
-        (await db.execute(select(Farm).where(Farm.owner_id == user.id).order_by(Farm.id))).scalars()
+        (
+            await db.execute(
+                select(Farm)
+                .where(Farm.owner_id == user.id)
+                .order_by(Farm.id)
+                .limit(affiliation_cap + 1)
+            )
+        ).scalars()
     )
+    if len(owned) > affiliation_cap:
+        raise HTTPException(
+            status_code=409,
+            detail="Account has too many farm affiliations to return safely.",
+        )
+    remaining_affiliations = affiliation_cap - len(owned)
     memberships = list(
         (
             await db.execute(
@@ -504,9 +766,15 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
                 )
                 .where(FarmMembership.user_id == user.id)
                 .order_by(FarmMembership.farm_id)
+                .limit(remaining_affiliations + 1)
             )
         ).scalars()
     )
+    if len(memberships) > remaining_affiliations:
+        raise HTTPException(
+            status_code=409,
+            detail="Account has too many farm affiliations to return safely.",
+        )
     response.headers["Content-Disposition"] = (
         f'attachment; filename="goatfarm-account-{user.id}.json"'
     )
@@ -542,27 +810,6 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
     )
 
 
-# Nullable audit/assignment references that must be anonymized before deleting
-# the global User row. The farm's operational record remains intact without a
-# dangling identity or cross-tenant data being returned to the departing user.
-_USER_REFERENCE_COLUMNS = (
-    WeightRecord.created_by_id,
-    BucketMove.created_by_id,
-    Animal.restriction_cleared_by_id,
-    BreedingRecord.created_by_id,
-    KiddingRecord.created_by_id,
-    FeedingRecord.created_by_id,
-    HealthEvent.created_by_id,
-    Transaction.created_by_id,
-    Transaction.voided_by_id,
-    SimulationScenario.created_by_id,
-    Task.assigned_user_id,
-    Task.completed_by_id,
-    Task.verified_by_id,
-    Task.skipped_by_id,
-)
-
-
 @router.delete("/account", status_code=204)
 async def delete_account(
     payload: AccountDeleteIn,
@@ -571,69 +818,86 @@ async def delete_account(
     db: DbSession,
     user: CurrentUser,
 ) -> Response:
-    """Permanently remove a non-owner account after password confirmation."""
-    rate_key = f"{_client_key(request)}|{user.id}"
-    if _rate_limited("account-delete", rate_key):
-        raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
+    """Remove account access and profile data after password confirmation.
 
-    # Keep the same Membership -> User lock order used by team lifecycle
-    # operations so account deletion cannot deadlock with deactivation/reset.
-    memberships = list(
-        (
+    Farm operational and audit rows retain a pseudonymous actor reference so
+    attributed history is not silently rewritten when a worker leaves.
+    """
+    user_id = user.id
+    authenticated_token_version = user.token_version
+    authenticated_password_hash = user.password_hash
+    rate_key = f"{_client_key(request)}|{user_id}"
+    if _rate_limited("account-delete", rate_key):
+        raise _too_many_attempts()
+    reservation_scope = "account-delete-work"
+    _reserve_password_work(reservation_scope, str(user_id))
+    try:
+        if _rate_limited("account-delete", rate_key):
+            raise _too_many_attempts()
+        # CurrentUser performed only an unlocked read for this exempt auth
+        # lifecycle route. End that transaction before password verification.
+        await db.rollback()
+        ok, _needs_rehash = await verify_password_async(
+            payload.current_password,
+            authenticated_password_hash,
+        )
+        if not ok:
+            if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
+                await verify_password_async(payload.current_password, _dummy_password_hash())
+            _record_attempt("account-delete", rate_key)
+            raise HTTPException(status_code=400, detail="Current password is incorrect.")
+        auth_limiter.reset("account-delete", rate_key)
+
+        # Produce unusable replacement material before acquiring the User
+        # write lock. Exact snapshot comparison below discards it safely if a
+        # concurrent reset/change/delete won during either Argon operation.
+        tombstone_password_hash = await hash_password_async(uuid.uuid4().hex + uuid.uuid4().hex)
+        tombstone_email = f"deleted-{user_id}-{uuid.uuid4().hex}@deleted.invalid"
+        locked_user = (
             await db.execute(
-                select(FarmMembership)
-                .where(FarmMembership.user_id == user.id)
-                .order_by(FarmMembership.id)
+                select(User)
+                .where(User.id == user_id, User.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
                 .with_for_update()
             )
-        )
-        .scalars()
-        .all()
-    )
-    locked_user = (
-        await db.execute(select(User).where(User.id == user.id).with_for_update())
-    ).scalar_one()
-    ok, _needs_rehash = verify_password(payload.current_password, locked_user.password_hash)
-    if not ok:
-        _record_attempt("account-delete", rate_key)
-        raise HTTPException(status_code=400, detail="Current password is incorrect.")
-    auth_limiter.reset("account-delete", rate_key)
+        ).scalar_one_or_none()
+        if locked_user is None:
+            raise HTTPException(status_code=401, detail="Account no longer exists")
+        if (
+            locked_user.token_version != authenticated_token_version
+            or locked_user.password_hash != authenticated_password_hash
+        ):
+            raise HTTPException(status_code=401, detail="Session is no longer valid")
 
-    owns_farm = (
-        await db.execute(select(Farm.id).where(Farm.owner_id == locked_user.id).limit(1))
-    ).scalar_one_or_none()
-    if owns_farm is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Account deletion is unavailable while this account owns a farm; "
-                "farm ownership cannot currently be transferred or deleted."
-            ),
-        )
-
-    for membership in memberships:
-        await db.execute(
-            update(Task)
-            .where(
-                Task.farm_id == membership.farm_id,
-                Task.assigned_user_id == locked_user.id,
-                Task.assigned_role_id.is_(None),
-                Task.status == "PENDING",
+        owns_farm = (
+            await db.execute(select(Farm.id).where(Farm.owner_id == locked_user.id).limit(1))
+        ).scalar_one_or_none()
+        if owns_farm is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Account deletion is unavailable while this account owns a farm; "
+                    "farm ownership cannot currently be transferred or deleted."
+                ),
             )
-            .values(assigned_role_id=membership.role_id)
-        )
-    for column in _USER_REFERENCE_COLUMNS:
-        await db.execute(
-            update(column.class_).where(column == locked_user.id).values({column: None})
-        )
-    await db.execute(delete(FarmMembership).where(FarmMembership.user_id == locked_user.id))
-    await db.execute(delete(RefreshSession).where(RefreshSession.user_id == locked_user.id))
-    await db.delete(locked_user)
-    await db.commit()
 
-    response.delete_cookie(get_settings().refresh_cookie_name, path="/api/auth")
-    response.status_code = 204
-    return response
+        # User.deleted_at is the synchronous authorization barrier. Retained
+        # memberships remain immutable FK/audit anchors and are deactivated by
+        # a finite SKIP LOCKED background worker; this request never enumerates
+        # or locks an account's unbounded tenant history.
+        await db.execute(delete(RefreshSession).where(RefreshSession.user_id == locked_user.id))
+        locked_user.deleted_at = utcnow()
+        locked_user.email = tombstone_email
+        locked_user.name = None
+        locked_user.password_hash = tombstone_password_hash
+        locked_user.token_version += 1
+        await db.commit()
+
+        response.delete_cookie(get_settings().refresh_cookie_name, path="/api/auth")
+        response.status_code = 204
+        return response
+    finally:
+        auth_limiter.release(reservation_scope, str(user_id))
 
 
 @router.get("/permissions")
@@ -659,38 +923,78 @@ async def list_farms(db: DbSession, user: CurrentUser) -> list[FarmOut]:
 
 
 @router.post("/farms", status_code=201)
-async def create_farm(payload: FarmCreateIn, db: DbSession, user: CurrentUser) -> FarmOut:
+async def create_farm(
+    payload: FarmCreateIn,
+    response: Response,
+    db: DbSession,
+    user: CurrentUser,
+    idempotency_key: IdempotencyKey = None,
+) -> FarmOut:
+    # Snapshot before the first await: the locked populate-existing query below
+    # refreshes the same User object. This closes reset/logout -> stale
+    # create-farm races where a revoked request could otherwise acquire new
+    # ownership after the resetter's affiliation check had already passed.
+    authenticated_token_version = user.token_version
     name = payload.name.strip()
     if not name:
         # Same rule as animal tags: whitespace-only is not a name.
         raise HTTPException(status_code=400, detail="Name is required.")
     limit = get_settings().max_farms_per_user
-    # Lock the user row so two concurrent create_farm calls for the same
-    # account serialize: both counting below the cap and both inserting would
-    # overshoot it. An explicit SELECT ... FOR UPDATE (not db.get) so the
-    # lock is taken even with the user already in the identity map.
-    await db.execute(select(User).where(User.id == user.id).with_for_update())
-    owned = (
-        await db.execute(select(func.count()).select_from(Farm).where(Farm.owner_id == user.id))
-    ).scalar_one()
-    if owned >= limit:
-        raise HTTPException(
-            status_code=400, detail=f"You already own the maximum of {limit} farms."
+    # Lock the user row before inserting an actor-scoped idempotency claim.
+    # Besides serializing the quota count, this lock order prevents distinct
+    # keyed requests from first taking an actor-FK KEY SHARE lock and then
+    # deadlocking while both try to upgrade it to FOR UPDATE.
+    locked_user = (
+        await db.execute(
+            select(User)
+            .where(User.id == user.id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
-    farm = Farm(
-        name=name,
-        location=(payload.location or "").strip() or None,
-        timezone=payload.timezone,
-        owner_id=user.id,
-    )
-    db.add(farm)
-    await db.flush()
-    await seed_new_farm(db, farm)  # preset roles + feed inventory
-    await db.commit()
-    return FarmOut(
-        id=farm.id,
-        name=farm.name,
-        location=farm.location,
-        timezone=farm.timezone,
-        role=None,
+    ).scalar_one_or_none()
+    if locked_user is None:
+        raise HTTPException(status_code=401, detail="Account no longer exists")
+    if locked_user.token_version != authenticated_token_version:
+        raise HTTPException(status_code=401, detail="Session is no longer valid")
+
+    async def mutate() -> FarmOut:
+        owned = (
+            await db.execute(
+                select(func.count()).select_from(Farm).where(Farm.owner_id == locked_user.id)
+            )
+        ).scalar_one()
+        if owned >= limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You already own the maximum of {limit} farms.",
+            )
+        farm = Farm(
+            name=name,
+            location=(payload.location or "").strip() or None,
+            timezone=payload.timezone,
+            owner_id=locked_user.id,
+        )
+        db.add(farm)
+        await db.flush()
+        await seed_new_farm(db, farm)  # preset roles + feed inventory
+        return FarmOut(
+            id=farm.id,
+            name=farm.name,
+            location=farm.location,
+            timezone=farm.timezone,
+            role=None,
+        )
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=None,
+        actor_id=locked_user.id,
+        operation=CREATE_FARM_IDEMPOTENCY_OPERATION,
+        payload=payload,
+        path_identity={},
+        success_status=201,
+        response_type=FarmOut,
+        mutate=mutate,
     )

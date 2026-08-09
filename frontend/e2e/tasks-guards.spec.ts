@@ -18,17 +18,20 @@ test.describe("tasks guards", () => {
     test.setTimeout(180_000);
     const doeTag = uniqueTag("E2E-TDOE");
     const dutyTitle = uniqueTag("E2E duty");
+    const breedingDate = daysAgo(40);
     await signIn(page);
 
     // Set up a breeding so the auto-generated duties exist.
     await createAnimal(page, {
       tag: doeTag,
+      historicalImportReason: "E2E task-flow doe fixture",
       sex: "F",
       bucket: "FOUNDATION",
-      dateOfBirth: monthsAgo(14),
+      dateOfBirth: monthsAgo(20),
       entryWeightKg: 24,
+      entryWeightDate: breedingDate,
     });
-    await createBreeding(page, doeTag, daysAgo(40));
+    await createBreeding(page, doeTag, breedingDate);
 
     // The ultrasound duty (due breeding date + 32 days) is now overdue and is
     // form-linked: an "Open form" link, no raw Complete button.

@@ -6,32 +6,32 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .animals import BucketStr
-from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat
+from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat, StrictInputModel
 
 ShiftStr = Literal["MORNING", "AFTERNOON", "NIGHT"]
 
 
-class DispenseIn(BaseModel):
+class DispenseIn(StrictInputModel):
     bucket: BucketStr
     shift: ShiftStr
-    recipe_code: str | None = None  # validated against FeedRecipe when given
+    recipe_code: str | None = Field(default=None, min_length=1, max_length=30)
     qty_kg: QuantityKgFloat
     date: PastOrTodayDate | None = None  # defaults to today
 
 
-class MixIn(BaseModel):
-    recipe_code: str = Field(min_length=1)
+class MixIn(StrictInputModel):
+    recipe_code: str = Field(min_length=1, max_length=30)
     batch_kg: QuantityKgFloat
 
 
-class StockAddIn(BaseModel):
+class StockAddIn(StrictInputModel):
     qty_kg: QuantityKgFloat
     # Non-negative (not positive): an explicit ₹0 restock is real data — the
     # service books a ₹0 expense and zeroes the last price.
     price_per_kg: NonNegativeMoneyFloat | None = None
 
 
-class FeedSettingIn(BaseModel):
+class FeedSettingIn(StrictInputModel):
     bucket: BucketStr
     daily_kg_per_head: QuantityKgFloat
 
@@ -112,6 +112,22 @@ class PlanLineOut(BaseModel):
     shifts: list[dict[str, object]]
 
 
+class DispensingAggregateOut(BaseModel):
+    """Exact full-day quantity for one plan allocation and shift."""
+
+    bucket: str
+    recipe_code: str | None
+    shift: str
+    qty_kg: float
+
+
 class FeedingPlanOut(BaseModel):
     lines: list[PlanLineOut]
-    records: list[FeedingRecordOut]  # today's dispensing log
+    # Latest bounded window for today's dashboard, ordered oldest→newest
+    # within that window. Full history remains GET /api/feeding/records.
+    records: list[FeedingRecordOut]
+    records_total: int
+    records_limit: int
+    # Server-computed from the complete day ledger, never the bounded record
+    # preview, so progress/completion remains truthful beyond 200 entries.
+    dispensed_totals: list[DispensingAggregateOut]

@@ -1,9 +1,10 @@
 """Shared schema validators — the Pydantic layer of v1's manual guards."""
 
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
-from pydantic import AfterValidator, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from ..utils import today
 
@@ -16,6 +17,24 @@ MAX_ID = 2**62
 # not-found/invalid-id 4xx instead of letting asyncpg raise an int32
 # DataError (500). Routers guard every lookup with this bound.
 MAX_INT32_ID = 2**31 - 1
+# Offset pagination remains part of the current SPA contract. Bound it well
+# below PostgreSQL's bigint ceiling so arbitrary-precision query integers
+# cannot become driver errors or deliberately absurd scans.
+MAX_PAGE_OFFSET = 1_000_000
+# Large enough for useful clinical/purchase narrative, small enough to avoid
+# accidentally persisting an attachment-sized blob in a Text column.
+MAX_FREE_TEXT_LENGTH = 4_000
+
+
+class StrictInputModel(BaseModel):
+    """Base class for every client-controlled request body.
+
+    Pydantic otherwise ignores unknown keys.  That makes a misspelled field
+    look accepted even though the server silently discards it — particularly
+    dangerous for dates, prices, task assignments and compliance records.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
 
 def _finite(value: float) -> float:
@@ -47,14 +66,42 @@ def _positive(value: float) -> float:
     return value
 
 
-FiniteFloat = Annotated[float, AfterValidator(_finite)]
+def _quantity_kg_precision(value: float) -> float:
+    """Normalize feed quantities to the inventory ledger's gram precision.
+
+    Values that round below one gram are not real positive stock movements: the
+    old service accepted them, rounded the balance change to zero, and still
+    created a dispensing/restock record. ``ROUND_HALF_UP`` also avoids Python's
+    binary-float/banker's-rounding surprises at the half-gram boundary.
+    """
+    rounded = Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    if rounded <= 0:
+        raise ValueError("must be at least 0.001 kg after rounding")
+    return float(rounded)
+
+
+def _money_precision(value: float) -> float:
+    """Normalize currency inputs to paise without turning a charge into free data."""
+    rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if value != 0 and rounded == 0:
+        raise ValueError("a non-zero amount must round to at least 0.01")
+    return float(rounded)
+
+
+# JSON booleans are Python ints and Pydantic's default coercion also accepts
+# numeric strings. Neither is a safe wire representation for money, weights,
+# quantities, or primary keys: `true` must never silently become animal/role
+# id 1 and `"12.5"` must not look like a successfully recorded measurement.
+FiniteFloat = Annotated[float, Field(strict=True), AfterValidator(_finite)]
+StrictInt = Annotated[int, Field(strict=True)]
+StrictBool = Annotated[bool, Field(strict=True)]
 NonNegativeFloat = Annotated[FiniteFloat, AfterValidator(_not_negative)]
 PositiveFloat = Annotated[FiniteFloat, AfterValidator(_positive)]
 # "Not in the future" tolerates one day past the UTC date so client timezones
 # east of UTC (e.g. IST, UTC+5:30) can submit their local "today" during the
 # hours when it is still tomorrow in UTC.
 PastOrTodayDate = Annotated[date, AfterValidator(_not_future)]
-BoundedId = Annotated[int, Field(ge=1, le=MAX_ID)]
+BoundedId = Annotated[int, Field(strict=True, ge=1, le=MAX_ID)]
 
 # Bounded money/quantity variants. Unbounded positives let `1e308 * 1e308`
 # overflow to inf in derived values (feed-purchase qty × price) and poison
@@ -62,8 +109,20 @@ BoundedId = Annotated[int, Field(ge=1, le=MAX_ID)]
 # GET /api/finance on JSON serialization. Caps are far past anything the
 # domain can legitimately reach: ₹1e9 (100 crore) for money, 1e6 kg for feed
 # quantities, 1000 kg for a single animal's weight.
-MoneyFloat = Annotated[PositiveFloat, Field(le=1_000_000_000)]
-NonNegativeMoneyFloat = Annotated[NonNegativeFloat, Field(le=1_000_000_000)]
-QuantityKgFloat = Annotated[PositiveFloat, Field(le=1_000_000)]
+MoneyFloat = Annotated[
+    PositiveFloat,
+    Field(le=1_000_000_000),
+    AfterValidator(_money_precision),
+]
+NonNegativeMoneyFloat = Annotated[
+    NonNegativeFloat,
+    Field(le=1_000_000_000),
+    AfterValidator(_money_precision),
+]
+QuantityKgFloat = Annotated[
+    PositiveFloat,
+    Field(le=1_000_000),
+    AfterValidator(_quantity_kg_precision),
+]
 WeightKgFloat = Annotated[PositiveFloat, Field(le=1000)]
 NonNegativeWeightKgFloat = Annotated[NonNegativeFloat, Field(le=1000)]

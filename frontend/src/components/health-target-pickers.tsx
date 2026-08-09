@@ -18,7 +18,6 @@ import {
   type RemotePickerOption,
   type RemotePickerPage,
 } from "@/components/remote-picker";
-import { formatDate } from "@/lib/format";
 
 interface HealthTargetPickerProps {
   id: string;
@@ -126,7 +125,7 @@ export function HealthAnimalPicker({
 function healthBatchOption(batch: HealthPurchaseBatchOptionOut): RemotePickerOption {
   return {
     value: String(batch.id),
-    label: `#${batch.id} — ${formatDate(batch.date)}${batch.supplier ? ` ${batch.supplier}` : ""} (${batch.active_animal_count} active of ${batch.count})`,
+    label: `Batch #${batch.id} — ${batch.active_quarantine_animal_count} active in quarantine`,
   };
 }
 
@@ -196,10 +195,10 @@ export function HealthPurchaseBatchPicker({
       selectedOption={resolvedOption}
       placeholder={placeholder}
       dialogTitle={dialogTitle}
-      dialogDescription="Search targetable batches by supplier or exact #id."
+      dialogDescription="Find a targetable purchase batch by its exact batch ID."
       searchLabel="Search health purchase batches"
-      searchPlaceholder="Search supplier or #batch ID…"
-      searchMaxLength={120}
+      searchPlaceholder="Enter batch ID…"
+      searchMaxLength={20}
       emptyMessage="No targetable purchase batches match this search."
       sourcePath="/api/health/purchase-batches"
       cacheKey={["health-purchase-batch-picker"]}

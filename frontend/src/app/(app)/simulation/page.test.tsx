@@ -193,7 +193,17 @@ function registerApiHandlers(scenarios: unknown[] = []) {
       HttpResponse.json({ breeds: ["osmanabadi"], systems: ["stall_fed"] }),
     ),
     http.get("/api/simulation/defaults", () => HttpResponse.json(DEFAULTS)),
-    http.get("/api/simulation/scenarios", () => HttpResponse.json(scenarios)),
+    http.get("/api/simulation/scenarios", ({ request }) => {
+      const params = new URL(request.url).searchParams;
+      const limit = Number(params.get("limit") ?? 20);
+      const offset = Number(params.get("offset") ?? 0);
+      return HttpResponse.json({
+        items: scenarios.slice(offset, offset + limit),
+        total: scenarios.length,
+        limit,
+        offset,
+      });
+    }),
   );
 }
 
@@ -319,6 +329,75 @@ describe("SimulationPage", () => {
     expect(screen.getByText(/5 selected/)).toBeInTheDocument();
   });
 
+  it("pages truthfully and preserves valid compare selections across pages", async () => {
+    const scenarios = Array.from({ length: 21 }, (_, index) => ({
+      id: index + 1,
+      farm_id: 1,
+      name: `Plan ${index + 1}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+
+    expect(
+      await screen.findByText("Showing 1–20 of 21 saved scenarios"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Compare Plan 1"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(await screen.findByText("Plan 21")).toBeInTheDocument();
+    expect(screen.getByText("Showing 21–21 of 21 saved scenarios")).toBeInTheDocument();
+    expect(screen.getByText(/1 selected/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Compare Plan 21"));
+    expect(screen.getByText(/2 selected/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Compare selected" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("Plan 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Compare Plan 1")).toBeChecked();
+  });
+
+  it("clamps to the previous page after deleting the final page's only row", async () => {
+    const scenarios = Array.from({ length: 21 }, (_, index) => ({
+      id: index + 1,
+      farm_id: 1,
+      name: `Plan ${index + 1}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    server.use(
+      http.delete("/api/simulation/scenarios/:scenarioId", ({ params }) => {
+        const index = scenarios.findIndex(
+          (scenario) => scenario.id === Number(params.scenarioId),
+        );
+        if (index >= 0) scenarios.splice(index, 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    const finalRow = (await screen.findByText("Plan 21")).closest("tr") as HTMLElement;
+    await user.click(within(finalRow).getByRole("button", { name: "Delete" }));
+
+    expect(
+      await screen.findByText("Showing 1–20 of 20 saved scenarios"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Plan 1")).toBeInTheDocument();
+    expect(screen.queryByText("Plan 21")).not.toBeInTheDocument();
+  });
+
   it("enforces backend numeric bounds before a run", async () => {
     const user = userEvent.setup();
     await renderLoaded();
@@ -345,7 +424,7 @@ describe("SimulationPage", () => {
           farm_id: 1,
           name: body.name,
           notes: body.notes ?? "",
-          assumptions: body.assumptions,
+          assumptions: body.assumptions as typeof DEFAULTS,
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-02T00:00:00Z",
         };
@@ -365,6 +444,56 @@ describe("SimulationPage", () => {
     expect(await screen.findByText("Base plan")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("No saved scenarios yet.")).not.toBeInTheDocument();
+  });
+
+  it("moves to the final oldest-first page after saving a new scenario", async () => {
+    const scenarios = Array.from({ length: 20 }, (_, index) => ({
+      id: index + 1,
+      farm_id: 1,
+      name: `Existing ${index + 1}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    server.use(
+      http.post("/api/simulation/scenarios", async ({ request }) => {
+        const body = (await request.json()) as {
+          name: string;
+          notes?: string;
+          assumptions: unknown;
+        };
+        const scenario = {
+          id: 21,
+          farm_id: 1,
+          name: body.name,
+          notes: body.notes ?? "",
+          assumptions: body.assumptions as typeof DEFAULTS,
+          valid: true,
+          validation_error: null,
+          created_at: "2026-01-03T00:00:00Z",
+          updated_at: "2026-01-03T00:00:00Z",
+        };
+        scenarios.push(scenario);
+        return HttpResponse.json(scenario, { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+    expect(
+      await screen.findByText("Showing 1–20 of 20 saved scenarios"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Save as scenario" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^Name/), "Newest plan");
+    await user.click(within(dialog).getByRole("button", { name: "Save scenario" }));
+
+    expect(await screen.findByText("Newest plan")).toBeInTheDocument();
+    expect(screen.getByText("Showing 21–21 of 21 saved scenarios")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
   });
 
   it("shows the server detail inline when the run fails", async () => {

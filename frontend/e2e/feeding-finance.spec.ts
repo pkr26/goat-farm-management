@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { pickSelectOption, signIn, uniqueTag } from "./helpers";
+import { createAnimal, pickSelectOption, signIn, uniqueTag } from "./helpers";
 
 test.describe("feeding and finance", () => {
   test("feeding plan shows the 40/20/40 shift split and records a dispense", async ({
@@ -8,15 +8,44 @@ test.describe("feeding and finance", () => {
   }) => {
     test.setTimeout(90_000);
     await signIn(page);
+
+    // Make this scenario independent of spec ordering: a fresh, audited
+    // quarantine import creates the dry-roughage allocation being dispensed.
+    await createAnimal(page, {
+      tag: uniqueTag("E2E-FEED"),
+      historicalImportReason: "E2E quarantine feeding fixture",
+      bucket: "QUARANTINE",
+    });
+
+    // Dry roughage is inventory-accounted. Stock the fresh farm through the
+    // real inventory workflow before recording its first quarantine dispense.
+    await page.goto("/feeding/inventory");
+    const stoverRow = page.getByRole("row", { name: /Dry jowar stover/ });
+    await expect(stoverRow).toBeVisible();
+    await stoverRow.getByRole("button", { name: "Add stock" }).click();
+    const stockDialog = page.getByRole("dialog", {
+      name: "Add stock — Dry jowar stover",
+    });
+    await stockDialog.getByLabel(/Quantity/).fill("10");
+    await stockDialog.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByText("Added 10 kg of Dry jowar stover.")).toBeVisible();
+    await expect(stockDialog).toBeHidden();
+
     await page.goto("/feeding");
 
     await expect(
       page.getByRole("heading", { name: "Feeding — today" }),
     ).toBeVisible();
     await expect(page.getByText(/split 40 \/ 20 \/ 40/)).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Morning 40%" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Afternoon 20%" })).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Night 40%" })).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Morning recorded / planned" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Afternoon recorded / planned" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("columnheader", { name: "Night recorded / planned" }),
+    ).toBeVisible();
 
     // Record a morning dispense; pick the bucket explicitly so the log row is
     // identifiable. globalSetup gives every run a fresh farm, so the log is
@@ -26,6 +55,7 @@ test.describe("feeding and finance", () => {
     await expect(dialog).toBeVisible();
     await pickSelectOption(dialog, "Bucket", "QUARANTINE");
     await pickSelectOption(dialog, "Shift", "MORNING");
+    await pickSelectOption(dialog, "Recipe *", "Dry roughage only");
     await dialog.getByLabel(/Quantity/).fill("3.7");
     await dialog.getByRole("button", { name: "Record", exact: true }).click();
     await expect(page.getByText("Dispensing recorded.")).toBeVisible();
@@ -34,7 +64,7 @@ test.describe("feeding and finance", () => {
     // The same record is intentionally shown in both today's summary and the
     // paginated history. Scope identity/count assertions to today's card.
     const todayLog = page
-      .getByText("Today's dispensing log", { exact: true })
+      .getByText(/^Today's dispensing log \(1\)$/)
       .locator('xpath=ancestor::*[@data-slot="card"][1]');
     const logRow = todayLog.getByRole("row", { name: /MORNING QUARANTINE/ });
     await expect(logRow).toHaveCount(1, { timeout: 15_000 });

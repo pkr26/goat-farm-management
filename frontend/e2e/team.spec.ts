@@ -43,7 +43,13 @@ test.describe("team management", () => {
     await expect(row).toContainText("Feeder", { timeout: 15_000 });
 
     // Deactivate, then reactivate.
+    let confirmationMessage = "";
+    page.once("dialog", async (confirmation) => {
+      confirmationMessage = confirmation.message();
+      await confirmation.accept();
+    });
     await row.getByRole("button", { name: "Deactivate" }).click();
+    expect(confirmationMessage).toContain("immediately lose farm access");
     await expect(page.getByText("Worker deactivated.")).toBeVisible();
     await expect(row.getByText("Inactive", { exact: true })).toBeVisible({
       timeout: 15_000,

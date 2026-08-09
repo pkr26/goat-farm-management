@@ -9,4 +9,5 @@ import type { MoveInToBucket } from './moveInToBucket';
 export interface MoveIn {
   to_bucket: MoveInToBucket;
   reason?: string | null;
+  history_override?: boolean;
 }

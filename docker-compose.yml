@@ -1,7 +1,6 @@
-# Optional local/self-hosted stack: Postgres + backend (builds ./Dockerfile).
+# Optional local/self-hosted stack: Postgres + migration job + API + frontend.
 # Single backend replica on purpose — the auth rate limiter is in-memory and
 # the container CMD hard-codes --workers 1.
-# The frontend is served separately (Next.js), see frontend/README or `pnpm dev`.
 # Credentials come from .env (copy .env.example to .env for defaults).
 services:
   db:
@@ -19,26 +18,61 @@ services:
       timeout: 3s
       retries: 20
 
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOATFARM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-goatfarm}:${POSTGRES_PASSWORD:-goatfarm}@db:5432/${POSTGRES_DB:-goatfarm}
+      GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
+
   backend:
     build: .
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       GOATFARM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-goatfarm}:${POSTGRES_PASSWORD:-goatfarm}@db:5432/${POSTGRES_DB:-goatfarm}
+      GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
       # Local stack on plain HTTP: stays "development". A real deployment sets
       # GOATFARM_ENVIRONMENT=production + GOATFARM_COOKIE_SECURE=true +
       # non-localhost GOATFARM_CORS_ORIGINS + GOATFARM_DB_SSLMODE=require
-      # + GOATFARM_MIN_PASSWORD_LENGTH=12 and stable mounted JWT keys
+      # + GOATFARM_MIN_PASSWORD_LENGTH=12, a stable externally supplied
+      # idempotency HMAC secret, and stable mounted JWT keys
       # (validated fail-closed at boot).
       GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_COOKIE_SECURE: ${GOATFARM_COOKIE_SECURE:-false}
+      GOATFARM_CORS_ORIGINS: '${GOATFARM_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}'
+      # Next's rewrite uses changeOrigin and sends Host: backend:8000. Keep the
+      # exact internal service name in every override as well as public hosts.
+      GOATFARM_ALLOWED_HOSTS: '${GOATFARM_ALLOWED_HOSTS:-["localhost","127.0.0.1","test","testserver","backend"]}'
+      GOATFARM_MIN_PASSWORD_LENGTH: ${GOATFARM_MIN_PASSWORD_LENGTH:-8}
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-development-only-idempotency-hmac-secret-change-me}
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
+      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-}
       GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
       GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
     volumes:
       - jwtkeys:/app/keys
     ports:
       - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:8000
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
 
 volumes:
   pgdata:

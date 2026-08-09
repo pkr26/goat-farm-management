@@ -4,7 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { AnimalOut } from './animalOut';
+import type { AnimalIdentityOut } from './animalIdentityOut';
 
 export interface BreedingStatsOut {
   total_records: number;
@@ -13,5 +13,7 @@ export interface BreedingStatsOut {
   kiddings: number;
   kids_per_kidding: number | null;
   twin_rate: number | null;
-  cull_candidates: AnimalOut[];
+  cull_candidates: AnimalIdentityOut[];
+  cull_candidates_total: number;
+  cull_candidates_limit: number;
 }

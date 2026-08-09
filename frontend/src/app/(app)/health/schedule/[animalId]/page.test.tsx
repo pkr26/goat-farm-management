@@ -6,6 +6,7 @@
  */
 
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,12 +16,12 @@ import { renderWithProviders } from "@/test/render";
 
 import VaccinationSchedulePage from "./page";
 
-const paramsMock: { animalId: string } = { animalId: "7" };
+const paramsMock: { animalId: string; search: string } = { animalId: "7", search: "" };
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/health/schedule/7",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(paramsMock.search),
   useParams: () => paramsMock,
 }));
 
@@ -65,6 +66,7 @@ describe("VaccinationSchedulePage", () => {
 
   beforeEach(() => {
     paramsMock.animalId = "7";
+    paramsMock.search = "";
     requestedIds = [];
     server.use(
       http.get("/api/health/schedule/:animalId", ({ params }) => {
@@ -122,13 +124,21 @@ describe("VaccinationSchedulePage", () => {
   });
 
   it("shows the server error detail when the schedule fails to load", async () => {
+    let attempts = 0;
     server.use(
-      http.get("/api/health/schedule/:animalId", () =>
-        HttpResponse.json({ detail: "no such animal" }, { status: 404 }),
-      ),
+      http.get("/api/health/schedule/:animalId", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ detail: "no such animal" }, { status: 404 })
+          : HttpResponse.json({ animal_id: 7, rows: ROWS });
+      }),
     );
+    const user = userEvent.setup();
     renderWithProviders(<VaccinationSchedulePage />);
-    expect(await screen.findByText("no such animal")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("no such animal");
+    await user.click(screen.getByRole("button", { name: "Retry schedule" }));
+    expect(await screen.findByText("PPR")).toBeInTheDocument();
+    expect(attempts).toBe(2);
   });
 
   it.each(["abc", "0", "-3", "2.5"])(
@@ -155,11 +165,25 @@ describe("VaccinationSchedulePage", () => {
     await screen.findByText("PPR");
     expect(screen.getByRole("link", { name: "Back to health log" })).toHaveAttribute(
       "href",
-      "/health",
+      "/health?schedule_animal_id=7",
     );
-    expect(screen.getByRole("link", { name: "+ Add event" })).toHaveAttribute(
+    const addEventHref = screen.getByRole("link", { name: "+ Add event" }).getAttribute("href");
+    const addEventUrl = new URL(addEventHref ?? "", "https://goatfarm.test");
+    expect(addEventUrl.pathname).toBe("/health/new");
+    expect(addEventUrl.searchParams.get("animal_id")).toBe("7");
+    expect(addEventUrl.searchParams.get("returnTo")).toBe(
+      "/health/schedule/7?returnTo=%2Fhealth%3Fschedule_animal_id%3D7",
+    );
+  });
+
+  it("honours a safe originating page in the Back link", async () => {
+    paramsMock.search = "?returnTo=%2Ftasks%3Ftab%3Doverdue";
+    renderWithProviders(<VaccinationSchedulePage />);
+    await screen.findByText("PPR");
+
+    expect(screen.getByRole("link", { name: "Back to health log" })).toHaveAttribute(
       "href",
-      "/health/new?animal_id=7",
+      "/tasks?tab=overdue",
     );
   });
 

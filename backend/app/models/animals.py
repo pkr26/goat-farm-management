@@ -11,6 +11,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Numeric,
     String,
@@ -22,7 +23,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, business_date, today, utcnow
-from .constants import BREEDING_READY_BUCKETS, MIN_BREEDING_AGE_MONTHS, MIN_BREEDING_WEIGHT_KG
+from .constants import (
+    BREEDING_READY_BUCKETS,
+    MIN_BREEDING_AGE_MONTHS,
+    MIN_BREEDING_WEIGHT_KG,
+    MIN_BUCK_BREEDING_AGE_MONTHS,
+    MIN_BUCK_BREEDING_WEIGHT_KG,
+)
 from .enums import AnimalStatus, BreedingOutcome, Sex
 
 if TYPE_CHECKING:
@@ -35,10 +42,21 @@ class Animal(Base):
     __tablename__ = "animals"
     __table_args__ = (
         UniqueConstraint("farm_id", "tag_number", name="uq_animal_tag_per_farm"),
-        Index(
-            "ix_animals_farm_active",
-            "farm_id",
-            postgresql_where=text("status = 'ACTIVE'"),
+        UniqueConstraint("farm_id", "id", name="uq_animals_farm_id_id"),
+        ForeignKeyConstraint(
+            ["farm_id", "purchase_batch_id"],
+            ["purchase_batches.farm_id", "purchase_batches.id"],
+            name="fk_animals_farm_purchase_batch",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "dam_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_animals_farm_dam",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "sire_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_animals_farm_sire",
         ),
         CheckConstraint(
             "birth_weight IS NULL OR birth_weight >= 0",
@@ -51,6 +69,92 @@ class Animal(Base):
         CheckConstraint(
             "sale_price IS NULL OR sale_price >= 0",
             name="ck_animals_sale_price_nonneg",
+        ),
+        CheckConstraint("sex IN ('M', 'F')", name="ck_animals_sex"),
+        CheckConstraint(
+            "birth_type IS NULL OR birth_type IN "
+            "('SINGLE', 'TWIN', 'TRIPLET', 'QUADRUPLET', 'MULTIPLET')",
+            name="ck_animals_birth_type",
+        ),
+        CheckConstraint("source IN ('BORN', 'PURCHASED')", name="ck_animals_source"),
+        CheckConstraint(
+            "current_bucket IN "
+            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
+            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
+            "'MALE_KIDS', 'FEMALE_KIDS')",
+            name="ck_animals_current_bucket",
+        ),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'SOLD', 'DEAD', 'CULLED')",
+            name="ck_animals_status",
+        ),
+        CheckConstraint(
+            "(source = 'BORN' AND purchase_date IS NULL AND purchase_price IS NULL "
+            "AND seller_name IS NULL AND purchase_batch_id IS NULL) OR "
+            "(source = 'PURCHASED' AND birth_type IS NULL AND birth_weight IS NULL)",
+            name="ck_animals_source_fields",
+        ),
+        CheckConstraint(
+            "(status = 'ACTIVE' AND status_date IS NULL) OR "
+            "(status IN ('SOLD', 'DEAD', 'CULLED') AND status_date IS NOT NULL)",
+            name="ck_animals_status_date",
+        ),
+        CheckConstraint(
+            "status = 'SOLD' OR (sale_price IS NULL AND buyer_name IS NULL)",
+            name="ck_animals_sale_fields",
+        ),
+        CheckConstraint(
+            "status = 'DEAD' OR (mortality_cause IS NULL AND mortality_reported_at IS NULL)",
+            name="ck_animals_mortality_fields",
+        ),
+        CheckConstraint(
+            "(current_bucket <> 'MALE_KIDS' OR sex = 'M') AND "
+            "(current_bucket <> 'FEMALE_KIDS' OR sex = 'F') AND "
+            "(current_bucket NOT IN "
+            "('PREGNANCY_EARLY', 'PREGNANCY_LATE', 'DELIVERY', 'RESTING') OR sex = 'F')",
+            name="ck_animals_bucket_sex",
+        ),
+        CheckConstraint(
+            "(dam_id IS NULL OR dam_id <> id) AND "
+            "(sire_id IS NULL OR sire_id <> id) AND "
+            "(dam_id IS NULL OR sire_id IS NULL OR dam_id <> sire_id)",
+            name="ck_animals_parent_identity",
+        ),
+        CheckConstraint(
+            "birth_weight IS NULL OR "
+            "(birth_weight >= 0 AND birth_weight <= 1000 AND "
+            "birth_weight::text NOT IN ('NaN', 'Infinity', '-Infinity'))",
+            name="ck_animals_birth_weight_bounded",
+        ),
+        CheckConstraint(
+            "purchase_price IS NULL OR purchase_price <= 1000000000",
+            name="ck_animals_purchase_price_bounded",
+        ),
+        CheckConstraint(
+            "sale_price IS NULL OR sale_price <= 1000000000",
+            name="ck_animals_sale_price_bounded",
+        ),
+        CheckConstraint(
+            "movement_restricted IS FALSE OR "
+            "(restriction_reason IS NOT NULL AND btrim(restriction_reason) <> '')",
+            name="ck_animals_restriction_reason",
+        ),
+        CheckConstraint(
+            "suspected_scheduled_disease IS FALSE OR "
+            "(movement_restricted IS TRUE AND suspected_disease IS NOT NULL "
+            "AND btrim(suspected_disease) <> '')",
+            name="ck_animals_suspected_disease_hold",
+        ),
+        CheckConstraint(
+            "(restriction_cleared_at IS NULL AND restriction_clearance_reference IS NULL) OR "
+            "(restriction_cleared_at IS NOT NULL AND "
+            "restriction_clearance_reference IS NOT NULL "
+            "AND btrim(restriction_clearance_reference) <> '')",
+            name="ck_animals_clearance_audit",
+        ),
+        CheckConstraint(
+            "restriction_version >= 0",
+            name="ck_animals_restriction_version",
         ),
     )
 
@@ -104,18 +208,22 @@ class Animal(Base):
         ForeignKey("users.id", ondelete="RESTRICT")
     )
     restriction_clearance_reference: Mapped[str | None] = mapped_column(String(255))
+    # Monotonic scheduled-disease hold episode. Placement increments it;
+    # clearance closes that same version and cannot clear a newer episode.
+    restriction_version: Mapped[int] = mapped_column(default=0, server_default="0")
     mortality_cause: Mapped[str | None] = mapped_column(String(120))
     mortality_reported_at: Mapped[date | None] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     farm: Mapped[Farm] = relationship(back_populates="animals")
-    purchase_batch: Mapped[PurchaseBatch | None] = relationship(back_populates="animals")
+    purchase_batch: Mapped[PurchaseBatch | None] = relationship(
+        back_populates="animals", foreign_keys=[purchase_batch_id]
+    )
     # History collections are NOT eager-loaded at the mapper level:
     # a mapper-level lazy="selectin" would fire on every Animal load — including
     # db.get() for simple writes. Read paths that serialize AnimalOut's computed
-    # fields (latest_weight_kg, days_in_current_bucket, is_currently_pregnant,
-    # is_breeding_ready) opt in with services.ANIMAL_OUT_LOADS instead.
+    # fields are derived with bounded latest-row SQL summaries instead.
     weight_records: Mapped[list[WeightRecord]] = relationship(
         back_populates="animal",
         order_by="WeightRecord.date",
@@ -160,6 +268,24 @@ class Animal(Base):
     def latest_weight_kg(self) -> float | None:
         rec = self.latest_weight
         return rec.weight_kg if rec else self.birth_weight
+
+    def latest_weight_kg_on(self, reference_date: date) -> float | None:
+        """Latest measurement available on ``reference_date``.
+
+        A later weigh-in must not make a backdated service clinically valid.
+        Birth weight is a fallback when the birth is on/before the reference
+        date, or when no DOB was recorded. Its small value naturally fails
+        adult thresholds; an unknown DOB still prevents age-based eligibility.
+        """
+        records = [record for record in self.weight_records if record.date <= reference_date]
+        if records:
+            return max(records, key=lambda record: (record.date, record.id or 0)).weight_kg
+        dob = self.effective_dob
+        return (
+            self.birth_weight
+            if self.birth_weight is not None and (dob is None or dob <= reference_date)
+            else None
+        )
 
     @property
     def last_bucket_move(self) -> BucketMove | None:
@@ -208,7 +334,7 @@ class Animal(Base):
         age = self.age_months_on(reference_date)
         if age is None or age < MIN_BREEDING_AGE_MONTHS:
             return False
-        weight = self.latest_weight_kg
+        weight = self.latest_weight_kg_on(reference_date)
         if weight is None or weight < MIN_BREEDING_WEIGHT_KG:
             return False
         if self.is_currently_pregnant:
@@ -234,7 +360,7 @@ class Animal(Base):
         if self.current_bucket not in [*BREEDING_READY_BUCKETS, "BREEDING"]:
             return False
         age = self.age_months_on(reference_date)
-        weight = self.latest_weight_kg
+        weight = self.latest_weight_kg_on(reference_date)
         return bool(
             age is not None
             and age >= MIN_BREEDING_AGE_MONTHS
@@ -245,14 +371,28 @@ class Animal(Base):
 
     @property
     def is_buck_eligible(self) -> bool:
-        """Minimal canonical buck guard without inventing a clinical threshold."""
+        """Canonical sire eligibility on today's default business date."""
+        return self.is_buck_eligible_on(today())
+
+    def is_buck_ready_on(self, reference_date: date) -> bool:
+        """Factual maturity/health floor, independent of the current bucket."""
+        age = self.age_months_on(reference_date)
+        weight = self.latest_weight_kg_on(reference_date)
         return bool(
             self.sex == Sex.M.value
             and self.status == AnimalStatus.ACTIVE.value
-            and self.current_bucket
-            not in {"QUARANTINE", "PREGNANCY_EARLY", "PREGNANCY_LATE", "DELIVERY"}
             and not self.movement_restricted
             and not self.suspected_scheduled_disease
+            and age is not None
+            and age >= MIN_BUCK_BREEDING_AGE_MONTHS
+            and weight is not None
+            and weight >= MIN_BUCK_BREEDING_WEIGHT_KG
+        )
+
+    def is_buck_eligible_on(self, reference_date: date) -> bool:
+        """A ready sire already housed in a buck-capable breeding bucket."""
+        return self.current_bucket in {"FOUNDATION", "BREEDING"} and self.is_buck_ready_on(
+            reference_date
         )
 
     @property
@@ -269,6 +409,10 @@ class WeightRecord(Base):
             "bcs IS NULL OR bcs BETWEEN 1 AND 5",
             name="ck_weight_records_bcs_range",
         ),
+        CheckConstraint(
+            "weight_kg <= 1000 AND weight_kg::text NOT IN ('NaN', 'Infinity', '-Infinity')",
+            name="ck_weight_records_weight_bounded",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -284,6 +428,22 @@ class WeightRecord(Base):
 
 class BucketMove(Base):
     __tablename__ = "bucket_moves"
+    __table_args__ = (
+        CheckConstraint(
+            "from_bucket IS NULL OR from_bucket IN "
+            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
+            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
+            "'MALE_KIDS', 'FEMALE_KIDS')",
+            name="ck_bucket_moves_from_bucket",
+        ),
+        CheckConstraint(
+            "to_bucket IN "
+            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
+            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
+            "'MALE_KIDS', 'FEMALE_KIDS')",
+            name="ck_bucket_moves_to_bucket",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
@@ -301,13 +461,30 @@ class BucketMove(Base):
 # ---------------------------------------------------------------------------
 class BucketDefinition(Base):
     __tablename__ = "bucket_definitions"
+    __table_args__ = (
+        CheckConstraint(
+            "code IN "
+            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
+            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
+            "'MALE_KIDS', 'FEMALE_KIDS')",
+            name="ck_bucket_definitions_code",
+        ),
+        CheckConstraint(
+            "daily_kg_per_head > 0 AND daily_kg_per_head <= 1000000 AND "
+            "daily_kg_per_head::text NOT IN ('NaN', 'Infinity', '-Infinity')",
+            name="ck_bucket_definitions_daily_kg",
+        ),
+        CheckConstraint("sort_order >= 0", name="ck_bucket_definitions_sort_order"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(20), unique=True)
     name: Mapped[str] = mapped_column(String(120))
     who: Mapped[str | None] = mapped_column(String(255))
     exit_rule: Mapped[str | None] = mapped_column(String(255))
-    daily_kg_per_head: Mapped[float] = mapped_column(default=1.2)  # feeding plan setting
+    # Feeding plans and shift allocation operate in whole grams.  Keep the
+    # public float contract but make the persisted per-head quantity exact.
+    daily_kg_per_head: Mapped[float] = mapped_column(Numeric(15, 3, asdecimal=False), default=1.2)
     sort_order: Mapped[int] = mapped_column(default=0)
 
 
@@ -315,9 +492,64 @@ class BucketFeedSetting(Base):
     """Per-farm override of BucketDefinition.daily_kg_per_head."""
 
     __tablename__ = "bucket_feed_settings"
-    __table_args__ = (UniqueConstraint("farm_id", "bucket", name="uq_feed_setting_per_bucket"),)
+    __table_args__ = (
+        UniqueConstraint("farm_id", "bucket", name="uq_feed_setting_per_bucket"),
+        CheckConstraint(
+            "bucket IN "
+            "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
+            "'PREGNANCY_LATE', 'DELIVERY', 'RECOVERY', 'RESTING', "
+            "'MALE_KIDS', 'FEMALE_KIDS')",
+            name="ck_bucket_feed_settings_bucket",
+        ),
+        CheckConstraint(
+            "daily_kg_per_head > 0 AND daily_kg_per_head <= 1000000 AND "
+            "daily_kg_per_head::text NOT IN ('NaN', 'Infinity', '-Infinity')",
+            name="ck_bucket_feed_settings_daily_kg",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     bucket: Mapped[str] = mapped_column(String(20))
-    daily_kg_per_head: Mapped[float]
+    daily_kg_per_head: Mapped[float] = mapped_column(Numeric(15, 3, asdecimal=False))
+
+
+# Read-heavy herd views use bounded latest-row probes.  These composite
+# indexes keep those probes index-only/ordered even after years of history.
+Index(
+    "ix_bucket_moves_animal_moved_id_desc",
+    BucketMove.animal_id,
+    BucketMove.moved_at.desc(),
+    BucketMove.id.desc(),
+)
+Index(
+    "ix_weight_records_animal_date_id_desc",
+    WeightRecord.animal_id,
+    WeightRecord.date.desc(),
+    WeightRecord.id.desc(),
+    postgresql_include=["weight_kg"],
+)
+Index(
+    "ix_weight_records_recent_date_id_animal",
+    WeightRecord.date.desc(),
+    WeightRecord.id.desc(),
+    WeightRecord.animal_id,
+)
+Index(
+    "ix_animals_farm_active_bucket_tag_id",
+    Animal.farm_id,
+    Animal.current_bucket,
+    Animal.tag_number,
+    Animal.id,
+    postgresql_include=["name", "sex", "birth_weight", "created_at"],
+    postgresql_where=text("status = 'ACTIVE'"),
+)
+Index(
+    "ix_animals_farm_active_cull_tag_id",
+    Animal.farm_id,
+    Animal.tag_number,
+    Animal.id,
+    postgresql_include=["name"],
+    postgresql_where=text("status = 'ACTIVE' AND cull_candidate IS TRUE"),
+)
+Index("ix_animals_farm_status", Animal.farm_id, Animal.status)

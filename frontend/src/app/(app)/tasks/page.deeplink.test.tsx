@@ -7,6 +7,7 @@
  */
 
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,10 +18,13 @@ import { addDays, farmToday } from "@/lib/format";
 
 import TasksPage from "./page";
 
-const { navState } = vi.hoisted(() => ({ navState: { search: "" } }));
+const { navState, replaceMock } = vi.hoisted(() => ({
+  navState: { search: "" },
+  replaceMock: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => "/tasks",
   useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
@@ -68,6 +72,15 @@ function tasksHandler(tasks: TaskOut[] = [TODAY_TASK, OVERDUE_TASK]) {
       upcoming: [],
       awaiting: tasks.filter((t) => t.status === "DONE"),
       completed: [],
+      today_total: 1,
+      today_offset: 0,
+      overdue_total: 1,
+      overdue_offset: 0,
+      upcoming_total: 0,
+      upcoming_offset: 0,
+      awaiting_total: tasks.filter((t) => t.status === "DONE").length,
+      awaiting_offset: 0,
+      active_limit: 50,
       completed_total: 0,
       completed_limit: 50,
       completed_offset: 0,
@@ -83,6 +96,7 @@ function rowOf(title: string): HTMLElement {
 
 describe("TasksPage ?tab= deep links (7-1)", () => {
   beforeEach(() => {
+    replaceMock.mockClear();
     server.use(tasksHandler());
   });
 
@@ -127,6 +141,18 @@ describe("TasksPage ?tab= deep links (7-1)", () => {
     expect(
       screen.queryByRole("tab", { name: /Awaiting verification/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("writes tab changes back to the URL so refresh and farm switching restore the page", async () => {
+    navState.search = "?tab=today&from=dashboard";
+    const user = userEvent.setup();
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Morning feed count");
+
+    await user.click(screen.getByRole("tab", { name: "Overdue (1)" }));
+
+    expect(replaceMock).toHaveBeenCalledWith("/tasks?tab=overdue&from=dashboard");
+    expect(screen.getByRole("tablist")).toHaveClass("overflow-x-auto");
   });
 });
 

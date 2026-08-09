@@ -22,6 +22,11 @@ test-results/
 .env.*
 !.env.example
 backend/keys/
+backups/
+*.dump
+*.dump.gpg
+*.dump.sha256
+*.dump.gpg.sha256
 
 # OS / editor
 .DS_Store

@@ -4,14 +4,14 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { AnimalOut } from './animalOut';
-import type { BreedingRecordOut } from './breedingRecordOut';
+import type { AnimalIdentityOut } from './animalIdentityOut';
 import type { BucketCountOut } from './bucketCountOut';
+import type { DashboardKiddingDueOut } from './dashboardKiddingDueOut';
 import type { DashboardOutSexCounts } from './dashboardOutSexCounts';
 import type { DashboardOutStatusTotals } from './dashboardOutStatusTotals';
+import type { DashboardWeightOut } from './dashboardWeightOut';
 import type { MoveSuggestionOut } from './moveSuggestionOut';
 import type { TaskOut } from './taskOut';
-import type { WeightRecordOut } from './weightRecordOut';
 
 export interface DashboardOut {
   buckets: BucketCountOut[];
@@ -19,10 +19,19 @@ export interface DashboardOut {
   sex_counts: DashboardOutSexCounts;
   status_totals: DashboardOutStatusTotals;
   todays_tasks: TaskOut[];
+  todays_tasks_total: number;
   overdue_tasks: TaskOut[];
+  overdue_tasks_total: number;
   ultrasounds_due: TaskOut[];
-  kiddings_due: BreedingRecordOut[];
-  cull_candidates: AnimalOut[];
+  ultrasounds_due_total: number;
+  kiddings_due: DashboardKiddingDueOut[];
+  kiddings_due_total: number;
+  cull_candidates: AnimalIdentityOut[];
+  cull_candidates_total: number;
   suggestions: MoveSuggestionOut[];
-  recent_weights: WeightRecordOut[];
+  suggestions_total: number;
+  recent_weights: DashboardWeightOut[];
+  recent_weights_total: number;
+  preview_limit: number;
+  recent_weights_limit: number;
 }

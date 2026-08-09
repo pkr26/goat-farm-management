@@ -139,6 +139,19 @@ describe("apiFetch header injection", () => {
 
     expect(fetchMock.mock.calls[0][1]?.credentials).toBe("include");
   });
+
+  it.each([
+    "/api/private/../auth/logout",
+    "/api/private/%2e%2e/auth/logout",
+    "/api/private/%252e%252e/auth/logout",
+    "/api\\auth/logout",
+    "/api/animals#unexpected-fragment",
+  ])("rejects non-canonical API path %s before fetch", async (path) => {
+    const error = await catchApiError(apiFetch(path, { method: "POST" }));
+
+    expect(error.name).toBe("UnsafeApiPathError");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("apiFetch success handling", () => {

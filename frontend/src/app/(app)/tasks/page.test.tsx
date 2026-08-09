@@ -1,8 +1,8 @@
 /**
  * Tasks page row guards (RowActions): a PENDING task linked to a form shows
  * an "Open form" link instead of a Complete button; a plain PENDING manual
- * task shows Complete; a future auto-generated duty is locked until its due
- * date and shows neither. Skip stays available on all PENDING rows.
+ * task shows Complete; a future auto-generated duty cannot be completed early;
+ * and a future recurring duty cannot be completed or skipped early.
  */
 
 import { screen, within } from "@testing-library/react";
@@ -72,6 +72,18 @@ const FUTURE_AUTO_TASK = makeTask({
   auto_generated: true,
   due_date: TOMORROW,
 });
+const FUTURE_RECURRING_TASK = makeTask({
+  id: 4,
+  title: "Inspect perimeter fence",
+  due_date: TOMORROW,
+  recur_days: 7,
+  recurring_series_id: "00000000-0000-4000-8000-000000000004",
+});
+const FUTURE_MANUAL_TASK = makeTask({
+  id: 5,
+  title: "Prepare kidding supplies",
+  due_date: TOMORROW,
+});
 
 function rowOf(title: string): HTMLElement {
   const row = screen.getByText(title).closest("tr");
@@ -84,11 +96,26 @@ describe("TasksPage row guards", () => {
     server.use(
       http.get("/api/tasks", () =>
         HttpResponse.json({
-          today: [FORM_TASK, MANUAL_TASK, FUTURE_AUTO_TASK],
+          today: [
+            FORM_TASK,
+            MANUAL_TASK,
+            FUTURE_AUTO_TASK,
+            FUTURE_RECURRING_TASK,
+            FUTURE_MANUAL_TASK,
+          ],
           overdue: [],
           upcoming: [],
           awaiting: [],
           completed: [],
+          today_total: 5,
+          today_offset: 0,
+          overdue_total: 0,
+          overdue_offset: 0,
+          upcoming_total: 0,
+          upcoming_offset: 0,
+          awaiting_total: 0,
+          awaiting_offset: 0,
+          active_limit: 50,
           completed_total: 0,
           completed_limit: 50,
           completed_offset: 0,
@@ -104,10 +131,10 @@ describe("TasksPage row guards", () => {
     const row = rowOf("Vaccinate goats");
     expect(within(row).getByRole("link", { name: "Open form" })).toHaveAttribute(
       "href",
-      "/health/new?task=1",
+      "/health/new?task=1&returnTo=%2Ftasks%3Ftab%3Dtoday",
     );
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
-    // Skip stays available on pending rows.
+    // Skip stays available on this non-recurring pending row.
     expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
   });
 
@@ -127,6 +154,24 @@ describe("TasksPage row guards", () => {
     const row = rowOf("Weigh batch kids");
     expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
+  });
+
+  it("future recurring duty exposes neither Complete nor Skip until due", async () => {
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Inspect perimeter fence");
+
+    const row = rowOf("Inspect perimeter fence");
+    expect(within(row).queryByRole("button", { name: "Complete" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+  });
+
+  it("future one-off manual duty remains available for early completion", async () => {
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Prepare kidding supplies");
+
+    const row = rowOf("Prepare kidding supplies");
+    expect(within(row).getByRole("button", { name: "Complete" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
   });
 

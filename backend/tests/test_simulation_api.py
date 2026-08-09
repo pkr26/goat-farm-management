@@ -7,13 +7,17 @@ set) with selected fields overridden — the assumptions schema forbids extra
 keys, so this doubles as a contract check on the defaults endpoint.
 """
 
+import asyncio
 from datetime import date, timedelta
 
 import httpx
+import pytest
 from sqlalchemy import text
 
 from app.api.simulation import _farm_run_lock
+from app.core.config import get_settings
 from app.db import get_sessionmaker
+from app.schemas.common import MAX_PAGE_OFFSET
 
 from .conftest import login, owner_with_farm
 
@@ -258,7 +262,13 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
     assert created["created_at"] and created["updated_at"]
 
     listing = await client.get("/api/simulation/scenarios", headers=headers)
-    assert [s["name"] for s in listing.json()] == ["Base plan"]
+    assert listing.status_code == 200, listing.text
+    assert listing.json() == {
+        "items": [created],
+        "total": 1,
+        "limit": 20,
+        "offset": 0,
+    }
 
     fetched = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
     assert fetched.status_code == 200
@@ -287,6 +297,74 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
     assert gone.status_code == 404
 
 
+async def test_saved_scenario_limit_is_concurrency_safe(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    monkeypatch.setattr(get_settings(), "max_simulation_scenarios_per_farm", 1)
+
+    first, second = await asyncio.gather(
+        client.post(
+            "/api/simulation/scenarios",
+            json={"name": "Capacity A", "assumptions": assumptions},
+            headers=headers,
+        ),
+        client.post(
+            "/api/simulation/scenarios",
+            json={"name": "Capacity B", "assumptions": assumptions},
+            headers=headers,
+        ),
+    )
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    rejected = first if first.status_code == 409 else second
+    assert rejected.json()["detail"] == "This farm has reached its saved-scenario limit."
+    listing = await client.get("/api/simulation/scenarios", headers=headers)
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 1
+    assert len(listing.json()["items"]) == 1
+
+
+async def test_scenario_listing_is_bounded_paginated_and_deterministic(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    created = [
+        await create_scenario(client, headers, f"Plan {index:02d}", assumptions)
+        for index in range(23)
+    ]
+
+    first = await client.get("/api/simulation/scenarios", headers=headers)
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 23
+    assert first.json()["limit"] == 20
+    assert first.json()["offset"] == 0
+    assert [item["id"] for item in first.json()["items"]] == [item["id"] for item in created[:20]]
+    # Full ScenarioOut rows remain available on every page for load/edit.
+    assert first.json()["items"][0]["assumptions"] == assumptions
+
+    second = await client.get(
+        "/api/simulation/scenarios",
+        params={"limit": 5, "offset": 20},
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["total"] == 23
+    assert second.json()["limit"] == 5
+    assert second.json()["offset"] == 20
+    assert [item["id"] for item in second.json()["items"]] == [item["id"] for item in created[20:]]
+
+    for params in (
+        {"limit": 0},
+        {"limit": 51},
+        {"offset": -1},
+        {"offset": MAX_PAGE_OFFSET + 1},
+    ):
+        rejected = await client.get("/api/simulation/scenarios", params=params, headers=headers)
+        assert rejected.status_code == 422, (params, rejected.text)
+
+
 async def test_scenario_cross_farm_404(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Farm B")
@@ -312,7 +390,7 @@ async def test_scenario_cross_farm_404(client: httpx.AsyncClient) -> None:
     ).status_code == 404
     # And it does not leak into Farm B's list.
     listing = await client.get("/api/simulation/scenarios", headers=owner_b)
-    assert listing.json() == []
+    assert listing.json() == {"items": [], "total": 0, "limit": 20, "offset": 0}
 
 
 async def test_scenario_run(client: httpx.AsyncClient) -> None:
@@ -539,7 +617,11 @@ async def test_stale_scenario_row_never_500s(client: httpx.AsyncClient) -> None:
     # silently dropping stored work made it look as though data had vanished.
     listing = await client.get("/api/simulation/scenarios", headers=headers)
     assert listing.status_code == 200, listing.text
-    listed = listing.json()
+    page = listing.json()
+    assert page["total"] == 2
+    assert page["limit"] == 20
+    assert page["offset"] == 0
+    listed = page["items"]
     assert [s["name"] for s in listed] == ["Good", "Stale"]
     assert listed[0]["valid"] is True
     assert listed[0]["assumptions"] is not None

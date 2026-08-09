@@ -4,14 +4,15 @@
 
 import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 import { useVaccinationScheduleApiHealthScheduleAnimalIdGet } from "@/api/generated/endpoints";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
+import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** Status pill: DONE in emerald, UPCOMING in amber, OVERDUE in red, anything
@@ -79,12 +81,13 @@ function dateOrDash(value: string | null): string {
   return value ? formatDate(value) : "—";
 }
 
-export default function VaccinationSchedulePage() {
+function VaccinationSchedulePageContent() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
   const params = useParams<{ animalId: string }>();
+  const searchParams = useSearchParams();
   const animalId = Number(params.animalId);
   const validId = Number.isInteger(animalId) && animalId > 0;
 
@@ -92,6 +95,9 @@ export default function VaccinationSchedulePage() {
     query: { enabled: allowed && validId },
   });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const returnTo =
+    permittedAppPath(searchParams.get("returnTo"), can) ??
+    `/health?schedule_animal_id=${encodeURIComponent(params.animalId)}`;
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -112,11 +118,16 @@ export default function VaccinationSchedulePage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError
-            ? query.error.detail
-            : "Could not load the vaccination schedule."}
-        </p>
+        <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError
+              ? query.error.detail
+              : "Could not load the vaccination schedule."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry schedule
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -140,12 +151,15 @@ export default function VaccinationSchedulePage() {
         description="Due dates and boosters from the vaccination templates that apply to this animal."
         actions={
           <>
-            <Link href="/health" className={buttonVariants({ variant: "outline" })}>
+            <Link href={returnTo} className={buttonVariants({ variant: "outline" })}>
               Back to health log
             </Link>
             {canManage && (
               <Link
-                href={`/health/new?animal_id=${payload.animal_id}`}
+                href={withReturnTo(
+                  `/health/new?animal_id=${payload.animal_id}`,
+                  `/health/schedule/${payload.animal_id}?returnTo=${encodeURIComponent(returnTo)}`,
+                )}
                 className={buttonVariants()}
               >
                 + Add event
@@ -200,5 +214,13 @@ export default function VaccinationSchedulePage() {
         )}
       </DataTableCard>
     </div>
+  );
+}
+
+export default function VaccinationSchedulePage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <VaccinationSchedulePageContent />
+    </Suspense>
   );
 }

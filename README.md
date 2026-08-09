@@ -32,9 +32,13 @@ pnpm dev                               # http://localhost:3000
 
 The Next dev server proxies `/api/*` to `localhost:8000` (see
 `frontend/next.config.ts`), so the refresh cookie stays first-party.
-Register → create a farm → start adding animals. Reference data (bucket
-definitions, TMR recipes, vaccine templates, role presets) is seeded
-automatically at startup and farm creation.
+Register → create a farm → start adding animals. Fixed-size global
+reference data (bucket definitions, TMR recipes, vaccine templates) is seeded
+automatically at startup; every new farm receives its role presets and feed
+inventory synchronously. Legacy-farm repair runs only after readiness in
+finite, independently committed, lock-skipping batches configured by
+`GOATFARM_LEGACY_REPAIR_*`. This keeps rolling-deploy startup cost independent
+of the number of farms and historical tasks.
 
 `backend/uv.lock` pins the full transitive dependency graph (runtime + dev):
 `uv sync --frozen --extra dev` reproduces it exactly, and `uv lock --upgrade`
@@ -46,20 +50,60 @@ Configuration is via `GOATFARM_*` env vars (`backend/app/core/config.py`; see
 `GOATFARM_DB_SSLMODE` (TLS to the DB; `require` for any remote database), JWT
 TTLs, Argon2 parameters, `GOATFARM_CORS_ORIGINS`, `GOATFARM_COOKIE_SECURE`
 (set `true` behind HTTPS), `GOATFARM_ENVIRONMENT`
-(`development`/`production`), `GOATFARM_AUTH_RATE_LIMIT_*` (login/register
-throttling), `GOATFARM_MAX_FARMS_PER_USER`, and the `GOATFARM_DB_POOL_*` /
+(`development`/`production`), `GOATFARM_AUTH_RATE_LIMIT_*` (login/register and
+per-owner worker-password throttling), `GOATFARM_ALLOWED_HOSTS` (the API virtual-host allowlist),
+`GOATFARM_MAX_FARMS_PER_USER`, `GOATFARM_MAX_TEAM_MEMBERS_PER_FARM`,
+`GOATFARM_MAX_ROLES_PER_FARM`, `GOATFARM_MAX_SIMULATION_SCENARIOS_PER_FARM`,
+`GOATFARM_MAX_PENDING_MANUAL_TASKS_PER_FARM`,
+and the `GOATFARM_DB_POOL_*` /
 `GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards. Requests are capped at 1 MiB
 by default (`GOATFARM_MAX_REQUEST_BODY_BYTES`); configure the edge proxy to
-the same or a smaller limit. RS256 key pairs are
+the same or a smaller limit. Request paths plus query strings are capped at
+8 KiB (`GOATFARM_MAX_REQUEST_TARGET_BYTES`, returning 414); the edge must
+apply an equal or smaller request-line limit. RS256 key pairs are
 auto-generated into `backend/keys/` on first run in development only
 (gitignored). Production must mount a stable matching RSA keypair (at least
 2048 bits); startup fails immediately if it is missing or invalid. With
 `GOATFARM_ENVIRONMENT=production` the app **refuses to boot** if
 `GOATFARM_COOKIE_SECURE` is false, the password minimum is below 12, database
 TLS is not required, or CORS contains anything other than exact non-loopback
-HTTPS origins; `/docs`, `/redoc` and `/openapi.json` are not served. The auth rate limiter
+HTTPS origins, or the HTTP host allowlist is empty/wildcard/loopback;
+`/docs`, `/redoc` and `/openapi.json` are not served. The auth rate limiter
 is in-memory and per process: run exactly **one** uvicorn worker / replica
-(with N workers the effective limit multiplies by N).
+(with N workers the effective limit multiplies by N). Argon2 hashing and
+verification run off the event loop in a dedicated, queue-free pool bounded by
+`GOATFARM_ARGON2_WORKER_THREADS` (two by default); excess password work gets a
+retryable `429` instead of blocking readiness or allocating an unbounded queue.
+Production must also apply a shared login/register rate limit at the edge/WAF
+before requests reach the process, especially if it is ever horizontally scaled.
+Production also requires a stable, independently generated (at least 32
+characters) `GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET` on every replica. It
+keys fingerprints for idempotent operations whose request contains password
+material; the raw password and raw idempotency key are never stored. The known
+development fallback is rejected in production. Keep this secret distinct
+from JWT, database, and user-password secrets.
+
+Production releases may set `GOATFARM_MIGRATION_DATABASE_URL` to a separately
+privileged database identity used only by Alembic. The long-running API should
+use a credential without schema/DDL privileges. Migrations and libpq backup /
+restore tools inherit `GOATFARM_DB_SSLMODE`; remote production jobs must use
+`require`, `verify-ca`, or `verify-full`.
+
+The `f3d4e5f6a7b8` release migration validates the legacy personal-task role
+invariant and builds a transactional partial index on `tasks`. Its ordinary
+`CREATE INDEX` takes a PostgreSQL `SHARE` lock that blocks task writes while
+the build runs. Schedule that one-shot upgrade in a maintenance window, after
+the migration job has exclusive rollout ownership, rather than during live
+task traffic.
+
+Treat the first upgrade of any existing deployment to the current head as a
+maintenance operation, not as an online rolling migration. The intervening
+history includes feed-quantity table rewrites, potentially full-table data
+preflights and backfills, constraint validation, session cleanup, and non-concurrent index
+creation. First rehearse the complete upgrade against a current restored copy,
+record its runtime and lock impact, take a verified backup, quiesce application
+writes, and give one migration job exclusive ownership until `alembic check`
+passes. Resume API replicas only after that succeeds.
 
 ## Auth & tenancy model
 
@@ -70,11 +114,27 @@ is in-memory and per process: run exactly **one** uvicorn worker / replica
   the presented token and rotates it, presenting an already-consumed or
   revoked token is treated as theft and revokes the whole token family (with
   a three-second idempotent grace for simultaneous tabs), and
-  logout / password change / owner-initiated worker password reset /
-  deactivation revoke the user's sessions server-side. Access JWTs carry a
+  logout / password change / owner-initiated worker password reset revoke the
+  user's sessions server-side. Farm-membership deactivation is tenant-local:
+  it immediately removes that farm's access without logging the same account
+  out of unrelated farms. Access JWTs carry a
   server-checked revocation version, so those security events invalidate
   already-issued bearer tokens as well as refresh sessions. API responses are
   marked `Cache-Control: no-store`.
+  Refresh families and retained rotations are hard-capped per user/family;
+  old consumed rows can be compacted without weakening replay detection
+  because every newly issued token carries its signed family identifier.
+  Expired server-side rows are purged only in ordered, lock-skipping finite
+  batches at startup and periodically (`GOATFARM_REFRESH_SESSION_CLEANUP_*`).
+  Legacy tenant repairs, inactive-animal duty retirement, and tombstoned-user
+  membership deactivation likewise run only in finite post-readiness batches
+  (`GOATFARM_LEGACY_REPAIR_*`, `GOATFARM_INACTIVE_ANIMAL_TASK_CLEANUP_*`, and
+  `GOATFARM_DELETED_MEMBERSHIP_CLEANUP_*`). Inactive-animal duties and deleted
+  users are excluded from actionable/authorized views immediately, before
+  their retained rows converge in the background.
+  Tokens require issuer, audience, subject, kind, id, issued-at and expiry
+  claims; configure stable `GOATFARM_JWT_ISSUER` and
+  `GOATFARM_JWT_AUDIENCE` values for every environment.
   `POST /api/auth/change-password` gives users self-service password change
   (requires the current password; revokes all other sessions).
 - Farm context travels in the **`X-Farm-Id` header**, validated per request
@@ -88,7 +148,9 @@ is in-memory and per process: run exactly **one** uvicorn worker / replica
 - Login and register are rate-limited (failed attempts for login, keyed per
   client IP + email; all register attempts per client IP) and farm ownership
   is capped per user. Behind a reverse proxy, set
-  `GOATFARM_TRUSTED_PROXY_HOSTS` so real client IPs key the limiter.
+  `GOATFARM_TRUSTED_PROXY_HOSTS` so real client IPs key the limiter, and enforce
+  a shared edge/WAF ceiling on every auth path—including successful login and
+  refresh traffic—before CPU-hard password work or session-row mutation.
 - Rejected refresh attempts are IP-throttled; successful page-load refreshes
   do not consume the abuse budget. The SPA coordinates refresh across tabs
   with the browser Web Locks API when available.
@@ -96,13 +158,28 @@ is in-memory and per process: run exactly **one** uvicorn worker / replica
   pre-existing account is refused** by worker provisioning. Password resets
   are allowed only for new accounts explicitly provisioned by that farm; the
   provenance is stored on the membership and legacy rows fail closed.
+- Non-owner account deletion atomically tombstones the login identity, scrubs
+  its profile/password, and revokes sessions. That User tombstone is the
+  immediate authorization barrier. Memberships and task assignments remain as
+  non-authorizing audit/FK anchors; active memberships are deactivated later in
+  finite `FOR UPDATE SKIP LOCKED` batches, never enumerated by the deletion
+  request. Attributed farm, health, task, and finance history is therefore not
+  rewritten. Tombstones cannot authenticate and display as `Deleted account`;
+  the old email can register as a new user ID. This is
+  de-identification/pseudonymization, not a promise that every operational
+  record is anonymous. Set documented legal-purpose and retention rules before
+  production. Farm owners must currently transfer/dispose of ownership through
+  an operator process before their sign-in account can be deleted.
+  Farm-selector and account-export hydration also fail explicitly above the
+  configurable `GOATFARM_MAX_ACCOUNT_AFFILIATIONS_PER_RESPONSE` ceiling, so a
+  pathological legacy/imported identity cannot force an unbounded response.
 
 ## Development
 
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 2408 tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 2826 tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
@@ -110,7 +187,7 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test            # 756 Vitest + MSW tests
+pnpm test            # 904 Vitest + MSW tests
 pnpm exec playwright test   # 22 browser e2e tests across 14 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
@@ -125,9 +202,10 @@ CI (`.github/workflows/ci.yml`) runs the full gate on every push/PR: backend
 pytest against a Postgres service, `ruff format --check`, `ruff check`,
 `mypy --strict`, `pip-audit`; frontend `pnpm install --frozen-lockfile`,
 `pnpm test`, `pnpm build`, `pnpm audit`; Playwright against the real frontend,
-API, and PostgreSQL; and a backend container build. A separate pinned-action
-security workflow runs CodeQL, full-history secret scanning, produces an SPDX
-container SBOM, and fails on fixable high/critical image vulnerabilities.
+API, and PostgreSQL; and builds both application containers. A separate
+pinned-action security workflow runs CodeQL, full-history secret scanning,
+produces SPDX SBOMs for both containers, and fails on fixable high/critical
+image vulnerabilities.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
 ## Production
@@ -145,22 +223,49 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
     -e GOATFARM_ENVIRONMENT=production \
     -e GOATFARM_COOKIE_SECURE=true \
     -e GOATFARM_CORS_ORIGINS='["https://app.example.com"]' \
+    -e GOATFARM_ALLOWED_HOSTS='["api.example.com","backend"]' \
     -e GOATFARM_DB_SSLMODE=require \
     -e GOATFARM_MIN_PASSWORD_LENGTH=12 \
+    -e GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET="$GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET" \
     -e GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem \
     -e GOATFARM_JWT_PUBLIC_KEY_PATH=/app/keys/jwt_public.pem \
     goatfarm-backend
   ```
 
-  The container entrypoint runs `alembic upgrade head`, then serves with
-  uvicorn as a non-root user. `docker-compose.yml` spins up Postgres +
-  backend locally (kept in `development` mode on purpose); its `jwtkeys`
-  volume keeps the generated development identity stable across restarts.
-- Run **one** worker/replica (in-memory rate limiter, see Configuration),
+  Run `alembic upgrade head` as a separate, one-shot release job before
+  starting or rolling API containers. The default API command never performs
+  DDL and serves with uvicorn as a non-root user. `docker-compose.yml` models
+  this explicitly with `db` → `migrate` → `backend`; its `jwtkeys` volume
+  keeps the generated development identity stable across restarts.
+  The release that first applies security migration `f4e5f6a7b8c9` is a
+  one-time exception to an ordinary rolling cutover: drain password-bearing
+  worker-create traffic and stop every pre-HMAC API instance, apply the
+  migration while writes are quiescent, and only then start the new image.
+  Otherwise an old instance could insert another unkeyed fingerprint after
+  the purge. Do not restore a pre-F4 database backup into a running post-F4
+  service without reapplying the purge.
+- Run **one** worker/replica (in-memory login and per-owner worker-password
+  rate limits, see Configuration),
   behind a TLS-terminating proxy; set `GOATFARM_TRUSTED_PROXY_HOSTS` to the
   proxy's IPs so rate limiting keys on real client IPs.
-- Serve the frontend as a static Next.js build (`pnpm build`) from the same
-  site as the API so the refresh cookie stays first-party.
+- The frontend is a **Next.js Node server**, not a static export: dynamic
+  routes, security headers and the same-origin `/api` rewrite require a
+  runtime. Build `frontend/Dockerfile` with the internal API destination, for
+  example:
+
+  ```bash
+  docker build --build-arg BACKEND_URL=http://backend:8000 \
+    -t goatfarm-frontend frontend
+  ```
+
+  Place it behind the same public origin as the API. The Compose stack includes
+  this standalone frontend on port 3000. Next's server-side rewrite changes the
+  upstream `Host` header to its internal destination, `backend:8000`, so every
+  Compose `GOATFARM_ALLOWED_HOSTS` override must retain the exact `backend`
+  service name alongside any public API hostname (for example,
+  `["api.example.com","backend"]`). Omitting it makes the API health check pass
+  while every browser `/api/*` request through the frontend is rejected with
+  `400 Invalid host header`.
 
 **Zero-downtime JWT key rotation:** every newly issued token carries a
 deterministic `kid` (the base64url SHA-256 fingerprint of its RSA public key).
@@ -197,40 +302,134 @@ tokens throughout a rolling deployment:
    rejected. Securely retire the old private key under the deployment's key
    retention policy.
 
+**Sensitive idempotency HMAC rotation:** generate a new independent secret;
+never derive it from or reuse a JWT key. First deploy with the old secret still
+current and the new secret included in
+`GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS`. Then deploy the new
+secret as current and retain the old secret in that verification-only JSON
+array. This two-phase rollout lets mixed replicas replay records made by either
+generation. At most three previous secrets are accepted, all comparisons are
+constant-time, and new records always use the current secret. Keep the old
+secret for at least `GOATFARM_IDEMPOTENCY_RETENTION_HOURS` after the last old
+signer stops, then remove it everywhere. If a key is compromised, do not keep
+it for overlap: remove it and delete affected `team.workers.create`
+idempotency rows, accepting that clients must retry with a new key. Migration
+`f4e5f6a7b8c9` performs this purge once for every pre-HMAC worker-create row;
+its deletion is intentionally not reversed by downgrade.
+
 ### Backups and disaster recovery
 
 Run `backend/scripts/backup.sh` nightly against production and store the dump
-off-host. The script creates a custom-format PostgreSQL dump plus SHA-256
-checksum, retains the newest 30 dumps by default, can encrypt the dump for a
-GPG recipient, and can upload both files to S3. Off-site backups should always
-be encrypted and protected with separate, least-privilege credentials.
+off-host. The script writes `pg_dump` into a private same-filesystem temporary
+directory, proves that `pg_restore --list` can parse it, then publishes the
+archive and its exact-name SHA-256 sidecar. A destination-wide lock prevents
+overlapping jobs, and failure traps remove plaintext, unpublished files, and
+the owned lock. It retains the newest 30 dumps by default.
+
+Production and S3 backups must be both signed and encrypted with GPG. Pin the
+signing key by its complete 40- or 64-hex fingerprint; do not use a mutable
+email/key-name selector. S3 server-side encryption remains a second layer.
+Keep the encryption private key and signing public key available to the restore
+operators through a separately tested recovery path, and use least-privilege
+database and object-storage credentials.
 
 ```bash
 GOATFARM_DATABASE_URL='postgresql+asyncpg://user:pass@host/goatfarm' \
-GOATFARM_BACKUP_GPG_RECIPIENT='backup@example.com' \
+GOATFARM_DB_SSLMODE=verify-full \
+GOATFARM_ENVIRONMENT=production \
+GOATFARM_BACKUP_GPG_RECIPIENT='RECIPIENT_KEY_FINGERPRINT' \
+GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
 GOATFARM_BACKUP_S3_URI='s3://company-backups/goatfarm' \
 ./backend/scripts/backup.sh /var/backups/goatfarm
 ```
+
+The database password is supplied to libpq through a mode-`0600` temporary
+passfile; `pg_dump`, `psql`, and `pg_restore` receive only a password-free URL.
+The directory lock is deliberately not auto-stolen: after a host crash, verify
+that the recorded PID/job is no longer active before manually removing the
+stale `.goatfarm-backup.lock` directory. Alert on any non-zero backup exit and
+on a missing daily artifact; an upload failure keeps the complete local backup
+and makes a best-effort removal of any remote partial.
 
 The baseline target is a 24-hour recovery-point objective (nightly full
 backup) and recovery within four hours. Enable PostgreSQL WAL archiving and
 point-in-time recovery when a tighter recovery point is required.
 
-Restore only into a newly created, empty database. The restore helper verifies
-the checksum and archive before writing, refuses a non-empty target, and
-requires the target database name as an explicit confirmation:
+Restore only into a newly created, empty database. The helper accepts exactly
+one checksum record bound to the archive basename, authenticates an encrypted
+backup against the configured signer fingerprint, and validates the decrypted
+archive before connecting. The archive and sidecar are first copied into the
+private restore directory, so replacement of removable/shared source media
+cannot swap bytes between verification and use. It refuses relations,
+routines, types, extensions, extra schemas, or other namespaced user objects
+anywhere in the target—not only public tables. `pg_restore` runs in one
+transaction, and a separate post-restore query requires exactly one
+well-formed Alembic revision marker. Production restores reject plaintext
+archives.
+
+Inject `GOATFARM_RESTORE_DATABASE_URL` through the process supervisor or
+secret manager. Do not put the credential-bearing URL on the restore command
+line (or type its value directly into shell history); the script accepts only
+the archive path as a positional argument.
 
 ```bash
 GOATFARM_RESTORE_CONFIRM=goatfarm_restore_test \
-./backend/scripts/restore.sh /secure/goatfarm-2026-08-08.dump \
-  'postgresql://user:pass@host/goatfarm_restore_test'
+GOATFARM_DB_SSLMODE=verify-full \
+GOATFARM_ENVIRONMENT=production \
+GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
+./backend/scripts/restore.sh /secure/goatfarm-2026-08-08.dump.gpg
 ```
 
-Run and document a restore drill at least quarterly. Verify the Alembic
-revision, representative row counts, `/readyz`, authentication, and the core
-animal/health/feeding/finance screens; record the elapsed time against the
-four-hour recovery target. Decrypt `.gpg` backups only into a protected
-temporary location and securely remove the plaintext after the drill.
+The revision stored in an authentic backup may legitimately be older than the
+currently deployed code. After the restore succeeds, point the migration URL
+at the restored database and bring it to the current application head before
+starting the API or performing smoke tests:
+
+```bash
+cd backend
+GOATFARM_MIGRATION_DATABASE_URL="${GOATFARM_RESTORE_DATABASE_URL}" \
+GOATFARM_DB_SSLMODE=verify-full \
+.venv/bin/alembic upgrade head
+```
+
+Run and document a restore drill at least quarterly. After that migration,
+verify `alembic current`, representative row counts, `/readyz`, authentication,
+and the core animal/health/feeding/finance screens; record the elapsed time
+against the four-hour recovery target. Treat a failed Alembic sanity check as
+an unusable restore requiring operator investigation. The helper removes its
+passfile, source snapshot, GPG status, and private decrypted archive on every
+exit path.
+
+Encrypted backups can contain identity data from before a later account
+deletion until those backups expire. Set and enforce a backup-retention period
+that matches the privacy policy. A restore of an older recovery point can also
+resurrect pre-deletion login/profile data, so production recovery requires an
+external, access-controlled deletion-reconciliation ledger or equivalent
+operator record that is replayed before the restored service accepts traffic.
+Test that reconciliation in the quarterly drill; the database backup cannot
+safely be its only source.
+
+### Retrying side-effecting requests
+
+Farm creation, finance transaction creation/correction, purchase-batch,
+individual-animal and animal-weight creation, manual-duty and worker-account
+creation, health-event creation, saved-simulation-scenario creation, and feed
+dispense/mix/stock-add accept an
+optional `Idempotency-Key` header (1–128
+printable, non-whitespace ASCII characters). Farm creation has no tenant yet,
+so those keys are scoped by authenticated actor and operation. Every other
+key remains scoped by authenticated actor, farm, route and concrete path.
+Reusing a key with the same validated request replays the original successful
+JSON/status without repeating farm seeding, ledger, animal, task, scenario or
+inventory effects; changing the body or concrete path identity returns HTTP
+409. Failed 4xx/5xx attempts are not cached.
+
+Successful records are retained for seven days by default, configurable with
+`GOATFARM_IDEMPOTENCY_RETENTION_HOURS` (1 hour–90 days). The raw key is never
+stored, only its SHA-256 digest. A background job uses the expiry index plus
+`FOR UPDATE SKIP LOCKED` to delete small fixed batches (interval, batch size and
+maximum batches are configurable). User requests never scan or delete a global
+expiry cohort; reusing one expired key removes only that exact scoped row.
 
 ## The bucket system
 
@@ -251,8 +450,11 @@ and the whole quarantine schedule.
 
 - Auto-generated tasks (ultrasound, vaccine, bucket move, weaning, …) are
   assigned to the matching preset role automatically; owners can also create
-  manual duties assigned to a role or a specific worker, with optional
-  recurrence (`repeats every N days` — completing one schedules the next).
+  safe manual FEED/CLEANING/OTHER duties assigned to a role or a specific
+  worker, with optional recurrence (`repeats every N days` — completing one
+  schedules the next). Outstanding manual duties are capped per farm (5,000
+  by default) so a compromised task creator cannot grow the queue without
+  bound; completed/skipped history and generated workflow duties do not count.
 - Workers see only duties assigned to their role or to them; completing a
   duty stamps `completed_by`/`completed_at` — who did what is recorded.
 - **Cleaning verification loop**: CLEANING duties marked done wait in the
@@ -310,7 +512,7 @@ backend/
                      auth/session, domain-traceability, finance/feed/task and
                      movement-clearance hardening)
   scripts/           export_openapi.py, backup.sh, restore.sh
-  tests/             2408 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  tests/             2826 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout

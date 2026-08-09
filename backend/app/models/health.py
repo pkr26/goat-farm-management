@@ -6,11 +6,22 @@ import datetime as dt
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, CheckConstraint, Date, ForeignKey, Index, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from ..utils import today
+from ..utils import today, utcnow
 
 if TYPE_CHECKING:
     from .animals import Animal
@@ -20,9 +31,79 @@ class HealthEvent(Base):
     __tablename__ = "health_events"
     __table_args__ = (
         Index("ix_health_events_date", "date"),
+        UniqueConstraint("farm_id", "id", name="uq_health_events_farm_id_id"),
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_health_events_farm_animal",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "purchase_batch_id"],
+            ["purchase_batches.farm_id", "purchase_batches.id"],
+            name="fk_health_events_farm_purchase_batch",
+        ),
         CheckConstraint(
             "cost IS NULL OR cost >= 0",
             name="ck_health_events_cost_nonneg",
+        ),
+        CheckConstraint(
+            "type IN ('VACCINE', 'DEWORMING', 'TREATMENT', 'FOOTBATH', 'VITAMIN')",
+            name="ck_health_events_type",
+        ),
+        CheckConstraint(
+            "animal_id IS NOT NULL OR purchase_batch_id IS NOT NULL",
+            name="ck_health_events_target",
+        ),
+        CheckConstraint(
+            "cost IS NULL OR cost <= 1000000000",
+            name="ck_health_events_cost_bounded",
+        ),
+        CheckConstraint(
+            "next_due_date IS NULL OR next_due_date > date",
+            name="ck_health_events_next_due_after_event",
+        ),
+        CheckConstraint(
+            "next_due_date IS NULL OR "
+            "(schedule_template_name IS NOT NULL "
+            "AND btrim(schedule_template_name) <> '' "
+            "AND next_due_authority IS NOT NULL "
+            "AND btrim(next_due_authority) <> '')",
+            name="ck_health_events_next_due_provenance",
+        ),
+        CheckConstraint(
+            "schedule_template_id IS NULL OR type IN ('VACCINE', 'DEWORMING')",
+            name="ck_health_events_schedule_template_type",
+        ),
+        CheckConstraint(
+            "product_manufactured_on IS NULL OR product_manufactured_on <= date",
+            name="ck_health_events_manufactured_before_event",
+        ),
+        CheckConstraint(
+            "product_expires_on IS NULL OR product_expires_on >= date",
+            name="ck_health_events_expiry_after_event",
+        ),
+        CheckConstraint(
+            "product_manufactured_on IS NULL OR product_expires_on IS NULL OR "
+            "product_expires_on >= product_manufactured_on",
+            name="ck_health_events_product_date_order",
+        ),
+        CheckConstraint(
+            "vaccine_valid_until IS NULL OR vaccine_valid_until >= date",
+            name="ck_health_events_validity_after_event",
+        ),
+        CheckConstraint(
+            "vaccine_valid_until IS NULL OR product_expires_on IS NULL OR "
+            "vaccine_valid_until <= product_expires_on",
+            name="ck_health_events_validity_before_expiry",
+        ),
+        CheckConstraint(
+            "withdrawal_until IS NULL OR withdrawal_until >= date",
+            name="ck_health_events_withdrawal_after_event",
+        ),
+        CheckConstraint(
+            "suspected_scheduled_disease IS FALSE OR "
+            "(disease_target IS NOT NULL AND btrim(disease_target) <> '')",
+            name="ck_health_events_suspected_disease",
         ),
     )
 
@@ -44,6 +125,12 @@ class HealthEvent(Base):
     # Exact schedule/template linkage prevents a free-text product name from
     # silently satisfying an unrelated scheduled task.
     schedule_template_name: Mapped[str | None] = mapped_column(String(120))
+    schedule_template_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "vaccine_templates.id",
+            name="fk_health_events_schedule_template",
+        )
+    )
     next_due_authority: Mapped[str | None] = mapped_column(String(120))
     product_lot: Mapped[str | None] = mapped_column(String(120))
     product_manufactured_on: Mapped[dt.date | None] = mapped_column(Date)
@@ -59,13 +146,99 @@ class HealthEvent(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
-    animal: Mapped[Animal | None] = relationship()
+    animal: Mapped[Animal | None] = relationship(foreign_keys=[animal_id])
+
+
+Index(
+    "ix_health_events_animal_template_latest",
+    HealthEvent.animal_id,
+    HealthEvent.schedule_template_id,
+    HealthEvent.date.desc(),
+    HealthEvent.id.desc(),
+)
+
+
+class MovementRestrictionAction(Base):
+    """Immutable placement/clearance fact for one restriction episode."""
+
+    __tablename__ = "movement_restriction_actions"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_movement_restriction_actions_farm_animal",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "health_event_id"],
+            ["health_events.farm_id", "health_events.id"],
+            name="fk_movement_restriction_actions_farm_health_event",
+        ),
+        UniqueConstraint(
+            "farm_id",
+            "animal_id",
+            "restriction_version",
+            "action",
+            name="uq_movement_restriction_action_episode",
+        ),
+        CheckConstraint(
+            "restriction_version >= 1",
+            name="ck_movement_restriction_actions_version",
+        ),
+        CheckConstraint(
+            "action IN ('PLACED', 'CLEARED')",
+            name="ck_movement_restriction_actions_action",
+        ),
+        CheckConstraint(
+            "btrim(action_reference) <> ''",
+            name="ck_movement_restriction_actions_reference",
+        ),
+        CheckConstraint(
+            "action <> 'PLACED' OR (disease_target IS NOT NULL AND btrim(disease_target) <> '')",
+            name="ck_movement_restriction_actions_placement_disease",
+        ),
+        Index(
+            "ix_movement_restriction_actions_animal_version",
+            "animal_id",
+            "restriction_version",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
+    animal_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
+    restriction_version: Mapped[int]
+    action: Mapped[str] = mapped_column(String(10))
+    acted_at: Mapped[dt.datetime] = mapped_column(default=utcnow)
+    acted_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True)
+    action_reference: Mapped[str] = mapped_column(String(255))
+    disease_target: Mapped[str | None] = mapped_column(String(120))
+    health_event_id: Mapped[int | None] = mapped_column(ForeignKey("health_events.id"))
 
 
 class VaccineTemplate(Base):
     """Seeded reference data: vaccination schedule templates."""
 
     __tablename__ = "vaccine_templates"
+    __table_args__ = (
+        CheckConstraint(
+            "first_dose_age_months IS NULL OR "
+            "(first_dose_age_months > 0 AND first_dose_age_months <= 240 AND "
+            "first_dose_age_months::text NOT IN ('NaN', 'Infinity', '-Infinity'))",
+            name="ck_vaccine_templates_first_age",
+        ),
+        CheckConstraint(
+            "booster_weeks IS NULL OR "
+            "(booster_weeks > 0 AND booster_weeks <= 520 AND "
+            "booster_weeks::text NOT IN ('NaN', 'Infinity', '-Infinity'))",
+            name="ck_vaccine_templates_booster",
+        ),
+        CheckConstraint(
+            "repeat_months IS NULL OR "
+            "(repeat_months > 0 AND repeat_months <= 240 AND "
+            "repeat_months::text NOT IN ('NaN', 'Infinity', '-Infinity'))",
+            name="ck_vaccine_templates_repeat",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)

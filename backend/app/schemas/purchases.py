@@ -7,20 +7,30 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models import MAX_AGE_MONTHS, MAX_BATCH_COUNT  # single source
 from .animals import AnimalOut
-from .common import NonNegativeMoneyFloat, NonNegativeWeightKgFloat, PastOrTodayDate
+from .common import (
+    MAX_FREE_TEXT_LENGTH,
+    NonNegativeFloat,
+    NonNegativeMoneyFloat,
+    NonNegativeWeightKgFloat,
+    PastOrTodayDate,
+    StrictBool,
+    StrictInputModel,
+    StrictInt,
+)
+from .summaries import PurchaseQuarantineAnimalOut, QuarantineScheduleTaskOut
 from .tasks import TaskOut
 
 
-class PurchaseBatchIn(BaseModel):
+class PurchaseBatchIn(StrictInputModel):
     date: PastOrTodayDate
     supplier: str | None = Field(default=None, max_length=120)
-    count: int = Field(ge=1, le=MAX_BATCH_COUNT)
+    count: StrictInt = Field(ge=1, le=MAX_BATCH_COUNT)
     sex: Literal["M", "F"] = "F"  # stub-animal sex (a bought buck is not a doe)
-    avg_age_months: float | None = Field(default=None, ge=0, le=MAX_AGE_MONTHS)
+    avg_age_months: NonNegativeFloat | None = Field(default=None, le=MAX_AGE_MONTHS)
     avg_weight_kg: NonNegativeWeightKgFloat | None = None
     total_price: NonNegativeMoneyFloat | None = None
-    notes: str | None = None
-    create_animals: bool = True
+    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    create_animals: StrictBool = True
 
     @field_validator("date")
     @classmethod
@@ -37,6 +47,7 @@ class PurchaseBatchOut(BaseModel):
     date: dt.date
     supplier: str | None
     count: int
+    sex: Literal["M", "F"] | None
     avg_age_months: float | None
     avg_weight_kg: float | None
     total_price: float | None
@@ -54,5 +65,5 @@ class PurchaseBatchListOut(BaseModel):
 
 class PurchaseBatchDetailOut(BaseModel):
     batch: PurchaseBatchOut
-    animals: list[AnimalOut]
-    tasks: list[TaskOut]
+    animals: list[AnimalOut | PurchaseQuarantineAnimalOut]
+    tasks: list[TaskOut | QuarantineScheduleTaskOut]

@@ -226,11 +226,18 @@ describe("PurchasesPage new-batch dialog", () => {
     fireEvent.change(within(dialog).getByLabelText(/^Date/), { target: { value } });
   }
 
-  it("opens with today, count 50 and create_animals pre-checked", async () => {
+  async function reviewAndConfirm(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+    expect(await within(dialog).findByText("Review purchase consequences")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and create" }));
+  }
+
+  it("opens with today, count 1 and create_animals pre-checked", async () => {
     const { dialog } = await openDialog();
 
     expect(within(dialog).getByLabelText(/^Date/)).toHaveValue(localToday());
-    expect(within(dialog).getByLabelText(/Count/)).toHaveValue(50);
+    expect(within(dialog).getByLabelText(/Count/)).toHaveValue(1);
     expect(within(dialog).getByRole("checkbox")).toBeChecked();
   });
 
@@ -240,7 +247,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const count = within(dialog).getByLabelText(/Count/);
     await user.clear(count);
     await user.type(count, "2.5");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Count must be a whole number")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -252,7 +259,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const count = within(dialog).getByLabelText(/Count/);
     await user.clear(count);
     await user.type(count, "1001");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("At most 1000 animals")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -264,7 +271,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const count = within(dialog).getByLabelText(/Count/);
     await user.clear(count);
     await user.type(count, "0");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("At least 1 animal")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -274,7 +281,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     setDate(dialog, "");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Date is required")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -284,7 +291,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     setDate(dialog, "1999-12-31");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Date must be year 2000 or later")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -294,7 +301,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     setDate(dialog, "2099-01-01");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Date cannot be in the future")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -304,7 +311,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Avg age/), "-1");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Cannot be negative")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -314,7 +321,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Avg age/), "241");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("At most 240 months")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -324,7 +331,7 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Avg weight/), "-0.5");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Cannot be negative")).toBeInTheDocument();
     expect(postCalls).toBe(0);
@@ -334,9 +341,20 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Total price/), "-100");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
     expect(await within(dialog).findByText("Cannot be negative")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects a non-zero total price below half a paisa", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Total price/), "0.004");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
+      .toBeInTheDocument();
     expect(postCalls).toBe(0);
   });
 
@@ -344,13 +362,13 @@ describe("PurchasesPage new-batch dialog", () => {
     const { user, dialog } = await openDialog();
     const callsBefore = listCalls;
 
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await reviewAndConfirm(user, dialog);
 
     await waitFor(() => expect(postCalls).toBe(1));
     expect(postBody).toEqual({
       date: localToday(),
       supplier: null,
-      count: 50,
+      count: 1,
       sex: "F",
       avg_age_months: null,
       avg_weight_kg: null,
@@ -360,6 +378,24 @@ describe("PurchasesPage new-batch dialog", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(listCalls).toBeGreaterThan(callsBefore));
+  });
+
+  it("shows side effects and allows editing before any POST", async () => {
+    const { user, dialog } = await openDialog();
+    const count = within(dialog).getByLabelText(/Count/);
+    await user.clear(count);
+    await user.type(count, "12");
+    await user.type(within(dialog).getByLabelText(/Total price/), "150000");
+
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+    expect(await within(dialog).findByText("12 in QUARANTINE")).toBeInTheDocument();
+    expect(within(dialog).getByText(/₹1,50,000 ANIMAL_PURCHASE/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/does not currently provide a batch reversal/)).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+
+    await user.click(within(dialog).getByRole("button", { name: "Back and edit" }));
+    expect(within(dialog).getByLabelText(/Count/)).toHaveValue(12);
+    expect(postCalls).toBe(0);
   });
 
   it("POSTs trimmed values and honors an unchecked create_animals", async () => {
@@ -375,7 +411,15 @@ describe("PurchasesPage new-batch dialog", () => {
     await user.type(within(dialog).getByLabelText(/Total price/), "150000");
     await user.type(within(dialog).getByLabelText(/Notes/), "  foundation stock  ");
     await user.click(within(dialog).getByRole("checkbox"));
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    expect(
+      within(dialog).getByText(/records only the batch and any purchase expense/),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+    expect(await within(dialog).findByText("Review purchase consequences")).toBeInTheDocument();
+    expect(within(dialog).getByText("None (no animal stubs)")).toBeInTheDocument();
+    expect(within(dialog).queryByText("45-day quarantine schedule")).not.toBeInTheDocument();
+    expect(postCalls).toBe(0);
+    await user.click(within(dialog).getByRole("button", { name: "Confirm and create" }));
 
     await waitFor(() => expect(postCalls).toBe(1));
     expect(postBody).toEqual({
@@ -399,7 +443,7 @@ describe("PurchasesPage new-batch dialog", () => {
     await user.click(sexTrigger);
     await user.click(await screen.findByRole("option", { name: "Male" }));
     expect(sexTrigger).toHaveTextContent("Male");
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await reviewAndConfirm(user, dialog);
 
     await waitFor(() => expect(postCalls).toBe(1));
     expect(postBody).toMatchObject({ sex: "M" });
@@ -414,7 +458,7 @@ describe("PurchasesPage new-batch dialog", () => {
     );
     const { user, dialog } = await openDialog();
 
-    await user.click(within(dialog).getByRole("button", { name: "Create batch" }));
+    await reviewAndConfirm(user, dialog);
 
     await waitFor(() => expect(postCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();

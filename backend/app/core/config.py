@@ -9,11 +9,14 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 MAX_PREVIOUS_JWT_PUBLIC_KEYS = 3
+MAX_PREVIOUS_IDEMPOTENCY_HMAC_SECRETS = 3
+MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH = 32
+DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET = "development-only-idempotency-hmac-secret-change-me"
 
 # asyncpg `ssl` connect-arg values (same names as libpq's sslmode).
 DbSslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
@@ -22,8 +25,11 @@ DbSslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verif
 class Settings(BaseSettings):
     # env_file resolved against backend/ so launching uvicorn/alembic from
     # the repo root (or a Docker WORKDIR) still picks it up.
+    # Fail fast on misspelled keys in backend/.env and direct Settings(...)
+    # construction. Silently ignoring a security setting is more dangerous
+    # than refusing to boot with an actionable validation error.
     model_config = SettingsConfigDict(
-        env_prefix="GOATFARM_", env_file=BACKEND_DIR / ".env", extra="ignore"
+        env_prefix="GOATFARM_", env_file=BACKEND_DIR / ".env", extra="forbid"
     )
 
     # Deployment environment. "production" turns on fail-closed validation
@@ -32,6 +38,11 @@ class Settings(BaseSettings):
 
     # Database (asyncpg driver). `goatfarm_test` is used by the test suite.
     database_url: str = "postgresql+asyncpg://localhost:5432/goatfarm"
+
+    # Optional separately privileged URL used only by Alembic. Production
+    # deployments should keep DDL rights away from the long-running API
+    # credential and run migrations as an explicit release job.
+    migration_database_url: str | None = None
 
     # TLS for the database wire, mapped to asyncpg's `ssl` connect arg.
     # "require" (or stricter) for any remote/production database.
@@ -46,10 +57,48 @@ class Settings(BaseSettings):
     db_pool_timeout: int = Field(default=30, ge=1)  # seconds to wait for a free connection
     db_statement_timeout_ms: int = Field(default=30_000, ge=1)  # asyncpg server_settings
 
+    # Successful Idempotency-Key results are replayable for this window.
+    # Expired records are removed by a bounded background cleanup job.
+    idempotency_retention_hours: int = Field(default=24 * 7, ge=1, le=24 * 90)
+    idempotency_cleanup_interval_seconds: int = Field(default=3600, ge=60)
+    idempotency_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
+    idempotency_cleanup_max_batches: int = Field(default=10, ge=1, le=100)
+    # Sensitive request fingerprints must not be usable as an offline password
+    # verifier by a database/backup reader. This key is deliberately distinct
+    # from JWT signing keys and must remain stable across replicas/restarts.
+    idempotency_request_hmac_secret: SecretStr = SecretStr(DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET)
+    # Verification-only keys support a bounded, rolling rotation. New records
+    # are always signed with the current key.
+    idempotency_request_hmac_previous_secrets: list[SecretStr] = Field(
+        default_factory=list,
+        max_length=MAX_PREVIOUS_IDEMPOTENCY_HMAC_SECRETS,
+    )
+
+    # Legacy tenant repairs run only after readiness and claim finite batches
+    # with SKIP LOCKED, so rolling deploys never lock every farm at startup.
+    legacy_repair_interval_seconds: int = Field(default=3600, ge=60)
+    legacy_repair_farm_batch_size: int = Field(default=25, ge=1, le=500)
+    legacy_repair_task_batch_size: int = Field(default=500, ge=1, le=10_000)
+    legacy_repair_max_batches: int = Field(default=10, ge=1, le=100)
+
+    # Animal lifecycle exits hide linked pending work immediately. Cleanup is
+    # then converged in finite lock-skipping batches outside the status request
+    # so one goat with an extreme task history cannot make retirement time out.
+    inactive_animal_task_cleanup_interval_seconds: int = Field(default=60, ge=10)
+    inactive_animal_task_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
+    inactive_animal_task_cleanup_max_batches: int = Field(default=10, ge=1, le=100)
+
+    # User tombstones revoke access synchronously; their retained membership
+    # audit anchors are deactivated afterward in finite lock-skipping batches.
+    deleted_membership_cleanup_interval_seconds: int = Field(default=60, ge=10)
+    deleted_membership_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
+    deleted_membership_cleanup_max_batches: int = Field(default=10, ge=1, le=100)
+
     # Reject oversized JSON/form bodies before Starlette buffers/parses them.
     # This is an application backstop; the edge proxy should enforce the same
     # or a smaller limit before traffic reaches uvicorn.
     max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=20_971_520)
+    max_request_target_bytes: int = Field(default=8_192, ge=256, le=65_536)
 
     # JWT: RS256 keypair lives in backend/keys/ (generated on first run,
     # gitignored). Access token travels in the Authorization header; the
@@ -63,30 +112,57 @@ class Settings(BaseSettings):
         default_factory=list, max_length=MAX_PREVIOUS_JWT_PUBLIC_KEYS
     )
     jwt_algorithm: Literal["RS256"] = "RS256"
-    access_token_ttl_seconds: int = Field(default=30 * 60, ge=1)
-    refresh_token_ttl_seconds: int = Field(default=60 * 60 * 24 * 14, ge=1)
+    # Bind signed tokens to this service/client pair. Signature validity alone
+    # is not enough when the same key might ever be used by another service.
+    jwt_issuer: str = Field(default="goatfarm-api", min_length=1, max_length=200)
+    jwt_audience: str = Field(default="goatfarm-web", min_length=1, max_length=200)
+    access_token_ttl_seconds: int = Field(default=30 * 60, ge=1, le=60 * 60 * 24)
+    refresh_token_ttl_seconds: int = Field(default=60 * 60 * 24 * 14, ge=1, le=60 * 60 * 24 * 365)
+    # Long-running processes periodically remove expired server-side refresh
+    # sessions; relying on restarts alone lets the table grow without bound.
+    refresh_session_cleanup_interval_seconds: int = Field(default=3600, ge=60)
+    refresh_session_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
+    refresh_session_cleanup_max_batches: int = Field(default=10, ge=1, le=100)
+    # Bound both successful-login family creation and refresh rotation. These
+    # limits make password revocation/account deletion finite even under a
+    # valid-credential attacker; signed family claims retain replay detection
+    # after old consumed-token rows are compacted.
+    refresh_max_families_per_user: int = Field(default=10, ge=1, le=50)
+    refresh_max_sessions_per_family: int = Field(default=1024, ge=2, le=4096)
     # Only simultaneous browser-tab replays get an idempotent successor.
     # Anything later remains a refresh-token theft signal.
     refresh_reuse_grace_seconds: int = Field(default=3, ge=0, le=30)
     refresh_cookie_name: str = "goatfarm_refresh"
 
     # Argon2id parameters (protected: only changeable via env, never at runtime).
-    argon2_time_cost: int = Field(default=3, ge=1)
-    argon2_memory_cost: int = Field(default=65536, ge=1)  # KiB (64 MiB)
-    argon2_parallelism: int = Field(default=4, ge=1)
-    argon2_hash_len: int = Field(default=32, ge=1)
+    argon2_time_cost: int = Field(default=3, ge=1, le=6)
+    argon2_memory_cost: int = Field(default=65536, ge=8, le=131_072)  # KiB (64 MiB)
+    argon2_parallelism: int = Field(default=4, ge=1, le=8)
+    argon2_hash_len: int = Field(default=32, ge=16, le=64)
+    # Password work is CPU/memory hard and must never execute on the asyncio
+    # event loop.  A small dedicated pool bounds both memory (workers ×
+    # memory_cost) and queued work; excess requests fail fast with HTTP 429.
+    argon2_worker_threads: int = Field(default=2, ge=1, le=4)
 
     # Frontend dev server origins allowed to call the API with credentials.
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
+    # HTTP Host header allowlist. This is independent from CORS: CORS limits
+    # which browsers may read credentialed responses, while Host validation
+    # rejects requests addressed to an unexpected virtual host before routing.
+    # Production must replace these local/test defaults with its API hosts.
+    allowed_hosts: list[str] = ["localhost", "127.0.0.1", "test", "testserver"]
+
     # Refresh-token cookie flags (httpOnly + SameSite=Lax always on).
     cookie_secure: bool = False  # set True behind HTTPS in production
 
-    min_password_length: int = Field(default=8, ge=1)
+    min_password_length: int = Field(default=8, ge=1, le=128)
 
-    # Auth endpoints rate limiting: in-memory sliding window, per process.
+    # Password/auth rate limiting: in-memory sliding window, per process.
     # Login counts FAILED attempts only (a success resets the count) and is
     # keyed per (client IP, email); register counts every attempt per IP.
+    # Authenticated worker-create/reset Argon work shares a per-owner budget so
+    # switching endpoints or farms cannot monopolize the global password pool.
     auth_rate_limit_enabled: bool = True
     auth_rate_limit_max_attempts: int = Field(default=10, ge=1)
     auth_rate_limit_window_seconds: int = Field(default=300, ge=1)
@@ -99,6 +175,30 @@ class Settings(BaseSettings):
 
     # A single account may own at most this many farms.
     max_farms_per_user: int = Field(default=10, ge=1)
+    # Legacy/imported identities may predate today's one-farm provisioning
+    # consent guard. Bound list/export hydration instead of trusting that
+    # historical affiliation cardinality is small.
+    max_account_affiliations_per_response: int = Field(default=500, ge=1, le=10_000)
+
+    # Tenant resource ceilings prevent a compromised team manager from
+    # provisioning an unbounded number of global accounts or custom roles.
+    # Inactive memberships still count because they retain a User row and can
+    # be reactivated without another capacity check.
+    max_team_members_per_farm: int = Field(default=200, ge=1, le=10_000)
+    max_roles_per_farm: int = Field(default=50, ge=1, le=1_000)
+    max_simulation_scenarios_per_farm: int = Field(default=25, ge=1, le=500)
+    # Distinct Idempotency-Key values must not let a compromised task creator
+    # grow the actionable queue without bound. Completed/skipped history and
+    # authoritative generated workflow duties do not consume this allowance.
+    max_pending_manual_tasks_per_farm: int = Field(default=5_000, ge=1, le=100_000)
+
+    @field_validator("jwt_issuer", "jwt_audience")
+    @classmethod
+    def _nonblank_token_binding(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must not be blank")
+        return normalized
 
     @model_validator(mode="after")
     def _production_safety(self) -> Settings:
@@ -106,9 +206,44 @@ class Settings(BaseSettings):
         trivially insecure — an HTTP refresh-cookie, localhost CORS origins,
         or a plaintext database connection are always operator mistakes,
         never valid production config."""
+        # Argon2 requires at least 8 KiB per lane. Validate this relationship
+        # before startup primes the dummy hash, yielding an actionable config
+        # error rather than a native hashing failure during boot.
+        if self.argon2_memory_cost < 8 * self.argon2_parallelism:
+            raise ValueError(
+                "GOATFARM_ARGON2_MEMORY_COST must be at least 8 * GOATFARM_ARGON2_PARALLELISM"
+            )
         if self.environment != "production":
             return self
         problems: list[str] = []
+        current_hmac_secret = self.idempotency_request_hmac_secret.get_secret_value()
+        previous_hmac_secrets = [
+            secret.get_secret_value() for secret in self.idempotency_request_hmac_previous_secrets
+        ]
+        if (
+            len(current_hmac_secret) < MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH
+            or current_hmac_secret == DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET
+        ):
+            problems.append(
+                "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET must be an externally supplied "
+                f"secret of at least {MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH} characters in production"
+            )
+        if any(
+            len(secret) < MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH for secret in previous_hmac_secrets
+        ):
+            problems.append(
+                "every GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS entry must be "
+                f"at least {MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH} characters"
+            )
+        if len(set(previous_hmac_secrets)) != len(previous_hmac_secrets):
+            problems.append(
+                "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS must not contain duplicates"
+            )
+        if current_hmac_secret in previous_hmac_secrets:
+            problems.append(
+                "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET must not also appear in "
+                "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS"
+            )
         if not self.cookie_secure:
             problems.append(
                 "GOATFARM_COOKIE_SECURE must be true in production "
@@ -152,8 +287,37 @@ class Settings(BaseSettings):
                 "GOATFARM_CORS_ORIGINS must contain exact non-loopback HTTPS origins "
                 f"(no wildcard, credentials, path, query or fragment): {invalid_origins}"
             )
+        invalid_hosts: list[str] = []
+        for configured_host in self.allowed_hosts:
+            host = configured_host.strip().lower()
+            candidate = host[2:] if host.startswith("*.") else host
+            is_loopback = False
+            try:
+                is_loopback = ipaddress.ip_address(candidate).is_loopback
+            except ValueError:
+                is_loopback = candidate == "localhost"
+            if (
+                not host
+                or host == "*"
+                or not candidate
+                or any(character in host for character in "/:@?#")
+                or any(character.isspace() for character in host)
+                or is_loopback
+            ):
+                invalid_hosts.append(configured_host)
+        if not self.allowed_hosts or invalid_hosts:
+            problems.append(
+                "GOATFARM_ALLOWED_HOSTS must contain non-loopback hostnames "
+                f"(exact names or '*.example.com', never '*'): {invalid_hosts}"
+            )
         if self.min_password_length < 12:
             problems.append("GOATFARM_MIN_PASSWORD_LENGTH must be at least 12 in production")
+        if self.argon2_time_cost < 2:
+            problems.append("GOATFARM_ARGON2_TIME_COST must be at least 2 in production")
+        if self.argon2_memory_cost < 19 * 1024:
+            problems.append("GOATFARM_ARGON2_MEMORY_COST must be at least 19456 KiB in production")
+        if self.argon2_hash_len < 32:
+            problems.append("GOATFARM_ARGON2_HASH_LEN must be at least 32 in production")
         if self.db_sslmode in {"disable", "allow", "prefer"}:
             problems.append(
                 f"GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe in production — "

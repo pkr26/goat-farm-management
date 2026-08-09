@@ -2,13 +2,12 @@
 
 from pydantic import BaseModel
 
-from .animals import AnimalOut, WeightRecordOut
-from .breeding import BreedingRecordOut
+from .summaries import AnimalIdentityOut, DashboardKiddingDueOut, DashboardWeightOut
 from .tasks import TaskOut
 
 
 class MoveSuggestionOut(BaseModel):
-    animal: AnimalOut
+    animal: AnimalIdentityOut
     to: str
     reason: str
 
@@ -25,12 +24,22 @@ class DashboardOut(BaseModel):
     sex_counts: dict[str, int]
     status_totals: dict[str, int]
     todays_tasks: list[TaskOut]
+    todays_tasks_total: int
     overdue_tasks: list[TaskOut]
+    overdue_tasks_total: int
     ultrasounds_due: list[TaskOut]
-    kiddings_due: list[BreedingRecordOut]
-    cull_candidates: list[AnimalOut]
+    ultrasounds_due_total: int
+    kiddings_due: list[DashboardKiddingDueOut]
+    kiddings_due_total: int
+    cull_candidates: list[AnimalIdentityOut]
+    cull_candidates_total: int
     suggestions: list[MoveSuggestionOut]
-    recent_weights: list[WeightRecordOut]
+    suggestions_total: int
+    recent_weights: list[DashboardWeightOut]
+    recent_weights_total: int
+    # All operational lists above except recent_weights use this cap.
+    preview_limit: int
+    recent_weights_limit: int
 
 
 class BucketReportRow(BaseModel):
@@ -47,7 +56,9 @@ class BreedingStatsOut(BaseModel):
     kiddings: int
     kids_per_kidding: float | None
     twin_rate: float | None
-    cull_candidates: list[AnimalOut]
+    cull_candidates: list[AnimalIdentityOut]
+    cull_candidates_total: int
+    cull_candidates_limit: int
 
 
 class MortalityOut(BaseModel):

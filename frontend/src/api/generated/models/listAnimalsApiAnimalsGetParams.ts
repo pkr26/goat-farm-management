@@ -12,10 +12,16 @@ export type ListAnimalsApiAnimalsGetParams = {
 bucket?: ListAnimalsApiAnimalsGetBucket;
 sex?: ListAnimalsApiAnimalsGetSex;
 status?: ListAnimalsApiAnimalsGetStatus;
+include_all_statuses?: boolean;
 q?: string | null;
-limit?: number | null;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+limit?: number;
 /**
  * @minimum 0
+ * @maximum 1000000
  */
 offset?: number;
 };

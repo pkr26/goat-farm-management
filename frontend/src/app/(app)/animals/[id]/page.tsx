@@ -6,8 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { Suspense, useRef, useState, type ReactNode } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import {
   useAnimalProfileApiAnimalsAnimalIdGet,
   useChangeStatusApiAnimalsAnimalIdStatusPost,
   useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost,
+  useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet,
   useMoveBucketApiAnimalsAnimalIdMovePost,
   useRecordWeightApiAnimalsAnimalIdWeightPost,
 } from "@/api/generated/endpoints";
@@ -26,6 +27,7 @@ import {
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,9 +60,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import { permittedAppPath } from "@/lib/permission-navigation";
+import {
+  isPersistableNonnegativeMoney,
+  MIN_PERSISTED_MONEY_MESSAGE,
+} from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 
 const BUCKETS = Object.values(MoveInToBucket);
+const PROFILE_HISTORY_LIMIT = 25;
+const RESTRICTION_HISTORY_LIMIT = 25;
 /** value → label map for the root `items` prop: without it, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
 const BUCKET_ITEMS: Record<string, string> = Object.fromEntries(
@@ -309,7 +318,9 @@ const statusSchema = z
       StatusChangeInNewStatus.CULLED,
     ]),
     date: z.string().optional(),
-    sale_price: optNum(z.number().nonnegative()),
+    sale_price: optNum(
+      z.number().nonnegative().refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+    ),
     buyer_name: z.string().max(120).optional(),
     notes: z.string().max(255).optional(),
     mortality_cause: z.string().max(120).optional(),
@@ -324,7 +335,11 @@ const statusSchema = z
         context.addIssue({ code: "custom", path: [field], message: "Date can't be in the future" });
       }
     }
-    if (values.suspected_scheduled_disease && !values.suspected_disease?.trim()) {
+    if (
+      values.new_status === StatusChangeInNewStatus.DEAD &&
+      values.suspected_scheduled_disease &&
+      !values.suspected_disease?.trim()
+    ) {
       context.addIssue({
         code: "custom",
         path: ["suspected_disease"],
@@ -349,6 +364,7 @@ function StatusDialog({
     handleSubmit,
     control,
     setValue,
+    unregister,
     reset,
     formState: { errors, isSubmitting },
   } = useForm<StatusInput, unknown, StatusValues>({
@@ -428,7 +444,25 @@ function StatusDialog({
               control={control}
               name="new_status"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  value={field.value}
+                  onValueChange={(value) => {
+                    const nextStatus = value as StatusValues["new_status"];
+                    field.onChange(nextStatus);
+                    if (nextStatus !== StatusChangeInNewStatus.SOLD) {
+                      unregister(["sale_price", "buyer_name"]);
+                    }
+                    if (nextStatus !== StatusChangeInNewStatus.DEAD) {
+                      setValue("suspected_scheduled_disease", false);
+                      unregister([
+                        "mortality_cause",
+                        "mortality_reported_at",
+                        "suspected_disease",
+                        "authority_notified_at",
+                      ]);
+                    }
+                  }}
+                >
                   <SelectTrigger id="animal-new-status" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -505,14 +539,22 @@ function StatusDialog({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <Checkbox
-                  id="mortality-scheduled-disease"
-                  checked={suspectedScheduledDisease}
-                  onCheckedChange={(checked) =>
-                    setValue("suspected_scheduled_disease", checked === true, {
-                      shouldValidate: true,
-                    })
-                  }
+                <Controller
+                  control={control}
+                  name="suspected_scheduled_disease"
+                  render={({ field }) => (
+                    <Checkbox
+                      id="mortality-scheduled-disease"
+                      checked={field.value}
+                      onCheckedChange={(checked) => {
+                        const selected = checked === true;
+                        if (!selected) {
+                          unregister(["suspected_disease", "authority_notified_at"]);
+                        }
+                        field.onChange(selected);
+                      }}
+                    />
+                  )}
                 />
                 <Label htmlFor="mortality-scheduled-disease" className="font-normal">
                   Suspected scheduled/notifiable disease
@@ -572,39 +614,64 @@ function StatusDialog({
 
 function ClearRestrictionDialog({
   animalId,
+  restrictionVersion,
   onDone,
 }: {
   animalId: number;
+  restrictionVersion: number;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [conflictedVersion, setConflictedVersion] = useState<number | null>(null);
+  const requestInFlight = useRef(false);
   const mutation = useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost();
+  const awaitingEpisodeRefresh = conflictedVersion === restrictionVersion;
 
   async function clearRestriction() {
+    if (requestInFlight.current || awaitingEpisodeRefresh) return;
     const clearanceReference = reference.trim();
     if (!clearanceReference) {
       setError("A veterinary or authority clearance reference is required.");
       return;
     }
     setError(null);
+    requestInFlight.current = true;
     try {
       await mutation.mutateAsync({
         animalId,
-        data: { clearance_reference: clearanceReference },
+        data: {
+          clearance_reference: clearanceReference,
+          expected_restriction_version: restrictionVersion,
+        },
       });
       toast.success("Movement restriction cleared with an audit reference.");
       setReference("");
+      setConflictedVersion(null);
       setOpen(false);
       onDone();
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.detail : "Could not clear the restriction.");
+      if (caught instanceof ApiError && caught.status === 409) {
+        setConflictedVersion(restrictionVersion);
+        setError(`${caught.detail} Refreshing the current restriction episode before retrying.`);
+        onDone();
+      } else {
+        setError(caught instanceof ApiError ? caught.detail : "Could not clear the restriction.");
+      }
+    } finally {
+      requestInFlight.current = false;
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && mutation.isPending) return;
+        setOpen(nextOpen);
+      }}
+    >
       <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
         Record clearance
       </Button>
@@ -638,15 +705,31 @@ function ClearRestrictionDialog({
           )}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
           <Button
             type="button"
-            disabled={!reference.trim() || mutation.isPending}
+            variant="outline"
+            disabled={mutation.isPending}
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          {awaitingEpisodeRefresh && (
+            <Button type="button" variant="outline" onClick={onDone}>
+              Refresh episode
+            </Button>
+          )}
+          <Button
+            type="button"
+            disabled={!reference.trim() || mutation.isPending || awaitingEpisodeRefresh}
             onClick={() => void clearRestriction()}
           >
-            {mutation.isPending ? "Recording…" : "Confirm clearance"}
+            {mutation.isPending
+              ? "Recording…"
+              : awaitingEpisodeRefresh
+                ? "Waiting for current episode…"
+                : error
+                  ? "Retry clearance"
+                  : "Confirm clearance"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -654,20 +737,57 @@ function ClearRestrictionDialog({
   );
 }
 
-function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh: () => void }) {
+function ProfileBody({
+  profile,
+  refresh,
+  backHref,
+  backLabel,
+  onKidsOffsetChange,
+  onWeightsOffsetChange,
+  onMovesOffsetChange,
+  onHealthEventsOffsetChange,
+  onBreedingsOffsetChange,
+}: {
+  profile: AnimalProfileOut;
+  refresh: () => void;
+  backHref: string;
+  backLabel: string;
+  onKidsOffsetChange: (offset: number) => void;
+  onWeightsOffsetChange: (offset: number) => void;
+  onMovesOffsetChange: (offset: number) => void;
+  onHealthEventsOffsetChange: (offset: number) => void;
+  onBreedingsOffsetChange: (offset: number) => void;
+}) {
   const { can } = usePermissions();
   const a = profile.animal;
   const active = a.status === "ACTIVE";
+  const canViewHealth = can("health.view");
+  const canViewBreeding = can("breeding.view");
+  const [restrictionOffset, setRestrictionOffset] = useState(0);
+  const restrictionHistoryQuery = useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet(
+    a.id,
+    { limit: RESTRICTION_HISTORY_LIMIT, offset: restrictionOffset },
+    {
+      query: {
+        enabled: canViewHealth,
+        placeholderData: (previous) => previous,
+      },
+    },
+  );
+  const restrictionHistory =
+    restrictionHistoryQuery.data?.status === 200
+      ? restrictionHistoryQuery.data.data
+      : undefined;
 
   return (
     <div className="space-y-6">
       <div>
         <Link
-          href="/animals"
+          href={backHref}
           className="mb-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          Back to animals
+          {backLabel}
         </Link>
         <PageHeader
           title={
@@ -720,11 +840,81 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
               </p>
             </div>
             {can("health.manage") && (
-              <ClearRestrictionDialog animalId={a.id} onDone={refresh} />
+              <ClearRestrictionDialog
+                animalId={a.id}
+                restrictionVersion={a.restriction_version}
+                onDone={refresh}
+              />
             )}
           </CardContent>
         </Card>
       )}
+
+      {canViewHealth &&
+        (restrictionHistoryQuery.isLoading ||
+          restrictionHistoryQuery.isError ||
+          (restrictionHistory?.total ?? 0) > 0) && (
+          <DataTableCard
+            title={`Movement restriction audit (${restrictionHistory?.total ?? 0})`}
+            description="Immutable placement and clearance actions grouped by restriction episode."
+          >
+            {restrictionHistoryQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading restriction audit…</p>
+            ) : restrictionHistoryQuery.isError ? (
+              <div role="alert" className="flex flex-wrap items-center gap-3">
+                <p className="text-sm text-destructive">
+                  {restrictionHistoryQuery.error instanceof ApiError
+                    ? restrictionHistoryQuery.error.detail
+                    : "Could not load the restriction audit."}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void restrictionHistoryQuery.refetch()}
+                >
+                  Retry audit
+                </Button>
+              </div>
+            ) : (
+              <div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Episode</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>When</TableHead>
+                      <TableHead>Reference</TableHead>
+                      <TableHead>Disease</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {restrictionHistory?.actions.map((action) => (
+                      <TableRow key={action.id}>
+                        <TableCell className="tabular-nums">
+                          {action.restriction_version}
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge status={action.action}>{action.action}</StatusBadge>
+                        </TableCell>
+                        <TableCell>{formatFarmDateTime(action.acted_at)}</TableCell>
+                        <TableCell>{action.action_reference}</TableCell>
+                        <TableCell>{action.disease_target ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <PaginationControls
+                  total={restrictionHistory?.total ?? 0}
+                  limit={restrictionHistory?.limit ?? RESTRICTION_HISTORY_LIMIT}
+                  offset={restrictionHistory?.offset ?? restrictionOffset}
+                  onOffsetChange={setRestrictionOffset}
+                  label="movement restriction actions"
+                />
+              </div>
+            )}
+          </DataTableCard>
+        )}
 
       <Card>
         <CardHeader>
@@ -822,7 +1012,7 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <DataTableCard title={`Weight history (${profile.weights.length})`}>
+        <DataTableCard title={`Weight history (${profile.weights_total})`}>
           {profile.weights.length === 0 ? (
             <p className="text-muted-foreground">No weight records yet.</p>
           ) : (
@@ -847,9 +1037,16 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
               </TableBody>
             </Table>
           )}
+          <PaginationControls
+            total={profile.weights_total}
+            limit={profile.history_limit}
+            offset={profile.weights_offset}
+            onOffsetChange={onWeightsOffsetChange}
+            label="weight records"
+          />
         </DataTableCard>
 
-        <DataTableCard title={`Bucket moves (${profile.moves.length})`}>
+        <DataTableCard title={`Bucket moves (${profile.moves_total})`}>
           {profile.moves.length === 0 ? (
             <p className="text-muted-foreground">No moves recorded.</p>
           ) : (
@@ -874,9 +1071,17 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
               </TableBody>
             </Table>
           )}
+          <PaginationControls
+            total={profile.moves_total}
+            limit={profile.history_limit}
+            offset={profile.moves_offset}
+            onOffsetChange={onMovesOffsetChange}
+            label="bucket moves"
+          />
         </DataTableCard>
 
-        <DataTableCard title={`Health events (${profile.health_events.length})`}>
+        {canViewHealth && (
+        <DataTableCard title={`Health events (${profile.health_events_total})`}>
           {profile.health_events.length === 0 ? (
             <p className="text-muted-foreground">No health events.</p>
           ) : (
@@ -920,10 +1125,18 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
               </TableBody>
             </Table>
           )}
+          <PaginationControls
+            total={profile.health_events_total}
+            limit={profile.history_limit}
+            offset={profile.health_events_offset}
+            onOffsetChange={onHealthEventsOffsetChange}
+            label="health events"
+          />
         </DataTableCard>
+        )}
 
         {a.sex === "F" && (
-          <DataTableCard title={`Kids (${profile.kids.length})`}>
+          <DataTableCard title={`Kids (${profile.kids_total})`}>
             {profile.kids.length === 0 ? (
               <p className="text-muted-foreground">No kids recorded.</p>
             ) : (
@@ -957,6 +1170,38 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
                 </TableBody>
               </Table>
             )}
+            <PaginationControls
+              total={profile.kids_total}
+              limit={profile.history_limit}
+              offset={profile.kids_offset}
+              onOffsetChange={onKidsOffsetChange}
+              label="offspring"
+            />
+          </DataTableCard>
+        )}
+
+        {a.sex === "F" && canViewBreeding && (
+          <DataTableCard title={`Breeding history (${profile.breedings_total})`}>
+            {profile.breedings.length === 0 ? (
+              <p className="text-muted-foreground">No breeding records.</p>
+            ) : (
+              <ul className="divide-y">
+                {profile.breedings.map((recordId) => (
+                  <li key={recordId} className="py-2">
+                    <Link href="/breeding" className="text-primary underline">
+                      Breeding record #{recordId}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <PaginationControls
+              total={profile.breedings_total}
+              limit={profile.history_limit}
+              offset={profile.breedings_offset}
+              onOffsetChange={onBreedingsOffsetChange}
+              label="breeding records"
+            />
           </DataTableCard>
         )}
       </div>
@@ -964,16 +1209,44 @@ function ProfileBody({ profile, refresh }: { profile: AnimalProfileOut; refresh:
   );
 }
 
-export default function AnimalProfilePage() {
+function AnimalProfilePageContent() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const animalId = Number(params.id);
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("animals.view");
-  const query = useAnimalProfileApiAnimalsAnimalIdGet(animalId, {
-    query: { enabled: allowed && Number.isFinite(animalId) },
-  });
+  const [kidsOffset, setKidsOffset] = useState(0);
+  const [weightsOffset, setWeightsOffset] = useState(0);
+  const [movesOffset, setMovesOffset] = useState(0);
+  const [healthEventsOffset, setHealthEventsOffset] = useState(0);
+  const [breedingsOffset, setBreedingsOffset] = useState(0);
+  const query = useAnimalProfileApiAnimalsAnimalIdGet(
+    animalId,
+    {
+      history_limit: PROFILE_HISTORY_LIMIT,
+      kids_offset: kidsOffset,
+      weights_offset: weightsOffset,
+      moves_offset: movesOffset,
+      health_events_offset: healthEventsOffset,
+      breedings_offset: breedingsOffset,
+    },
+    {
+      query: {
+        enabled: allowed && Number.isFinite(animalId),
+        placeholderData: (previous) => previous,
+      },
+    },
+  );
   const profile = query.data?.status === 200 ? query.data.data : undefined;
   const refresh = useProfileRefresh(animalId);
+  const backHref = permittedAppPath(searchParams.get("returnTo"), can) ?? "/animals";
+  const backLabel = backHref.startsWith("/dashboard")
+    ? "Back to dashboard"
+    : backHref.startsWith("/tasks")
+      ? "Back to tasks"
+      : backHref.startsWith("/health")
+        ? "Back to health"
+        : "Back to animals";
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -993,10 +1266,38 @@ export default function AnimalProfilePage() {
   }
   if (query.isError || !profile) {
     return (
-      <p className="text-sm text-destructive">
-        {query.error instanceof ApiError ? query.error.detail : "Animal not found."}
-      </p>
+      <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+        <p className="text-sm text-destructive">
+          {query.error instanceof ApiError ? query.error.detail : "Animal not found."}
+        </p>
+        <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+          Retry animal profile
+        </Button>
+        <Link href={backHref} className="block text-sm text-primary underline">
+          {backLabel}
+        </Link>
+      </div>
     );
   }
-  return <ProfileBody profile={profile} refresh={refresh} />;
+  return (
+    <ProfileBody
+      profile={profile}
+      refresh={refresh}
+      backHref={backHref}
+      backLabel={backLabel}
+      onKidsOffsetChange={setKidsOffset}
+      onWeightsOffsetChange={setWeightsOffset}
+      onMovesOffsetChange={setMovesOffset}
+      onHealthEventsOffsetChange={setHealthEventsOffset}
+      onBreedingsOffsetChange={setBreedingsOffset}
+    />
+  );
+}
+
+export default function AnimalProfilePage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <AnimalProfilePageContent />
+    </Suspense>
+  );
 }

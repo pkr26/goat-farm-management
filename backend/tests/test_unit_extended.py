@@ -28,6 +28,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from app import security
 from app.models import (
     BREEDING_READY_BUCKETS,
     BUCK_DOE_RATIO,
@@ -39,6 +40,7 @@ from app.models import (
     MEAT_SALE_WEIGHT_KG,
     MIN_BREEDING_AGE_MONTHS,
     MIN_BREEDING_WEIGHT_KG,
+    QUARANTINE_PROTOCOL,
     SHIFT_SPLIT,
     ULTRASOUND_AFTER_BREEDING_DAYS,
     VERIFICATION_REQUIRED_CATEGORIES,
@@ -96,7 +98,7 @@ from app.schemas.purchases import PurchaseBatchIn
 from app.schemas.tasks import TaskCreateIn, TaskRejectIn
 from app.schemas.team import PasswordResetIn, RoleIn, WorkerCreateIn
 from app.services import move_animal, recipe_for_animal
-from app.utils import add_months, business_date, today, utcnow
+from app.utils import add_months, allocate_money, business_date, money, today, utcnow
 
 from .conftest import owner_with_farm, register
 
@@ -107,6 +109,48 @@ TOMORROW = (TODAY + timedelta(days=1)).isoformat()
 DAY_AFTER_TOMORROW = (TODAY + timedelta(days=2)).isoformat()
 NAN = float("nan")
 INF = float("inf")
+
+
+def test_dummy_password_hash_is_computed_once_for_startup_warmup(monkeypatch) -> None:
+    calls = 0
+
+    def fake_hash_password(password: str) -> str:
+        nonlocal calls
+        calls += 1
+        return f"hashed:{password}"
+
+    security.prime_dummy_password_hash.cache_clear()
+    monkeypatch.setattr(security, "hash_password", fake_hash_password)
+    try:
+        first = security.prime_dummy_password_hash()
+        second = security.prime_dummy_password_hash()
+    finally:
+        security.prime_dummy_password_hash.cache_clear()
+
+    assert first == second == "hashed:dummy-password-for-timing-equalization"
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    ("total", "parts", "expected"),
+    [
+        ("1000.00", 3, ["333.34", "333.33", "333.33"]),
+        ("0.02", 4, ["0.01", "0.01", "0.00", "0.00"]),
+        ("0", 3, ["0.00", "0.00", "0.00"]),
+    ],
+)
+def test_allocate_money_is_exact_and_never_negative(total, parts, expected) -> None:
+    shares = allocate_money(total, parts)
+    assert [str(share) for share in shares] == expected
+    assert sum(shares) == money(total)
+    assert all(share >= 0 for share in shares)
+
+
+def test_allocate_money_rejects_invalid_parts_and_negative_totals() -> None:
+    with pytest.raises(ValueError, match="parts must be positive"):
+        allocate_money("1.00", 0)
+    with pytest.raises(ValueError, match="value cannot be negative"):
+        allocate_money("-0.01", 1)
 
 
 # ---------------------------------------------------------------------------
@@ -573,6 +617,7 @@ def test_animal_date_helpers_accept_the_farm_business_date() -> None:
     boundary = date(2026, 3, 16)
     animal = make_animal_object(
         date_of_birth=date(2025, 5, 16),
+        weight_records=[WeightRecord(date=boundary, weight_kg=25.0)],
         bucket_moves=[],
     )
     animal.created_at = datetime(2026, 3, 15, 0, 0)
@@ -803,6 +848,15 @@ def test_quarantine_schedule_supplier_and_batch_in_title() -> None:
 def test_quarantine_schedule_missing_supplier_falls_back() -> None:
     schedule = quarantine_schedule(_batch(supplier=None))
     assert all("[Purchase #7]" in str(item["title"]) for item in schedule)
+
+
+def test_quarantine_schedule_truncates_only_supplier_to_task_title_capacity() -> None:
+    batch = _batch(supplier="S" * 120)
+    batch.id = 2_147_483_647
+    schedule = quarantine_schedule(batch)
+    assert all(len(item["title"]) <= 200 for item in schedule)
+    assert all(f"#{batch.id}]" in item["title"] for item in schedule)
+    assert schedule[0]["title"].endswith(QUARANTINE_PROTOCOL[0][2])
 
 
 def test_quarantine_schedule_final_step_releases_to_foundation() -> None:
@@ -1109,13 +1163,15 @@ BUCKETS = [
         ("seller_name", None),
         ("seller_name", "S" * 120),
         ("notes", None),
-        ("notes", "n" * 10_000),  # notes is Text — long strings fine
+        ("notes", "n" * 4_000),
     ],
 )
 def test_animal_create_valid_variants(field: str, value: object) -> None:
     payload = VALID_ANIMAL | {field: value}
     if field in {"birth_type", "birth_weight"} and value is not None:
         payload["source"] = "BORN"
+    if payload["source"] == "BORN":
+        payload["historical_import_reason"] = "Existing-herd schema fixture"
     AnimalCreateIn(**payload)
 
 
@@ -1181,11 +1237,9 @@ def test_animal_create_defaults_breed_to_osmanabadi() -> None:
     assert AnimalCreateIn(**VALID_ANIMAL).breed == "Osmanabadi"
 
 
-def test_animal_create_ignores_unknown_extra_fields() -> None:
-    # Pydantic's default (ignore): unknown fields are dropped, not stored
-    animal = AnimalCreateIn(**(VALID_ANIMAL | {"hacker_field": "evil", "farm_id": 999}))
-    assert not hasattr(animal, "hacker_field")
-    assert not hasattr(animal, "farm_id")
+def test_animal_create_rejects_unknown_extra_fields() -> None:
+    with pytest.raises(ValidationError):
+        AnimalCreateIn(**(VALID_ANIMAL | {"hacker_field": "evil", "farm_id": 999}))
 
 
 @pytest.mark.parametrize(
@@ -1273,6 +1327,14 @@ def test_status_change_invalid(field: str, value: object) -> None:
         StatusChangeIn(**({"new_status": "SOLD"} | {field: value}))
 
 
+@pytest.mark.parametrize("status", ["DEAD", "CULLED"])
+@pytest.mark.parametrize("field", ["sale_price", "buyer_name"])
+def test_terminal_status_rejects_irrelevant_sale_fields(status: str, field: str) -> None:
+    value: object = 100.0 if field == "sale_price" else "Buyer"
+    with pytest.raises(ValidationError):
+        StatusChangeIn(**{"new_status": status, field: value})
+
+
 # ---------------------------------------------------------------------------
 # app.schemas — breeding
 # ---------------------------------------------------------------------------
@@ -1329,7 +1391,6 @@ def test_breeding_create_missing_required(missing: str) -> None:
         (True, 3),
         (True, None),
         (False, None),
-        (False, 2),  # schema allows; service discards kid_count when not pregnant
     ],
 )
 def test_ultrasound_in_valid(pregnant: bool, kid_count: int | None) -> None:
@@ -1340,6 +1401,11 @@ def test_ultrasound_in_valid(pregnant: bool, kid_count: int | None) -> None:
 def test_ultrasound_in_invalid_kid_count(kid_count: int) -> None:
     with pytest.raises(ValidationError):
         UltrasoundIn(pregnant=True, kid_count=kid_count)
+
+
+def test_ultrasound_in_rejects_kid_count_when_not_pregnant() -> None:
+    with pytest.raises(ValidationError):
+        UltrasoundIn(pregnant=False, kid_count=2)
 
 
 def test_ultrasound_in_requires_pregnant_flag() -> None:
@@ -1367,7 +1433,10 @@ def test_ultrasound_in_requires_pregnant_flag() -> None:
     ],
 )
 def test_kid_in_valid(field: str, value: object) -> None:
-    KidIn(**({"sex": "M"} | {field: value}))
+    payload = {"sex": "M"} | {field: value}
+    if field == "status" and value == "DIED":
+        payload["mortality_reported_at"] = TODAY.isoformat()
+    KidIn(**payload)
 
 
 @pytest.mark.parametrize(
@@ -1405,7 +1474,7 @@ VALID_KIDDING = {
         ("ease", "DIFFICULT"),  # the three SPEC §KiddingRecord values
         ("ease", "NORMAL"),
         ("notes", None),
-        ("notes", "n" * 10_000),
+        ("notes", "n" * 4_000),
         ("date", TOMORROW),  # future dates are the router's guard, not the schema's
         ("kids", [{"sex": "M"}] * 10),
     ],
@@ -1544,6 +1613,7 @@ def test_dispense_valid(field: str, value: object) -> None:
         ("bucket", "PASTURE"),
         ("qty_kg", 0.0),
         ("qty_kg", -1.0),
+        ("qty_kg", 0.0004),
         ("qty_kg", NAN),
         ("qty_kg", INF),
         ("date", DAY_AFTER_TOMORROW),
@@ -1580,6 +1650,7 @@ def test_mix_valid(field: str, value: object) -> None:
         ("recipe_code", ""),
         ("batch_kg", 0.0),
         ("batch_kg", -5.0),
+        ("batch_kg", 0.0004),
         ("batch_kg", NAN),
         ("batch_kg", INF),
     ],
@@ -1594,7 +1665,6 @@ def test_mix_invalid(field: str, value: object) -> None:
     [
         ("qty_kg", 0.001),
         ("price_per_kg", None),
-        ("price_per_kg", 0.001),
         ("price_per_kg", 0.0),  # an explicit ₹0 restock is accepted
     ],
 )
@@ -1607,14 +1677,27 @@ def test_stock_add_valid(field: str, value: object) -> None:
     [
         ("qty_kg", 0.0),
         ("qty_kg", -1.0),
+        ("qty_kg", 0.0004),
         ("qty_kg", NAN),
         ("price_per_kg", -1.0),
+        ("price_per_kg", 0.001),
         ("price_per_kg", NAN),
     ],
 )
 def test_stock_add_invalid(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
         StockAddIn(**({"qty_kg": 10.0} | {field: value}))
+
+
+def test_feed_quantities_round_half_up_to_gram_precision() -> None:
+    assert StockAddIn(qty_kg=0.0005).qty_kg == 0.001
+    assert StockAddIn(qty_kg=10.1235).qty_kg == 10.124
+
+
+def test_money_inputs_round_half_up_but_cannot_silently_become_zero() -> None:
+    assert TransactionIn(**(VALID_TXN | {"amount": 10.015})).amount == 10.02
+    with pytest.raises(ValidationError):
+        TransactionIn(**(VALID_TXN | {"amount": 0.001}))
 
 
 def test_feed_setting_valid() -> None:
@@ -1730,7 +1813,7 @@ VALID_BATCH = {"date": TODAY.isoformat(), "count": 50}
         ("supplier", "S" * 120),
         ("date", "2000-01-01"),  # lower bound of the _not_ancient guard
         ("notes", None),
-        ("notes", "n" * 10_000),
+        ("notes", "n" * 4_000),
         ("create_animals", False),
     ],
 )
@@ -1776,7 +1859,7 @@ def test_purchase_batch_defaults_create_animals_true() -> None:
 # ---------------------------------------------------------------------------
 # app.schemas — tasks
 # ---------------------------------------------------------------------------
-TASK_CATEGORIES = [
+SYSTEM_TASK_CATEGORIES = [
     "VACCINE",
     "DEWORMING",
     "ULTRASOUND",
@@ -1784,16 +1867,20 @@ TASK_CATEGORIES = [
     "WEANING",
     "BUCKET_MOVE",
     "QUARANTINE",
-    "FEED",
-    "CLEANING",
-    "OTHER",
 ]
+MANUAL_TASK_CATEGORIES = ["FEED", "CLEANING", "OTHER"]
 VALID_TASK = {"title": "Clean shed 3", "due_date": TODAY.isoformat()}
 
 
-@pytest.mark.parametrize("category", TASK_CATEGORIES)
-def test_task_create_accepts_every_category(category: str) -> None:
+@pytest.mark.parametrize("category", MANUAL_TASK_CATEGORIES)
+def test_task_create_accepts_every_safe_manual_category(category: str) -> None:
     assert TaskCreateIn(**(VALID_TASK | {"category": category})).category == category
+
+
+@pytest.mark.parametrize("category", SYSTEM_TASK_CATEGORIES)
+def test_task_create_rejects_system_workflow_categories(category: str) -> None:
+    with pytest.raises(ValidationError):
+        TaskCreateIn(**(VALID_TASK | {"category": category}))
 
 
 @pytest.mark.parametrize(
@@ -1936,6 +2023,7 @@ async def _make_animal(client: httpx.AsyncClient, headers: dict) -> int:
             "sex": "F",
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd DB-boundary fixture",
         },
         headers=headers,
     )
@@ -1974,7 +2062,11 @@ async def test_move_reason_at_db_column_limit(client: httpx.AsyncClient) -> None
     animal_id = await _make_animal(client, headers)
     resp = await client.post(
         f"/api/animals/{animal_id}/move",
-        json={"to_bucket": "RESTING", "reason": "r" * 255},  # bucket_moves.reason String(255)
+        json={
+            "to_bucket": "RESTING",
+            "reason": "r" * 255,
+            "history_override": True,
+        },  # bucket_moves.reason String(255), including the audited override prefix
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -2023,7 +2115,7 @@ async def test_finance_notes_at_db_column_limit(client: httpx.AsyncClient) -> No
     assert resp.status_code == 201, resp.text
 
 
-async def test_animal_notes_10k_chars_text_column(client: httpx.AsyncClient) -> None:
+async def test_animal_notes_free_text_is_bounded(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await client.post(
         "/api/animals",
@@ -2032,9 +2124,21 @@ async def test_animal_notes_10k_chars_text_column(client: httpx.AsyncClient) -> 
             "sex": "M",
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
-            "notes": "జ" * 10_000,  # animals.notes is Text — no length limit
+            "notes": "జ" * 4_000,
         },
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
-    assert len(resp.json()["notes"]) == 10_000
+    assert len(resp.json()["notes"]) == 4_000
+    rejected = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "BND-3",
+            "sex": "M",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "notes": "జ" * 4_001,
+        },
+        headers=headers,
+    )
+    assert rejected.status_code == 422

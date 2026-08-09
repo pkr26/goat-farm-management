@@ -9,6 +9,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
+import { toast } from "sonner";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
@@ -16,17 +17,24 @@ import { renderWithProviders } from "@/test/render";
 
 import AppLayout from "./layout";
 
-const { pushMock, replaceMock } = vi.hoisted(() => ({
+const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
+  navState: { pathname: "/dashboard", search: "" },
 }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: replaceMock, prefetch: vi.fn() }),
-  usePathname: () => "/dashboard",
-  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => navState.pathname,
+  useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
 }));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toastMock = toast as unknown as {
+  success: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+};
 
 beforeAll(() => {
   // jsdom has no matchMedia; the sidebar's useIsMobile hook needs it.
@@ -64,6 +72,10 @@ describe("AppLayout — header", () => {
   beforeEach(() => {
     pushMock.mockClear();
     replaceMock.mockClear();
+    toastMock.success.mockClear();
+    toastMock.error.mockClear();
+    navState.pathname = "/dashboard";
+    navState.search = "";
   });
 
   it("renders brand, active farm name, switch-farm link and the user's name", async () => {
@@ -79,10 +91,21 @@ describe("AppLayout — header", () => {
     ).toHaveAttribute("href", "/dashboard");
     expect(screen.getByRole("link", { name: "switch farm" })).toHaveAttribute(
       "href",
-      "/farm-select",
+      "/farm-select?returnTo=%2Fdashboard",
     );
     expect(screen.getByText(TEST_USER.name as string)).toBeInTheDocument();
     expect(screen.getByText("page body")).toBeInTheDocument();
+  });
+
+  it("includes the current detail route and query in the switch-farm return state", async () => {
+    navState.pathname = "/tasks";
+    navState.search = "?tab=overdue";
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    expect(await screen.findByRole("link", { name: "switch farm" })).toHaveAttribute(
+      "href",
+      "/farm-select?returnTo=%2Ftasks%3Ftab%3Doverdue",
+    );
   });
 
   it("falls back to the email when the user has no name", async () => {
@@ -240,9 +263,19 @@ describe("AppLayout — header", () => {
 
     await user.click(screen.getByRole("button", { name: "Account" }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+    expect(
+      within(dialog).getByText(
+        /Deletion removes your sign-in identity and profile and disables your farm access\./,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        /Inactive membership rows and operational records may retain a pseudonymous audit reference\./,
+      ),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
     const confirm = within(dialog).getByRole("button", {
-      name: "Permanently delete account",
+      name: "Delete account and access",
     });
     expect(confirm).toBeDisabled();
     await user.type(
@@ -257,6 +290,35 @@ describe("AppLayout — header", () => {
       ),
     ).toBeInTheDocument();
     expect(body).toEqual({ current_password: "owner-password" });
+  });
+
+  it("describes a successful deletion without claiming audit-history erasure", async () => {
+    let deleteCalls = 0;
+    server.use(
+      http.delete("/api/auth/account", () => {
+        deleteCalls += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.post("/api/auth/logout", () => new HttpResponse(null, { status: 204 })),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Test Goat Farm");
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "worker-password",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Delete account and access" }));
+
+    await waitFor(() => expect(deleteCalls).toBe(1));
+    expect(toastMock.success).toHaveBeenCalledWith(
+      "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",
+    );
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
   });
 });
 

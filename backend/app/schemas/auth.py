@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .common import StrictInputModel
+
 MAX_EMAIL_LENGTH = 254
 _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
@@ -15,7 +17,7 @@ _EMAIL_RE = re.compile(
 )
 
 
-class EmailMixin(BaseModel):
+class EmailMixin(StrictInputModel):
     """Shared bounded normalization and conservative mailbox validation.
 
     This intentionally accepts common RFC local-part punctuation (including
@@ -59,8 +61,15 @@ class TokenOut(BaseModel):
     user: UserOut
 
 
-class AccountDeleteIn(BaseModel):
+class AccountDeleteIn(StrictInputModel):
     current_password: str = Field(min_length=1, max_length=128)
+
+
+class ChangePasswordIn(StrictInputModel):
+    # Bound both values before they reach the deliberately expensive Argon2
+    # verifier/hasher.
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(min_length=1, max_length=128)
 
 
 class AccountIdentityExport(BaseModel):
@@ -102,7 +111,7 @@ class FarmOut(BaseModel):
     role: str | None = None  # None = owner, else the membership's role name
 
 
-class FarmCreateIn(BaseModel):
+class FarmCreateIn(StrictInputModel):
     name: str = Field(min_length=1, max_length=120)
     location: str | None = Field(default=None, max_length=120)  # farms.location is String(120)
     timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)

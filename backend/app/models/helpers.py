@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, TypedDict
 
-from .constants import GESTATION_DAYS, ULTRASOUND_AFTER_BREEDING_DAYS
+from .constants import GESTATION_DAYS, MAX_TASK_TITLE_LENGTH, ULTRASOUND_AFTER_BREEDING_DAYS
 from .enums import BreedingOutcome, TaskCategory
 
 if TYPE_CHECKING:
@@ -58,11 +58,20 @@ class QuarantineTaskSpec(TypedDict):
 
 def quarantine_schedule(batch: PurchaseBatch) -> list[QuarantineTaskSpec]:
     """Due-dated quarantine task definitions for a purchase batch."""
-    return [
-        {
-            "due_date": batch.date + timedelta(days=day_offset - 1),
-            "category": category.value,
-            "title": f"[{batch.supplier or 'Purchase'} #{batch.id}] {title}",
-        }
-        for day_offset, category, title in QUARANTINE_PROTOCOL
-    ]
+    schedule: list[QuarantineTaskSpec] = []
+    supplier = (batch.supplier or "Purchase").strip() or "Purchase"
+    for day_offset, category, protocol_title in QUARANTINE_PROTOCOL:
+        # Supplier accepts 120 characters while Task.title is 200. Preserve
+        # the operational protocol and stable batch id in full, truncating
+        # only the display label so purchase creation cannot overflow midway.
+        suffix = f" #{batch.id}] {protocol_title}"
+        supplier_budget = MAX_TASK_TITLE_LENGTH - len("[") - len(suffix)
+        safe_supplier = supplier[: max(0, supplier_budget)].rstrip()
+        schedule.append(
+            {
+                "due_date": batch.date + timedelta(days=day_offset - 1),
+                "category": category.value,
+                "title": f"[{safe_supplier}{suffix}",
+            }
+        )
+    return schedule

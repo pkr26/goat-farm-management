@@ -231,6 +231,7 @@ describe("AnimalsPage extended", () => {
       expect(params.get("bucket")).toBeNull();
       expect(params.get("sex")).toBeNull();
       expect(params.get("status")).toBeNull();
+      expect(params.get("include_all_statuses")).toBe("true");
       expect(params.get("q")).toBeNull();
     });
 
@@ -286,13 +287,16 @@ describe("AnimalsPage extended", () => {
       await waitFor(() => expect(seenParams.at(-1)?.get("status")).toBe("SOLD"));
     });
 
-    it("removes the status param when reset to All statuses", async () => {
+    it("uses the explicit all-status contract when reset to All statuses", async () => {
       const user = userEvent.setup();
       await renderLoaded();
       await pickOption(user, screen.getAllByRole("combobox")[2], "SOLD");
       await waitFor(() => expect(seenParams.at(-1)?.get("status")).toBe("SOLD"));
       await pickOption(user, screen.getAllByRole("combobox")[2], "All statuses");
-      await waitFor(() => expect(seenParams.at(-1)?.get("status")).toBeNull());
+      await waitFor(() => {
+        expect(seenParams.at(-1)?.get("status")).toBeNull();
+        expect(seenParams.at(-1)?.get("include_all_statuses")).toBe("true");
+      });
     });
   });
 
@@ -320,6 +324,20 @@ describe("AnimalsPage extended", () => {
       expect(screen.getByRole("button", { name: "Add animal" })).toBeInTheDocument();
     });
 
+    it("hides historical born-on-farm import from non-owners", async () => {
+      server.use(permissionsHandler(["animals.view", "animals.create"]));
+      const user = userEvent.setup();
+      renderWithProviders(<AnimalsPage />);
+      await screen.findByText("1 animal(s)");
+      const dialog = await openCreateDialog(user);
+      const source = within(dialog).getAllByRole("combobox")[1];
+      expect(source).toHaveTextContent("Purchased");
+      await user.click(source);
+      expect(
+        screen.queryByRole("option", { name: "Historical born-on-farm import" }),
+      ).not.toBeInTheDocument();
+    });
+
     it("shows a loading indicator while permissions resolve", async () => {
       server.use(http.get("/api/auth/permissions", () => new Promise<Response>(() => {})));
       renderWithProviders(<AnimalsPage />);
@@ -333,33 +351,144 @@ describe("AnimalsPage extended", () => {
       await renderLoaded();
       const dialog = await openCreateDialog(user);
       expect(within(dialog).getByLabelText("Breed")).toHaveValue("Osmanabadi");
-      // NOTE: the closed Base UI Select renders the raw value, not the item
-      // label (e.g. "F" instead of "Female") — see select-label.bugs.test.tsx.
-      // Only the bucket default is asserted here, where value == label.
       const combos = within(dialog).getAllByRole("combobox");
-      expect(combos).toHaveLength(4);
-      expect(combos[2]).toHaveTextContent("QUARANTINE");
-      expect(within(dialog).queryByLabelText(/purchase price/i)).not.toBeInTheDocument();
+      expect(combos).toHaveLength(2);
+      expect(combos[0]).toHaveTextContent("Female");
+      expect(combos[1]).toHaveTextContent("Purchased");
+      expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("QUARANTINE");
+      expect(within(dialog).getByLabelText(/purchase price/i)).toBeInTheDocument();
     });
 
-    it("reveals purchase fields only for source PURCHASED", async () => {
+    it("shows purchase fields for the default PURCHASED source", async () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openCreateDialog(user);
-      await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Purchased");
       expect(within(dialog).getByLabelText(/purchase date/i)).toBeInTheDocument();
       expect(within(dialog).getByLabelText(/purchase price/i)).toBeInTheDocument();
       expect(within(dialog).getByLabelText(/seller name/i)).toBeInTheDocument();
     });
 
-    it("hides purchase fields again when switching back to Born on farm", async () => {
+    it("forces purchased animals into quarantine and explains the release consequence", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await user.type(within(dialog).getByLabelText(/tag number/i), "G-QUARANTINE-1");
+
+      expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("QUARANTINE");
+      expect(within(dialog).getByLabelText("Bucket *")).toHaveAttribute("readonly");
+      expect(
+        within(dialog).getByText(/Complete the quarantine protocol before moving this animal/),
+      ).toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      await waitFor(() => expect(postCalls).toBe(1));
+      expect(postBody).toMatchObject({ source: "PURCHASED", current_bucket: "QUARANTINE" });
+    });
+
+    it("shows the owner-only historical import fields and truthful Kidding guidance", async () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openCreateDialog(user);
       const sourceCombo = () => within(dialog).getAllByRole("combobox")[1];
-      await pickOption(user, sourceCombo(), "Purchased");
-      await pickOption(user, sourceCombo(), "Born on farm");
+      await pickOption(user, sourceCombo(), "Historical born-on-farm import");
       expect(within(dialog).queryByLabelText(/purchase price/i)).not.toBeInTheDocument();
+      expect(within(dialog).getByLabelText("Historical import reason *")).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/Normal births must be recorded through Kidding/),
+      ).toBeInTheDocument();
+    });
+
+    it("excludes workflow-only initial buckets from historical imports", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.click(within(dialog).getByLabelText("Bucket *"));
+      expect(await screen.findByRole("option", { name: "BREEDING" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "PREGNANCY EARLY" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "PREGNANCY LATE" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "DELIVERY" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "RECOVERY" })).not.toBeInTheDocument();
+    });
+
+    it("requires an audit reason for a historical born-on-farm import", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      expect(
+        await within(dialog).findByText("Explain why this historical animal is being imported"),
+      ).toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("unregisters purchase provenance and sends historical import audit fields", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      const sourceCombo = () => within(dialog).getAllByRole("combobox")[1];
+      await user.type(within(dialog).getByLabelText(/tag number/i), "G-SOURCE-1");
+      await pickOption(user, sourceCombo(), "Purchased");
+      setDate(within(dialog).getByLabelText(/purchase date/i), "2026-01-15");
+      setDate(within(dialog).getByLabelText(/purchase price/i), "12500");
+      await user.type(within(dialog).getByLabelText(/seller name/i), "Old seller");
+      await pickOption(user, sourceCombo(), "Historical born-on-farm import");
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Imported from the paper herd register",
+      );
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "24");
+      setDate(within(dialog).getByLabelText(/entry weight date/i), "2026-01-10");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      await waitFor(() => expect(postCalls).toBe(1));
+      expect(postBody).toMatchObject({
+        source: "BORN",
+        purchase_date: null,
+        purchase_price: null,
+        seller_name: null,
+        weight_kg: 24,
+        weight_date: "2026-01-10",
+        historical_import_reason: "Imported from the paper herd register",
+      });
+    });
+
+    it("unregisters birth-only provenance after switching to Purchased", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await user.type(within(dialog).getByLabelText(/tag number/i), "G-SOURCE-2");
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Temporary import provenance",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "TWIN");
+      setDate(within(dialog).getByLabelText(/birth weight/i), "2.5");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Purchased");
+      expect(within(dialog).queryByLabelText(/birth weight/i)).not.toBeInTheDocument();
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      await waitFor(() => expect(postCalls).toBe(1));
+      expect(postBody).toMatchObject({
+        source: "PURCHASED",
+        birth_type: null,
+        birth_weight: null,
+        historical_import_reason: null,
+      });
     });
 
     it("rejects a tag longer than 50 characters without a POST", async () => {
@@ -390,6 +519,15 @@ describe("AnimalsPage extended", () => {
       await renderLoaded();
       const dialog = await openCreateDialog(user);
       await user.type(within(dialog).getByLabelText(/tag number/i), "G-50");
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Negative boundary fixture",
+      );
       setDate(within(dialog).getByLabelText(/birth weight/i), "-0.5");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
       expect(
@@ -438,7 +576,6 @@ describe("AnimalsPage extended", () => {
       await renderLoaded();
       const dialog = await openCreateDialog(user);
       await user.type(within(dialog).getByLabelText(/tag number/i), "G-70");
-      await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Purchased");
       setDate(within(dialog).getByLabelText(/purchase date/i), "2026-01-15");
       setDate(within(dialog).getByLabelText(/purchase price/i), "12500");
       await user.type(within(dialog).getByLabelText(/seller name/i), "Raju Pawar");
@@ -452,11 +589,33 @@ describe("AnimalsPage extended", () => {
       });
     });
 
+    it("rejects a non-zero purchase price below half a paisa", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await user.type(within(dialog).getByLabelText(/tag number/i), "G-MONEY-1");
+      setDate(within(dialog).getByLabelText(/purchase price/i), "0.004");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
+        .toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
     it("submits all optional fields when provided", async () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openCreateDialog(user);
       await user.type(within(dialog).getByLabelText(/tag number/i), "G-80");
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Complete optional-field fixture",
+      );
       await user.type(within(dialog).getByLabelText("Name"), "Gauri");
       setDate(within(dialog).getByLabelText(/date of birth/i), "2025-12-01");
       setDate(within(dialog).getByLabelText(/estimated dob/i), "2025-12-02");
@@ -471,8 +630,55 @@ describe("AnimalsPage extended", () => {
         estimated_dob: "2025-12-02",
         birth_type: "TWIN",
         birth_weight: 2.5,
+        historical_import_reason: "Complete optional-field fixture",
         notes: "Healthy twin",
       });
+    });
+
+    it("mirrors the minimum age guard for a BREEDING historical import", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Breeding eligibility fixture",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      setDate(within(dialog).getByLabelText(/date of birth/i), new Date().toISOString().slice(0, 10));
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "24");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      expect(
+        await within(dialog).findByText(/doe must be at least 10 months old/),
+      ).toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("mirrors the minimum weight guard for a BREEDING historical import", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Breeding eligibility fixture",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      setDate(within(dialog).getByLabelText(/date of birth/i), "2020-01-01");
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "21");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      expect(
+        await within(dialog).findByText("Entry weight must be at least 22 kg to enter BREEDING"),
+      ).toBeInTheDocument();
+      expect(postCalls).toBe(0);
     });
 
     it("falls back to the Osmanabadi default when the breed is cleared", async () => {

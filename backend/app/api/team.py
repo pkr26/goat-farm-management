@@ -1,24 +1,28 @@
 """Team management (requires team.manage — the owner by default): workers,
 their roles, password resets, and the farm's custom/preset roles."""
 
+import asyncio
 import json
+import logging
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import case, func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
+from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_user_sessions
-from ..models import Farm, FarmMembership, Role, Task, User
-from ..models.enums import TaskStatus
+from ..models import Farm, FarmMembership, Role, Task, TaskStatus, User
 from ..permissions import (
     ALL_PERMISSIONS,
     PERMISSION_DEPENDENCIES,
     PERMISSION_GROUPS,
     PERMISSIONS,
 )
+from ..ratelimit import auth_limiter
 from ..schemas.common import MAX_INT32_ID
 from ..schemas.team import (
     MembershipOut,
@@ -29,10 +33,14 @@ from ..schemas.team import (
     RoleOut,
     TeamOut,
     WorkerCreateIn,
+    WorkerStatusIn,
 )
-from ..security import hash_password, password_policy_error
+from ..security import PasswordWorkCapacityError, hash_password_async, password_policy_error
+from ..services import IdempotencyKey, execute_idempotent
+from ..utils import utcnow
 
 router = APIRouter(prefix="/api/team", tags=["team"])
+logger = logging.getLogger("goatfarm.team")
 
 TEAM_PERM = Annotated[set[str], Depends(require_perm("team.manage"))]
 
@@ -42,6 +50,241 @@ TEAM_PERM = Annotated[set[str], Depends(require_perm("team.manage"))]
 CANT_ADD_TO_TEAM = "That email can't be added to this farm's team."
 RESET_PASSWORD_INACTIVE_REASON = "Reactivate this membership before resetting the password."
 RESET_PASSWORD_SELF_SERVICE_REASON = "This account must use self-service password recovery."
+RESET_PASSWORD_OWNER_ONLY_REASON = "Only the farm owner can reset worker passwords."
+ROLE_SCOPE_REASON = "You can only manage workers and roles within your own permissions."
+TEAM_CAPACITY_REASON = "This farm has reached its team-member limit."
+ROLE_CAPACITY_REASON = "This farm has reached its role limit."
+CREATE_WORKER_OWNER_ONLY_REASON = "Only the farm owner can create worker accounts."
+TEAM_RESPONSE_OVERFLOW_REASON = (
+    "This farm exceeds the configured team response limit; "
+    "archive legacy memberships before retrying."
+)
+ROLE_RESPONSE_OVERFLOW_REASON = (
+    "This farm exceeds the configured role response limit; archive legacy roles before retrying."
+)
+TEAM_PASSWORD_WORK_LIMIT_REASON = "Too many worker password operations — please try again later."
+TEAM_PASSWORD_WORK_SCOPE = "team-password-work"
+TEAM_PASSWORD_RESERVATION_SCOPE = "team-password-work-in-flight"
+
+
+@dataclass(frozen=True)
+class PreparedWorkerCreate:
+    payload: WorkerCreateIn
+    password_hash: str
+    actor_id: int
+    actor_token_version: int
+    farm_id: int
+
+
+@dataclass(frozen=True)
+class PreparedPasswordReset:
+    payload: PasswordResetIn
+    password_hash: str
+    actor_id: int
+    actor_token_version: int
+    farm_id: int
+
+
+def _team_password_work_throttled(actor_id: int) -> bool:
+    settings = get_settings()
+    return settings.auth_rate_limit_enabled and auth_limiter.is_blocked(
+        TEAM_PASSWORD_WORK_SCOPE,
+        str(actor_id),
+        settings.auth_rate_limit_max_attempts,
+        settings.auth_rate_limit_window_seconds,
+    )
+
+
+def _team_password_rate_error(actor_id: int) -> HTTPException:
+    logger.info("team password work throttled (actor_id=%s)", actor_id)
+    return HTTPException(
+        status_code=429,
+        detail=TEAM_PASSWORD_WORK_LIMIT_REASON,
+        headers={"Retry-After": str(get_settings().auth_rate_limit_window_seconds)},
+    )
+
+
+async def _hash_team_password(password: str, *, actor_id: int) -> str:
+    """Admit one bounded Argon workflow per owner and charge it up front.
+
+    The global password pool is deliberately non-queuing. Without this
+    actor-level admission, one authenticated owner can occupy every Argon slot
+    with worker creates/resets and make unrelated logins fail. Create and reset
+    share both the in-flight reservation and sliding-window budget so switching
+    endpoints or farms cannot bypass either control.
+    """
+    key = str(actor_id)
+    if _team_password_work_throttled(actor_id):
+        raise _team_password_rate_error(actor_id)
+    if not auth_limiter.try_reserve(TEAM_PASSWORD_RESERVATION_SCOPE, key):
+        raise PasswordWorkCapacityError("Owner already has password work in flight")
+    work: asyncio.Task[str] | None = None
+    try:
+        # Close the check/reserve race before expensive work. The reservation
+        # is synchronous and shared by both team password endpoints.
+        if _team_password_work_throttled(actor_id):
+            raise _team_password_rate_error(actor_id)
+        settings = get_settings()
+        if settings.auth_rate_limit_enabled:
+            auth_limiter.record(
+                TEAM_PASSWORD_WORK_SCOPE,
+                key,
+                settings.auth_rate_limit_window_seconds,
+            )
+        # Keep the owner reservation until native Argon work really finishes.
+        # Cancelling/disconnecting an HTTP request must not release this slot
+        # while security._run_password_work intentionally continues its shielded
+        # thread; otherwise one owner can cancel/retry to occupy every global
+        # worker despite the per-owner admission rule.
+        work = asyncio.create_task(hash_password_async(password))
+
+        def release_when_finished(finished: asyncio.Task[str]) -> None:
+            auth_limiter.release(TEAM_PASSWORD_RESERVATION_SCOPE, key)
+            # A disconnected caller no longer awaits the task. Retrieve a late
+            # exception to avoid an unhandled-task warning; the HTTP response is
+            # already gone, so there is nowhere else to propagate it.
+            if not finished.cancelled():
+                finished.exception()
+
+        try:
+            return await asyncio.shield(work)
+        finally:
+            if work.done():
+                release_when_finished(work)
+            else:
+                work.add_done_callback(release_when_finished)
+    finally:
+        # Admission failures occur before ``work`` exists and must release
+        # synchronously. Once work starts, its completion callback owns release.
+        if work is None:
+            auth_limiter.release(TEAM_PASSWORD_RESERVATION_SCOPE, key)
+
+
+async def _preflight_worker_create(db: AsyncSession, farm: Farm, payload: WorkerCreateIn) -> None:
+    """Reject cheap farm-local failures before consuming an Argon slot.
+
+    These observations are deliberately rechecked under the Farm/Role locks in
+    the mutation. Global email existence stays after hashing so this preflight
+    does not create a timing-based account-enumeration oracle.
+    """
+    settings = get_settings()
+    count = (
+        await db.execute(
+            select(func.count())
+            .select_from(FarmMembership)
+            .join(User, User.id == FarmMembership.user_id)
+            .where(FarmMembership.farm_id == farm.id, User.deleted_at.is_(None))
+        )
+    ).scalar_one()
+    if count >= settings.max_team_members_per_farm:
+        raise HTTPException(status_code=409, detail=TEAM_CAPACITY_REASON)
+    try:
+        await _get_role(db, farm, payload.role_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            raise HTTPException(status_code=400, detail="Pick a valid role.") from None
+        raise
+
+
+async def _prepare_worker_create(
+    payload: WorkerCreateIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: TEAM_PERM,
+) -> PreparedWorkerCreate:
+    """Authorize the owner, then hash without holding a DB connection."""
+    if user.id != farm.owner_id:
+        raise HTTPException(status_code=403, detail=CREATE_WORKER_OWNER_ONLY_REASON)
+    password = payload.password or ""
+    error = password_policy_error(password)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    await _preflight_worker_create(db, farm, payload)
+    actor_id = user.id
+    actor_token_version = user.token_version
+    farm_id = farm.id
+    # CurrentFarm pins the canonical owner authorization bundle on unsafe
+    # requests. End that transaction before Argon work so a slow hash neither
+    # occupies the DB pool nor blocks account revocation. The route
+    # reauthorizes this exact principal snapshot before any target lock.
+    await db.rollback()
+    return PreparedWorkerCreate(
+        payload=payload,
+        password_hash=await _hash_team_password(password, actor_id=actor_id),
+        actor_id=actor_id,
+        actor_token_version=actor_token_version,
+        farm_id=farm_id,
+    )
+
+
+async def _prepare_password_reset(
+    payload: PasswordResetIn,
+    membership_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: TEAM_PERM,
+) -> PreparedPasswordReset:
+    """Authorize the owner, then hash without holding a DB connection."""
+    if user.id != farm.owner_id:
+        raise HTTPException(status_code=403, detail=RESET_PASSWORD_OWNER_ONLY_REASON)
+    error = password_policy_error(payload.password)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    # Resolve bounds, tenant ownership and the advertised reset policy before
+    # Argon. Every condition is revalidated under mutation locks after hashing.
+    membership = await _get_membership(db, farm, membership_id)
+    reset_policy = await _reset_password_policy_for_membership(db, membership)
+    if not reset_policy[0]:
+        raise HTTPException(status_code=400, detail=reset_policy[1])
+    actor_id = user.id
+    actor_token_version = user.token_version
+    farm_id = farm.id
+    await db.rollback()
+    return PreparedPasswordReset(
+        payload=payload,
+        password_hash=await _hash_team_password(payload.password, actor_id=actor_id),
+        actor_id=actor_id,
+        actor_token_version=actor_token_version,
+        farm_id=farm_id,
+    )
+
+
+PreparedWorkerCreateDep = Annotated[PreparedWorkerCreate, Depends(_prepare_worker_create)]
+PreparedPasswordResetDep = Annotated[PreparedPasswordReset, Depends(_prepare_password_reset)]
+
+
+async def _reauthorize_prepared_owner(
+    db: AsyncSession,
+    *,
+    actor_id: int,
+    actor_token_version: int,
+    farm_id: int,
+) -> tuple[User, Farm]:
+    """Revalidate the exact owner snapshot after off-transaction hashing."""
+    user = (
+        await db.execute(
+            select(User)
+            .where(
+                User.id == actor_id,
+                User.token_version == actor_token_version,
+                User.deleted_at.is_(None),
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update(read=True)
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="Session has been revoked")
+    farm = (
+        await db.execute(select(Farm).where(Farm.id == farm_id, Farm.owner_id == actor_id))
+    ).scalar_one_or_none()
+    if farm is None:
+        # Match CurrentFarm's non-enumerating response if ownership changed or
+        # the farm vanished while the password was being hashed.
+        raise HTTPException(status_code=404, detail="Farm not found")
+    return user, farm
 
 
 def _reset_password_policy(
@@ -88,9 +331,17 @@ async def _reset_password_policy_for_membership(
 
 
 def _membership_out(
-    membership: FarmMembership, reset_policy: tuple[bool, str | None]
+    membership: FarmMembership,
+    reset_policy: tuple[bool, str | None],
+    user: User,
+    farm: Farm,
 ) -> MembershipOut:
     role = membership.role
+    if user.id != farm.owner_id:
+        # Passwords belong to the global User, not this farm-local membership.
+        # A delegated team manager may administer the roster, but only the
+        # owner may take over a provisioned account's credentials.
+        reset_policy = (False, RESET_PASSWORD_OWNER_ONLY_REASON)
     can_reset_password, reset_password_block_reason = reset_policy
     return MembershipOut(
         id=membership.id,
@@ -120,19 +371,32 @@ def _role_out(role: Role, member_count: int) -> RoleOut:
 
 
 async def _get_membership(
-    db: AsyncSession, farm: Farm, membership_id: int, *, for_update: bool = False
+    db: AsyncSession,
+    farm: Farm,
+    membership_id: int,
+    *,
+    for_update: bool = False,
+    no_key_update: bool = False,
 ) -> FarmMembership:
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
     # int32 DataError (500).
-    if membership_id > MAX_INT32_ID:
+    if not 1 <= membership_id <= MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Membership not found")
     statement = (
         select(FarmMembership)
         .options(selectinload(FarmMembership.user), selectinload(FarmMembership.role))
-        .where(FarmMembership.id == membership_id)
+        .where(
+            FarmMembership.id == membership_id,
+            FarmMembership.farm_id == farm.id,
+            FarmMembership.user.has(User.deleted_at.is_(None)),
+        )
     )
     if for_update:
-        statement = statement.with_for_update()
+        # SQLAlchemy's key_share=True without read=True renders PostgreSQL
+        # FOR NO KEY UPDATE. It serializes is_active changes but remains
+        # compatible with the KEY SHARE lock acquired by a Task FK insert.
+        statement = statement.with_for_update(key_share=no_key_update)
+        statement = statement.execution_options(populate_existing=True)
     result = await db.execute(statement)
     membership = result.scalar_one_or_none()
     if membership is None or membership.farm_id != farm.id:
@@ -141,14 +405,48 @@ async def _get_membership(
 
 
 async def _get_role(
-    db: AsyncSession, farm: Farm, role_id: int, *, for_update: bool = False
+    db: AsyncSession,
+    farm: Farm,
+    role_id: int,
+    *,
+    for_update: bool = False,
+    no_key_update: bool = False,
+    for_share: bool = False,
 ) -> Role:
-    statement = select(Role).where(Role.id == role_id)
+    statement = select(Role).where(
+        Role.id == role_id,
+        Role.farm_id == farm.id,
+        Role.deleted_at.is_(None),
+    )
     if for_update:
-        statement = statement.with_for_update()
-    role = (await db.execute(statement)).scalar_one_or_none() if role_id <= MAX_INT32_ID else None
+        statement = statement.with_for_update(key_share=no_key_update)
+        statement = statement.execution_options(populate_existing=True)
+    elif for_share:
+        statement = statement.with_for_update(read=True)
+        statement = statement.execution_options(populate_existing=True)
+    role = (
+        (await db.execute(statement)).scalar_one_or_none() if 1 <= role_id <= MAX_INT32_ID else None
+    )
     if role is None or role.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Role not found")
+    return role
+
+
+async def _pin_membership_role(
+    db: AsyncSession,
+    farm: Farm,
+    membership: FarmMembership,
+) -> Role:
+    """Durably revalidate a target membership's effective role.
+
+    Team lifecycle routes lock Membership first, then Role FOR SHARE. Permission
+    edits therefore either win first and are seen by the peer-manager guards,
+    or wait until the authorized lifecycle change commits. SHARE is sufficient
+    because these routes do not edit Role and avoids role-to-role upgrade
+    cycles when two workers exchange roles concurrently.
+    """
+    role = await _get_role(db, farm, membership.role_id, for_share=True)
+    membership.role = role
     return role
 
 
@@ -180,6 +478,21 @@ def _guard_manager_role(role: Role, user: User, farm: Farm) -> None:
         )
 
 
+def _guard_role_scope(role: Role | None, perms: set[str], user: User, farm: Farm) -> None:
+    """Keep delegated roster administration below the caller's RBAC ceiling.
+
+    A non-owner with ``team.manage`` may create or reassign workers only into
+    roles whose complete effective permission set they already hold. Otherwise
+    they can provision an alternate account with a richer role and log into it.
+    The same guard on a target's current role prevents a delegated manager from
+    taking control of an already more-privileged account through reassignment.
+    """
+    if user.id == farm.owner_id or role is None:
+        return
+    if not role.permission_set().issubset(perms):
+        raise HTTPException(status_code=403, detail=ROLE_SCOPE_REASON)
+
+
 def _guard_manager_permission(raw: list[str], user: User, farm: Farm) -> None:
     if user.id != farm.owner_id and "team.manage" in raw:
         raise HTTPException(
@@ -189,9 +502,41 @@ def _guard_manager_permission(raw: list[str], user: User, farm: Farm) -> None:
 
 async def _member_count(db: AsyncSession, role_id: int) -> int:
     result = await db.execute(
-        select(func.count()).select_from(FarmMembership).where(FarmMembership.role_id == role_id)
+        select(func.count())
+        .select_from(FarmMembership)
+        .join(User, User.id == FarmMembership.user_id)
+        .where(FarmMembership.role_id == role_id, User.deleted_at.is_(None))
     )
     return result.scalar_one()
+
+
+async def _guard_farm_capacity(
+    db: AsyncSession, farm: Farm, *, model: type[FarmMembership] | type[Role], limit: int
+) -> None:
+    """Serialize per-farm count-and-create operations on the Farm row.
+
+    A plain COUNT followed by INSERT is raceable: simultaneous requests could
+    all observe one free slot. The farm-row lock makes the configured ceiling
+    an actual concurrency-safe bound without taking a table-wide lock.
+    """
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    if model is FarmMembership:
+        count_statement = (
+            select(func.count())
+            .select_from(FarmMembership)
+            .join(User, User.id == FarmMembership.user_id)
+            .where(FarmMembership.farm_id == farm.id, User.deleted_at.is_(None))
+        )
+    else:
+        count_statement = (
+            select(func.count())
+            .select_from(Role)
+            .where(Role.farm_id == farm.id, Role.deleted_at.is_(None))
+        )
+    count = (await db.execute(count_statement)).scalar_one()
+    if count >= limit:
+        reason = TEAM_CAPACITY_REASON if model is FarmMembership else ROLE_CAPACITY_REASON
+        raise HTTPException(status_code=409, detail=reason)
 
 
 def _clean_permissions(
@@ -211,7 +556,10 @@ def _clean_permissions(
 
 
 @router.get("")
-async def team_page(db: DbSession, farm: CurrentFarm, perms: TEAM_PERM) -> TeamOut:
+async def team_page(
+    db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: TEAM_PERM
+) -> TeamOut:
+    settings = get_settings()
     other_membership = aliased(FarmMembership)
     membership_rows = await db.execute(
         select(
@@ -229,14 +577,27 @@ async def team_page(db: DbSession, farm: CurrentFarm, perms: TEAM_PERM) -> TeamO
             .label("has_other_membership"),
         )
         .options(selectinload(FarmMembership.user), selectinload(FarmMembership.role))
-        .where(FarmMembership.farm_id == farm.id)
+        .join(User, User.id == FarmMembership.user_id)
+        .where(FarmMembership.farm_id == farm.id, User.deleted_at.is_(None))
         .order_by(FarmMembership.is_active.desc(), FarmMembership.id)
+        .limit(settings.max_team_members_per_farm + 1)
     )
     rows = membership_rows.all()
+    if len(rows) > settings.max_team_members_per_farm:
+        raise HTTPException(status_code=409, detail=TEAM_RESPONSE_OVERFLOW_REASON)
     memberships = [row[0] for row in rows]
     roles = list(
-        (await db.execute(select(Role).where(Role.farm_id == farm.id).order_by(Role.id))).scalars()
+        (
+            await db.execute(
+                select(Role)
+                .where(Role.farm_id == farm.id, Role.deleted_at.is_(None))
+                .order_by(Role.id)
+                .limit(settings.max_roles_per_farm + 1)
+            )
+        ).scalars()
     )
+    if len(roles) > settings.max_roles_per_farm:
+        raise HTTPException(status_code=409, detail=ROLE_RESPONSE_OVERFLOW_REASON)
     member_counts = {role.id: 0 for role in roles}
     for m in memberships:
         if m.role_id in member_counts:
@@ -248,6 +609,8 @@ async def team_page(db: DbSession, farm: CurrentFarm, perms: TEAM_PERM) -> TeamO
                 _reset_password_policy(
                     row[0], owns_farm=bool(row[1]), has_other_membership=bool(row[2])
                 ),
+                user,
+                farm,
             )
             for row in rows
         ],
@@ -262,11 +625,10 @@ async def team_page(db: DbSession, farm: CurrentFarm, perms: TEAM_PERM) -> TeamO
 # ---------------------------------------------------------------------------
 @router.post("/workers", status_code=201)
 async def create_worker(
-    payload: WorkerCreateIn,
+    prepared: PreparedWorkerCreateDep,
+    response: Response,
     db: DbSession,
-    user: CurrentUser,
-    farm: CurrentFarm,
-    perms: TEAM_PERM,
+    idempotency_key: IdempotencyKey = None,
 ) -> MembershipOut:
     """Provision a new worker account owned by this farm.
 
@@ -276,59 +638,90 @@ async def create_worker(
     account-takeover primitive because farm managers can reset provisioned
     worker passwords.
     """
-    email = payload.email  # normalized by EmailMixin (strip/lower, shape-checked)
-    try:
-        role = await _get_role(db, farm, payload.role_id, for_update=True)
-    except HTTPException as exc:
-        if exc.status_code == 404:
-            raise HTTPException(status_code=400, detail="Pick a valid role.") from None
-        raise
-    _guard_manager_role(role, user, farm)
-    worker = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
-    if worker is not None:
-        # One response for owner, worker, and otherwise unaffiliated accounts:
-        # do not turn team management into an account/tenant enumeration API.
-        raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM)
-
-    password = payload.password or ""
-    error = password_policy_error(password)
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    worker = User(
-        email=email,
-        name=(payload.name or "").strip() or None,
-        password_hash=hash_password(password),
+    payload = prepared.payload
+    user, farm = await _reauthorize_prepared_owner(
+        db,
+        actor_id=prepared.actor_id,
+        actor_token_version=prepared.actor_token_version,
+        farm_id=prepared.farm_id,
     )
-    db.add(worker)
-    try:
-        await db.flush()
-    except IntegrityError:  # account registered/provisioned concurrently
-        await db.rollback()
-        raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM) from None
 
-    membership = FarmMembership(
+    async def mutate() -> MembershipOut:
+        await _guard_farm_capacity(
+            db,
+            farm,
+            model=FarmMembership,
+            limit=get_settings().max_team_members_per_farm,
+        )
+        email = payload.email  # normalized by EmailMixin (strip/lower, shape-checked)
+        try:
+            role = await _get_role(db, farm, payload.role_id, for_share=True)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                raise HTTPException(status_code=400, detail="Pick a valid role.") from None
+            raise
+        _guard_manager_role(role, user, farm)
+        _guard_role_scope(role, set(ALL_PERMISSIONS), user, farm)
+        worker = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+        if worker is not None:
+            # One response for owner, worker, and otherwise unaffiliated
+            # accounts: do not turn team management into an account/tenant
+            # enumeration API.
+            raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM)
+
+        worker = User(
+            email=email,
+            name=(payload.name or "").strip() or None,
+            password_hash=prepared.password_hash,
+        )
+        db.add(worker)
+        try:
+            await db.flush()
+        except IntegrityError:  # account registered/provisioned concurrently
+            raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM) from None
+
+        membership = FarmMembership(
+            farm_id=farm.id,
+            user_id=worker.id,
+            role_id=role.id,
+            is_active=True,
+            account_provisioned_by_farm=True,
+        )
+        db.add(membership)
+        try:
+            await db.flush()
+        except IntegrityError:  # defensive external-writer race
+            raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM) from None
+        return MembershipOut(
+            id=membership.id,
+            user_id=worker.id,
+            email=worker.email,
+            name=worker.name,
+            role_id=role.id,
+            role_name=role.name,
+            is_active=membership.is_active,
+            can_reset_password=True,
+            reset_password_block_reason=None,
+        )
+
+    # Only a keyed HMAC-SHA-256 request fingerprint is persisted; neither the
+    # raw password nor its Argon hash enters the idempotency record/response.
+    # Claim rows reference Farm. Take the capacity serialization lock before
+    # inserting that FK so distinct idempotency keys cannot deadlock while
+    # upgrading simultaneous KEY SHARE locks inside mutate().
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
         farm_id=farm.id,
-        user_id=worker.id,
-        role_id=role.id,
-        is_active=True,
-        account_provisioned_by_farm=True,
-    )
-    db.add(membership)
-    try:
-        await db.commit()
-    except IntegrityError:  # defensive: same person/farm raced through an external writer
-        await db.rollback()
-        raise HTTPException(status_code=400, detail=CANT_ADD_TO_TEAM) from None
-    return MembershipOut(
-        id=membership.id,
-        user_id=worker.id,
-        email=worker.email,
-        name=worker.name,
-        role_id=role.id,
-        role_name=role.name,
-        is_active=membership.is_active,
-        can_reset_password=True,
-        reset_password_block_reason=None,
+        actor_id=user.id,
+        operation="team.workers.create",
+        payload=payload,
+        path_identity={},
+        success_status=201,
+        response_type=MembershipOut,
+        mutate=mutate,
     )
 
 
@@ -341,91 +734,144 @@ async def change_role(
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> MembershipOut:
+    if user.id != farm.owner_id:
+        preflight_membership = await _get_membership(db, farm, membership_id)
+        if preflight_membership.user_id == user.id:
+            raise HTTPException(status_code=400, detail="You cannot change your own role.")
+        _guard_peer_manager(preflight_membership, user, farm)
+        try:
+            preflight_role = await _get_role(db, farm, payload.role_id)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                raise HTTPException(status_code=400, detail="Pick a valid role.") from None
+            raise
+        _guard_manager_role(preflight_role, user, farm)
+        _guard_role_scope(preflight_membership.role, perms, user, farm)
+        _guard_role_scope(preflight_role, perms, user, farm)
     membership = await _get_membership(db, farm, membership_id, for_update=True)
     # Same self-service guard as the toggle endpoint: holding team.manage
     # must not let a worker promote his own membership to a richer role.
     if membership.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot change your own role.")
+    if user.id != farm.owner_id:
+        await _pin_membership_role(db, farm, membership)
     _guard_peer_manager(membership, user, farm)
     try:
-        role = await _get_role(db, farm, payload.role_id, for_update=True)
+        role = await _get_role(db, farm, payload.role_id, for_share=True)
     except HTTPException as exc:
         if exc.status_code == 404:
             raise HTTPException(status_code=400, detail="Pick a valid role.") from None
         raise
     _guard_manager_role(role, user, farm)
+    _guard_role_scope(membership.role, perms, user, farm)
+    _guard_role_scope(role, perms, user, farm)
     membership.role = role
     await db.commit()
-    return _membership_out(membership, await _reset_password_policy_for_membership(db, membership))
+    return _membership_out(
+        membership,
+        await _reset_password_policy_for_membership(db, membership),
+        user,
+        farm,
+    )
 
 
-@router.post("/workers/{membership_id}/toggle")
-async def toggle_worker(
-    membership_id: int, db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: TEAM_PERM
-) -> MembershipOut:
-    membership = await _get_membership(db, farm, membership_id, for_update=True)
-    if membership.user_id == user.id:
-        raise HTTPException(status_code=400, detail="You cannot deactivate your own membership.")
-    _guard_peer_manager(membership, user, farm)
-    membership.is_active = not membership.is_active
-    if not membership.is_active:
-        # Preserve actionable ownership for pending duties: a worker-specific
-        # assignment becomes a role assignment (without overwriting an already
-        # explicit role), atomically with the membership deactivation.
-        await db.execute(
-            update(Task)
-            .where(
-                Task.farm_id == farm.id,
-                Task.assigned_user_id == membership.user_id,
-                Task.status == TaskStatus.PENDING.value,
-            )
-            .values(
-                assigned_user_id=None,
-                assigned_role_id=case(
-                    (Task.assigned_role_id.is_(None), membership.role_id),
-                    else_=Task.assigned_role_id,
-                ),
-            )
-        )
-        # Deactivation must end live refresh and access tokens immediately.
-        locked_user = (
-            await db.execute(select(User).where(User.id == membership.user_id).with_for_update())
-        ).scalar_one()
-        locked_user.token_version += 1
-        await revoke_user_sessions(db, membership.user_id)
-    await db.commit()
-    return _membership_out(membership, await _reset_password_policy_for_membership(db, membership))
+@router.post("/workers/{membership_id}/toggle", include_in_schema=False)
+async def retired_toggle_worker(
+    membership_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: TEAM_PERM,
+) -> None:
+    """Refuse the retry-unsafe legacy command instead of inverting twice."""
+    raise HTTPException(
+        status_code=405,
+        detail="Worker toggle was retired; send the desired state to the status endpoint.",
+        headers={"Allow": "PUT"},
+    )
 
 
-@router.post("/workers/{membership_id}/reset-password")
-async def reset_password(
-    payload: PasswordResetIn,
+@router.put("/workers/{membership_id}/status")
+async def set_worker_status(
+    payload: WorkerStatusIn,
     membership_id: int,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> MembershipOut:
-    """Reset only a global account this farm demonstrably provisioned."""
+    if user.id != farm.owner_id:
+        preflight_membership = await _get_membership(db, farm, membership_id)
+        if preflight_membership.user_id == user.id:
+            raise HTTPException(
+                status_code=400,
+                detail="You cannot deactivate your own membership.",
+            )
+        _guard_peer_manager(preflight_membership, user, farm)
+        _guard_role_scope(preflight_membership.role, perms, user, farm)
+    membership = await _get_membership(
+        db,
+        farm,
+        membership_id,
+        for_update=True,
+        no_key_update=True,
+    )
+    if membership.user_id == user.id:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own membership.")
+    if user.id != farm.owner_id:
+        await _pin_membership_role(db, farm, membership)
+    _guard_peer_manager(membership, user, farm)
+    _guard_role_scope(membership.role, perms, user, farm)
+    membership.is_active = payload.is_active
+    # This is a farm-local authorization change, not an account security
+    # event. Every personal Task already retains its role fallback, so no
+    # history rewrite is needed; role peers gain operational fallback only
+    # while this membership is inactive. Assigning the requested value makes
+    # transport/application retries a no-op instead of a second inversion.
+    await db.commit()
+    return _membership_out(
+        membership,
+        await _reset_password_policy_for_membership(db, membership),
+        user,
+        farm,
+    )
+
+
+@router.post("/workers/{membership_id}/reset-password")
+async def reset_password(
+    prepared: PreparedPasswordResetDep,
+    membership_id: int,
+    db: DbSession,
+) -> MembershipOut:
+    """Owner-only reset of a global account this farm demonstrably provisioned."""
+    user, farm = await _reauthorize_prepared_owner(
+        db,
+        actor_id=prepared.actor_id,
+        actor_token_version=prepared.actor_token_version,
+        farm_id=prepared.farm_id,
+    )
     membership = await _get_membership(db, farm, membership_id, for_update=True)
     _guard_peer_manager(membership, user, farm)
     # Serialize with farm creation and new foreign-key affiliations before the
     # eligibility query; otherwise an account could gain a global affiliation
     # between the check and the password rewrite.
     locked_user = (
-        await db.execute(select(User).where(User.id == membership.user_id).with_for_update())
-    ).scalar_one()
+        await db.execute(
+            select(User)
+            .where(User.id == membership.user_id, User.deleted_at.is_(None))
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if locked_user is None:
+        raise HTTPException(status_code=400, detail="Worker account no longer exists")
     reset_policy = await _reset_password_policy_for_membership(db, membership)
     if not reset_policy[0]:
         raise HTTPException(status_code=400, detail=reset_policy[1])
-    error = password_policy_error(payload.password)
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    locked_user.password_hash = hash_password(payload.password)
+    locked_user.password_hash = prepared.password_hash
     locked_user.token_version += 1
     await revoke_user_sessions(db, membership.user_id)
     await db.commit()
-    return _membership_out(membership, reset_policy)
+    return _membership_out(membership, reset_policy, user, farm)
 
 
 # ---------------------------------------------------------------------------
@@ -439,12 +885,26 @@ async def create_role(
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> RoleOut:
+    await _guard_farm_capacity(
+        db,
+        farm,
+        model=Role,
+        limit=get_settings().max_roles_per_farm,
+    )
     _guard_manager_permission(payload.permissions, user, farm)
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
     clash = (
-        (await db.execute(select(Role).where(Role.farm_id == farm.id, Role.name == name)))
+        (
+            await db.execute(
+                select(Role).where(
+                    Role.farm_id == farm.id,
+                    Role.name == name,
+                    Role.deleted_at.is_(None),
+                )
+            )
+        )
         .scalars()
         .first()
     )
@@ -477,14 +937,21 @@ async def update_role(
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> RoleOut:
+    if user.id != farm.owner_id:
+        preflight_role = await _get_role(db, farm, role_id)
+        _guard_manager_role(preflight_role, user, farm)
+        _guard_role_scope(preflight_role, perms, user, farm)
     role = await _get_role(db, farm, role_id, for_update=True)
     _guard_manager_role(role, user, farm)
+    _guard_role_scope(role, perms, user, farm)
     _guard_manager_permission(payload.permissions, user, farm)
     name = payload.name.strip()
     clash = (
         (
             await db.execute(
-                select(Role).where(Role.farm_id == farm.id, Role.name == name, Role.id != role.id)
+                select(Role)
+                .where(Role.farm_id == farm.id, Role.name == name, Role.id != role.id)
+                .where(Role.deleted_at.is_(None))
             )
         )
         .scalars()
@@ -517,8 +984,17 @@ async def delete_role(
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> Response:
+    if user.id != farm.owner_id:
+        preflight_role = await _get_role(db, farm, role_id)
+        _guard_manager_role(preflight_role, user, farm)
+        _guard_role_scope(preflight_role, perms, user, farm)
+    # A full row lock also conflicts with FK KEY SHARE taken by a concurrently
+    # spawned recurrence. The pending-duty guard below therefore sees either
+    # the old occurrence or its committed successor; it cannot tombstone a
+    # role in the gap and strand actionable work.
     role = await _get_role(db, farm, role_id, for_update=True)
     _guard_manager_role(role, user, farm)
+    _guard_role_scope(role, perms, user, farm)
     if role.code is not None:
         # Startup seeding re-creates presets, so deleting one would not stick.
         raise HTTPException(status_code=400, detail="Preset roles can't be deleted.")
@@ -526,19 +1002,22 @@ async def delete_role(
         raise HTTPException(
             status_code=400, detail="Role still has workers assigned — reassign them first."
         )
-    # Leave historical task attribution readable: unassign, don't dangle.
-    await db.execute(
-        update(Task).where(Task.assigned_role_id == role.id).values(assigned_role_id=None)
-    )
-    await db.delete(role)
-    try:
-        await db.commit()
-    except IntegrityError:
-        # A worker was assigned this role between the member-count
-        # check above and the DELETE (FK violation) — answer like the
-        # pre-check instead of 500ing.
-        await db.rollback()
+    pending_task = (
+        await db.execute(
+            select(Task.id)
+            .where(
+                Task.farm_id == farm.id,
+                Task.assigned_role_id == role.id,
+                Task.status == TaskStatus.PENDING.value,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if pending_task is not None:
         raise HTTPException(
-            status_code=400, detail="Role still has workers assigned — reassign them first."
-        ) from None
+            status_code=409,
+            detail="Role still has pending duties — complete or skip them first.",
+        )
+    role.deleted_at = utcnow()
+    await db.commit()
     return Response(status_code=204)

@@ -16,7 +16,13 @@ from .conftest import owner_with_farm
 async def _make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-001") -> dict:
     resp = await client.post(
         "/api/animals",
-        json={"tag_number": tag, "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
+        json={
+            "tag_number": tag,
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd test fixture",
+        },
         headers=headers,
     )
     assert resp.status_code == 201, resp.text

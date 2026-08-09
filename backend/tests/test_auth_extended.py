@@ -22,10 +22,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 
 from app.core.config import get_settings
 from app.db import get_sessionmaker
+from app.deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
 from app.models import FarmMembership, RefreshSession, User
 from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS
 from app.ratelimit import auth_limiter
@@ -69,7 +70,11 @@ def forge_token(
         "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": now + timedelta(seconds=ttl_seconds),
+        "iss": get_settings().jwt_issuer,
+        "aud": get_settings().jwt_audience,
     } | extra
+    if kind == "access" and "ver" not in claims:
+        claims["ver"] = 0
     if key is None:
         key = get_settings().jwt_private_key_path.read_text()
     return jwt.encode(claims, key, algorithm=algorithm)
@@ -254,7 +259,7 @@ async def test_register_two_users_get_distinct_ids(client: httpx.AsyncClient) ->
     assert len(ids) == 2
 
 
-async def test_register_ignores_unknown_extra_fields(client: httpx.AsyncClient) -> None:
+async def test_register_rejects_unknown_extra_fields(client: httpx.AsyncClient) -> None:
     resp = await client.post(
         "/api/auth/register",
         json={
@@ -264,7 +269,7 @@ async def test_register_ignores_unknown_extra_fields(client: httpx.AsyncClient) 
             "role": "owner",
         },
     )
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 422, resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -501,13 +506,13 @@ async def test_login_validation_garbage_payloads(client: httpx.AsyncClient) -> N
         assert resp.status_code == 422, payload
 
 
-async def test_login_ignores_unknown_extra_fields(client: httpx.AsyncClient) -> None:
+async def test_login_rejects_unknown_extra_fields(client: httpx.AsyncClient) -> None:
     await register(client, "xtra@farm.in")
     resp = await client.post(
         "/api/auth/login",
         json={"email": "xtra@farm.in", "password": OWNER_PW, "remember_me": True},
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 422, resp.text
 
 
 async def test_login_password_is_exact_match(client: httpx.AsyncClient) -> None:
@@ -656,6 +661,130 @@ async def test_refresh_old_token_reuse_revokes_family(client: httpx.AsyncClient)
     await login(client, "reuse@farm.in", OWNER_PW)
 
 
+async def test_refresh_rotation_and_family_history_are_hard_bounded(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "refresh_max_sessions_per_family", 3)
+    await register(client, "bounded-rotation@farm.in")
+    first = client.cookies.get(COOKIE)
+    assert first is not None
+
+    predecessor = first
+    for _index in range(6):
+        predecessor = client.cookies.get(COOKIE)
+        response = await client.post("/api/auth/refresh")
+        assert response.status_code == 200, response.text
+    successor = client.cookies.get(COOKIE)
+    assert predecessor is not None and successor is not None
+
+    async with get_sessionmaker()() as db:
+        user_id = (
+            await db.execute(select(User.id).where(User.email == "bounded-rotation@farm.in"))
+        ).scalar_one()
+        sessions = list(
+            (
+                await db.execute(
+                    select(RefreshSession)
+                    .where(RefreshSession.user_id == user_id)
+                    .order_by(RefreshSession.created_at, RefreshSession.id)
+                )
+            ).scalars()
+        )
+    assert len(sessions) == 3
+    assert len({session.family_id for session in sessions}) == 1
+
+    # The just-consumed predecessor remains inside the finite window, so the
+    # normal concurrent-tab grace still reconstructs the exact successor.
+    set_refresh_cookie(client, predecessor)
+    grace = await client.post("/api/auth/refresh")
+    assert grace.status_code == 200, grace.text
+    assert grace.cookies.get(COOKIE) == successor
+
+    # A much older compacted token still carries a signed family id. Replaying
+    # it revokes the current family even though its individual row is gone.
+    first_claims = decode_refresh_claims(first)
+    assert first_claims is not None and first_claims.family_id is not None
+    set_refresh_cookie(client, first)
+    replay = await client.post("/api/auth/refresh")
+    assert replay.status_code == 401
+    set_refresh_cookie(client, successor)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+
+
+async def test_successful_logins_evict_old_refresh_families_at_hard_cap(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "refresh_max_families_per_user", 2)
+    await register(client, "bounded-families@farm.in")
+    oldest = client.cookies.get(COOKIE)
+    assert oldest is not None
+    await login(client, "bounded-families@farm.in", OWNER_PW)
+    await login(client, "bounded-families@farm.in", OWNER_PW)
+    newest = client.cookies.get(COOKIE)
+    assert newest is not None
+
+    async with get_sessionmaker()() as db:
+        user_id = (
+            await db.execute(select(User.id).where(User.email == "bounded-families@farm.in"))
+        ).scalar_one()
+        rows = list(
+            (
+                await db.execute(select(RefreshSession).where(RefreshSession.user_id == user_id))
+            ).scalars()
+        )
+    assert len({row.family_id for row in rows}) == 2
+    oldest_claims = decode_refresh_claims(oldest)
+    assert oldest_claims is not None
+    assert all(row.family_id != oldest_claims.family_id for row in rows)
+
+    # Replaying an evicted family cannot affect a different current family.
+    set_refresh_cookie(client, oldest)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+    set_refresh_cookie(client, newest)
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+
+
+async def test_expired_refresh_cleanup_is_ordered_and_strictly_batched(
+    client: httpx.AsyncClient,
+) -> None:
+    await register(client, "bounded-cleanup@farm.in")
+    async with get_sessionmaker()() as db:
+        user_id = (
+            await db.execute(select(User.id).where(User.email == "bounded-cleanup@farm.in"))
+        ).scalar_one()
+        old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=60)
+        db.add_all(
+            [
+                RefreshSession(
+                    user_id=user_id,
+                    jti=f"expired-{index}",
+                    family_id="expired-family",
+                    expires_at=old + timedelta(seconds=index),
+                    created_at=old,
+                )
+                for index in range(7)
+            ]
+        )
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=3) == 3
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        remaining = (
+            await db.execute(
+                select(func.count())
+                .select_from(RefreshSession)
+                .where(RefreshSession.family_id == "expired-family")
+            )
+        ).scalar_one()
+        assert remaining == 4
+        assert await purge_expired_refresh_sessions(db, batch_size=3) == 3
+        await db.commit()
+
+
 async def test_immediate_refresh_replay_returns_exact_successor(
     client: httpx.AsyncClient,
 ) -> None:
@@ -746,6 +875,7 @@ async def test_refresh_is_rate_limited_per_ip(client: httpx.AsyncClient) -> None
     set_refresh_cookie(client, "garbage")
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 429
+    assert resp.headers["Retry-After"] == str(get_settings().auth_rate_limit_window_seconds)
     assert "Too many" in resp.json()["detail"]
 
 
@@ -927,6 +1057,45 @@ async def test_logout_revokes_the_presented_session(client: httpx.AsyncClient) -
     assert resp.status_code == 401
 
 
+async def test_logout_revokes_successor_when_presented_refresh_already_rotated(
+    client: httpx.AsyncClient,
+) -> None:
+    """Model the refresh-wins serialization order deterministically.
+
+    A refresh commits its successor first; logout then presents the consumed
+    predecessor. The 204 must revoke the complete family, including that
+    successor, rather than only marking the predecessor.
+    """
+    await register(client, "refresh-wins-logout@farm.in")
+    predecessor = client.cookies.get(COOKIE)
+    assert predecessor
+    rotated = await client.post("/api/auth/refresh")
+    assert rotated.status_code == 200, rotated.text
+    successor = client.cookies.get(COOKIE)
+    assert successor and successor != predecessor
+
+    set_refresh_cookie(client, predecessor)
+    assert (await client.post("/api/auth/logout")).status_code == 204
+    set_refresh_cookie(client, successor)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+
+
+async def test_bearer_only_logout_revokes_every_refresh_family(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await register(client, "bearer-only-logout@farm.in")
+    refresh_cookie = client.cookies.get(COOKIE)
+    assert refresh_cookie
+    client.cookies.clear()
+    assert (await client.post("/api/auth/logout", headers=headers)).status_code == 204
+
+    # Merely advancing token_version would let this family mint a new access
+    # token carrying that version and undo the logout. Bearer-only logout has
+    # no family proof, so it revokes all bounded sessions for the identity.
+    set_refresh_cookie(client, refresh_cookie)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+
+
 async def test_logout_invalidates_already_issued_access_token(client: httpx.AsyncClient) -> None:
     headers = await register(client, "accessout@farm.in")
     assert (await client.get("/api/auth/me", headers=headers)).status_code == 200
@@ -984,6 +1153,38 @@ async def test_change_password_wrong_current_password(client: httpx.AsyncClient)
     assert resp.json()["detail"] == "Current password is incorrect."
     # nothing changed: old password and the live session still work
     await login(client, "chgwrong@farm.in", OWNER_PW)
+    set_refresh_cookie(client, cookie_before)
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_change_password_wrong_current_password_is_rate_limited(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await register(client, "chg-rate@farm.in")
+    payload = {"current_password": "wrong-password", "new_password": "newpass1234"}
+    for _ in range(3):
+        resp = await client.post("/api/auth/change-password", json=payload, headers=headers)
+        assert resp.status_code == 400
+    resp = await client.post("/api/auth/change-password", json=payload, headers=headers)
+    assert resp.status_code == 429
+    assert resp.headers["Retry-After"] == str(get_settings().auth_rate_limit_window_seconds)
+
+
+async def test_change_password_rejects_reusing_current_password(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await register(client, "chg-reuse@farm.in")
+    cookie_before = client.cookies.get(COOKIE)
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": OWNER_PW, "new_password": OWNER_PW},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "New password must be different from the current password."
+    # A rejected no-op does not revoke the caller's access or refresh session.
+    assert (await client.get("/api/auth/me", headers=headers)).status_code == 200
     set_refresh_cookie(client, cookie_before)
     assert (await client.post("/api/auth/refresh")).status_code == 200
 
@@ -1151,14 +1352,31 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
     assert (await client.post("/api/auth/refresh")).status_code == 401
 
     async with get_sessionmaker()() as db:
-        assert await db.get(User, worker_id) is None
-        assert await db.get(FarmMembership, membership_id) is None
+        tombstone = await db.get(User, worker_id)
+        assert tombstone is not None
+        assert tombstone.deleted_at is not None
+        assert tombstone.name is None
+        assert tombstone.email.startswith(f"deleted-{worker_id}-")
+        assert tombstone.email.endswith("@deleted.invalid")
+        assert not verify_password("workerpass123", tombstone.password_hash)[0]
+        assert tombstone.display_name == "Deleted account"
+        retained_membership = await db.get(FarmMembership, membership_id)
+        assert retained_membership is not None
+        # Deletion never enumerates an account's tenant history. The User
+        # tombstone already revokes access; retained memberships converge in
+        # bounded background batches.
+        assert retained_membership.is_active is True
+        assert retained_membership.role_id == role["id"]
         sessions = (
             (await db.execute(select(RefreshSession).where(RefreshSession.user_id == worker_id)))
             .scalars()
             .all()
         )
         assert sessions == []
+        assert await deactivate_deleted_user_memberships(db, batch_size=10) == 1
+        await db.commit()
+        await db.refresh(retained_membership)
+        assert retained_membership.is_active is False
 
     tasks = (await client.get("/api/tasks", headers=owner)).json()
     duty_id = duty.json()["id"]
@@ -1169,8 +1387,17 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
         for row in rows
         if row["id"] == duty_id
     )
-    assert reassigned["assigned_user_id"] is None
+    assert reassigned["assigned_user_id"] == worker_id
     assert reassigned["assigned_role_id"] == role["id"]
+
+    # The scrubbed address is reusable, but starts a completely new identity;
+    # retained farm attribution continues pointing at the tombstone above.
+    registered_again = await client.post(
+        "/api/auth/register",
+        json={"email": "departing@farm.in", "password": "replacementpass123"},
+    )
+    assert registered_again.status_code == 201, registered_again.text
+    assert registered_again.json()["user"]["id"] != worker_id
 
 
 async def test_me_without_authorization_is_401(client: httpx.AsyncClient) -> None:
@@ -1342,11 +1569,16 @@ async def test_permissions_deactivated_worker_loses_access(client: httpx.AsyncCl
     membership_id = await add_worker(client, owner, "VET", "vet@farm.in")
     worker = (await worker_login(client, "vet@farm.in")) | {"X-Farm-Id": owner["X-Farm-Id"]}
     assert (await client.get("/api/auth/permissions", headers=worker)).status_code == 200
-    resp = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
+    resp = await client.put(
+        f"/api/team/workers/{membership_id}/status",
+        json={"is_active": False},
+        headers=owner,
+    )
     assert resp.status_code == 200, resp.text
     resp = await client.get("/api/auth/permissions", headers=worker)
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "Session has been revoked"
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Farm not found"
+    assert (await client.get("/api/auth/me", headers=worker)).status_code == 200
 
 
 async def test_permissions_owner_of_two_farms(client: httpx.AsyncClient) -> None:
@@ -1384,6 +1616,24 @@ async def test_farms_lists_owned_farms_with_none_role(client: httpx.AsyncClient)
     assert {f["name"] for f in farms} == {"Alpha", "Beta"}
     assert all(f["role"] is None for f in farms)  # None = owner
     assert all(set(f) == {"id", "name", "location", "timezone", "role"} for f in farms)
+
+
+async def test_affiliation_list_and_export_fail_before_unbounded_hydration(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    headers = await register(client, "bounded-affiliations@farm.in")
+    for name in ("Bound One", "Bound Two"):
+        created = await client.post("/api/auth/farms", json={"name": name}, headers=headers)
+        assert created.status_code == 201, created.text
+    monkeypatch.setattr(get_settings(), "max_account_affiliations_per_response", 1)
+
+    for path in ("/api/auth/farms", "/api/auth/account/export"):
+        response = await client.get(path, headers=headers)
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == (
+            "Account has too many farm affiliations to return safely."
+        )
 
 
 async def test_farms_never_lists_other_users_farms(client: httpx.AsyncClient) -> None:
@@ -1426,11 +1676,15 @@ async def test_farms_excludes_deactivated_membership(client: httpx.AsyncClient) 
     membership_id = await add_worker(client, owner, "CLEANER", "off@farm.in")
     worker = await worker_login(client, "off@farm.in")
     assert len((await client.get("/api/auth/farms", headers=worker)).json()) == 1
-    resp = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
+    resp = await client.put(
+        f"/api/team/workers/{membership_id}/status",
+        json={"is_active": False},
+        headers=owner,
+    )
     assert resp.status_code == 200, resp.text
     resp = await client.get("/api/auth/farms", headers=worker)
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "Session has been revoked"
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 async def test_farms_without_auth_is_401(client: httpx.AsyncClient) -> None:
@@ -1548,16 +1802,15 @@ async def test_create_farm_location_at_db_limit(client: httpx.AsyncClient) -> No
     assert resp.json()["location"] == "L" * 120
 
 
-async def test_create_farm_ignores_unknown_extra_fields(client: httpx.AsyncClient) -> None:
+async def test_create_farm_rejects_unknown_extra_fields(client: httpx.AsyncClient) -> None:
     headers = await register(client, "extraf@farm.in")
     resp = await client.post(
         "/api/auth/farms",
         json={"name": "Farm", "owner_id": 999, "id": 5},
         headers=headers,
     )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    assert body["id"] != 5  # server-assigned
+    assert resp.status_code == 422, resp.text
+    assert (await client.get("/api/auth/farms", headers=headers)).json() == []
 
 
 async def test_create_farm_without_auth_is_401(client: httpx.AsyncClient) -> None:
@@ -1680,10 +1933,11 @@ def test_decode_token_refresh_roundtrip() -> None:
 
 
 def test_decode_refresh_claims_roundtrip() -> None:
-    claims = decode_refresh_claims(issue_refresh_token(7, jti="abc123"))
+    claims = decode_refresh_claims(issue_refresh_token(7, jti="abc123", family_id="family-123"))
     assert claims is not None
     assert claims.user_id == 7
     assert claims.jti == "abc123"
+    assert claims.family_id == "family-123"
     assert claims.expires_at > datetime.now(UTC).replace(tzinfo=None)
 
 
@@ -1763,9 +2017,13 @@ def test_access_token_claims_shape() -> None:
         token,
         get_settings().jwt_public_key_path.read_text(),
         algorithms=[get_settings().jwt_algorithm],
+        audience=get_settings().jwt_audience,
+        issuer=get_settings().jwt_issuer,
     )
     assert payload["sub"] == "99"
     assert payload["kind"] == "access"
+    assert payload["iss"] == get_settings().jwt_issuer
+    assert payload["aud"] == get_settings().jwt_audience
     assert payload["jti"]
     assert payload["exp"] > payload["iat"]
     ttl = payload["exp"] - payload["iat"]
@@ -1778,6 +2036,8 @@ def test_refresh_token_ttl_matches_settings() -> None:
         token,
         get_settings().jwt_public_key_path.read_text(),
         algorithms=[get_settings().jwt_algorithm],
+        audience=get_settings().jwt_audience,
+        issuer=get_settings().jwt_issuer,
     )
     assert payload["kind"] == "refresh"
     assert payload["exp"] - payload["iat"] == get_settings().refresh_token_ttl_seconds
@@ -1787,7 +2047,13 @@ def test_tokens_have_unique_jti() -> None:
     public = get_settings().jwt_public_key_path.read_text()
     jtis = set()
     for _ in range(5):
-        payload = jwt.decode(issue_access_token(1), public, algorithms=["RS256"])
+        payload = jwt.decode(
+            issue_access_token(1),
+            public,
+            algorithms=["RS256"],
+            audience=get_settings().jwt_audience,
+            issuer=get_settings().jwt_issuer,
+        )
         jtis.add(payload["jti"])
     assert len(jtis) == 5
 
@@ -1812,6 +2078,37 @@ async def test_login_sets_refresh_cookie_with_same_attributes(
     # the login cookie is usable for refresh
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 200, resp.text
+
+
+async def test_refresh_rejects_cross_site_origin_without_consuming_session(
+    client: httpx.AsyncClient,
+) -> None:
+    await register(client, "csrf-refresh@farm.in")
+    rejected = await client.post(
+        "/api/auth/refresh",
+        headers={"Origin": "https://evil.example.com", "Sec-Fetch-Site": "same-site"},
+    )
+    assert rejected.status_code == 403, rejected.text
+    assert rejected.json()["detail"] == "Untrusted origin for cookie-authenticated request."
+
+    # Rejection happens before rotation: the original cookie remains usable.
+    accepted = await client.post(
+        "/api/auth/refresh",
+        headers={"Origin": get_settings().cors_origins[0]},
+    )
+    assert accepted.status_code == 200, accepted.text
+
+
+async def test_cookie_auth_rejects_cross_site_fetch_metadata(
+    client: httpx.AsyncClient,
+) -> None:
+    await register(client, "csrf-fetch-metadata@farm.in")
+    rejected = await client.post(
+        "/api/auth/logout",
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+    assert rejected.status_code == 403, rejected.text
+    assert (await client.post("/api/auth/refresh")).status_code == 200
 
 
 async def test_logout_twice_is_still_204(client: httpx.AsyncClient) -> None:
@@ -1903,3 +2200,42 @@ def test_decode_token_rejects_wrong_case_kind_and_missing_kind() -> None:
         algorithm="RS256",
     )
     assert decode_token(no_kind, "access") is None
+
+
+@pytest.mark.parametrize("missing", ["sub", "kind", "jti", "iat", "exp", "iss", "aud"])
+def test_decode_token_rejects_every_missing_required_claim(missing: str) -> None:
+    now = datetime.now(UTC)
+    claims: dict[str, object] = {
+        "sub": "1",
+        "kind": "access",
+        "jti": uuid.uuid4().hex,
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+        "iss": get_settings().jwt_issuer,
+        "aud": get_settings().jwt_audience,
+        "ver": 0,
+    }
+    del claims[missing]
+    token = jwt.encode(
+        claims,
+        get_settings().jwt_private_key_path.read_text(),
+        algorithm="RS256",
+    )
+    assert decode_token(token, "access") is None
+
+
+def test_access_claims_require_strict_revocation_version() -> None:
+    from app.security import decode_access_claims
+
+    assert decode_access_claims(forge_token(1, ver="0")) is None
+    assert decode_access_claims(forge_token(1, ver=True)) is None
+
+
+def test_decode_token_rejects_wrong_issuer_or_audience() -> None:
+    assert decode_token(forge_token(1, iss="another-api"), "access") is None
+    assert decode_token(forge_token(1, aud="another-client"), "access") is None
+
+
+def test_issue_token_refuses_reserved_claim_override() -> None:
+    with pytest.raises(ValueError, match="reserved JWT claims"):
+        issue_token(1, "access", 60, extra_claims={"sub": "2"})

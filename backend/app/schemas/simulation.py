@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.results import MonteCarloResult, SensitivityItem, SimulationResult
+from .common import StrictBool, StrictInputModel
 
 __all__ = [
     "BreedsOut",
@@ -19,6 +20,7 @@ __all__ = [
     "RunIn",
     "ScenarioCompareOut",
     "ScenarioCreateIn",
+    "ScenarioListOut",
     "ScenarioOut",
     "ScenarioUpdateIn",
     "SensitivityItem",
@@ -27,13 +29,13 @@ __all__ = [
 ]
 
 
-class ScenarioCreateIn(BaseModel):
+class ScenarioCreateIn(StrictInputModel):
     name: str = Field(min_length=1, max_length=120)  # simulation_scenarios.name String(120)
     notes: str = Field(default="", max_length=2000)
     assumptions: SimulationAssumptions
 
 
-class ScenarioUpdateIn(BaseModel):
+class ScenarioUpdateIn(StrictInputModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     notes: str | None = Field(default=None, max_length=2000)
     assumptions: SimulationAssumptions | None = None
@@ -53,10 +55,19 @@ class ScenarioOut(BaseModel):
     updated_at: datetime
 
 
-class RunIn(BaseModel):
+class ScenarioListOut(BaseModel):
+    """One bounded page of saved scenarios plus the full farm-scoped count."""
+
+    items: list[ScenarioOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class RunIn(StrictInputModel):
     assumptions: SimulationAssumptions
-    monte_carlo: bool = False
-    sensitivity: bool = False
+    monte_carlo: StrictBool = False
+    sensitivity: StrictBool = False
 
 
 class HerdSnapshotOut(BaseModel):

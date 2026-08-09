@@ -182,7 +182,8 @@ describe("TeamPage workers table", () => {
     expect(await screen.findByText(/No workers yet/)).toBeInTheDocument();
   });
 
-  it("POSTs the toggle when Deactivate is clicked and refetches the team", async () => {
+  it("PUTs the desired inactive state and refetches the team", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     let toggleCalls = 0;
     let toggledId: string | null = null;
     let getCalls = 0;
@@ -191,9 +192,10 @@ describe("TeamPage workers table", () => {
         getCalls += 1;
         return HttpResponse.json(TEAM_PAYLOAD);
       }),
-      http.post("/api/team/workers/:membershipId/toggle", ({ params }) => {
+      http.put("/api/team/workers/:membershipId/status", async ({ params, request }) => {
         toggleCalls += 1;
         toggledId = String(params.membershipId);
+        expect(await request.json()).toEqual({ is_active: false });
         return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
       }),
     );
@@ -205,6 +207,9 @@ describe("TeamPage workers table", () => {
       within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Deactivate" }),
     );
 
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "Deactivate Ravi Kumar? They will immediately lose farm access.",
+    );
     await waitFor(() => expect(toggleCalls).toBe(1));
     expect(toggledId).toBe("2");
     await waitFor(() => expect(getCalls).toBeGreaterThan(callsBefore));
@@ -230,6 +235,68 @@ describe("TeamPage workers table", () => {
     await waitFor(() => expect(roleBody).not.toBeNull());
     expect(roleMembership).toBe("2");
     expect(roleBody).toEqual({ role_id: 11 });
+  });
+
+  it("announces a failed role change and retries the intended role", async () => {
+    let calls = 0;
+    server.use(
+      teamHandler(),
+      http.post("/api/team/workers/:membershipId/role", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "role assignment conflict" }, { status: 409 })
+          : HttpResponse.json({ ...MEMBER_RAVI, role_id: 11 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = workerRow(MEMBER_RAVI.email);
+    await user.click(within(row).getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: /Helper/ }));
+
+    expect(await within(row).findByRole("alert")).toHaveTextContent("role assignment conflict");
+    await user.click(within(row).getByRole("button", { name: "Retry role change" }));
+    await waitFor(() => expect(calls).toBe(2));
+  });
+
+  it("requires confirmation before deactivating a worker", async () => {
+    let calls = 0;
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    server.use(
+      http.put("/api/team/workers/:membershipId/status", () => {
+        calls += 1;
+        return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(
+      within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Deactivate" }),
+    );
+
+    expect(calls).toBe(0);
+  });
+
+  it("retries the same desired worker state instead of inverting it", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const bodies: unknown[] = [];
+    server.use(
+      teamHandler(),
+      http.put("/api/team/workers/:membershipId/status", async ({ request }) => {
+        bodies.push(await request.json());
+        return bodies.length === 1
+          ? HttpResponse.json({ detail: "response was interrupted" }, { status: 503 })
+          : HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = workerRow(MEMBER_RAVI.email);
+    await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    expect(await within(row).findByRole("alert")).toHaveTextContent("response was interrupted");
+    await user.click(within(row).getByRole("button", { name: "Retry deactivate" }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies).toEqual([{ is_active: false }, { is_active: false }]);
   });
 });
 
@@ -348,8 +415,31 @@ describe("TeamPage add-worker dialog", () => {
     await pickRole(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
 
-    expect(await within(dialog).findByText("email already on this farm")).toBeInTheDocument();
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("email already on this farm");
+    expect(within(dialog).getByRole("button", { name: "Retry add worker" })).toBeEnabled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("focuses the email field and associates validation errors", async () => {
+    const { user, dialog } = await openDialog();
+    const email = within(dialog).getByLabelText(/Email/);
+    expect(email).toHaveFocus();
+
+    await user.type(email, "invalid");
+    await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
+    const error = await within(dialog).findByText("Enter a valid email address");
+    expect(error).toHaveAttribute("role", "alert");
+    expect(email).toHaveAccessibleDescription("Enter a valid email address");
+  });
+
+  it("single-flights a double-click on Add worker", async () => {
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Email/), "new@example.com");
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
+    await pickRole(user, dialog);
+
+    await user.dblClick(within(dialog).getByRole("button", { name: "Add worker" }));
+    await waitFor(() => expect(postCalls).toBe(1));
   });
 });
 
@@ -447,7 +537,10 @@ describe("TeamPage reset-password dialog", () => {
     await user.type(within(dialog).getByLabelText(/New password/), "brandnewpass");
     await user.click(within(dialog).getByRole("button", { name: "Reset password" }));
 
-    expect(await within(dialog).findByText("cannot reset owner password")).toBeInTheDocument();
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "cannot reset owner password",
+    );
+    expect(within(dialog).getByRole("button", { name: "Retry password reset" })).toBeEnabled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -573,6 +666,27 @@ describe("TeamPage role cards", () => {
     await waitFor(() => expect(deleteCalls).toBe(1));
     expect(deletedId).toBe("12");
     await waitFor(() => expect(getCalls).toBeGreaterThan(callsBefore));
+  });
+
+  it("announces a failed role deletion and offers a confirmed retry", async () => {
+    let calls = 0;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.delete("/api/team/roles/:roleId", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "role changed concurrently" }, { status: 409 })
+          : new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = cardOf("Unused");
+    await user.click(within(card).getByRole("button", { name: "Delete" }));
+
+    expect(await within(card).findByRole("alert")).toHaveTextContent("role changed concurrently");
+    await user.click(within(card).getByRole("button", { name: "Retry delete role" }));
+    await waitFor(() => expect(calls).toBe(2));
   });
 });
 
@@ -705,5 +819,39 @@ describe("TeamPage RBAC and errors", () => {
     );
     renderWithProviders(<TeamPage />);
     expect(await screen.findByText("team unavailable")).toBeInTheDocument();
+  });
+
+  it("announces a team query failure and retries it", async () => {
+    let fail = true;
+    let calls = 0;
+    server.use(
+      http.get("/api/team", () => {
+        calls += 1;
+        return fail
+          ? HttpResponse.json({ detail: "team temporarily unavailable" }, { status: 503 })
+          : HttpResponse.json(TEAM_PAYLOAD);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TeamPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("team temporarily unavailable");
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Retry team" }));
+    expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it("never exposes password reset to a non-owner even if a forged payload allows it", async () => {
+    server.use(permissionsHandler(["team.manage"]), teamHandler());
+    await renderLoaded();
+
+    const row = workerRow(MEMBER_RAVI.email);
+    expect(within(row).queryByRole("button", { name: "Reset password" }))
+      .not.toBeInTheDocument();
+    expect(within(row).getByRole("combobox")).toBeDisabled();
+    expect(
+      within(row).getByText(/current role stays within your own permissions/i),
+    ).toBeInTheDocument();
   });
 });

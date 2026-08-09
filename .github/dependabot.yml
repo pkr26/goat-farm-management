@@ -14,6 +14,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: /
     schedule:

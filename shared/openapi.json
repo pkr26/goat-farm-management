@@ -327,7 +327,7 @@
           "auth"
         ],
         "summary": "Delete Account",
-        "description": "Permanently remove a non-owner account after password confirmation.",
+        "description": "Remove account access and profile data after password confirmation.\n\nFarm operational and audit rows retain a pseudonymous actor reference so\nattributed history is not silently rewritten when a worker leaves.",
         "operationId": "delete_account_api_auth_account_delete",
         "parameters": [
           {
@@ -492,6 +492,25 @@
         "operationId": "create_farm_api_auth_farms_post",
         "parameters": [
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -621,6 +640,16 @@
             }
           },
           {
+            "name": "include_all_statuses",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include All Statuses"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "required": false,
@@ -642,16 +671,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 1000,
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
               "title": "Limit"
             }
           },
@@ -661,6 +684,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -722,6 +746,25 @@
         "summary": "Create Animal",
         "operationId": "create_animal_api_animals_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "x-farm-id",
             "in": "header",
@@ -797,6 +840,78 @@
             "schema": {
               "type": "integer",
               "title": "Animal Id"
+            }
+          },
+          {
+            "name": "history_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "History Limit"
+            }
+          },
+          {
+            "name": "kids_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Kids Offset"
+            }
+          },
+          {
+            "name": "weights_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Weights Offset"
+            }
+          },
+          {
+            "name": "moves_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Moves Offset"
+            }
+          },
+          {
+            "name": "health_events_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Health Events Offset"
+            }
+          },
+          {
+            "name": "breedings_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Breedings Offset"
             }
           },
           {
@@ -944,6 +1059,25 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
             "name": "x-farm-id",
             "in": "header",
             "required": true,
@@ -1086,6 +1220,7 @@
           "buckets"
         ],
         "summary": "Buckets Board",
+        "description": "All buckets with exact occupancy and a tag-ordered 100-animal preview.\n\nEvery caller receives the same purpose-specific animal shape. The full,\nindependently-authorized register is the paginated ``/animals`` page in\n``animals_page_path``.",
         "operationId": "buckets_board_api_buckets_get",
         "parameters": [
           {
@@ -1168,6 +1303,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -1295,7 +1431,7 @@
           "breeding"
         ],
         "summary": "Breeding Candidates",
-        "description": "Search a bounded page of animals eligible for the breeding form.\n\nThis domain-scoped summary deliberately does not grant access to the full\nanimal register. Doe eligibility comes from the same canonical service as\nthe create path; bucks are active farm-local males.",
+        "description": "Search a bounded page of animals eligible for the breeding form.\n\nThis domain-scoped summary deliberately does not grant access to the full\nanimal register. Eligibility, literal search, count, and pagination are\nevaluated in SQL; each selected row carries only its latest weight scalar.",
         "operationId": "breeding_candidates_api_breeding_candidates_get",
         "parameters": [
           {
@@ -1346,6 +1482,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -1563,15 +1700,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -1586,8 +1714,27 @@
               ],
               "title": "Authorization"
             }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PregnancyLossIn"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1638,9 +1785,58 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "upcoming_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 30,
+              "title": "Upcoming Limit"
+            }
+          },
+          {
+            "name": "upcoming_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Upcoming Offset"
+            }
+          },
+          {
+            "name": "overdue_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 30,
+              "title": "Overdue Limit"
+            }
+          },
+          {
+            "name": "overdue_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Overdue Offset"
             }
           },
           {
@@ -1759,6 +1955,74 @@
         }
       }
     },
+    "/api/kidding/pregnancies/{breeding_record_id}": {
+      "get": {
+        "tags": [
+          "kidding"
+        ],
+        "summary": "Kidding Pregnancy",
+        "description": "Resolve one live pregnancy for a task/deep-link independent of pages.",
+        "operationId": "kidding_pregnancy_api_kidding_pregnancies__breeding_record_id__get",
+        "parameters": [
+          {
+            "name": "breeding_record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Breeding Record Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BreedingRecordOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health/animals": {
       "get": {
         "tags": [
@@ -1803,6 +2067,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -1864,7 +2129,7 @@
           "health"
         ],
         "summary": "Health Purchase Batch Options",
-        "description": "Targetable batch summaries without exposing the purchase ledger.\n\nBatches with no active animals are omitted because the health write path\ncannot apply an event to them.",
+        "description": "Opaque targetable batch ids without exposing the purchase ledger.\n\nOnly the id needed by the health write and the current quarantine target\ncount are returned. Supplier, purchase date, original count and price are\nprocurement data and require ``purchases.view``. Search is deliberately\nexact-id-only so a health-only role cannot probe supplier names.",
         "operationId": "health_purchase_batch_options_api_health_purchase_batches_get",
         "parameters": [
           {
@@ -1875,7 +2140,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "maxLength": 120
+                  "maxLength": 20
                 },
                 {
                   "type": "null"
@@ -1902,6 +2167,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -1940,6 +2206,97 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthPurchaseBatchOptionListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/restrictions/{animal_id}": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Movement Restriction History",
+        "operationId": "movement_restriction_history_api_health_restrictions__animal_id__get",
+        "parameters": [
+          {
+            "name": "animal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Animal Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovementRestrictionHistoryOut"
                 }
               }
             }
@@ -2055,6 +2412,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -2114,9 +2472,28 @@
           "health"
         ],
         "summary": "Record Event",
-        "description": "One HealthEvent row per targeted ACTIVE animal.\n\nA task-linked event must match the task's exact scope, health type and\nseeded schedule template. This prevents a generic health note from\ncompleting an unrelated quarantine vaccine duty.",
+        "description": "Record an individual event or an exact reviewed bulk target snapshot.\n\nA durable idempotency key makes retries return the first committed event\nset without re-evaluating mutable bucket/batch membership.",
         "operationId": "record_event_api_health_events_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -2159,11 +2536,76 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/HealthEventOut"
-                  },
-                  "title": "Response Record Event Api Health Events Post"
+                  "$ref": "#/components/schemas/HealthEventMutationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health/events/preview": {
+      "post": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Preview Bulk Event Targets",
+        "description": "Return the exact, bounded active-animal snapshot a bulk write must present.",
+        "operationId": "preview_bulk_event_targets_api_health_events_preview_post",
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthBulkTargetIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthBulkTargetPreviewOut"
                 }
               }
             }
@@ -2255,9 +2697,69 @@
           "tasks"
         ],
         "summary": "List Tasks",
-        "description": "All five v1 tabs in one payload; per-tab counts are the list lengths\n(the completed history keeps v1's 100-row cap).",
+        "description": "All five v1 tabs as deterministic, independently pageable lists.",
         "operationId": "list_tasks_api_tasks_get",
         "parameters": [
+          {
+            "name": "active_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Active Limit"
+            }
+          },
+          {
+            "name": "today_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Today Offset"
+            }
+          },
+          {
+            "name": "overdue_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Overdue Offset"
+            }
+          },
+          {
+            "name": "upcoming_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Upcoming Offset"
+            }
+          },
+          {
+            "name": "awaiting_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Awaiting Offset"
+            }
+          },
           {
             "name": "completed_limit",
             "in": "query",
@@ -2276,6 +2778,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Completed Offset"
@@ -2335,16 +2838,26 @@
           "tasks"
         ],
         "summary": "Create Task",
-        "description": "Manual duty. v1 silently stripped unknown/cross-farm role or worker\nids instead of rejecting \u2014 kept.",
+        "description": "Create a manual duty with explicit, farm-scoped assignments.\n\nAssignment is operational state, not optional enrichment.  Silently\ndropping an invalid worker or role leaves an apparently successful duty\nvisible only to the owner, so reject stale, inactive, and cross-farm\nreferences instead.",
         "operationId": "create_task_api_tasks_post",
         "parameters": [
           {
-            "name": "x-farm-id",
+            "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           },
           {
@@ -2361,6 +2874,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -2699,7 +3221,7 @@
           "feeding"
         ],
         "summary": "Feeding Today",
-        "description": "Today's 3-shift plan (bucket \u00d7 recipe \u00d7 headcount) + today's dispensing log.",
+        "description": "Today's plan plus the latest 200 dispensing records for today.\n\n``records_total`` remains the truthful full-day count. Clients needing\nolder rows use the paginated ``GET /api/feeding/records`` endpoint.",
         "operationId": "feeding_today_api_feeding_plan_get",
         "parameters": [
           {
@@ -2824,6 +3346,25 @@
         "operationId": "dispense_api_feeding_dispense_post",
         "parameters": [
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -2944,6 +3485,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -3131,12 +3673,22 @@
         "operationId": "mix_batch_api_feeding_mix_post",
         "parameters": [
           {
-            "name": "x-farm-id",
+            "name": "Idempotency-Key",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           },
           {
@@ -3153,6 +3705,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3269,6 +3830,25 @@
             "schema": {
               "type": "integer",
               "title": "Item Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           },
           {
@@ -3406,6 +3986,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -3467,9 +4048,28 @@
           "finance"
         ],
         "summary": "Add Transaction",
-        "description": "Record an income/expense; a foreign-farm animal link is stripped, not stored.",
+        "description": "Record an income/expense with an optional verified farm-animal link.",
         "operationId": "add_transaction_api_finance_new_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -3546,6 +4146,25 @@
             "schema": {
               "type": "integer",
               "title": "Transaction Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           },
           {
@@ -3652,6 +4271,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 0,
               "default": 0,
               "title": "Offset"
@@ -3716,6 +4336,25 @@
         "description": "Create a batch: stub animals into QUARANTINE, generate the 45-day\nquarantine task schedule and book the purchase expense.",
         "operationId": "create_batch_api_purchases_new_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -3782,7 +4421,7 @@
           "purchases"
         ],
         "summary": "Batch Detail",
-        "description": "One batch with its quarantine task schedule and stubbed animals.",
+        "description": "One batch with its quarantine schedule and purpose-scoped animals.\n\nThe schedule itself belongs to procurement, but task assignment and\ncompletion attribution remain task-module data. Likewise, a batch animal\ncan be tracked through quarantine without granting its complete profile.",
         "operationId": "batch_detail_api_purchases__batch_id__get",
         "parameters": [
           {
@@ -3792,15 +4431,6 @@
             "schema": {
               "type": "integer",
               "title": "Batch Id"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           },
           {
@@ -3817,6 +4447,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3850,6 +4489,7 @@
           "dashboard"
         ],
         "summary": "Dashboard",
+        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.",
         "operationId": "dashboard_api_dashboard_get",
         "parameters": [
           {
@@ -3908,7 +4548,7 @@
           "dashboard"
         ],
         "summary": "Reports",
-        "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL;\nonly the cull-candidate list is hydrated as ORM rows.",
+        "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL;\nonly a 100-row purpose-specific cull preview is hydrated as ORM rows and\nits exact count is returned separately.",
         "operationId": "reports_api_dashboard_reports_get",
         "parameters": [
           {
@@ -3970,15 +4610,6 @@
         "operationId": "team_page_api_team_get",
         "parameters": [
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3992,6 +4623,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -4028,6 +4668,25 @@
         "description": "Provision a new worker account owned by this farm.\n\nA pre-existing global account is always refused. Supporting those users\nsafely requires an invitation that they explicitly accept while signed in\n(or through a verified one-time email link); silent enrollment is an\naccount-takeover primitive because farm managers can reset provisioned\nworker passwords.",
         "operationId": "create_worker_api_team_workers_post",
         "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -4165,13 +4824,13 @@
         }
       }
     },
-    "/api/team/workers/{membership_id}/toggle": {
-      "post": {
+    "/api/team/workers/{membership_id}/status": {
+      "put": {
         "tags": [
           "team"
         ],
-        "summary": "Toggle Worker",
-        "operationId": "toggle_worker_api_team_workers__membership_id__toggle_post",
+        "summary": "Set Worker Status",
+        "operationId": "set_worker_status_api_team_workers__membership_id__status_put",
         "parameters": [
           {
             "name": "membership_id",
@@ -4208,6 +4867,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerStatusIn"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4238,7 +4907,7 @@
           "team"
         ],
         "summary": "Reset Password",
-        "description": "Reset only a global account this farm demonstrably provisioned.",
+        "description": "Owner-only reset of a global account this farm demonstrably provisioned.",
         "operationId": "reset_password_api_team_workers__membership_id__reset_password_post",
         "parameters": [
           {
@@ -4784,6 +5453,25 @@
         "operationId": "create_scenario_api_simulation_scenarios_post",
         "parameters": [
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4850,6 +5538,30 @@
         "operationId": "list_scenarios_api_simulation_scenarios_get",
         "parameters": [
           {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
             "name": "x-farm-id",
             "in": "header",
             "required": true,
@@ -4881,11 +5593,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ScenarioOut"
-                  },
-                  "title": "Response List Scenarios Api Simulation Scenarios Get"
+                  "$ref": "#/components/schemas/ScenarioListOut"
                 }
               }
             }
@@ -4918,6 +5626,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "maxLength": 128,
               "title": "Ids"
             }
           },
@@ -5271,6 +5980,7 @@
             "title": "Current Password"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "current_password"
@@ -5553,7 +6263,64 @@
             ],
             "title": "Weight Kg"
           },
+          "weight_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight Date"
+          },
           "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "historical_import_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historical Import Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "sex",
+          "source",
+          "current_bucket"
+        ],
+        "title": "AnimalCreateIn"
+      },
+      "AnimalIdentityOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "name": {
             "anyOf": [
               {
                 "type": "string"
@@ -5562,16 +6329,17 @@
                 "type": "null"
               }
             ],
-            "title": "Notes"
+            "title": "Name"
           }
         },
         "type": "object",
         "required": [
-          "sex",
-          "source",
-          "current_bucket"
+          "id",
+          "tag_number",
+          "name"
         ],
-        "title": "AnimalCreateIn"
+        "title": "AnimalIdentityOut",
+        "description": "Safe identity used when an aggregate page names an animal."
       },
       "AnimalListOut": {
         "properties": {
@@ -5593,6 +6361,73 @@
           "total"
         ],
         "title": "AnimalListOut"
+      },
+      "AnimalOffspringOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "sex": {
+            "type": "string",
+            "title": "Sex"
+          },
+          "date_of_birth": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Of Birth"
+          },
+          "estimated_dob": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Dob"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tag_number",
+          "name",
+          "sex",
+          "date_of_birth",
+          "estimated_dob",
+          "status"
+        ],
+        "title": "AnimalOffspringOut",
+        "description": "Identity/lifecycle fields rendered in a parent's kids table."
       },
       "AnimalOut": {
         "properties": {
@@ -5840,6 +6675,10 @@
             ],
             "title": "Restriction Clearance Reference"
           },
+          "restriction_version": {
+            "type": "integer",
+            "title": "Restriction Version"
+          },
           "mortality_cause": {
             "anyOf": [
               {
@@ -5947,6 +6786,7 @@
           "restriction_cleared_at",
           "restriction_cleared_by_id",
           "restriction_clearance_reference",
+          "restriction_version",
           "mortality_cause",
           "mortality_reported_at",
           "notes",
@@ -5961,10 +6801,18 @@
           },
           "kids": {
             "items": {
-              "$ref": "#/components/schemas/AnimalOut"
+              "$ref": "#/components/schemas/AnimalOffspringOut"
             },
             "type": "array",
             "title": "Kids"
+          },
+          "kids_total": {
+            "type": "integer",
+            "title": "Kids Total"
+          },
+          "kids_offset": {
+            "type": "integer",
+            "title": "Kids Offset"
           },
           "weights": {
             "items": {
@@ -5973,12 +6821,28 @@
             "type": "array",
             "title": "Weights"
           },
+          "weights_total": {
+            "type": "integer",
+            "title": "Weights Total"
+          },
+          "weights_offset": {
+            "type": "integer",
+            "title": "Weights Offset"
+          },
           "moves": {
             "items": {
               "$ref": "#/components/schemas/BucketMoveOut"
             },
             "type": "array",
             "title": "Moves"
+          },
+          "moves_total": {
+            "type": "integer",
+            "title": "Moves Total"
+          },
+          "moves_offset": {
+            "type": "integer",
+            "title": "Moves Offset"
           },
           "health_events": {
             "items": {
@@ -5987,22 +6851,53 @@
             "type": "array",
             "title": "Health Events"
           },
+          "health_events_total": {
+            "type": "integer",
+            "title": "Health Events Total"
+          },
+          "health_events_offset": {
+            "type": "integer",
+            "title": "Health Events Offset"
+          },
           "breedings": {
             "items": {
               "type": "integer"
             },
             "type": "array",
             "title": "Breedings"
+          },
+          "breedings_total": {
+            "type": "integer",
+            "title": "Breedings Total"
+          },
+          "breedings_offset": {
+            "type": "integer",
+            "title": "Breedings Offset"
+          },
+          "history_limit": {
+            "type": "integer",
+            "title": "History Limit"
           }
         },
         "type": "object",
         "required": [
           "animal",
           "kids",
+          "kids_total",
+          "kids_offset",
           "weights",
+          "weights_total",
+          "weights_offset",
           "moves",
+          "moves_total",
+          "moves_offset",
           "health_events",
-          "breedings"
+          "health_events_total",
+          "health_events_offset",
+          "breedings",
+          "breedings_total",
+          "breedings_offset",
+          "history_limit"
         ],
         "title": "AnimalProfileOut"
       },
@@ -6104,6 +6999,25 @@
         ],
         "title": "AnnualPLRow",
         "description": "Annual profit-and-loss aggregation (12-month blocks)."
+      },
+      "BreedingCandidateAvailabilityOut": {
+        "properties": {
+          "eligible_doe_count": {
+            "type": "integer",
+            "title": "Eligible Doe Count"
+          },
+          "eligible_buck_count": {
+            "type": "integer",
+            "title": "Eligible Buck Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "eligible_doe_count",
+          "eligible_buck_count"
+        ],
+        "title": "BreedingCandidateAvailabilityOut",
+        "description": "Bounded aggregate readiness context for the breeding history page."
       },
       "BreedingCandidateListOut": {
         "properties": {
@@ -6218,6 +7132,7 @@
             "default": 1
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "doe_id",
@@ -6235,19 +7150,15 @@
             "type": "array",
             "title": "Records"
           },
-          "candidate_doe_ids": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array",
-            "title": "Candidate Doe Ids"
-          },
-          "active_buck_ids": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array",
-            "title": "Active Buck Ids"
+          "candidate_availability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreedingCandidateAvailabilityOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "total": {
             "type": "integer",
@@ -6265,8 +7176,7 @@
         "type": "object",
         "required": [
           "records",
-          "candidate_doe_ids",
-          "active_buck_ids",
+          "candidate_availability",
           "total",
           "limit",
           "offset"
@@ -6366,6 +7276,63 @@
             "type": "string",
             "title": "Outcome"
           },
+          "loss_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loss Date"
+          },
+          "loss_cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loss Cause"
+          },
+          "loss_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loss Notes"
+          },
+          "loss_recorded_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loss Recorded By Id"
+          },
+          "loss_recorded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loss Recorded At"
+          },
           "has_kidding": {
             "type": "boolean",
             "title": "Has Kidding",
@@ -6408,7 +7375,12 @@
           "pregnant",
           "kid_count_detected",
           "expected_kidding_date",
-          "outcome"
+          "outcome",
+          "loss_date",
+          "loss_cause",
+          "loss_notes",
+          "loss_recorded_by_id",
+          "loss_recorded_at"
         ],
         "title": "BreedingRecordOut"
       },
@@ -6468,10 +7440,18 @@
           },
           "cull_candidates": {
             "items": {
-              "$ref": "#/components/schemas/AnimalOut"
+              "$ref": "#/components/schemas/AnimalIdentityOut"
             },
             "type": "array",
             "title": "Cull Candidates"
+          },
+          "cull_candidates_total": {
+            "type": "integer",
+            "title": "Cull Candidates Total"
+          },
+          "cull_candidates_limit": {
+            "type": "integer",
+            "title": "Cull Candidates Limit"
           }
         },
         "type": "object",
@@ -6482,7 +7462,9 @@
           "kiddings",
           "kids_per_kidding",
           "twin_rate",
-          "cull_candidates"
+          "cull_candidates",
+          "cull_candidates_total",
+          "cull_candidates_limit"
         ],
         "title": "BreedingStatsOut"
       },
@@ -6528,6 +7510,59 @@
         ],
         "title": "BucketAllocationOut"
       },
+      "BucketAnimalOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "sex": {
+            "type": "string",
+            "title": "Sex"
+          },
+          "latest_weight_kg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Weight Kg"
+          },
+          "days_in_current_bucket": {
+            "type": "integer",
+            "title": "Days In Current Bucket"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tag_number",
+          "name",
+          "sex",
+          "latest_weight_kg",
+          "days_in_current_bucket"
+        ],
+        "title": "BucketAnimalOut",
+        "description": "Operational fields consumed by the bucket-board table."
+      },
       "BucketBoardRow": {
         "properties": {
           "bucket": {
@@ -6552,10 +7587,22 @@
           },
           "animals": {
             "items": {
-              "$ref": "#/components/schemas/AnimalOut"
+              "$ref": "#/components/schemas/BucketAnimalOut"
             },
             "type": "array",
             "title": "Animals"
+          },
+          "animals_total": {
+            "type": "integer",
+            "title": "Animals Total"
+          },
+          "animals_limit": {
+            "type": "integer",
+            "title": "Animals Limit"
+          },
+          "animals_page_path": {
+            "type": "string",
+            "title": "Animals Page Path"
           }
         },
         "type": "object",
@@ -6565,7 +7612,10 @@
           "who",
           "exit_rule",
           "daily_kg_per_head",
-          "animals"
+          "animals",
+          "animals_total",
+          "animals_limit",
+          "animals_page_path"
         ],
         "title": "BucketBoardRow"
       },
@@ -6689,6 +7739,7 @@
             "title": "New Password"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "current_password",
@@ -6788,6 +7839,43 @@
         "title": "CullingAssumptions",
         "description": "Disposal and sire-replacement policy."
       },
+      "DashboardKiddingDueOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "doe_id": {
+            "type": "integer",
+            "title": "Doe Id"
+          },
+          "doe_tag": {
+            "type": "string",
+            "title": "Doe Tag"
+          },
+          "expected_kidding_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Kidding Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "doe_id",
+          "doe_tag",
+          "expected_kidding_date"
+        ],
+        "title": "DashboardKiddingDueOut",
+        "description": "Minimum context required by the dashboard's kidding-due card."
+      },
       "DashboardOut": {
         "properties": {
           "buckets": {
@@ -6822,12 +7910,20 @@
             "type": "array",
             "title": "Todays Tasks"
           },
+          "todays_tasks_total": {
+            "type": "integer",
+            "title": "Todays Tasks Total"
+          },
           "overdue_tasks": {
             "items": {
               "$ref": "#/components/schemas/TaskOut"
             },
             "type": "array",
             "title": "Overdue Tasks"
+          },
+          "overdue_tasks_total": {
+            "type": "integer",
+            "title": "Overdue Tasks Total"
           },
           "ultrasounds_due": {
             "items": {
@@ -6836,19 +7932,31 @@
             "type": "array",
             "title": "Ultrasounds Due"
           },
+          "ultrasounds_due_total": {
+            "type": "integer",
+            "title": "Ultrasounds Due Total"
+          },
           "kiddings_due": {
             "items": {
-              "$ref": "#/components/schemas/BreedingRecordOut"
+              "$ref": "#/components/schemas/DashboardKiddingDueOut"
             },
             "type": "array",
             "title": "Kiddings Due"
           },
+          "kiddings_due_total": {
+            "type": "integer",
+            "title": "Kiddings Due Total"
+          },
           "cull_candidates": {
             "items": {
-              "$ref": "#/components/schemas/AnimalOut"
+              "$ref": "#/components/schemas/AnimalIdentityOut"
             },
             "type": "array",
             "title": "Cull Candidates"
+          },
+          "cull_candidates_total": {
+            "type": "integer",
+            "title": "Cull Candidates Total"
           },
           "suggestions": {
             "items": {
@@ -6857,12 +7965,28 @@
             "type": "array",
             "title": "Suggestions"
           },
+          "suggestions_total": {
+            "type": "integer",
+            "title": "Suggestions Total"
+          },
           "recent_weights": {
             "items": {
-              "$ref": "#/components/schemas/WeightRecordOut"
+              "$ref": "#/components/schemas/DashboardWeightOut"
             },
             "type": "array",
             "title": "Recent Weights"
+          },
+          "recent_weights_total": {
+            "type": "integer",
+            "title": "Recent Weights Total"
+          },
+          "preview_limit": {
+            "type": "integer",
+            "title": "Preview Limit"
+          },
+          "recent_weights_limit": {
+            "type": "integer",
+            "title": "Recent Weights Limit"
           }
         },
         "type": "object",
@@ -6872,14 +7996,76 @@
           "sex_counts",
           "status_totals",
           "todays_tasks",
+          "todays_tasks_total",
           "overdue_tasks",
+          "overdue_tasks_total",
           "ultrasounds_due",
+          "ultrasounds_due_total",
           "kiddings_due",
+          "kiddings_due_total",
           "cull_candidates",
+          "cull_candidates_total",
           "suggestions",
-          "recent_weights"
+          "suggestions_total",
+          "recent_weights",
+          "recent_weights_total",
+          "preview_limit",
+          "recent_weights_limit"
         ],
         "title": "DashboardOut"
+      },
+      "DashboardWeightOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "weight_kg": {
+            "type": "number",
+            "title": "Weight Kg"
+          },
+          "bcs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bcs"
+          },
+          "animal": {
+            "$ref": "#/components/schemas/AnimalIdentityOut"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "weight_kg",
+          "bcs",
+          "animal",
+          "notes"
+        ],
+        "title": "DashboardWeightOut",
+        "description": "A recent weight with the animal identity needed to act on it."
       },
       "DispenseIn": {
         "properties": {
@@ -6911,7 +8097,9 @@
           "recipe_code": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 30,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -6937,6 +8125,7 @@
             "title": "Date"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "bucket",
@@ -6944,6 +8133,42 @@
           "qty_kg"
         ],
         "title": "DispenseIn"
+      },
+      "DispensingAggregateOut": {
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "recipe_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Code"
+          },
+          "shift": {
+            "type": "string",
+            "title": "Shift"
+          },
+          "qty_kg": {
+            "type": "number",
+            "title": "Qty Kg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bucket",
+          "recipe_code",
+          "shift",
+          "qty_kg"
+        ],
+        "title": "DispensingAggregateOut",
+        "description": "Exact full-day quantity for one plan allocation and shift."
       },
       "FarmCreateIn": {
         "properties": {
@@ -6973,6 +8198,7 @@
             "default": "Asia/Kolkata"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "name"
@@ -7341,6 +8567,7 @@
             "le": 1000000
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "bucket",
@@ -7445,12 +8672,30 @@
             },
             "type": "array",
             "title": "Records"
+          },
+          "records_total": {
+            "type": "integer",
+            "title": "Records Total"
+          },
+          "records_limit": {
+            "type": "integer",
+            "title": "Records Limit"
+          },
+          "dispensed_totals": {
+            "items": {
+              "$ref": "#/components/schemas/DispensingAggregateOut"
+            },
+            "type": "array",
+            "title": "Dispensed Totals"
           }
         },
         "type": "object",
         "required": [
           "lines",
-          "records"
+          "records",
+          "records_total",
+          "records_limit",
+          "dispensed_totals"
         ],
         "title": "FeedingPlanOut"
       },
@@ -7751,6 +8996,14 @@
           "current_bucket": {
             "type": "string",
             "title": "Current Bucket"
+          },
+          "movement_restricted": {
+            "type": "boolean",
+            "title": "Movement Restricted"
+          },
+          "restriction_version": {
+            "type": "integer",
+            "title": "Restriction Version"
           }
         },
         "type": "object",
@@ -7758,10 +9011,146 @@
           "id",
           "tag_number",
           "name",
-          "current_bucket"
+          "current_bucket",
+          "movement_restricted",
+          "restriction_version"
         ],
         "title": "HealthAnimalOptionOut",
         "description": "Least-privilege animal identity exposed inside health workflows."
+      },
+      "HealthBulkTargetIn": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "bucket",
+              "batch"
+            ],
+            "title": "Scope"
+          },
+          "bucket": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "QUARANTINE",
+                  "FOUNDATION",
+                  "BREEDING",
+                  "PREGNANCY_EARLY",
+                  "PREGNANCY_LATE",
+                  "DELIVERY",
+                  "RECOVERY",
+                  "RESTING",
+                  "MALE_KIDS",
+                  "FEMALE_KIDS"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bucket"
+          },
+          "purchase_batch_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4.611686018427388e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Batch Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "title": "HealthBulkTargetIn",
+        "description": "Bucket/batch selector used to preview one immutable target snapshot."
+      },
+      "HealthBulkTargetPreviewOut": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "bucket",
+              "batch"
+            ],
+            "title": "Scope"
+          },
+          "bucket": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "QUARANTINE",
+                  "FOUNDATION",
+                  "BREEDING",
+                  "PREGNANCY_EARLY",
+                  "PREGNANCY_LATE",
+                  "DELIVERY",
+                  "RECOVERY",
+                  "RESTING",
+                  "MALE_KIDS",
+                  "FEMALE_KIDS"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bucket"
+          },
+          "purchase_batch_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Batch Id"
+          },
+          "target_animal_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Target Animal Ids"
+          },
+          "target_animals": {
+            "items": {
+              "$ref": "#/components/schemas/AnimalIdentityOut"
+            },
+            "type": "array",
+            "title": "Target Animals"
+          },
+          "target_count": {
+            "type": "integer",
+            "title": "Target Count"
+          },
+          "max_targets": {
+            "type": "integer",
+            "title": "Max Targets",
+            "default": 1000
+          }
+        },
+        "type": "object",
+        "required": [
+          "scope",
+          "bucket",
+          "purchase_batch_id",
+          "target_animal_ids",
+          "target_animals",
+          "target_count"
+        ],
+        "title": "HealthBulkTargetPreviewOut"
       },
       "HealthEventIn": {
         "properties": {
@@ -8083,7 +9472,8 @@
           "notes": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4000
               },
               {
                 "type": "null"
@@ -8103,8 +9493,26 @@
               }
             ],
             "title": "Task Id"
+          },
+          "expected_animal_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "maximum": 4.611686018427388e+18,
+                  "minimum": 1.0
+                },
+                "type": "array",
+                "maxItems": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Animal Ids"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "type"
@@ -8142,6 +9550,14 @@
         ],
         "title": "HealthEventListOut",
         "description": "A visible page of the farm health ledger.\n\n`total` is deliberately returned with every page so the UI does not imply\nthat the requested page is the complete statutory/audit history."
+      },
+      "HealthEventMutationOut": {
+        "items": {
+          "$ref": "#/components/schemas/HealthEventOut"
+        },
+        "type": "array",
+        "title": "HealthEventMutationOut",
+        "description": "Root-list wrapper keeps the established JSON-array response shape."
       },
       "HealthEventOut": {
         "properties": {
@@ -8484,41 +9900,18 @@
             "type": "integer",
             "title": "Id"
           },
-          "date": {
-            "type": "string",
-            "format": "date",
-            "title": "Date"
-          },
-          "supplier": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Supplier"
-          },
-          "count": {
+          "active_quarantine_animal_count": {
             "type": "integer",
-            "title": "Count"
-          },
-          "active_animal_count": {
-            "type": "integer",
-            "title": "Active Animal Count"
+            "title": "Active Quarantine Animal Count"
           }
         },
         "type": "object",
         "required": [
           "id",
-          "date",
-          "supplier",
-          "count",
-          "active_animal_count"
+          "active_quarantine_animal_count"
         ],
         "title": "HealthPurchaseBatchOptionOut",
-        "description": "Targetable purchase batch summary; no purchase ledger detail is exposed."
+        "description": "Opaque health-workflow selector; purchase-ledger facts stay private."
       },
       "HerdAssumptions": {
         "properties": {
@@ -8869,6 +10262,7 @@
             "title": "Mortality Reported At"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "sex"
@@ -8901,7 +10295,8 @@
           "notes": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4000
               },
               {
                 "type": "null"
@@ -8919,6 +10314,7 @@
             "title": "Kids"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "breeding_record_id",
@@ -8943,12 +10339,36 @@
             "type": "array",
             "title": "Upcoming"
           },
+          "upcoming_total": {
+            "type": "integer",
+            "title": "Upcoming Total"
+          },
+          "upcoming_limit": {
+            "type": "integer",
+            "title": "Upcoming Limit"
+          },
+          "upcoming_offset": {
+            "type": "integer",
+            "title": "Upcoming Offset"
+          },
           "overdue": {
             "items": {
               "$ref": "#/components/schemas/BreedingRecordOut"
             },
             "type": "array",
             "title": "Overdue"
+          },
+          "overdue_total": {
+            "type": "integer",
+            "title": "Overdue Total"
+          },
+          "overdue_limit": {
+            "type": "integer",
+            "title": "Overdue Limit"
+          },
+          "overdue_offset": {
+            "type": "integer",
+            "title": "Overdue Offset"
           },
           "total": {
             "type": "integer",
@@ -8967,7 +10387,13 @@
         "required": [
           "records",
           "upcoming",
+          "upcoming_total",
+          "upcoming_limit",
+          "upcoming_offset",
           "overdue",
+          "overdue_total",
+          "overdue_limit",
+          "overdue_offset",
           "total",
           "limit",
           "offset"
@@ -9059,6 +10485,7 @@
             "title": "Password"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "email",
@@ -9251,6 +10678,7 @@
         "properties": {
           "recipe_code": {
             "type": "string",
+            "maxLength": 30,
             "minLength": 1,
             "title": "Recipe Code"
           },
@@ -9260,6 +10688,7 @@
             "le": 1000000
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "recipe_code",
@@ -9653,8 +11082,14 @@
               }
             ],
             "title": "Reason"
+          },
+          "history_override": {
+            "type": "boolean",
+            "title": "History Override",
+            "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "to_bucket"
@@ -9664,7 +11099,7 @@
       "MoveSuggestionOut": {
         "properties": {
           "animal": {
-            "$ref": "#/components/schemas/AnimalOut"
+            "$ref": "#/components/schemas/AnimalIdentityOut"
           },
           "to": {
             "type": "string",
@@ -9683,6 +11118,80 @@
         ],
         "title": "MoveSuggestionOut"
       },
+      "MovementRestrictionActionOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "restriction_version": {
+            "type": "integer",
+            "title": "Restriction Version"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "PLACED",
+              "CLEARED"
+            ],
+            "title": "Action"
+          },
+          "acted_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Acted At"
+          },
+          "acted_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acted By Id"
+          },
+          "action_reference": {
+            "type": "string",
+            "title": "Action Reference"
+          },
+          "disease_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disease Target"
+          },
+          "health_event_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Event Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "restriction_version",
+          "action",
+          "acted_at",
+          "acted_by_id",
+          "action_reference",
+          "disease_target",
+          "health_event_id"
+        ],
+        "title": "MovementRestrictionActionOut"
+      },
       "MovementRestrictionClearIn": {
         "properties": {
           "clearance_reference": {
@@ -9690,13 +11199,67 @@
             "maxLength": 255,
             "minLength": 1,
             "title": "Clearance Reference"
+          },
+          "expected_restriction_version": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Expected Restriction Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "clearance_reference",
+          "expected_restriction_version"
+        ],
+        "title": "MovementRestrictionClearIn"
+      },
+      "MovementRestrictionHistoryOut": {
+        "properties": {
+          "animal_id": {
+            "type": "integer",
+            "title": "Animal Id"
+          },
+          "restriction_version": {
+            "type": "integer",
+            "title": "Restriction Version"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/MovementRestrictionActionOut"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
           }
         },
         "type": "object",
         "required": [
-          "clearance_reference"
+          "animal_id",
+          "restriction_version",
+          "active",
+          "actions",
+          "total",
+          "limit",
+          "offset"
         ],
-        "title": "MovementRestrictionClearIn"
+        "title": "MovementRestrictionHistoryOut"
       },
       "OwnedFarmExport": {
         "properties": {
@@ -9748,6 +11311,7 @@
             "title": "Password"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "password"
@@ -9932,6 +11496,48 @@
         ],
         "title": "PnlRowOut"
       },
+      "PregnancyLossIn": {
+        "properties": {
+          "loss_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Loss Date"
+          },
+          "cause": {
+            "type": "string",
+            "enum": [
+              "UNKNOWN",
+              "DISEASE",
+              "INJURY",
+              "NUTRITIONAL",
+              "TRAUMA",
+              "ANIMAL_STATUS_CHANGE",
+              "OTHER"
+            ],
+            "title": "Cause"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "loss_date",
+          "cause"
+        ],
+        "title": "PregnancyLossIn",
+        "description": "Auditable facts required to close a confirmed pregnancy as lost."
+      },
       "ProjectCostBreakdown": {
         "properties": {
           "shed_cost": {
@@ -9968,14 +11574,28 @@
           },
           "animals": {
             "items": {
-              "$ref": "#/components/schemas/AnimalOut"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AnimalOut"
+                },
+                {
+                  "$ref": "#/components/schemas/PurchaseQuarantineAnimalOut"
+                }
+              ]
             },
             "type": "array",
             "title": "Animals"
           },
           "tasks": {
             "items": {
-              "$ref": "#/components/schemas/TaskOut"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TaskOut"
+                },
+                {
+                  "$ref": "#/components/schemas/QuarantineScheduleTaskOut"
+                }
+              ]
             },
             "type": "array",
             "title": "Tasks"
@@ -10027,8 +11647,7 @@
             "anyOf": [
               {
                 "type": "number",
-                "maximum": 240.0,
-                "minimum": 0.0
+                "le": 240
               },
               {
                 "type": "null"
@@ -10063,7 +11682,8 @@
           "notes": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4000
               },
               {
                 "type": "null"
@@ -10077,6 +11697,7 @@
             "default": true
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "date",
@@ -10141,6 +11762,21 @@
             "type": "integer",
             "title": "Count"
           },
+          "sex": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "M",
+                  "F"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sex"
+          },
           "avg_age_months": {
             "anyOf": [
               {
@@ -10202,12 +11838,82 @@
           "date",
           "supplier",
           "count",
+          "sex",
           "avg_age_months",
           "avg_weight_kg",
           "total_price",
           "notes"
         ],
         "title": "PurchaseBatchOut"
+      },
+      "PurchaseQuarantineAnimalOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "tag_number": {
+            "type": "string",
+            "title": "Tag Number"
+          },
+          "sex": {
+            "type": "string",
+            "title": "Sex"
+          },
+          "current_bucket": {
+            "type": "string",
+            "title": "Current Bucket"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tag_number",
+          "sex",
+          "current_bucket",
+          "status"
+        ],
+        "title": "PurchaseQuarantineAnimalOut",
+        "description": "Animal state needed to track a purchase through quarantine.\n\nProcurement access alone does not grant the animal register, so this DTO\ndeliberately contains only the fields rendered by the batch detail table."
+      },
+      "QuarantineScheduleTaskOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "due_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Due Date"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "due_date",
+          "status",
+          "category"
+        ],
+        "title": "QuarantineScheduleTaskOut",
+        "description": "Non-attributed quarantine schedule row for purchase workflows."
       },
       "RecipeListOut": {
         "properties": {
@@ -10259,6 +11965,7 @@
             "title": "Name"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "email",
@@ -10493,6 +12200,7 @@
             "title": "Role Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "role_id"
@@ -10524,10 +12232,11 @@
               "type": "string"
             },
             "type": "array",
-            "title": "Permissions",
-            "default": []
+            "maxItems": 100,
+            "title": "Permissions"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "name"
@@ -10605,6 +12314,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "assumptions"
@@ -10717,12 +12427,45 @@
             "$ref": "#/components/schemas/SimulationAssumptions"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "name",
           "assumptions"
         ],
         "title": "ScenarioCreateIn"
+      },
+      "ScenarioListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ScenarioListOut",
+        "description": "One bounded page of saved scenarios plus the full farm-scoped count."
       },
       "ScenarioOut": {
         "properties": {
@@ -10830,6 +12573,7 @@
             ]
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "ScenarioUpdateIn"
       },
@@ -11210,6 +12954,7 @@
             "title": "Authority Notified At"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "new_status"
@@ -11236,6 +12981,7 @@
             "title": "Price Per Kg"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "qty_kg"
@@ -11258,13 +13004,6 @@
           "category": {
             "type": "string",
             "enum": [
-              "VACCINE",
-              "DEWORMING",
-              "ULTRASOUND",
-              "KIDDING_DUE",
-              "WEANING",
-              "BUCKET_MOVE",
-              "QUARANTINE",
               "FEED",
               "CLEANING",
               "OTHER"
@@ -11325,6 +13064,7 @@
             "title": "Recur Days"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "title",
@@ -11618,6 +13358,7 @@
             "title": "Note"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "TaskRejectIn"
       },
@@ -11636,6 +13377,7 @@
             "title": "Reason"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "TaskSkipIn"
       },
@@ -11676,6 +13418,42 @@
             "type": "array",
             "title": "Completed"
           },
+          "today_total": {
+            "type": "integer",
+            "title": "Today Total"
+          },
+          "today_offset": {
+            "type": "integer",
+            "title": "Today Offset"
+          },
+          "overdue_total": {
+            "type": "integer",
+            "title": "Overdue Total"
+          },
+          "overdue_offset": {
+            "type": "integer",
+            "title": "Overdue Offset"
+          },
+          "upcoming_total": {
+            "type": "integer",
+            "title": "Upcoming Total"
+          },
+          "upcoming_offset": {
+            "type": "integer",
+            "title": "Upcoming Offset"
+          },
+          "awaiting_total": {
+            "type": "integer",
+            "title": "Awaiting Total"
+          },
+          "awaiting_offset": {
+            "type": "integer",
+            "title": "Awaiting Offset"
+          },
+          "active_limit": {
+            "type": "integer",
+            "title": "Active Limit"
+          },
           "completed_total": {
             "type": "integer",
             "title": "Completed Total"
@@ -11696,6 +13474,15 @@
           "upcoming",
           "awaiting",
           "completed",
+          "today_total",
+          "today_offset",
+          "overdue_total",
+          "overdue_offset",
+          "upcoming_total",
+          "upcoming_offset",
+          "awaiting_total",
+          "awaiting_offset",
+          "active_limit",
           "completed_total",
           "completed_limit",
           "completed_offset"
@@ -11832,6 +13619,7 @@
             "title": "Reason"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "date",
@@ -11905,6 +13693,7 @@
             "title": "Related Animal Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "date",
@@ -12094,6 +13883,7 @@
             "title": "Kid Count"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "pregnant"
@@ -12315,6 +14105,7 @@
             "title": "Notes"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "weight_kg"
@@ -12407,12 +14198,27 @@
             "title": "Role Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "email",
           "role_id"
         ],
         "title": "WorkerCreateIn"
+      },
+      "WorkerStatusIn": {
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "is_active"
+        ],
+        "title": "WorkerStatusIn"
       }
     }
   }

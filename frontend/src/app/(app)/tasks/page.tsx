@@ -6,9 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Plus } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -59,6 +59,7 @@ import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
 import { cn, safeAppPath } from "@/lib/utils";
@@ -67,7 +68,76 @@ const CATEGORIES = Object.values(TaskCreateInCategory);
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
 const NONE = "none";
 /** Tabs addressable via /tasks?tab=… deep links (dashboard links here). */
-const VALID_TABS = new Set(["today", "overdue", "upcoming", "awaiting", "completed"]);
+const TASK_TABS = ["today", "overdue", "upcoming", "awaiting", "completed"] as const;
+type TaskTab = (typeof TASK_TABS)[number];
+type TaskOffsets = Record<TaskTab, number>;
+type TaskOffsetKey = `${TaskTab}_offset`;
+
+const VALID_TABS = new Set<string>(TASK_TABS);
+const TASK_PAGE_SIZE = 50;
+const MAX_TASK_OFFSET = 1_000_000;
+const TASK_OFFSET_KEYS: Record<TaskTab, TaskOffsetKey> = {
+  today: "today_offset",
+  overdue: "overdue_offset",
+  upcoming: "upcoming_offset",
+  awaiting: "awaiting_offset",
+  completed: "completed_offset",
+};
+
+function validTaskTab(value: string | null): value is TaskTab {
+  return value !== null && VALID_TABS.has(value);
+}
+
+function parseTaskOffset(raw: string | null): number {
+  if (raw === null || !/^(0|[1-9]\d*)$/.test(raw)) return 0;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed <= MAX_TASK_OFFSET ? parsed : 0;
+}
+
+function taskOffsetsFromParams(params: URLSearchParams): TaskOffsets {
+  return Object.fromEntries(
+    TASK_TABS.map((taskTab) => [taskTab, parseTaskOffset(params.get(TASK_OFFSET_KEYS[taskTab]))]),
+  ) as TaskOffsets;
+}
+
+function hasInvalidTaskOffset(params: URLSearchParams): boolean {
+  return TASK_TABS.some((taskTab) => {
+    const raw = params.get(TASK_OFFSET_KEYS[taskTab]);
+    return raw !== null && String(parseTaskOffset(raw)) !== raw;
+  });
+}
+
+function taskListUrl({
+  pathname,
+  paramsKey,
+  tab,
+  offsets,
+}: {
+  pathname: string;
+  paramsKey: string;
+  tab: TaskTab;
+  offsets: TaskOffsets;
+}): string {
+  const params = new URLSearchParams(paramsKey);
+  params.set("tab", tab);
+  for (const taskTab of TASK_TABS) {
+    const key = TASK_OFFSET_KEYS[taskTab];
+    const offset = offsets[taskTab];
+    if (offset > 0) params.set(key, String(offset));
+    else params.delete(key);
+  }
+  const rest = params.toString();
+  return rest ? `${pathname}?${rest}` : pathname;
+}
+
+function lastTaskOffset(total: number, limit: number): number {
+  if (total <= 0 || limit <= 0) return 0;
+  return Math.floor((total - 1) / limit) * limit;
+}
+
+function sameTaskOffsets(left: TaskOffsets, right: TaskOffsets): boolean {
+  return TASK_TABS.every((taskTab) => left[taskTab] === right[taskTab]);
+}
 
 function localToday(): string {
   return farmToday();
@@ -88,6 +158,7 @@ function mutationError(err: unknown): string {
 function RowActions({
   task,
   tab,
+  returnTo,
   canComplete,
   canVerify,
   can,
@@ -95,6 +166,7 @@ function RowActions({
 }: {
   task: TaskOut;
   tab: string;
+  returnTo: string;
   canComplete: boolean;
   canVerify: boolean;
   can: PermissionCheck;
@@ -104,6 +176,10 @@ function RowActions({
   const [note, setNote] = useState("");
   const [skipOpen, setSkipOpen] = useState(false);
   const [skipReason, setSkipReason] = useState("");
+  const [actionError, setActionError] = useState<{
+    action: "complete" | "skip" | "verify" | "reject";
+    message: string;
+  } | null>(null);
   const completeMutation = useCompleteApiTasksTaskIdCompletePost();
   const skipMutation = useSkipApiTasksTaskIdSkipPost();
   const verifyMutation = useVerifyApiTasksTaskIdVerifyPost();
@@ -115,48 +191,117 @@ function RowActions({
     invalidateFarmData(queryClient);
   }
 
+  function reportActionError(
+    action: "complete" | "skip" | "verify" | "reject",
+    error: unknown,
+  ) {
+    const message = mutationError(error);
+    setActionError({ action, message });
+    toast.error(message);
+  }
+
+  async function completeTask() {
+    setActionError(null);
+    try {
+      await completeMutation.mutateAsync({ taskId: task.id });
+      toast.success("Task completed.");
+      invalidate();
+    } catch (error) {
+      reportActionError("complete", error);
+    }
+  }
+
+  async function skipTask() {
+    setActionError(null);
+    try {
+      await skipMutation.mutateAsync({
+        taskId: task.id,
+        data: { reason: skipReason.trim() || null },
+      });
+      toast.success("Task skipped.");
+      setSkipReason("");
+      setSkipOpen(false);
+      invalidate();
+    } catch (error) {
+      reportActionError("skip", error);
+    }
+  }
+
+  async function verifyTask() {
+    setActionError(null);
+    try {
+      await verifyMutation.mutateAsync({ taskId: task.id });
+      toast.success("Task verified.");
+      invalidate();
+    } catch (error) {
+      reportActionError("verify", error);
+    }
+  }
+
+  async function rejectTask() {
+    setActionError(null);
+    try {
+      await rejectMutation.mutateAsync({
+        taskId: task.id,
+        data: { note: note.trim() || null },
+      });
+      toast.success("Task sent back.");
+      setNote("");
+      invalidate();
+    } catch (error) {
+      reportActionError("reject", error);
+    }
+  }
+
   if (task.status === "PENDING" && canComplete) {
-    // Auto-generated duties unlock on their due date (backend 409 otherwise).
-    const lockedFutureAuto = task.auto_generated && task.due_date > today;
+    // Generated duties cannot complete early. Recurring duties cannot complete
+    // or skip early, because either transition would advance the series before
+    // its due date. Keep one-off manual duties actionable ahead of schedule.
+    const future = task.due_date > today;
+    const lockedFutureCompletion =
+      future && (task.auto_generated || task.recur_days !== null);
+    const lockedFutureRecurrence = future && task.recur_days !== null;
     return (
       <>
         <div className="flex flex-wrap items-center gap-2">
-        {permittedAction ? (
-          <Link href={permittedAction} className={buttonVariants({ size: "sm" })}>
-            Open form
-          </Link>
-        ) : safeAction ? (
-          <span className="text-xs text-muted-foreground">
-            Linked form unavailable with your permissions.
-          </span>
-        ) : (
-          !lockedFutureAuto && (
+          {permittedAction ? (
+            <Link
+              href={withReturnTo(permittedAction, returnTo)}
+              className={buttonVariants({ size: "sm" })}
+            >
+              Open form
+            </Link>
+          ) : safeAction ? (
+            <span className="text-xs text-muted-foreground">
+              Linked form unavailable with your permissions.
+            </span>
+          ) : (
+            !lockedFutureCompletion && (
+              <Button
+                size="sm"
+                disabled={completeMutation.isPending}
+                onClick={() => void completeTask()}
+              >
+                {actionError?.action === "complete" ? "Retry complete" : "Complete"}
+              </Button>
+            )
+          )}
+          {!lockedFutureRecurrence && (
             <Button
               size="sm"
-              disabled={completeMutation.isPending}
-              onClick={() =>
-                completeMutation
-                  .mutateAsync({ taskId: task.id })
-                  .then(() => {
-                    toast.success("Task completed.");
-                    invalidate();
-                  })
-                  .catch((err) => toast.error(mutationError(err)))
-              }
+              variant="outline"
+              disabled={skipMutation.isPending}
+              onClick={() => setSkipOpen(true)}
             >
-              Complete
+              Skip
             </Button>
-          )
-        )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={skipMutation.isPending}
-          onClick={() => setSkipOpen(true)}
-        >
-          Skip
-        </Button>
+          )}
         </div>
+        {actionError?.action === "complete" && (
+          <p role="alert" className="text-sm text-destructive">
+            {actionError.message} Review the duty, then try again.
+          </p>
+        )}
         <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
@@ -183,24 +328,20 @@ function RowActions({
                 type="button"
                 variant="destructive"
                 disabled={skipMutation.isPending}
-                onClick={() =>
-                  skipMutation
-                    .mutateAsync({
-                      taskId: task.id,
-                      data: { reason: skipReason.trim() || null },
-                    })
-                    .then(() => {
-                      toast.success("Task skipped.");
-                      setSkipReason("");
-                      setSkipOpen(false);
-                      invalidate();
-                    })
-                    .catch((err) => toast.error(mutationError(err)))
-                }
+                onClick={() => void skipTask()}
               >
-                {skipMutation.isPending ? "Skipping…" : "Skip task"}
+                {skipMutation.isPending
+                  ? "Skipping…"
+                  : actionError?.action === "skip"
+                    ? "Retry skip"
+                    : "Skip task"}
               </Button>
             </DialogFooter>
+            {actionError?.action === "skip" && (
+              <p role="alert" className="text-sm text-destructive">
+                {actionError.message} Check the reason, then try again.
+              </p>
+            )}
           </DialogContent>
         </Dialog>
       </>
@@ -213,17 +354,9 @@ function RowActions({
         <Button
           size="sm"
           disabled={verifyMutation.isPending}
-          onClick={() =>
-            verifyMutation
-              .mutateAsync({ taskId: task.id })
-              .then(() => {
-                toast.success("Task verified.");
-                invalidate();
-              })
-              .catch((err) => toast.error(mutationError(err)))
-          }
+          onClick={() => void verifyTask()}
         >
-          Verify
+          {actionError?.action === "verify" ? "Retry verify" : "Verify"}
         </Button>
         <Input
           value={note}
@@ -237,19 +370,15 @@ function RowActions({
           size="sm"
           variant="destructive"
           disabled={rejectMutation.isPending}
-          onClick={() =>
-            rejectMutation
-              .mutateAsync({ taskId: task.id, data: { note: note.trim() || null } })
-              .then(() => {
-                toast.success("Task sent back.");
-                setNote("");
-                invalidate();
-              })
-              .catch((err) => toast.error(mutationError(err)))
-          }
+          onClick={() => void rejectTask()}
         >
-          Reject
+          {actionError?.action === "reject" ? "Retry reject" : "Reject"}
         </Button>
+        {actionError && (
+          <p role="alert" className="basis-full text-sm text-destructive">
+            {actionError.message} Review the duty, then try again.
+          </p>
+        )}
       </div>
     );
   }
@@ -260,6 +389,7 @@ function RowActions({
 function TaskTable({
   tasks,
   tab,
+  returnTo,
   canComplete,
   canVerify,
   can,
@@ -270,6 +400,7 @@ function TaskTable({
 }: {
   tasks: TaskOut[];
   tab: string;
+  returnTo: string;
   canComplete: boolean;
   canVerify: boolean;
   can: PermissionCheck;
@@ -356,7 +487,10 @@ function TaskTable({
                 <TableCell>{t.assigned_role_name ?? t.assigned_user_name ?? "—"}</TableCell>
                 <TableCell>
                   {t.animal_tag && t.animal_id && canViewAnimals ? (
-                    <Link href={`/animals/${t.animal_id}`} className="text-primary underline">
+                    <Link
+                      href={withReturnTo(`/animals/${t.animal_id}`, returnTo)}
+                      className="text-primary underline"
+                    >
                       {t.animal_tag}
                     </Link>
                   ) : t.animal_tag && t.animal_id ? (
@@ -382,6 +516,7 @@ function TaskTable({
                   <RowActions
                     task={t}
                     tab={tab}
+                    returnTo={returnTo}
                     canComplete={canComplete}
                     can={can}
                     canVerify={
@@ -404,18 +539,7 @@ function TaskTable({
 const dutySchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(200),
   due_date: z.string().min(1, "Due date is required"),
-  category: z.enum([
-    "VACCINE",
-    "DEWORMING",
-    "ULTRASOUND",
-    "KIDDING_DUE",
-    "WEANING",
-    "BUCKET_MOVE",
-    "QUARANTINE",
-    "FEED",
-    "CLEANING",
-    "OTHER",
-  ]),
+  category: z.enum(["FEED", "CLEANING", "OTHER"]),
   recur_days: z
     .string()
     .refine(
@@ -441,21 +565,100 @@ function TasksPageContent() {
   const queryClient = useQueryClient();
 
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const paramsKey = searchParams.toString();
+  const paramsOffsets = taskOffsetsFromParams(new URLSearchParams(paramsKey));
   // Honor ?tab= deep links (the dashboard links to /tasks?tab=overdue etc.);
   // unknown values fall back to "today".
-  const [tab, setTab] = useState(() => {
-    const requested = searchParams.get("tab");
-    return requested && VALID_TABS.has(requested) ? requested : "today";
-  });
+  const requestedTab = searchParams.get("tab");
+  const paramsTab: TaskTab = validTaskTab(requestedTab) ? requestedTab : "today";
+  const [navigationOverride, setNavigationOverride] = useState<{
+    sourceParamsKey: string;
+    tab: TaskTab;
+    offsets: TaskOffsets;
+  } | null>(null);
+  const activeNavigationOverride =
+    navigationOverride?.sourceParamsKey === paramsKey ? navigationOverride : null;
+  const tab = activeNavigationOverride?.tab ?? paramsTab;
+  const offsets = activeNavigationOverride?.offsets ?? paramsOffsets;
+  const normalizedUrlRef = useRef<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [completedOffset, setCompletedOffset] = useState(0);
-  const completedLimit = 50;
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const query = useListTasksApiTasksGet(
-    { completed_limit: completedLimit, completed_offset: completedOffset },
+    {
+      active_limit: TASK_PAGE_SIZE,
+      today_offset: offsets.today,
+      overdue_offset: offsets.overdue,
+      upcoming_offset: offsets.upcoming,
+      awaiting_offset: offsets.awaiting,
+      completed_limit: TASK_PAGE_SIZE,
+      completed_offset: offsets.completed,
+    },
     { query: { enabled: allowed } },
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+
+  // A same-route navigation eventually supplies a new search-param string. At
+  // that point the URL is authoritative again; the override only bridges the
+  // render before Next publishes those params (and keeps unit tests honest).
+  useEffect(() => {
+    if (!navigationOverride || navigationOverride.sourceParamsKey === paramsKey) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNavigationOverride(null);
+  }, [navigationOverride, paramsKey]);
+
+  // Mutations can shrink a bucket while it is open. Recover every independently
+  // paged bucket in one URL replacement so no tab is stranded beyond its last
+  // real page. Malformed URL offsets are canonicalized through the same path.
+  useEffect(() => {
+    if (!payload) return;
+    const nextOffsets: TaskOffsets = {
+      today: Math.min(
+        offsets.today,
+        Math.min(MAX_TASK_OFFSET, lastTaskOffset(payload.today_total, payload.active_limit)),
+      ),
+      overdue: Math.min(
+        offsets.overdue,
+        Math.min(MAX_TASK_OFFSET, lastTaskOffset(payload.overdue_total, payload.active_limit)),
+      ),
+      upcoming: Math.min(
+        offsets.upcoming,
+        Math.min(MAX_TASK_OFFSET, lastTaskOffset(payload.upcoming_total, payload.active_limit)),
+      ),
+      awaiting: Math.min(
+        offsets.awaiting,
+        Math.min(MAX_TASK_OFFSET, lastTaskOffset(payload.awaiting_total, payload.active_limit)),
+      ),
+      completed: Math.min(
+        offsets.completed,
+        Math.min(
+          MAX_TASK_OFFSET,
+          lastTaskOffset(payload.completed_total, payload.completed_limit),
+        ),
+      ),
+    };
+    const invalidUrlOffset = hasInvalidTaskOffset(new URLSearchParams(paramsKey));
+    if (!invalidUrlOffset && sameTaskOffsets(nextOffsets, offsets)) {
+      normalizedUrlRef.current = null;
+      return;
+    }
+
+    const normalizedUrl = taskListUrl({
+      pathname,
+      paramsKey,
+      tab,
+      offsets: nextOffsets,
+    });
+    if (normalizedUrlRef.current === normalizedUrl) return;
+    normalizedUrlRef.current = normalizedUrl;
+    const handle = window.setTimeout(() => {
+      setNavigationOverride({ sourceParamsKey: paramsKey, tab, offsets: nextOffsets });
+    }, 0);
+    router.replace(normalizedUrl);
+    return () => window.clearTimeout(handle);
+  }, [offsets, paramsKey, pathname, payload, router, tab]);
 
   const teamQuery = useTeamPageApiTeamGet({
     query: { enabled: canCreate && canSeeTeam && open },
@@ -501,6 +704,7 @@ function TasksPageContent() {
   const wAnimalId = useWatch({ control, name: "animal_id" });
 
   async function onSubmit(values: DutyValues) {
+    setCreateError(null);
     try {
       await createMutation.mutateAsync({
         data: {
@@ -525,8 +729,23 @@ function TasksPageContent() {
       setOpen(false);
       reset();
     } catch (err) {
-      toast.error(mutationError(err));
+      const message = mutationError(err);
+      setCreateError(message);
+      toast.error(message);
     }
+  }
+
+  function changeTab(nextTab: TaskTab) {
+    setNavigationOverride({ sourceParamsKey: paramsKey, tab: nextTab, offsets });
+    router.replace(taskListUrl({ pathname, paramsKey, tab: nextTab, offsets }));
+  }
+
+  function changeOffset(taskTab: TaskTab, nextOffset: number) {
+    const boundedOffset = Math.max(0, Math.min(MAX_TASK_OFFSET, Math.trunc(nextOffset)));
+    if (boundedOffset === offsets[taskTab]) return;
+    const nextOffsets = { ...offsets, [taskTab]: boundedOffset };
+    setNavigationOverride({ sourceParamsKey: paramsKey, tab: taskTab, offsets: nextOffsets });
+    router.push(taskListUrl({ pathname, paramsKey, tab: taskTab, offsets: nextOffsets }));
   }
 
   if (permsLoading) {
@@ -545,9 +764,14 @@ function TasksPageContent() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load tasks."}
-        </p>
+        <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load tasks."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry tasks
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -556,16 +780,52 @@ function TasksPageContent() {
   // Comparisons use the backend's UTC today, not the browser's local date
   // (off-by-one in the IST 00:00–05:30 window,).
   const today = farmToday();
-  const visibleTabs: { value: string; label: string; tasks: TaskOut[] }[] = [
-    { value: "today", label: `Today (${payload.today.length})`, tasks: payload.today },
-    { value: "overdue", label: `Overdue (${payload.overdue.length})`, tasks: payload.overdue },
-    { value: "upcoming", label: `Upcoming (${payload.upcoming.length})`, tasks: payload.upcoming },
+  const visibleTabs: {
+    value: TaskTab;
+    label: string;
+    paginationLabel: string;
+    tasks: TaskOut[];
+    total: number;
+    limit: number;
+    offset: number;
+  }[] = [
+    {
+      value: "today",
+      label: `Today (${payload.today_total})`,
+      paginationLabel: "today tasks",
+      tasks: payload.today,
+      total: payload.today_total,
+      limit: payload.active_limit,
+      offset: payload.today_offset,
+    },
+    {
+      value: "overdue",
+      label: `Overdue (${payload.overdue_total})`,
+      paginationLabel: "overdue tasks",
+      tasks: payload.overdue,
+      total: payload.overdue_total,
+      limit: payload.active_limit,
+      offset: payload.overdue_offset,
+    },
+    {
+      value: "upcoming",
+      label: `Upcoming (${payload.upcoming_total})`,
+      paginationLabel: "upcoming tasks",
+      tasks: payload.upcoming,
+      total: payload.upcoming_total,
+      limit: payload.active_limit,
+      offset: payload.upcoming_offset,
+    },
   ];
   if (canVerify) {
     visibleTabs.push({
       value: "awaiting",
-      label: `Awaiting verification (${payload.awaiting.length})`,
+      label: `Awaiting verification (${payload.awaiting_total})`,
+      paginationLabel: "awaiting verification tasks",
       tasks: payload.awaiting,
+      total: payload.awaiting_total,
+      limit: payload.active_limit,
+      offset: payload.awaiting_offset,
     });
   }
   // The API already scopes this history to the current worker. Verification
@@ -574,7 +834,11 @@ function TasksPageContent() {
   visibleTabs.push({
     value: "completed",
     label: `Completed (${payload.completed_total})`,
+    paginationLabel: "completed tasks",
     tasks: payload.completed,
+    total: payload.completed_total,
+    limit: payload.completed_limit,
+    offset: payload.completed_offset,
   });
   // A deep-linked tab may not exist for this user (e.g. ?tab=awaiting
   // without tasks.verify) — fall back to "today".
@@ -590,6 +854,7 @@ function TasksPageContent() {
             <Button
               onClick={() => {
                 reset();
+                setCreateError(null);
                 setOpen(true);
               }}
             >
@@ -599,8 +864,8 @@ function TasksPageContent() {
         }
       />
 
-      <Tabs value={activeTab} onValueChange={(v) => setTab(v as string)}>
-        <TabsList>
+      <Tabs value={activeTab} onValueChange={(v) => changeTab(v as TaskTab)}>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           {visibleTabs.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
               {t.label}
@@ -612,6 +877,12 @@ function TasksPageContent() {
             <TaskTable
               tasks={t.tasks}
               tab={t.value}
+              returnTo={taskListUrl({
+                pathname,
+                paramsKey,
+                tab: t.value,
+                offsets,
+              })}
               canComplete={canComplete}
               canVerify={canVerify}
               can={can}
@@ -620,20 +891,24 @@ function TasksPageContent() {
               currentUserId={user?.id ?? null}
               isOwner={isOwner}
             />
-            {t.value === "completed" && (
-              <PaginationControls
-                total={payload.completed_total}
-                limit={payload.completed_limit}
-                offset={payload.completed_offset}
-                onOffsetChange={setCompletedOffset}
-                label="completed tasks"
-              />
-            )}
+            <PaginationControls
+              total={t.total}
+              limit={t.limit}
+              offset={t.offset}
+              onOffsetChange={(nextOffset) => changeOffset(t.value, nextOffset)}
+              label={t.paginationLabel}
+            />
           </TabsContent>
         ))}
       </Tabs>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setCreateError(null);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New duty</DialogTitle>
@@ -749,7 +1024,33 @@ function TasksPageContent() {
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Assignment
                 </p>
-                <div className="grid gap-3 sm:grid-cols-2">
+                {teamQuery.isLoading && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Loading assignment options…
+                  </p>
+                )}
+                {teamQuery.isError && (
+                  <div
+                    role="alert"
+                    className="space-y-2 rounded-lg border border-destructive/40 p-3 text-sm"
+                  >
+                    <p className="text-destructive">
+                      {teamQuery.error instanceof ApiError
+                        ? teamQuery.error.detail
+                        : "Could not load assignment options."}
+                    </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void teamQuery.refetch()}
+                    >
+                      Retry assignments
+                    </Button>
+                  </div>
+                )}
+                {team && !teamQuery.isError && (
+                  <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="duty-role">Assign to role</Label>
                     <Select
@@ -798,16 +1099,27 @@ function TasksPageContent() {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
                 You don&apos;t have team access — the duty will be created unassigned.
               </p>
             )}
+            {createError && (
+              <p role="alert" className="text-sm text-destructive">
+                {createError} Check the duty details, then try again.
+              </p>
+            )}
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creating…" : "Create duty"}
+              <Button
+                type="submit"
+                disabled={
+                  isSubmitting || (canSeeTeam && (teamQuery.isLoading || teamQuery.isError))
+                }
+              >
+                {isSubmitting ? "Creating…" : createError ? "Retry create" : "Create duty"}
               </Button>
             </DialogFooter>
           </form>

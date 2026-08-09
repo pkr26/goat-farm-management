@@ -6,14 +6,22 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .breeding import BreedingRecordOut
-from .common import BoundedId, NonNegativeWeightKgFloat, PastOrTodayDate
+from .common import (
+    MAX_FREE_TEXT_LENGTH,
+    BoundedId,
+    NonNegativeWeightKgFloat,
+    PastOrTodayDate,
+    StrictInputModel,
+)
 
 KidStatusStr = Literal["ALIVE", "STILLBORN", "DIED"]
 # SPEC §KiddingRecord + models.KiddingEase: exactly these three (no CAESAREAN).
 KiddingEaseStr = Literal["NORMAL", "ASSISTED", "DIFFICULT"]
 
 
-class KidIn(BaseModel):
+class KidIn(StrictInputModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     tag: str | None = Field(default=None, max_length=50)  # blank → auto tag
     sex: Literal["M", "F"]
     birth_weight: NonNegativeWeightKgFloat | None = None
@@ -21,19 +29,21 @@ class KidIn(BaseModel):
     mortality_reported_at: PastOrTodayDate | None = None
 
     @model_validator(mode="after")
-    def _mortality_report_only_for_died_kid(self) -> "KidIn":
+    def _mortality_report_matches_status(self) -> "KidIn":
+        if self.status == "DIED" and self.mortality_reported_at is None:
+            raise ValueError("mortality_reported_at is required when kid status is DIED")
         if self.status != "DIED" and self.mortality_reported_at is not None:
             raise ValueError("mortality_reported_at is only valid when kid status is DIED")
         return self
 
 
-class KiddingCreateIn(BaseModel):
+class KiddingCreateIn(StrictInputModel):
     breeding_record_id: BoundedId
     # PastOrTodayDate covers "not in the future" incl. the one-day timezone
     # headroom; >= the breeding date is checked in the router.
     date: PastOrTodayDate
     ease: KiddingEaseStr = "NORMAL"
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
     kids: list[KidIn] = Field(min_length=1, max_length=10)
 
 
@@ -65,7 +75,13 @@ class KiddingRecordOut(BaseModel):
 class KiddingListOut(BaseModel):
     records: list[KiddingRecordOut]
     upcoming: list[BreedingRecordOut]  # confirmed, due within 30 days, not overdue
+    upcoming_total: int
+    upcoming_limit: int
+    upcoming_offset: int
     overdue: list[BreedingRecordOut]  # confirmed, past expected kidding date
+    overdue_total: int
+    overdue_limit: int
+    overdue_offset: int
     total: int
     limit: int
     offset: int

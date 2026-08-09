@@ -1,5 +1,6 @@
 """Kidding."""
 
+import secrets
 from datetime import date, timedelta
 from typing import TypedDict
 
@@ -7,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     GESTATION_DAYS,
+    MAX_ANIMAL_TAG_LENGTH,
     MAX_GESTATION_DAYS,
     MIN_GESTATION_DAYS,
+    POSTPARTUM_RECOVERY_DAYS,
     WEANING_DAYS,
     Animal,
     AnimalSource,
@@ -25,7 +28,7 @@ from ..models import (
     TaskCategory,
     TaskStatus,
 )
-from ..utils import utcnow
+from ..utils import today, utcnow
 from ._common import _add_task, _kidding_record_of, _load_doe, _pending_tasks_for
 from .animals import _tag_exists, move_animal
 
@@ -34,6 +37,7 @@ class KidSpec(TypedDict):
     """One kid in a kidding record."""
 
     tag: str  # the router fills the auto "<doe>-K<n>" tag when left blank
+    tag_is_explicit: bool
     sex: str
     birth_weight: float | None
     status: str
@@ -75,6 +79,17 @@ async def record_kidding(
             f"~{GESTATION_DAYS} days (accepted window "
             f"{MIN_GESTATION_DAYS}–{MAX_GESTATION_DAYS} days)"
         )
+    for kid in kids:
+        mortality_date = kid["mortality_reported_at"]
+        if kid["status"] == KidStatus.DIED.value:
+            if mortality_date is None:
+                raise ValueError("A died kid requires a mortality date")
+            if mortality_date < kidding_date:
+                raise ValueError("Kid mortality date cannot predate the kidding date")
+            if mortality_date > today(farm.timezone):
+                raise ValueError("Kid mortality date cannot be in the future")
+        elif mortality_date is not None:
+            raise ValueError("Only a died kid may have a mortality date")
     record = KiddingRecord(
         farm_id=farm.id,
         doe_id=doe.id,
@@ -88,8 +103,8 @@ async def record_kidding(
     await db.flush()
 
     alive_count = sum(1 for k in kids if k["status"] == KidStatus.ALIVE.value)
-    born_count = sum(1 for k in kids if k["status"] != KidStatus.STILLBORN.value)
-    if born_count >= 5:
+    delivered_count = len(kids)
+    if delivered_count >= 5:
         birth_type: BirthType | None = BirthType.MULTIPLET
     else:
         birth_type = {
@@ -97,26 +112,51 @@ async def record_kidding(
             2: BirthType.TWIN,
             3: BirthType.TRIPLET,
             4: BirthType.QUADRUPLET,
-        }.get(born_count)
+        }.get(delivered_count)
 
-    # Tags are unique per farm; auto tags ("<doe>-K<n>") collide on a doe's
-    # second kidding, so uniquify instead of crashing on the constraint. Probe
-    # per candidate instead of scanning the farm's whole tag
-    # column; `assigned_tags` covers tags taken by kids earlier in THIS request.
+    # Tags are unique per farm. Preserve the readable "<doe>-K<n>" when free,
+    # then use a cryptographically unpredictable bounded fallback. A sequential
+    # suffix loop lets an attacker pre-fill 50,000 tags and force 50,000 round
+    # trips while the pregnancy/doe locks are held.
     assigned_tags: set[str] = set()
 
+    def _fit_tag(base: str, suffix: str = "") -> str:
+        """Fit a generated base and any collision suffix in VARCHAR(50)."""
+        return f"{base[: MAX_ANIMAL_TAG_LENGTH - len(suffix)]}{suffix}"
+
     async def _unique_tag(base: str) -> str:
-        tag, n = base, 2
-        while tag in assigned_tags or await _tag_exists(db, farm.id, tag):
-            tag = f"{base}-{n}"
-            n += 1
-        assigned_tags.add(tag)
-        return tag
+        readable = _fit_tag(base)
+        if readable not in assigned_tags and not await _tag_exists(db, farm.id, readable):
+            assigned_tags.add(readable)
+            return readable
+        for _attempt in range(4):
+            suffix = f"-A{secrets.token_hex(6)}"
+            candidate = _fit_tag(base, suffix)
+            if candidate in assigned_tags:
+                continue
+            if not await _tag_exists(db, farm.id, candidate):
+                assigned_tags.add(candidate)
+                return candidate
+        raise ValueError("Could not allocate a unique kid tag; retry the kidding request")
 
     for kid in kids:
+        if kid["tag_is_explicit"]:
+            tag = kid["tag"]
+            if len(tag) > MAX_ANIMAL_TAG_LENGTH:
+                raise ValueError(f"Kid tags cannot exceed {MAX_ANIMAL_TAG_LENGTH} characters")
+            if kid["status"] != KidStatus.STILLBORN.value:
+                if tag in assigned_tags or await _tag_exists(db, farm.id, tag):
+                    raise ValueError("A kid tag already exists in this farm")
+                assigned_tags.add(tag)
+        elif kid["status"] == KidStatus.STILLBORN.value:
+            tag = _fit_tag(kid["tag"])
+        else:
+            tag = await _unique_tag(kid["tag"])
+
         entry = KidEntry(
+            farm_id=farm.id,
             kidding_record_id=record.id,
-            tag=kid["tag"] or None,
+            tag=tag or None,
             sex=kid["sex"],
             birth_weight=kid["birth_weight"],
             status=kid["status"],
@@ -128,7 +168,6 @@ async def record_kidding(
         # retain an Animal record in DEAD state for lineage and mortality
         # traceability, while keeping it out of the active herd.
         if kid["status"] != KidStatus.STILLBORN.value:
-            tag = await _unique_tag(kid["tag"])
             animal = Animal(
                 farm_id=farm.id,
                 tag_number=tag,
@@ -146,7 +185,9 @@ async def record_kidding(
                     if kid["status"] == KidStatus.ALIVE.value
                     else AnimalStatus.DEAD.value
                 ),
-                status_date=(kidding_date if kid["status"] == KidStatus.DIED.value else None),
+                status_date=(
+                    kid["mortality_reported_at"] if kid["status"] == KidStatus.DIED.value else None
+                ),
                 status_notes=(
                     "Neonatal mortality recorded" if kid["status"] == KidStatus.DIED.value else None
                 ),
@@ -163,11 +204,20 @@ async def record_kidding(
                     created_by_id=created_by_id,
                 )
             )
-            entry.tag = tag
             entry.animal_id = animal.id
 
     # Doe goes to RECOVERY whether she was in DELIVERY or still in PREGNANCY_LATE.
-    move_animal(db, doe, Bucket.RECOVERY.value, "Kidded")
+    move_animal(
+        db,
+        doe,
+        Bucket.RECOVERY.value,
+        "Kidded",
+        created_by_id=created_by_id,
+        context="kidding",
+        # Kidding is an authoritative lifecycle fact. A hold remains active,
+        # but it must not leave the doe classified as pregnant after delivery.
+        allow_restricted_reclassification=True,
+    )
 
     # Locked + re-checked like the leftover skip below: a concurrent user-skip
     # of the KIDDING_DUE duty (the skip endpoint allows form-linked duties)
@@ -206,6 +256,22 @@ async def record_kidding(
             kidding_date + timedelta(days=WEANING_DAYS),
             TaskCategory.WEANING,
             animal_id=doe.id,
+        )
+    else:
+        mortality_dates = [
+            kid["mortality_reported_at"]
+            for kid in kids
+            if kid["status"] == KidStatus.DIED.value and kid["mortality_reported_at"] is not None
+        ]
+        recovery_anchor = max([kidding_date, *mortality_dates])
+        await _add_task(
+            db,
+            farm.id,
+            f"Move {doe.tag_number} to RESTING after postpartum recovery",
+            recovery_anchor + timedelta(days=POSTPARTUM_RECOVERY_DAYS),
+            TaskCategory.BUCKET_MOVE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
         )
     await db.flush()
     return record

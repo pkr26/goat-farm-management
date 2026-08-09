@@ -2,12 +2,15 @@
 
 # MAX_BATCH_COUNT / MAX_AGE_MONTHS live in models.py.
 
-from datetime import date
+import secrets
+from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     MAX_AGE_MONTHS,
+    MAX_ANIMAL_TAG_LENGTH,
     MAX_BATCH_COUNT,
     Animal,
     AnimalSource,
@@ -22,8 +25,47 @@ from ..models import (
     TransactionType,
     quarantine_schedule,
 )
-from ..utils import add_months, money
+from ..utils import add_months, allocate_money, money
 from ._common import _add_task
+
+_AVERAGE_DAYS_PER_MONTH = Decimal("30.4375")
+
+
+def _purchase_batch_tag(batch_id: int, batch_tag_nonce: str, index: int) -> str:
+    """Return the bounded, sortable internal tag for one purchased animal."""
+    tag = f"B{batch_id}-{batch_tag_nonce}-{index:04d}"
+    if len(tag) > MAX_ANIMAL_TAG_LENGTH:
+        raise ValueError(f"Generated purchase tag exceeds {MAX_ANIMAL_TAG_LENGTH} characters")
+    return tag
+
+
+def _estimated_dob_from_age(batch_date: date, avg_age_months: float) -> date:
+    """Approximate a decimal-month age without discarding its fraction.
+
+    Whole months use calendar arithmetic (and therefore retain the existing
+    month-end clamping rule).  The remaining fraction uses the mean Gregorian
+    month length and ordinary half-up rounding to a whole day.  For example,
+    ``7.5`` means seven calendar months plus approximately fifteen days.
+    """
+    age = Decimal(str(avg_age_months))
+    whole_months = int(age)
+    fractional_days = int(
+        ((age - whole_months) * _AVERAGE_DAYS_PER_MONTH).to_integral_value(rounding=ROUND_HALF_UP)
+    )
+    return add_months(batch_date, -whole_months) - timedelta(days=fractional_days)
+
+
+async def schedule_quarantine_tasks(db: AsyncSession, farm: Farm, batch: PurchaseBatch) -> None:
+    """Create one auditable protocol series for a batch that has animals."""
+    for item in quarantine_schedule(batch):
+        await _add_task(
+            db,
+            farm.id,
+            item["title"],
+            item["due_date"],
+            TaskCategory(item["category"]),
+            purchase_batch_id=batch.id,
+        )
 
 
 async def create_purchase_batch(
@@ -62,6 +104,7 @@ async def create_purchase_batch(
         date=batch_date,
         supplier=supplier or None,
         count=count,
+        sex=sex,
         avg_age_months=avg_age_months,
         avg_weight_kg=avg_weight_kg,
         total_price=exact_total_price,
@@ -71,56 +114,63 @@ async def create_purchase_batch(
     await db.flush()
 
     if create_animals:
-        # Per-head price: even split, but the first animal absorbs the paise
-        # rounding remainder so Σ purchase_price equals the booked expense
-        # (same trick as record_health_event's cost split).
-        per_head = money(exact_total_price / count) if exact_total_price is not None else None
-        first_head = (
-            money(exact_total_price - per_head * (count - 1))
-            if exact_total_price is not None and per_head is not None
-            else None
-        )
-        for i in range(1, count + 1):
-            animal = Animal(
+        # A batch id is predictable and PostgreSQL sequences advance even when
+        # a transaction rolls back.  A lower-privilege animal creator could
+        # therefore pre-squat ``B{next_batch_id}-001`` and deny procurement.
+        # One CSPRNG nonce per batch makes all generated tags unguessable while
+        # keeping them compact, sortable and cheap to construct in bulk.
+        batch_tag_nonce = secrets.token_hex(6)
+        # Allocate integer paise rather than rounding N independent divisions:
+        # for a tiny total (₹0.02 / 4), ordinary rounding makes three ₹0.01
+        # shares and a negative remainder. Every share here is non-negative
+        # and the exact sum remains the booked expense.
+        per_head_prices: list[Decimal | None] = []
+        if exact_total_price is not None:
+            per_head_prices.extend(allocate_money(exact_total_price, count))
+        else:
+            per_head_prices.extend([None] * count)
+        animals = [
+            Animal(
                 farm_id=farm.id,
-                tag_number=f"B{batch.id}-{i:03d}",
+                tag_number=_purchase_batch_tag(batch.id, batch_tag_nonce, i),
                 sex=sex,
                 source=AnimalSource.PURCHASED.value,
                 current_bucket=Bucket.QUARANTINE.value,
                 status=AnimalStatus.ACTIVE.value,
                 purchase_date=batch_date,
-                purchase_price=first_head if i == 1 else per_head,
+                purchase_price=per_head_price,
                 seller_name=supplier or None,
                 purchase_batch_id=batch.id,
                 estimated_dob=(
                     # `is not None`: a 0-month (newborn) average age means the
                     # batch date itself, not "unknown age" — age-based vaccine
                     # scheduling breaks on a missing DOB.
-                    add_months(batch_date, -int(avg_age_months))
+                    _estimated_dob_from_age(batch_date, avg_age_months)
                     if avg_age_months is not None
                     else None
                 ),
             )
-            db.add(animal)
-            await db.flush()
-            db.add(
+            for i, per_head_price in enumerate(per_head_prices, start=1)
+        ]
+        # One ORM flush lets PostgreSQL/SQLAlchemy's insertmanyvalues path
+        # persist and RETURN all generated animal ids as a set.  Flushing in
+        # this loop used to turn a valid 1,000-head purchase into 1,000
+        # sequential network round trips before any moves could be written.
+        db.add_all(animals)
+        await db.flush()
+        db.add_all(
+            [
                 BucketMove(
                     animal_id=animal.id,
                     from_bucket=None,
                     to_bucket=Bucket.QUARANTINE.value,
                     reason=f"Purchase batch #{batch.id}",
+                    created_by_id=created_by_id,
                 )
-            )
-
-    for item in quarantine_schedule(batch):
-        await _add_task(
-            db,
-            farm.id,
-            item["title"],
-            item["due_date"],
-            TaskCategory(item["category"]),
-            purchase_batch_id=batch.id,
+                for animal in animals
+            ]
         )
+        await schedule_quarantine_tasks(db, farm, batch)
 
     if exact_total_price is not None:  # an explicit ₹0 still books a ₹0 expense
         db.add(

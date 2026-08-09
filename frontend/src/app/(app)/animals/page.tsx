@@ -7,8 +7,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Search, SearchX } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
-import { Controller, useForm , useWatch} from "react-hook-form";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -57,12 +57,26 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
+import {
+  isPersistableNonnegativeMoney,
+  MIN_PERSISTED_MONEY_MESSAGE,
+} from "@/lib/persisted-numbers";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 
 const ALL = "ALL";
+const PAGE_SIZE = 50;
 const BUCKETS = Object.values(AnimalCreateInCurrentBucket);
 const BIRTH_TYPES = Object.values(AnimalCreateInBirthType);
+const WORKFLOW_ONLY_INITIAL_BUCKETS = new Set<string>([
+  AnimalCreateInCurrentBucket.PREGNANCY_EARLY,
+  AnimalCreateInCurrentBucket.PREGNANCY_LATE,
+  AnimalCreateInCurrentBucket.DELIVERY,
+  AnimalCreateInCurrentBucket.RECOVERY,
+]);
+const HISTORICAL_IMPORT_BUCKETS = BUCKETS.filter(
+  (bucket) => !WORKFLOW_ONLY_INITIAL_BUCKETS.has(bucket),
+);
 
 const bucketLabel = (b: string) => b.replace(/_/g, " ");
 /** value → label maps for the root `items` prop: without it, Base UI's
@@ -75,7 +89,7 @@ const SEX_ITEMS: Record<string, string> = {
   [AnimalCreateInSex.M]: "Male",
 };
 const SOURCE_ITEMS: Record<string, string> = {
-  [AnimalCreateInSource.BORN]: "Born on farm",
+  [AnimalCreateInSource.BORN]: "Historical born-on-farm import",
   [AnimalCreateInSource.PURCHASED]: "Purchased",
 };
 const BUCKET_FILTER_ITEMS: Record<string, string> = {
@@ -90,33 +104,155 @@ const optNum = (schema: z.ZodNumber) =>
     schema.optional(),
   );
 
-const createSchema = z.object({
-  tag_number: z.string().max(50).optional().or(z.literal("")),
-  name: z.string().max(80).optional(),
-  sex: z.enum([AnimalCreateInSex.M, AnimalCreateInSex.F]),
-  source: z.enum([AnimalCreateInSource.BORN, AnimalCreateInSource.PURCHASED]),
-  current_bucket: z.enum(BUCKETS as [string, ...string[]]),
-  breed: z.string().max(60).optional(),
-  date_of_birth: z.string().optional(),
-  estimated_dob: z.string().optional(),
-  birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
-  birth_weight: optNum(z.number().nonnegative()),
-  purchase_date: z.string().optional(),
-  purchase_price: optNum(z.number().nonnegative()),
-  seller_name: z.string().max(120).optional(),
-  weight_kg: optNum(z.number().positive()),
-  notes: z.string().optional(),
-});
+function localToday(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function completedMonths(dateOfBirth: string, referenceDate: string): number | null {
+  const birth = dateOfBirth.split("-").map(Number);
+  const reference = referenceDate.split("-").map(Number);
+  if (birth.length !== 3 || reference.length !== 3 || [...birth, ...reference].some(Number.isNaN)) {
+    return null;
+  }
+  const [birthYear, birthMonth, birthDay] = birth;
+  const [referenceYear, referenceMonth, referenceDay] = reference;
+  let months = (referenceYear - birthYear) * 12 + referenceMonth - birthMonth;
+  if (referenceDay < birthDay) months -= 1;
+  return months;
+}
+
+const createSchema = z
+  .object({
+    tag_number: z.string().max(50).optional().or(z.literal("")),
+    name: z.string().max(80).optional(),
+    sex: z.enum([AnimalCreateInSex.M, AnimalCreateInSex.F]),
+    source: z.enum([AnimalCreateInSource.BORN, AnimalCreateInSource.PURCHASED]),
+    current_bucket: z.enum(BUCKETS as [string, ...string[]]),
+    breed: z.string().max(60).optional(),
+    date_of_birth: z.string().optional(),
+    estimated_dob: z.string().optional(),
+    birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
+    birth_weight: optNum(z.number().nonnegative()),
+    purchase_date: z.string().optional(),
+    purchase_price: optNum(
+      z.number().nonnegative().refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+    ),
+    seller_name: z.string().max(120).optional(),
+    weight_kg: optNum(z.number().positive()),
+    weight_date: z
+      .string()
+      .optional()
+      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
+    historical_import_reason: z.string().max(255).optional(),
+    notes: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.weight_date && values.weight_kg === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["weight_kg"],
+        message: "Entry weight date requires an entry weight",
+      });
+    }
+    if (values.source !== AnimalCreateInSource.BORN) return;
+
+    if (!values.historical_import_reason?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["historical_import_reason"],
+        message: "Explain why this historical animal is being imported",
+      });
+    }
+    if (WORKFLOW_ONLY_INITIAL_BUCKETS.has(values.current_bucket)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["current_bucket"],
+        message: "Pregnancy, delivery and recovery buckets require their linked workflow records",
+      });
+    }
+    if (values.current_bucket !== AnimalCreateInCurrentBucket.BREEDING) return;
+
+    const minimumAge = values.sex === AnimalCreateInSex.M ? 12 : 10;
+    const minimumWeight = values.sex === AnimalCreateInSex.M ? 25 : 22;
+    const recordedDob = values.date_of_birth || values.estimated_dob;
+    if (!recordedDob) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["date_of_birth"],
+        message: "A breeding import requires a date of birth or estimated DOB",
+      });
+    } else {
+      const ageMonths = completedMonths(recordedDob, localToday());
+      if (ageMonths === null || ageMonths < minimumAge) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["date_of_birth"],
+          message: `A ${values.sex === AnimalCreateInSex.M ? "buck" : "doe"} must be at least ${minimumAge} months old to enter BREEDING`,
+        });
+      }
+    }
+    if (values.weight_kg === undefined || values.weight_kg < minimumWeight) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["weight_kg"],
+        message: `Entry weight must be at least ${minimumWeight} kg to enter BREEDING`,
+      });
+    }
+  });
 type CreateInput = z.input<typeof createSchema>;
 type CreateValues = z.output<typeof createSchema>;
 
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
+function pageFromSearchParams(searchParams: URLSearchParams): number {
+  const parsed = Number(searchParams.get("page"));
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : 1;
+}
+
+function animalListUrl({
+  pathname,
+  paramsKey,
+  bucket,
+  sex,
+  status,
+  q,
+  page,
+}: {
+  pathname: string;
+  paramsKey: string;
+  bucket: string;
+  sex: string;
+  status: string;
+  q: string;
+  page: number;
+}): string {
+  const params = new URLSearchParams(paramsKey);
+  const setFilter = (name: string, value: string, emptyValue: string) => {
+    if (value === emptyValue) params.delete(name);
+    else params.set(name, value);
+  };
+  setFilter("bucket", bucket, ALL);
+  setFilter("sex", sex, ALL);
+  setFilter("status", status, ALL);
+  setFilter("q", q.trim(), "");
+  // `page` is the canonical browser state; the API offset is derived from it.
+  params.delete("offset");
+  if (page > 1) params.set("page", String(page));
+  else params.delete("page");
+  const rest = params.toString();
+  return rest ? `${pathname}?${rest}` : pathname;
+}
+
 function CreateAnimalDialog({
   onCreated,
+  isOwner,
   startOpen = false,
 }: {
   onCreated: () => void;
+  isOwner: boolean;
   startOpen?: boolean;
 }) {
   const [open, setOpen] = useState(startOpen);
@@ -126,17 +262,38 @@ function CreateAnimalDialog({
     handleSubmit,
     control,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<CreateInput, unknown, CreateValues>({
     resolver: zodResolver(createSchema),
+    // Provenance fields are mutually exclusive. Unregistering conditional
+    // inputs prevents a value entered under one source from being submitted
+    // after the operator switches to the other source.
+    shouldUnregister: true,
     defaultValues: {
       sex: AnimalCreateInSex.F,
-      source: AnimalCreateInSource.BORN,
+      source: AnimalCreateInSource.PURCHASED,
       current_bucket: AnimalCreateInCurrentBucket.QUARANTINE,
       breed: "Osmanabadi",
     },
   });
   const source = useWatch({ control, name: "source" });
+  const sex = useWatch({ control, name: "sex" });
+  const currentBucket = useWatch({ control, name: "current_bucket" });
+
+  useEffect(() => {
+    if (source === AnimalCreateInSource.PURCHASED) {
+      setValue("current_bucket", AnimalCreateInCurrentBucket.QUARANTINE, {
+        shouldValidate: true,
+      });
+    }
+  }, [setValue, source]);
+
+  useEffect(() => {
+    if (!isOwner && source === AnimalCreateInSource.BORN) {
+      setValue("source", AnimalCreateInSource.PURCHASED, { shouldValidate: true });
+    }
+  }, [isOwner, setValue, source]);
 
   async function onSubmit(values: CreateValues) {
     try {
@@ -146,7 +303,10 @@ function CreateAnimalDialog({
           name: emptyToNull(values.name),
           sex: values.sex,
           source: values.source,
-          current_bucket: values.current_bucket as AnimalCreateInCurrentBucket,
+          current_bucket:
+            values.source === AnimalCreateInSource.PURCHASED
+              ? AnimalCreateInCurrentBucket.QUARANTINE
+              : (values.current_bucket as AnimalCreateInCurrentBucket),
           breed: values.breed || "Osmanabadi",
           date_of_birth: emptyToNull(values.date_of_birth),
           estimated_dob: emptyToNull(values.estimated_dob),
@@ -156,7 +316,12 @@ function CreateAnimalDialog({
           purchase_price: values.purchase_price ?? null,
           seller_name: emptyToNull(values.seller_name),
           weight_kg: values.weight_kg ?? null,
+          weight_date: emptyToNull(values.weight_date),
           notes: emptyToNull(values.notes),
+          historical_import_reason:
+            values.source === AnimalCreateInSource.BORN
+              ? values.historical_import_reason?.trim() || null
+              : null,
         },
       });
       toast.success("Animal added.");
@@ -221,8 +386,12 @@ function CreateAnimalDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={AnimalCreateInSource.BORN}>Born on farm</SelectItem>
                       <SelectItem value={AnimalCreateInSource.PURCHASED}>Purchased</SelectItem>
+                      {isOwner && (
+                        <SelectItem value={AnimalCreateInSource.BORN}>
+                          Historical born-on-farm import
+                        </SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 )}
@@ -230,24 +399,50 @@ function CreateAnimalDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="animal-bucket">Bucket *</Label>
-              <Controller
-                control={control}
-                name="current_bucket"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange} items={BUCKET_ITEMS}>
-                    <SelectTrigger id="animal-bucket" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {BUCKETS.map((b) => (
-                        <SelectItem key={b} value={b}>
-                          {bucketLabel(b)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              {source === AnimalCreateInSource.PURCHASED ? (
+                <>
+                  <Input
+                    id="animal-bucket"
+                    value="QUARANTINE"
+                    readOnly
+                    aria-describedby="purchased-quarantine-note"
+                  />
+                  <p id="purchased-quarantine-note" className="text-xs text-muted-foreground">
+                    Purchased animals must enter QUARANTINE. Complete the quarantine protocol
+                    before moving this animal into the production herd.
+                  </p>
+                </>
+              ) : (
+                <Controller
+                  control={control}
+                  name="current_bucket"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange} items={BUCKET_ITEMS}>
+                      <SelectTrigger id="animal-bucket" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HISTORICAL_IMPORT_BUCKETS.map((b) => (
+                          <SelectItem key={b} value={b}>
+                            {bucketLabel(b)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              )}
+              {errors.current_bucket && (
+                <p className="text-sm text-destructive">{errors.current_bucket.message}</p>
+              )}
+              {source === AnimalCreateInSource.BORN &&
+                currentBucket === AnimalCreateInCurrentBucket.BREEDING && (
+                  <p className="text-xs text-muted-foreground">
+                    BREEDING imports require a {sex === AnimalCreateInSex.M ? "buck" : "doe"} age
+                    of at least {sex === AnimalCreateInSex.M ? 12 : 10} months and an entry weight
+                    of at least {sex === AnimalCreateInSex.M ? 25 : 22} kg.
+                  </p>
                 )}
-              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="breed">Breed</Label>
@@ -255,40 +450,82 @@ function CreateAnimalDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date_of_birth">Date of birth</Label>
-              <Input id="date_of_birth" type="date" {...register("date_of_birth")} />
+              <Input
+                id="date_of_birth"
+                type="date"
+                max={localToday()}
+                {...register("date_of_birth")}
+              />
+              {errors.date_of_birth && (
+                <p className="text-sm text-destructive">{errors.date_of_birth.message}</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="estimated_dob">Estimated DOB</Label>
-              <Input id="estimated_dob" type="date" {...register("estimated_dob")} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Birth type</Label>
-              <Controller
-                control={control}
-                name="birth_type"
-                render={({ field }) => (
-                  <Select value={field.value ?? ""} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="—" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {BIRTH_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+              <Input
+                id="estimated_dob"
+                type="date"
+                max={localToday()}
+                {...register("estimated_dob")}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="birth_weight">Birth weight (kg)</Label>
-              <Input id="birth_weight" type="number" step="0.01" min="0" {...register("birth_weight")} />
-              {errors.birth_weight && (
-                <p className="text-sm text-destructive">{errors.birth_weight.message}</p>
-              )}
-            </div>
+            {source === AnimalCreateInSource.BORN && (
+              <>
+                <div className="col-span-2 space-y-1.5 rounded-lg border p-3">
+                  <p className="text-sm text-muted-foreground">
+                    Historical import only. Normal births must be recorded through Kidding so the
+                    dam, sire and kidding record remain linked.
+                  </p>
+                  <Label htmlFor="historical_import_reason">Historical import reason *</Label>
+                  <Textarea
+                    id="historical_import_reason"
+                    rows={2}
+                    maxLength={255}
+                    aria-invalid={Boolean(errors.historical_import_reason) || undefined}
+                    {...register("historical_import_reason")}
+                  />
+                  {errors.historical_import_reason && (
+                    <p className="text-sm text-destructive">
+                      {errors.historical_import_reason.message}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="animal-birth-type">Birth type</Label>
+                  <Controller
+                    control={control}
+                    name="birth_type"
+                    render={({ field }) => (
+                      <Select value={field.value ?? ""} onValueChange={field.onChange}>
+                        <SelectTrigger id="animal-birth-type" className="w-full">
+                          <SelectValue placeholder="—" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {BIRTH_TYPES.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="birth_weight">Birth weight (kg)</Label>
+                  <Input
+                    id="birth_weight"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    {...register("birth_weight")}
+                  />
+                  {errors.birth_weight && (
+                    <p className="text-sm text-destructive">{errors.birth_weight.message}</p>
+                  )}
+                </div>
+              </>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="weight_kg">Entry weight (kg)</Label>
               <Input id="weight_kg" type="number" step="0.01" min="0" {...register("weight_kg")} />
@@ -296,6 +533,20 @@ function CreateAnimalDialog({
                 <p className="text-sm text-destructive">{errors.weight_kg.message}</p>
               )}
             </div>
+            {source === AnimalCreateInSource.BORN && (
+              <div className="space-y-1.5">
+                <Label htmlFor="weight_date">Entry weight date</Label>
+                <Input
+                  id="weight_date"
+                  type="date"
+                  max={localToday()}
+                  {...register("weight_date")}
+                />
+                {errors.weight_date && (
+                  <p className="text-sm text-destructive">{errors.weight_date.message}</p>
+                )}
+              </div>
+            )}
           </div>
 
           {source === AnimalCreateInSource.PURCHASED && (
@@ -342,7 +593,7 @@ function CreateAnimalDialog({
 
 function AnimalsPageContent() {
   const queryClient = useQueryClient();
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, isOwner, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("animals.view");
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -352,6 +603,10 @@ function AnimalsPageContent() {
   const [sex, setSex] = useState(searchParams.get("sex") ?? ALL);
   const [status, setStatus] = useState(searchParams.get("status") ?? ALL);
   const [q, setQ] = useState(searchParams.get("q") ?? "");
+  const [debouncedQ, setDebouncedQ] = useState(q.trim());
+  const [searchNavigationPending, setSearchNavigationPending] = useState(false);
+  const [page, setPage] = useState(() => pageFromSearchParams(searchParams));
+  const pageNavigationPending = useRef(false);
   // Same-route client navigations (e.g. a dashboard bucket link while already
   // on /animals) change the params — re-sync the filters. Keyed
   // off the param STRING: useSearchParams' object identity isn't stable.
@@ -362,7 +617,11 @@ function AnimalsPageContent() {
     setBucket(params.get("bucket") ?? ALL);
     setSex(params.get("sex") ?? ALL);
     setStatus(params.get("status") ?? ALL);
-    setQ(params.get("q") ?? "");
+    const nextQ = params.get("q") ?? "";
+    setQ(nextQ);
+    setDebouncedQ(nextQ.trim());
+    setSearchNavigationPending(false);
+    setPage(pageFromSearchParams(params));
   }, [paramsKey]);
   // ?new=1 opens the create dialog once; strip it so a reload doesn't reopen
   // the dialog.
@@ -375,22 +634,126 @@ function AnimalsPageContent() {
   }, [paramsKey, pathname, router]);
   // Debounce the search box (~300ms) so typing doesn't fire a request per
   // keystroke; the input itself stays instant.
-  const [debouncedQ, setDebouncedQ] = useState(q);
   useEffect(() => {
-    const handle = setTimeout(() => setDebouncedQ(q), 300);
+    const handle = setTimeout(() => {
+      const normalizedQ = q.trim();
+      setDebouncedQ(normalizedQ);
+      const urlQ = (new URLSearchParams(paramsKey).get("q") ?? "").trim();
+      if (normalizedQ === urlQ) {
+        setSearchNavigationPending(false);
+        return;
+      }
+      // Keep stale list rows non-interactive until Next has committed the URL
+      // replacement. Otherwise a quick row click can race this replacement
+      // and be sent back from /animals/:id to the list query.
+      setSearchNavigationPending(true);
+      setPage(1);
+      router.replace(
+        animalListUrl({
+          pathname,
+          paramsKey,
+          bucket,
+          sex,
+          status,
+          q: normalizedQ,
+          page: 1,
+        }),
+      );
+    }, 300);
     return () => clearTimeout(handle);
-  }, [q]);
+  }, [bucket, paramsKey, pathname, q, router, sex, status]);
 
   const params: ListAnimalsApiAnimalsGetParams = {
     ...(bucket !== ALL && { bucket: bucket as ListAnimalsApiAnimalsGetBucket }),
     ...(sex !== ALL && { sex: sex as ListAnimalsApiAnimalsGetSex }),
     ...(status !== ALL && { status: status as ListAnimalsApiAnimalsGetStatus }),
-    ...(debouncedQ.trim() && { q: debouncedQ.trim() }),
+    ...(status === ALL && { include_all_statuses: true }),
+    ...(debouncedQ && { q: debouncedQ }),
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
   };
   const query = useListAnimalsApiAnimalsGet(params, { query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const searchPending = q.trim() !== debouncedQ || searchNavigationPending;
+  const total = Math.max(0, payload?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageOutOfRange = payload !== undefined && page > totalPages;
+  const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min((page - 1) * PAGE_SIZE + (payload?.animals.length ?? 0), total);
+
+  useEffect(() => {
+    if (!query.isFetching) pageNavigationPending.current = false;
+  }, [query.isFetching]);
+
+  useEffect(() => {
+    if (!pageOutOfRange) return;
+    const handle = window.setTimeout(() => setPage(totalPages), 0);
+    router.replace(
+      animalListUrl({
+        pathname,
+        paramsKey,
+        bucket,
+        sex,
+        status,
+        q: debouncedQ,
+        page: totalPages,
+      }),
+    );
+    return () => window.clearTimeout(handle);
+  }, [bucket, debouncedQ, pageOutOfRange, paramsKey, pathname, router, sex, status, totalPages]);
+
+  function changeFilter(
+    field: "bucket" | "sex" | "status",
+    value: string,
+  ) {
+    const next = { bucket, sex, status, q: q.trim(), page: 1, [field]: value };
+    if (field === "bucket") setBucket(value);
+    else if (field === "sex") setSex(value);
+    else setStatus(value);
+    setDebouncedQ(next.q);
+    setPage(1);
+    router.replace(animalListUrl({ pathname, paramsKey, ...next }));
+  }
+
+  function changePage(nextPage: number) {
+    if (
+      pageNavigationPending.current ||
+      query.isFetching ||
+      nextPage < 1 ||
+      nextPage > totalPages
+    ) {
+      return;
+    }
+    pageNavigationPending.current = true;
+    setPage(nextPage);
+    router.push(
+      animalListUrl({
+        pathname,
+        paramsKey,
+        bucket,
+        sex,
+        status,
+        q: debouncedQ,
+        page: nextPage,
+      }),
+    );
+  }
 
   function refresh() {
+    if (page !== 1) {
+      setPage(1);
+      router.replace(
+        animalListUrl({
+          pathname,
+          paramsKey,
+          bucket,
+          sex,
+          status,
+          q: debouncedQ,
+          page: 1,
+        }),
+      );
+    }
     invalidateFarmData(queryClient);
   }
 
@@ -417,6 +780,7 @@ function AnimalsPageContent() {
           can("animals.create") && (
             <CreateAnimalDialog
               onCreated={refresh}
+              isOwner={isOwner}
               startOpen={searchParams.get("new") === "1"}
             />
           )
@@ -424,7 +788,11 @@ function AnimalsPageContent() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={bucket} onValueChange={setBucket} items={BUCKET_FILTER_ITEMS}>
+        <Select
+          value={bucket}
+          onValueChange={(value) => changeFilter("bucket", value)}
+          items={BUCKET_FILTER_ITEMS}
+        >
           <SelectTrigger aria-label="Filter animals by bucket">
             <SelectValue placeholder="All buckets" />
           </SelectTrigger>
@@ -437,7 +805,11 @@ function AnimalsPageContent() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={sex} onValueChange={setSex} items={SEX_FILTER_ITEMS}>
+        <Select
+          value={sex}
+          onValueChange={(value) => changeFilter("sex", value)}
+          items={SEX_FILTER_ITEMS}
+        >
           <SelectTrigger aria-label="Filter animals by sex">
             <SelectValue placeholder="Both sexes" />
           </SelectTrigger>
@@ -447,7 +819,7 @@ function AnimalsPageContent() {
             <SelectItem value={ListAnimalsApiAnimalsGetSex.M}>Male</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={status} onValueChange={setStatus}>
+        <Select value={status} onValueChange={(value) => changeFilter("status", value)}>
           <SelectTrigger aria-label="Filter animals by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -460,23 +832,36 @@ function AnimalsPageContent() {
             ))}
           </SelectContent>
         </Select>
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by tag…"
             aria-label="Search animals by tag"
-            className="w-56 pl-8"
+            className="w-full pl-8 sm:w-56"
           />
         </div>
       </div>
 
-      {query.isLoading ? (
+      {searchPending ? (
+        <p role="status" className="py-10 text-center text-muted-foreground">
+          Updating animals…
+        </p>
+      ) : query.isLoading ? (
         <p className="py-10 text-center text-muted-foreground">Loading…</p>
+      ) : query.isFetching ? (
+        <p role="status" className="py-10 text-center text-muted-foreground">
+          Updating animals…
+        </p>
       ) : query.isError ? (
         <p className="text-sm text-destructive">
           {query.error instanceof ApiError ? query.error.detail : "Could not load animals."}
+        </p>
+      ) : pageOutOfRange ? (
+        <p role="status" className="py-10 text-center text-muted-foreground">
+          Returning to the last available page…
         </p>
       ) : !payload || payload.animals.length === 0 ? (
         <EmptyState
@@ -526,6 +911,39 @@ function AnimalsPageContent() {
             </TableBody>
           </Table>
         </DataTableCard>
+      )}
+
+      {payload && !searchPending && !query.isFetching && !query.isError && !pageOutOfRange && (
+        <nav
+          aria-label="Animal list pagination"
+          className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center"
+        >
+          <p role="status" className="text-center text-sm text-muted-foreground sm:mr-auto sm:text-left">
+            Page {page} of {totalPages} · Showing {rangeStart}–{rangeEnd} of {total}
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              aria-label="Previous page"
+              disabled={page <= 1 || query.isFetching}
+              onClick={() => changePage(page - 1)}
+            >
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full sm:w-auto"
+              aria-label="Next page"
+              disabled={page >= totalPages || query.isFetching}
+              onClick={() => changePage(page + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </nav>
       )}
     </div>
   );

@@ -51,6 +51,12 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import {
+  formatPersistedKg,
+  isPersistableNonnegativeMoney,
+  MIN_PERSISTED_KG,
+  MIN_PERSISTED_KG_MESSAGE,
+} from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 
 function FeedingNav({ active }: { active: string }) {
@@ -89,10 +95,46 @@ const optNum = (schema: z.ZodNumber) =>
     schema.optional(),
   );
 
-const addStockSchema = z.object({
-  qty_kg: z.coerce.number().positive("Quantity must be greater than 0"),
-  price_per_kg: optNum(z.number().positive("Price must be greater than 0 (or leave blank)")),
-});
+const addStockSchema = z
+  .object({
+    qty_kg: z.coerce
+      .number()
+      .positive("Quantity must be greater than 0")
+      .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE),
+    price_per_kg: optNum(
+      z
+        .number()
+        .nonnegative("Price cannot be negative")
+        .max(1_000_000_000, "Price cannot exceed ₹1,000,000,000 per kg")
+        .refine(
+          isPersistableNonnegativeMoney,
+          "Price must be ₹0 or at least ₹0.005 (or leave blank)",
+        ),
+    ),
+  })
+  .superRefine((values, ctx) => {
+    if (values.price_per_kg === undefined || values.price_per_kg === 0) return;
+
+    // Mirror the service's persisted precision closely enough to catch an
+    // inevitably zero or over-limit derived expense before submission.  The
+    // backend remains authoritative and performs Decimal HALF_UP arithmetic.
+    const normalizedQty = Math.round(values.qty_kg * 1_000) / 1_000;
+    const normalizedPrice = Math.round(values.price_per_kg * 100) / 100;
+    const total = normalizedQty * normalizedPrice;
+    if (total < 0.005) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["price_per_kg"],
+        message: "Positive-price restock must total at least ₹0.01",
+      });
+    } else if (total > 1_000_000_000.004) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["price_per_kg"],
+        message: "Restock cost cannot exceed ₹1,000,000,000",
+      });
+    }
+  });
 type AddStockInput = z.input<typeof addStockSchema>;
 type AddStockValues = z.output<typeof addStockSchema>;
 
@@ -138,7 +180,13 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div className="space-y-1.5">
             <Label htmlFor={`qty-${item.id}`}>Quantity (kg) *</Label>
-            <Input id={`qty-${item.id}`} type="number" step="1" min="1" {...register("qty_kg")} />
+            <Input
+              id={`qty-${item.id}`}
+              type="number"
+              step="0.001"
+              min="0.0005"
+              {...register("qty_kg")}
+            />
             {errors.qty_kg && <p className="text-sm text-destructive">{errors.qty_kg.message}</p>}
           </div>
           <div className="space-y-1.5">
@@ -255,9 +303,32 @@ function MixBatchDialog() {
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div className="space-y-1.5">
-            <Label>Recipe</Label>
-            <Select value={wRecipeCode} onValueChange={(v) => setValue("recipe_code", v)} items={recipeItems}>
-              <SelectTrigger className="w-full">
+            <Label htmlFor="mix-recipe">Recipe</Label>
+            {recipesQuery.isLoading && (
+              <p role="status" className="text-sm text-muted-foreground">
+                Loading recipes…
+              </p>
+            )}
+            {recipesQuery.isError && (
+              <div role="alert" className="space-y-2 text-sm text-destructive">
+                <p>Could not load recipes. Retry before mixing a batch.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void recipesQuery.refetch()}
+                >
+                  Retry recipes
+                </Button>
+              </div>
+            )}
+            <Select
+              value={wRecipeCode}
+              onValueChange={(v) => setValue("recipe_code", v, { shouldValidate: true })}
+              items={recipeItems}
+              disabled={recipesQuery.isLoading || recipesQuery.isError}
+            >
+              <SelectTrigger id="mix-recipe" className="w-full">
                 <SelectValue placeholder="recipe…" />
               </SelectTrigger>
               <SelectContent>
@@ -269,7 +340,9 @@ function MixBatchDialog() {
               </SelectContent>
             </Select>
             {errors.recipe_code && (
-              <p className="text-sm text-destructive">{errors.recipe_code.message}</p>
+              <p role="alert" className="text-sm text-destructive">
+                {errors.recipe_code.message}
+              </p>
             )}
           </div>
           <div className="space-y-1.5">
@@ -278,7 +351,10 @@ function MixBatchDialog() {
             {errors.batches && <p className="text-sm text-destructive">{errors.batches.message}</p>}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || recipesQuery.isLoading || recipesQuery.isError}
+            >
               {isSubmitting ? "Mixing…" : "Mix batch"}
             </Button>
           </DialogFooter>
@@ -365,7 +441,7 @@ export default function InventoryPage() {
                     <TableCell>{item.category}</TableCell>
                     <TableCell className="font-medium">{item.ingredient}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {item.qty_on_hand.toFixed(1)}
+                      {formatPersistedKg(item.qty_on_hand)}
                       {low && (
                         <span className="ml-2 inline-flex items-center align-middle text-amber-600 dark:text-amber-400">
                           <TriangleAlert className="size-4" />
@@ -424,7 +500,7 @@ export default function InventoryPage() {
                   <TableCell className="font-medium">{stock.recipe_name}</TableCell>
                   <TableCell>{stock.recipe_code}</TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {stock.qty_on_hand.toFixed(1)}
+                    {formatPersistedKg(stock.qty_on_hand)}
                   </TableCell>
                 </TableRow>
               ))}

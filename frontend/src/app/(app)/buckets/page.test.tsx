@@ -58,6 +58,9 @@ const ROW_BREEDING = {
   who: "Does ready to conceive",
   exit_rule: "Confirmed pregnant → PREGNANCY_EARLY",
   daily_kg_per_head: 1.5,
+  animals_total: 2,
+  animals_limit: 100,
+  animals_page_path: "/animals?bucket=BREEDING",
   animals: [boardAnimal(), boardAnimal({ id: 2, tag_number: "G-002", name: null, sex: "M" })],
 };
 
@@ -67,6 +70,9 @@ const ROW_QUARANTINE = {
   who: "New arrivals, 45 days",
   exit_rule: "",
   daily_kg_per_head: 1.25,
+  animals_total: 0,
+  animals_limit: 100,
+  animals_page_path: "/animals?bucket=QUARANTINE",
   animals: [],
 };
 
@@ -116,6 +122,26 @@ describe("BucketsPage", () => {
     await renderBoard();
     expect(within(cardOf("Breeding Bucket")).getByText("2 head")).toBeInTheDocument();
     expect(within(cardOf("Quarantine")).getByText("0 head")).toBeInTheDocument();
+  });
+
+  it("shows the exact total and a full-list link when the preview is bounded", async () => {
+    useBoardHandler([
+      {
+        ...ROW_BREEDING,
+        animals_total: 125,
+        animals_limit: 2,
+      },
+    ]);
+
+    await renderBoard();
+    const card = cardOf("Breeding Bucket");
+    expect(within(card).getByText("125 head")).toBeInTheDocument();
+    expect(within(card).getByText("Showing 2 of 125 animals.")).toBeInTheDocument();
+    expect(within(card).getByText("Board preview limit: 2 animals.")).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "View the full bucket register" })).toHaveAttribute(
+      "href",
+      "/animals?bucket=BREEDING",
+    );
   });
 
   it("shows bucket code, daily kg/head and who for each card", async () => {
@@ -229,7 +255,10 @@ describe("BucketsPage", () => {
 
   it("loads the board with only buckets.view", async () => {
     server.use(permissionsHandler(["buckets.view"]));
+    useBoardHandler([{ ...ROW_BREEDING, animals_total: 125 }]);
     await renderBoard();
     expect(getCalls).toBe(1);
+    expect(screen.queryByRole("link", { name: "View the full bucket register" })).not.toBeInTheDocument();
+    expect(cardOf("Breeding Bucket")).toHaveTextContent("The full register requires animal access.");
   });
 });

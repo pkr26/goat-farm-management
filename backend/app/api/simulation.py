@@ -18,29 +18,32 @@ import math
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.elements import ColumnElement
 from starlette.concurrency import run_in_threadpool
 
+from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, AnimalStatus, SimulationScenario
-from ..schemas.common import MAX_INT32_ID
+from ..models import Animal, AnimalStatus, Farm, SimulationScenario
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.simulation import (
     BreedsOut,
     HerdSnapshotOut,
     RunIn,
     ScenarioCompareOut,
     ScenarioCreateIn,
+    ScenarioListOut,
     ScenarioOut,
     ScenarioUpdateIn,
 )
+from ..services import IdempotencyKey, execute_idempotent
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
 from ..simulation.engine import run_simulation
 from ..simulation.results import SimulationResult
-from ..simulation.snapshot import herd_cohorts
 from ..utils import today
 
 router = APIRouter(prefix="/api/simulation", tags=["simulation"])
@@ -50,6 +53,7 @@ SimManage = Annotated[set[str], Depends(require_perm("simulation.manage"))]
 
 # A compare re-runs a full simulation per id — cap the work per request.
 MAX_COMPARE_IDS = 5
+SCENARIO_CAPACITY_REASON = "This farm has reached its saved-scenario limit."
 
 
 def _load_assumptions(scenario: SimulationScenario) -> SimulationAssumptions:
@@ -106,7 +110,7 @@ def _scenario_out(scenario: SimulationScenario, *, allow_invalid: bool = False) 
 async def _get_scenario(db: DbSession, farm_id: int, scenario_id: int) -> SimulationScenario:
     """Farm-scoped fetch: unknown or foreign ids both 404."""
     scenario = (
-        await db.get(SimulationScenario, scenario_id) if scenario_id <= MAX_INT32_ID else None
+        await db.get(SimulationScenario, scenario_id) if 1 <= scenario_id <= MAX_INT32_ID else None
     )
     if scenario is None or scenario.farm_id != farm_id:
         raise HTTPException(status_code=404, detail="Scenario not found")
@@ -266,15 +270,55 @@ async def herd_snapshot(
         afb = get_preset(breed, "stall_fed").reproduction.age_at_first_breeding_months
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
-    result = await db.execute(
-        select(Animal).where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-    )
     reference_date = today(farm.timezone)
-    counts = herd_cohorts(
-        ((animal.sex, animal.age_months_on(reference_date)) for animal in result.scalars()),
-        doe_adult_age=afb,
+    dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    # Exact whole-month arithmetic matching Animal.age_months_on(), including
+    # the day-of-month boundary. A NULL DOB remains NULL and is classified as
+    # adult below, preserving the simulation contract.
+    age_months = (
+        (reference_date.year - func.extract("year", dob)) * 12
+        + reference_date.month
+        - func.extract("month", dob)
+        - case((func.extract("day", dob) > reference_date.day, 1), else_=0)
     )
-    return HerdSnapshotOut(**counts, total_head=sum(counts.values()))
+    female = Animal.sex == "F"
+    male = Animal.sex == "M"
+    known_age = dob.is_not(None)
+
+    def cohort_count(predicate: ColumnElement[bool], label: str) -> ColumnElement[int]:
+        return func.count(Animal.id).filter(predicate).label(label)
+
+    counts_row = (
+        await db.execute(
+            select(
+                cohort_count(female & (~known_age | (age_months >= afb)), "does"),
+                cohort_count(male & (~known_age | (age_months >= 12)), "bucks"),
+                cohort_count(female & known_age & (age_months < 3), "f_kids"),
+                cohort_count(
+                    female & known_age & (age_months >= 3) & (age_months < 6),
+                    "f_weaners",
+                ),
+                cohort_count(
+                    female & known_age & (age_months >= 6) & (age_months < afb),
+                    "f_growers",
+                ),
+                cohort_count(male & known_age & (age_months < 3), "m_kids"),
+                cohort_count(
+                    male & known_age & (age_months >= 3) & (age_months < 6),
+                    "m_weaners",
+                ),
+                cohort_count(
+                    male & known_age & (age_months >= 6) & (age_months < 12),
+                    "m_growers",
+                ),
+                func.count(Animal.id).label("total_head"),
+            ).where(
+                Animal.farm_id == farm.id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+            )
+        )
+    ).one()
+    return HerdSnapshotOut(**{field: int(value) for field, value in counts_row._mapping.items()})
 
 
 @router.post("/run")
@@ -290,39 +334,89 @@ async def run_adhoc(
 @router.post("/scenarios", status_code=201)
 async def create_scenario(
     payload: ScenarioCreateIn,
+    response: Response,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     perms: SimManage,
+    idempotency_key: IdempotencyKey = None,
 ) -> ScenarioOut:
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
-    await _check_name_free(db, farm.id, name)
-    scenario = SimulationScenario(
+    # Serialize the count-and-create decision on the tenant's Farm row. A
+    # plain COUNT is raceable and simultaneous requests could all consume the
+    # final slot; this lock keeps the quota a real bound.
+    # Lock before inserting the idempotency claim: both rows reference Farm,
+    # and allowing distinct keyed requests to acquire FK KEY SHARE first and
+    # then upgrade to FOR UPDATE would create a lock-upgrade deadlock.
+    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+
+    async def mutate() -> ScenarioOut:
+        scenario_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(SimulationScenario)
+                .where(SimulationScenario.farm_id == farm.id)
+            )
+        ).scalar_one()
+        if scenario_count >= get_settings().max_simulation_scenarios_per_farm:
+            raise HTTPException(status_code=409, detail=SCENARIO_CAPACITY_REASON)
+        await _check_name_free(db, farm.id, name)
+        scenario = SimulationScenario(
+            farm_id=farm.id,
+            name=name,
+            notes=payload.notes,
+            assumptions=payload.assumptions.model_dump_json(),
+            created_by_id=user.id,
+        )
+        db.add(scenario)
+        try:
+            await db.flush()
+        except IntegrityError:  # concurrent/manual name collision
+            raise HTTPException(
+                status_code=400, detail="A scenario with that name already exists."
+            ) from None
+        return _scenario_out(scenario)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
         farm_id=farm.id,
-        name=name,
-        notes=payload.notes,
-        assumptions=payload.assumptions.model_dump_json(),
-        created_by_id=user.id,
+        actor_id=user.id,
+        operation="simulation.scenarios.create",
+        payload=payload,
+        path_identity={},
+        success_status=201,
+        response_type=ScenarioOut,
+        mutate=mutate,
     )
-    db.add(scenario)
-    try:
-        await db.commit()
-    except IntegrityError:  # concurrent create with the same name
-        await db.rollback()
-        raise HTTPException(
-            status_code=400, detail="A scenario with that name already exists."
-        ) from None
-    return _scenario_out(scenario)
 
 
 @router.get("/scenarios")
-async def list_scenarios(db: DbSession, farm: CurrentFarm, perms: SimView) -> list[ScenarioOut]:
+async def list_scenarios(
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: SimView,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+) -> ScenarioListOut:
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(SimulationScenario)
+            .where(SimulationScenario.farm_id == farm.id)
+        )
+    ).scalar_one()
     result = await db.execute(
         select(SimulationScenario)
         .where(SimulationScenario.farm_id == farm.id)
+        # Preserve the endpoint's original oldest-first ordering and make the
+        # page boundary deterministic even when timestamps are identical.
         .order_by(SimulationScenario.id)
+        .offset(offset)
+        .limit(limit)
     )
     out: list[ScenarioOut] = []
     for scenario in result.scalars():
@@ -330,12 +424,16 @@ async def list_scenarios(db: DbSession, farm: CurrentFarm, perms: SimView) -> li
             out.append(_scenario_out(scenario, allow_invalid=True))
         except HTTPException:  # pragma: no cover - allow_invalid handles validation
             raise
-    return out
+    return ScenarioListOut(items=out, total=total, limit=limit, offset=offset)
 
 
 @router.get("/scenarios/compare")
 async def compare_scenarios(
-    db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: SimView, ids: str
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: SimView,
+    ids: Annotated[str, Query(max_length=128)],
 ) -> ScenarioCompareOut:
     """Run stored scenarios deterministically side by side (``ids=1,2``).
 
@@ -350,6 +448,11 @@ async def compare_scenarios(
         ) from None
     if not id_list:
         raise HTTPException(status_code=400, detail="ids must name at least one scenario")
+    if any(not 1 <= scenario_id <= MAX_INT32_ID for scenario_id in id_list):
+        raise HTTPException(
+            status_code=400,
+            detail="ids must be positive PostgreSQL integer scenario ids",
+        )
     if len(id_list) > MAX_COMPARE_IDS:
         raise HTTPException(
             status_code=400, detail=f"compare is limited to {MAX_COMPARE_IDS} scenarios"

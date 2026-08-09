@@ -110,7 +110,11 @@ async def test_inactive_membership_elsewhere_still_blocks_absorb(
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     resp = await _add_worker(client, owner_b, "victim@farm.in", password="victimpass123")
     assert resp.status_code == 201, resp.text
-    resp = await client.post(f"/api/team/workers/{resp.json()['id']}/toggle", headers=owner_b)
+    resp = await client.put(
+        f"/api/team/workers/{resp.json()['id']}/status",
+        json={"is_active": False},
+        headers=owner_b,
+    )
     assert resp.status_code == 200, resp.text  # membership now inactive
 
     resp = await _add_worker(client, owner_a, "victim@farm.in", password="pwnedpass123")
@@ -224,13 +228,13 @@ async def test_login_unknown_email_takes_the_hashing_path(
     from app.api import auth as auth_api
 
     calls: list[tuple[str, str]] = []
-    real_verify = security.verify_password
+    real_verify = security.verify_password_async
 
-    def spy(password: str, stored: str) -> tuple[bool, bool]:
+    async def spy(password: str, stored: str) -> tuple[bool, bool]:
         calls.append((password, stored))
-        return real_verify(password, stored)
+        return await real_verify(password, stored)
 
-    monkeypatch.setattr(auth_api, "verify_password", spy)
+    monkeypatch.setattr(auth_api, "verify_password_async", spy)
     resp = await client.post(
         "/api/auth/login", json={"email": "ghost@farm.in", "password": "whatever123"}
     )
@@ -257,14 +261,14 @@ async def test_login_legacy_hash_wrong_password_still_pays_argon2_cost(
     from app.api import auth as auth_api
 
     calls: list[tuple[str, str]] = []
-    real_verify = security.verify_password
+    real_verify = security.verify_password_async
 
-    def spy(password: str, stored: str) -> tuple[bool, bool]:
+    async def spy(password: str, stored: str) -> tuple[bool, bool]:
         calls.append((password, stored))
-        return real_verify(password, stored)
+        return await real_verify(password, stored)
 
     await insert_user("legacy-timing@farm.in", make_pbkdf2_hash("realpass123"))
-    monkeypatch.setattr(auth_api, "verify_password", spy)
+    monkeypatch.setattr(auth_api, "verify_password_async", spy)
     resp = await client.post(
         "/api/auth/login", json={"email": "legacy-timing@farm.in", "password": "wrongpass1"}
     )
@@ -551,6 +555,18 @@ def test_sliding_window_cardinality_is_hard_bounded() -> None:
         limiter.record("register", f"unique-{i}", 300)
     assert len(limiter._hits) == 25
     assert len(limiter._windows) == 25
+
+
+def test_password_admission_reservations_are_nonwaiting_bounded_and_reusable() -> None:
+    limiter = SlidingWindowRateLimiter(max_keys=2)
+    assert limiter.try_reserve("password", "same-email") is True
+    assert limiter.try_reserve("password", "same-email") is False
+    assert limiter.try_reserve("password", "second-email") is True
+    assert limiter.try_reserve("password", "third-email") is False
+    limiter.release("password", "same-email")
+    assert limiter.try_reserve("password", "same-email") is True
+    limiter.clear()
+    assert limiter._reservations == {}
 
 
 def test_client_key_falls_back_when_client_is_none() -> None:

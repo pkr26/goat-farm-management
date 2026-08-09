@@ -4,6 +4,9 @@
 const SECURITY_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
@@ -36,6 +39,10 @@ const PROD_ONLY_HEADERS = [
 const isProd = process.env.NODE_ENV === "production";
 
 const nextConfig = {
+  poweredByHeader: false,
+  // Produce the minimal Node server required by dynamic routes, rewrites and
+  // response headers. This application is not a static export.
+  output: "standalone",
   // Dev proxy: the SPA calls same-origin /api/* and Next forwards to the
   // FastAPI backend — no CORS friction, and the refresh cookie stays
   // first-party.

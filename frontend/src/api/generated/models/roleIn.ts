@@ -12,5 +12,6 @@ export interface RoleIn {
      */
   name: string;
   description?: string | null;
+  /** @maxItems 100 */
   permissions?: string[];
 }

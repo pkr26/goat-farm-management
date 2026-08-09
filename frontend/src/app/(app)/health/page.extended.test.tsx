@@ -21,11 +21,12 @@ import { addDays, farmToday } from "@/lib/format";
 import HealthPage from "./page";
 
 const pushMock = vi.fn();
+const replaceMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => "/health",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(window.location.search),
   useParams: () => ({}),
 }));
 
@@ -77,6 +78,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     restriction_cleared_at: null,
     restriction_cleared_by_id: null,
     restriction_clearance_reference: null,
+    restriction_version: 0,
     mortality_cause: null,
     mortality_reported_at: null,
     notes: null,
@@ -197,13 +199,16 @@ async function pickOption(user: User, trigger: HTMLElement, name: string | RegEx
 describe("HealthPage", () => {
   let eventsCalls: number;
   let postBody: Record<string, unknown> | null;
+  let previewBodies: Record<string, unknown>[];
   let events: HealthEventOut[];
   let tasks: TaskOut[];
 
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     eventsCalls = 0;
     postBody = null;
+    previewBodies = [];
     events = [makeEvent({ id: 1 })];
     tasks = [VACCINE_TASK, DEWORM_BATCH_TASK, OTHER_TASK];
     server.use(
@@ -213,7 +218,23 @@ describe("HealthPage", () => {
       }),
       http.post("/api/health/events", async ({ request }) => {
         postBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(makeEvent({ id: 99 }), { status: 201 });
+        return HttpResponse.json([makeEvent({ id: 99 })], { status: 201 });
+      }),
+      http.post("/api/health/events/preview", async ({ request }) => {
+        const target = (await request.json()) as Record<string, unknown>;
+        previewBodies.push(target);
+        return HttpResponse.json({
+          scope: target.scope,
+          bucket: target.bucket ?? null,
+          purchase_batch_id: target.purchase_batch_id ?? null,
+          target_animal_ids: [3, 4],
+          target_animals: [
+            { id: 3, tag_number: "G-003", name: "Kaveri" },
+            { id: 4, tag_number: "G-004", name: null },
+          ],
+          target_count: 2,
+          max_targets: target.scope === "bucket" ? 250 : 1000,
+        });
       }),
       http.get("/api/health/animals", () =>
         HttpResponse.json({
@@ -222,6 +243,8 @@ describe("HealthPage", () => {
             tag_number: animal.tag_number,
             name: animal.name,
             current_bucket: animal.current_bucket,
+            movement_restricted: animal.movement_restricted,
+            restriction_version: animal.restriction_version,
           })),
           total: 2,
           limit: 50,
@@ -231,8 +254,8 @@ describe("HealthPage", () => {
       http.get("/api/health/purchase-batches", () =>
         HttpResponse.json({
           batches: BATCHES.map((batch) => ({
-            ...batch,
-            active_animal_count: batch.count,
+            id: batch.id,
+            active_quarantine_animal_count: batch.count,
           })),
           total: BATCHES.length,
           limit: 50,
@@ -262,7 +285,7 @@ describe("HealthPage", () => {
     expect(within(row).getByText("VACCINE")).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "G-003" })).toHaveAttribute(
       "href",
-      "/animals/3",
+      "/animals/3?returnTo=%2Fhealth",
     );
     expect(within(row).getByText("PPR")).toBeInTheDocument();
     expect(within(row).getByText("1 ml")).toBeInTheDocument();
@@ -335,13 +358,21 @@ describe("HealthPage", () => {
   });
 
   it("shows the server error detail when events fail to load", async () => {
+    let attempts = 0;
     server.use(
-      http.get("/api/health/events", () =>
-        HttpResponse.json({ detail: "events table missing" }, { status: 500 }),
-      ),
+      http.get("/api/health/events", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ detail: "events table missing" }, { status: 500 })
+          : HttpResponse.json({ events, total: events.length, limit: 50, offset: 0 });
+      }),
     );
+    const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
-    expect(await screen.findByText("events table missing")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("events table missing");
+    await user.click(screen.getByRole("button", { name: "Retry health events" }));
+    expect(await screen.findByText("Event log")).toBeInTheDocument();
+    expect(attempts).toBe(2);
   });
 
   // ---------- RBAC ----------
@@ -389,7 +420,9 @@ describe("HealthPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "Add health event" });
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
     await user.click(within(dialog).getByRole("combobox", { name: "Purchase batch *" }));
-    expect(await screen.findByRole("option", { name: /#2.*Sharma Traders/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: "Batch #2 — 12 active in quarantine" }),
+    ).toBeInTheDocument();
     expect(generalAnimalCalls).toBe(0);
     expect(purchaseLedgerCalls).toBe(0);
   });
@@ -408,7 +441,9 @@ describe("HealthPage", () => {
     await pickOption(user, within(card).getByRole("combobox"), /G-003 · Kaveri/);
     expect(viewButton).toBeEnabled();
     await user.click(viewButton);
-    expect(pushMock).toHaveBeenCalledWith("/health/schedule/3");
+    expect(pushMock).toHaveBeenCalledWith(
+      "/health/schedule/3?returnTo=%2Fhealth%3Fschedule_animal_id%3D3",
+    );
   });
 
   // ---------- dialog: scope switching & validation ----------
@@ -418,6 +453,21 @@ describe("HealthPage", () => {
     await renderLoaded();
     await user.click(screen.getByRole("button", { name: "+ Add event" }));
     return { user, dialog: await screen.findByRole("dialog") };
+  }
+
+  async function reviewAndConfirmBulk(user: User, dialog: HTMLElement) {
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Reviewed target snapshot: 2 active animals",
+    );
+    const reviewedAnimals = within(dialog).getByRole("list", {
+      name: "Reviewed target animals",
+    });
+    const reviewedRows = within(reviewedAnimals).getAllByRole("listitem");
+    expect(reviewedRows[0]).toHaveTextContent("G-003 · Kaveri");
+    expect(reviewedRows[1]).toHaveTextContent("G-004");
+    expect(within(dialog).getByText("3, 4")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm for 2 animals" }));
   }
 
   it("opens on the animal scope with the animal picker", async () => {
@@ -459,38 +509,52 @@ describe("HealthPage", () => {
     await user.click(within(dialog).getAllByRole("combobox")[0]);
     expect(
       await screen.findByRole("option", {
-        name: /#2 — 1 Jun 2026 Sharma Traders \(12 active of 12\)/,
+        name: "Batch #2 — 12 active in quarantine",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("clears an old target whenever its conditional scope is hidden", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], "BREEDING");
+
+    await user.click(within(dialog).getByRole("radio", { name: "Single animal" }));
+    expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+      "Pick an animal",
+    );
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    expect(within(dialog).getByRole("combobox", { name: "Bucket *" })).toHaveTextContent(
+      "Pick a bucket",
+    );
   });
 
   it("requires an animal on the animal scope", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
-    // Error message appears alongside the select's placeholder text.
-    await waitFor(() =>
-      expect(within(dialog).getAllByText("Pick an animal").length).toBeGreaterThanOrEqual(2),
-    );
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Pick an animal");
+    expect(
+      within(dialog)
+        .getByRole("combobox", { name: "Animal *" })
+        .getAttribute("aria-describedby"),
+    ).toContain("event-animal-error");
     expect(postBody).toBeNull();
   });
 
   it("requires a bucket on the bucket scope", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
-    await waitFor(() =>
-      expect(within(dialog).getAllByText("Pick a bucket").length).toBeGreaterThanOrEqual(2),
-    );
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Pick a bucket");
     expect(postBody).toBeNull();
   });
 
   it("requires a batch on the batch scope", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
-    await waitFor(() =>
-      expect(within(dialog).getAllByText("Pick a batch").length).toBeGreaterThanOrEqual(2),
-    );
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Pick a batch");
     expect(postBody).toBeNull();
   });
 
@@ -503,6 +567,10 @@ describe("HealthPage", () => {
     expect(
       await within(dialog).findByText("Date cannot be in the future"),
     ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^date/i)).toHaveFocus();
+    expect(within(dialog).getByLabelText(/^date/i)).toHaveAccessibleDescription(
+      "Date cannot be in the future",
+    );
     expect(postBody).toBeNull();
   });
 
@@ -515,6 +583,18 @@ describe("HealthPage", () => {
     expect(
       await within(dialog).findByText("Cost must be a number ≥ 0"),
     ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
+  it("rejects a non-zero total cost below half a paisa", async () => {
+    const { user, dialog } = await openDialog();
+    fireEvent.change(within(dialog).getByLabelText(/total cost/i), {
+      target: { value: "0.004" },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
+      .toBeInTheDocument();
     expect(postBody).toBeNull();
   });
 
@@ -631,7 +711,7 @@ describe("HealthPage", () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
     await pickOption(user, within(dialog).getAllByRole("combobox")[0], "BREEDING");
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await reviewAndConfirmBulk(user, dialog);
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
@@ -639,14 +719,20 @@ describe("HealthPage", () => {
       bucket: "BREEDING",
       animal_id: null,
       purchase_batch_id: null,
+      expected_animal_ids: [3, 4],
     });
+    expect(previewBodies).toEqual([{ scope: "bucket", bucket: "BREEDING" }]);
   });
 
   it("posts a batch-scoped event with the batch id", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
-    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /#2 — 1 Jun 2026/);
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await pickOption(
+      user,
+      within(dialog).getAllByRole("combobox")[0],
+      "Batch #2 — 12 active in quarantine",
+    );
+    await reviewAndConfirmBulk(user, dialog);
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
@@ -654,7 +740,42 @@ describe("HealthPage", () => {
       purchase_batch_id: 2,
       animal_id: null,
       bucket: null,
+      expected_animal_ids: [3, 4],
     });
+    expect(previewBodies).toEqual([{ scope: "batch", purchase_batch_id: 2 }]);
+  });
+
+  it("requires a fresh review after the server rejects a stale bulk snapshot", async () => {
+    let recordAttempts = 0;
+    server.use(
+      http.post("/api/health/events", async ({ request }) => {
+        recordAttempts += 1;
+        postBody = (await request.json()) as Record<string, unknown>;
+        return recordAttempts === 1
+          ? HttpResponse.json(
+              { detail: "Bulk target membership changed; preview and confirm again" },
+              { status: 409 },
+            )
+          : HttpResponse.json([makeEvent({ id: 100 })], { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], "BREEDING");
+
+    await reviewAndConfirmBulk(user, dialog);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Bulk target membership changed",
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Review target animals" }),
+    ).toBeInTheDocument();
+    expect(previewBodies).toHaveLength(1);
+
+    await reviewAndConfirmBulk(user, dialog);
+    await waitFor(() => expect(recordAttempts).toBe(2));
+    expect(previewBodies).toHaveLength(2);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("sends a picked route and event type", async () => {
@@ -682,6 +803,29 @@ describe("HealthPage", () => {
 
     await waitFor(() => expect(eventsCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("animal not on this farm");
+    expect(within(dialog).getByRole("button", { name: "Retry save" })).toBeInTheDocument();
+  });
+
+  it("clears hidden statutory dates when scheduled-disease reporting is turned off", async () => {
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+    const checkbox = within(dialog).getByRole("checkbox", {
+      name: /Suspected scheduled\/notifiable disease/,
+    });
+    await user.click(checkbox);
+    fireEvent.change(within(dialog).getByLabelText("Authority notified date"), {
+      target: { value: TODAY },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Isolation started date"), {
+      target: { value: TODAY },
+    });
+
+    await user.click(checkbox);
+    expect(within(dialog).queryByLabelText("Authority notified date")).not.toBeInTheDocument();
+    await user.click(checkbox);
+    expect(within(dialog).getByLabelText("Authority notified date")).toHaveValue("");
+    expect(within(dialog).getByLabelText("Isolation started date")).toHaveValue("");
   });
 
   // ---------- linked duty ----------
@@ -710,6 +854,26 @@ describe("HealthPage", () => {
     expect(within(dialog).queryByText(/Linked duty/)).not.toBeInTheDocument();
   });
 
+  it("announces a linked-duty query failure and retries it", async () => {
+    let attempts = 0;
+    server.use(
+      http.get("/api/tasks", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ detail: "linked duties unavailable" }, { status: 503 })
+          : HttpResponse.json(tasksPayload(tasks));
+      }),
+    );
+    const { user, dialog } = await openDialog();
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "linked duties unavailable",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Retry linked duties" }));
+    await waitFor(() => expect(attempts).toBe(2));
+    expect(await within(dialog).findByLabelText(/Linked duty/)).toBeInTheDocument();
+  });
+
   it("prefills scope, animal and type when an animal duty is linked", async () => {
     tasks = [makeTask({ id: 8, title: "Deworm Kaveri", category: "DEWORMING", animal_id: 3 })];
     const { user, dialog } = await openDialog();
@@ -732,7 +896,7 @@ describe("HealthPage", () => {
     await pickOption(user, combos[combos.length - 1], /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await reviewAndConfirmBulk(user, dialog);
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
       scope: "batch",
@@ -757,7 +921,7 @@ describe("HealthPage", () => {
 
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("PPR");
 
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await reviewAndConfirmBulk(user, dialog);
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
       scope: "batch",
@@ -785,7 +949,7 @@ describe("HealthPage", () => {
     );
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("Deworming");
 
-    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await reviewAndConfirmBulk(user, dialog);
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
       type: "DEWORMING",
@@ -837,6 +1001,21 @@ describe("HealthPage", () => {
     await waitFor(() =>
       expect(within(dialog).getAllByRole("combobox")[0]).toHaveTextContent("G-003 · Kaveri"),
     );
+  });
+
+  it("returns to the originating task tab after a deep-linked event is saved", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/health?animal_id=3&returnTo=%2Ftasks%3Ftab%3Doverdue",
+    );
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(pushMock).toHaveBeenCalledWith("/tasks?tab=overdue");
   });
 
   it("does not auto-open the dialog from URL params without health.manage", async () => {

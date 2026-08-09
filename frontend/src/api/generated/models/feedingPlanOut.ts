@@ -4,10 +4,14 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { DispensingAggregateOut } from './dispensingAggregateOut';
 import type { FeedingRecordOut } from './feedingRecordOut';
 import type { PlanLineOut } from './planLineOut';
 
 export interface FeedingPlanOut {
   lines: PlanLineOut[];
   records: FeedingRecordOut[];
+  records_total: number;
+  records_limit: number;
+  dispensed_totals: DispensingAggregateOut[];
 }

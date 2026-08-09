@@ -1,13 +1,20 @@
 """Breeding."""
 
 from datetime import date, timedelta
+from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..models import (
+    BREEDING_READY_BUCKETS,
     MAX_FAILED_CYCLES_BEFORE_CULL,
+    MIN_BREEDING_AGE_MONTHS,
+    MIN_BREEDING_WEIGHT_KG,
+    MIN_BUCK_BREEDING_AGE_MONTHS,
+    MIN_BUCK_BREEDING_WEIGHT_KG,
+    PREGNANCY_LOSS_CAUSES,
     Animal,
     AnimalStatus,
     BreedingMethod,
@@ -18,89 +25,299 @@ from ..models import (
     KiddingRecord,
     TaskCategory,
     TaskStatus,
+    WeightRecord,
     expected_kidding_date,
     planned_ultrasound_date,
 )
-from ..utils import today, utcnow
+from ..utils import add_months, today, utcnow
 from ._common import _add_task, _kidding_record_of, _load_doe, _pending_tasks_for
 from .animals import move_animal
 
+BreedingCandidateKind = Literal["doe", "buck"]
 
-async def breeding_candidate_does(db: AsyncSession, farm: Farm) -> list[Animal]:
-    """Does eligible for a new breeding record: breeding-ready per SPEC rules,
-    plus does already in the BREEDING bucket that are not pregnant (re-breeding).
-    A doe with an unresolved breeding (PENDING, or confirmed and not yet
-    kidded) is NOT eligible — one active pregnancy per doe."""
-    does_result = await db.execute(
-        select(Animal)
-        .options(
-            # is_breeding_ready / is_currently_pregnant read these relationships.
-            selectinload(Animal.weight_records),
-            selectinload(Animal.breedings_as_doe).selectinload(BreedingRecord.kidding_record),
-        )
+
+def _latest_weight_as_of(reference_date: date) -> ColumnElement[float]:
+    """Correlated SQL equivalent of ``Animal.latest_weight_kg_on``."""
+    latest_recorded = (
+        select(WeightRecord.weight_kg)
         .where(
-            Animal.farm_id == farm.id,
-            Animal.sex == "F",
-            Animal.status == AnimalStatus.ACTIVE.value,
+            WeightRecord.animal_id == Animal.id,
+            WeightRecord.date <= reference_date,
         )
-        .order_by(Animal.tag_number)
+        .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+        .limit(1)
+        .correlate(Animal)
+        .scalar_subquery()
     )
-    does = list(does_result.scalars().all())
-    # Only the doe ids matter — a scalar join, not full ORM rows.
-    open_result = await db.execute(
-        select(BreedingRecord.doe_id, BreedingRecord.outcome, KiddingRecord.id)
+    effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    birth_weight_available = case(
+        (effective_dob <= reference_date, Animal.birth_weight),
+        else_=None,
+    )
+    return func.coalesce(latest_recorded, birth_weight_available)
+
+
+def _candidate_filters(
+    farm_id: int,
+    kind: BreedingCandidateKind,
+    reference_date: date,
+) -> tuple[ColumnElement[bool], ...]:
+    """SQL equivalent of the canonical doe/buck eligibility predicates."""
+    effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    common: tuple[ColumnElement[bool], ...] = (
+        Animal.farm_id == farm_id,
+        Animal.status == AnimalStatus.ACTIVE.value,
+        Animal.movement_restricted.is_(False),
+        Animal.suspected_scheduled_disease.is_(False),
+    )
+    if kind == "buck":
+        age_cutoff = add_months(reference_date, -MIN_BUCK_BREEDING_AGE_MONTHS)
+        return (
+            *common,
+            Animal.sex == "M",
+            Animal.current_bucket.in_([Bucket.FOUNDATION.value, Bucket.BREEDING.value]),
+            effective_dob.is_not(None),
+            effective_dob <= age_cutoff,
+            _latest_weight_as_of(reference_date) >= MIN_BUCK_BREEDING_WEIGHT_KG,
+        )
+
+    age_cutoff = add_months(reference_date, -MIN_BREEDING_AGE_MONTHS)
+    unresolved_pregnancy = (
+        select(BreedingRecord.id)
         .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
         .where(
-            BreedingRecord.farm_id == farm.id,
-            BreedingRecord.outcome.in_(
-                [BreedingOutcome.PENDING.value, BreedingOutcome.CONFIRMED_PREGNANT.value]
+            BreedingRecord.farm_id == farm_id,
+            BreedingRecord.doe_id == Animal.id,
+            or_(
+                BreedingRecord.outcome == BreedingOutcome.PENDING.value,
+                and_(
+                    BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                    KiddingRecord.id.is_(None),
+                ),
             ),
         )
+        .correlate(Animal)
+        .exists()
     )
-    busy_doe_ids = {
-        doe_id
-        for doe_id, outcome, kidding_id in open_result.all()
-        if outcome == BreedingOutcome.PENDING.value or kidding_id is None
-    }
-    reference_date = today(farm.timezone)
-    return [
-        d
-        for d in does
-        if is_breeding_candidate(
-            d,
-            has_open_breeding=d.id in busy_doe_ids,
-            reference_date=reference_date,
-        )
-    ]
+    return (
+        *common,
+        Animal.sex == "F",
+        Animal.current_bucket.in_(
+            [*(bucket.value for bucket in BREEDING_READY_BUCKETS), Bucket.BREEDING.value]
+        ),
+        effective_dob.is_not(None),
+        effective_dob <= age_cutoff,
+        _latest_weight_as_of(reference_date) >= MIN_BREEDING_WEIGHT_KG,
+        ~unresolved_pregnancy,
+    )
+
+
+def _literal_candidate_search(q: str | None) -> ColumnElement[bool] | None:
+    needle = (q or "").strip()
+    if not needle:
+        return None
+    escaped = needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"%{escaped}%"
+    return or_(
+        Animal.tag_number.ilike(pattern, escape="\\"),
+        Animal.name.ilike(pattern, escape="\\"),
+    )
+
+
+def _candidate_ids_stmt(
+    farm_id: int,
+    kind: BreedingCandidateKind,
+    reference_date: date,
+    q: str | None = None,
+) -> Select[tuple[int]]:
+    filters = list(_candidate_filters(farm_id, kind, reference_date))
+    search = _literal_candidate_search(q)
+    if search is not None:
+        filters.append(search)
+    return select(Animal.id).where(*filters)
+
+
+async def breeding_candidate_page(
+    db: AsyncSession,
+    farm: Farm,
+    kind: BreedingCandidateKind,
+    *,
+    q: str | None,
+    limit: int,
+    offset: int,
+    reference_date: date | None = None,
+) -> tuple[list[tuple[Animal, float | None]], int]:
+    """Return one bounded eligible page and the full matching SQL count.
+
+    The latest applicable weight is selected as one scalar per page row.
+    Lifetime weight histories never cross the database boundary; unresolved
+    pregnancy and all eligibility filtering remain in SQL.
+    """
+    when = reference_date or today(farm.timezone)
+    id_stmt = _candidate_ids_stmt(farm.id, kind, when, q)
+    total = (await db.execute(select(func.count()).select_from(id_stmt.subquery()))).scalar_one()
+    filters = list(_candidate_filters(farm.id, kind, when))
+    search = _literal_candidate_search(q)
+    if search is not None:
+        filters.append(search)
+    latest_weight = _latest_weight_as_of(when).label("latest_weight_kg")
+    result = await db.execute(
+        select(Animal, latest_weight)
+        .where(*filters)
+        .order_by(Animal.tag_number, Animal.id)
+        .offset(offset)
+        .limit(limit)
+    )
+    return [(animal, weight) for animal, weight in result.all()], total
+
+
+async def breeding_candidate_counts(
+    db: AsyncSession,
+    farm: Farm,
+    reference_date: date | None = None,
+) -> tuple[int, int]:
+    """Count eligible does and bucks in one bounded aggregate query."""
+    when = reference_date or today(farm.timezone)
+    doe_count = (
+        select(func.count())
+        .select_from(_candidate_ids_stmt(farm.id, "doe", when).subquery())
+        .scalar_subquery()
+    )
+    buck_count = (
+        select(func.count())
+        .select_from(_candidate_ids_stmt(farm.id, "buck", when).subquery())
+        .scalar_subquery()
+    )
+    row = (await db.execute(select(doe_count, buck_count))).one()
+    return int(row[0]), int(row[1])
 
 
 def is_breeding_candidate(
-    doe: Animal, *, has_open_breeding: bool, reference_date: date | None = None
+    doe: Animal,
+    *,
+    latest_weight_kg: float | None,
+    has_open_breeding: bool,
+    reference_date: date,
 ) -> bool:
     """Canonical picker and write-path predicate for a doe.
 
     Re-service after a failed cycle is allowed from BREEDING, but it retains
     the exact same age/weight/pregnancy requirements as first service.
     """
-    return not has_open_breeding and doe.is_breeding_eligible_on(reference_date or today())
+    age = doe.age_months_on(reference_date)
+    return bool(
+        not has_open_breeding
+        and doe.sex == "F"
+        and doe.status == AnimalStatus.ACTIVE.value
+        and not doe.movement_restricted
+        and not doe.suspected_scheduled_disease
+        and doe.current_bucket in {*BREEDING_READY_BUCKETS, Bucket.BREEDING.value}
+        and age is not None
+        and age >= MIN_BREEDING_AGE_MONTHS
+        and latest_weight_kg is not None
+        and latest_weight_kg >= MIN_BREEDING_WEIGHT_KG
+    )
 
 
-async def doe_has_open_breeding(db: AsyncSession, doe_id: int) -> bool:
-    """A PENDING, or confirmed-but-not-yet-kidded, breeding exists for the doe."""
-    result = await db.execute(
-        select(BreedingRecord.outcome, KiddingRecord.id)
-        .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
-        .where(
-            BreedingRecord.doe_id == doe_id,
-            BreedingRecord.outcome.in_(
-                [BreedingOutcome.PENDING.value, BreedingOutcome.CONFIRMED_PREGNANT.value]
-            ),
+def is_buck_breeding_candidate(
+    buck: Animal, *, latest_weight_kg: float | None, reference_date: date
+) -> bool:
+    """Canonical sire predicate using a bounded latest-weight scalar."""
+    age = buck.age_months_on(reference_date)
+    return bool(
+        buck.sex == "M"
+        and buck.status == AnimalStatus.ACTIVE.value
+        and not buck.movement_restricted
+        and not buck.suspected_scheduled_disease
+        and buck.current_bucket in {Bucket.FOUNDATION.value, Bucket.BREEDING.value}
+        and age is not None
+        and age >= MIN_BUCK_BREEDING_AGE_MONTHS
+        and latest_weight_kg is not None
+        and latest_weight_kg >= MIN_BUCK_BREEDING_WEIGHT_KG
+    )
+
+
+async def breeding_weights_as_of(
+    db: AsyncSession, animal_ids: list[int], reference_date: date
+) -> dict[int, float | None]:
+    """Return one latest applicable weight scalar for each bounded animal id."""
+    rows = (
+        await db.execute(
+            select(Animal.id, _latest_weight_as_of(reference_date).label("latest_weight_kg"))
+            .where(Animal.id.in_(animal_ids))
+            .order_by(Animal.id)
         )
+    ).all()
+    return {animal_id: weight for animal_id, weight in rows}
+
+
+async def doe_has_open_breeding(db: AsyncSession, farm_id: int, doe_id: int) -> bool:
+    """A PENDING, or confirmed-but-not-yet-kidded, breeding exists for the doe."""
+    existing_id = (
+        await db.execute(
+            select(BreedingRecord.id)
+            .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
+            .where(
+                BreedingRecord.farm_id == farm_id,
+                BreedingRecord.doe_id == doe_id,
+                or_(
+                    BreedingRecord.outcome == BreedingOutcome.PENDING.value,
+                    and_(
+                        BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                        KiddingRecord.id.is_(None),
+                    ),
+                ),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return existing_id is not None
+
+
+async def _latest_doe_reproductive_boundary(
+    db: AsyncSession, farm_id: int, doe_id: int
+) -> date | None:
+    """Latest factual boundary after which a new service may be recorded.
+
+    The normal breeding endpoint is an operational append-only workflow, not
+    a historical insertion API.  A completed failed cycle ends at its actual
+    ultrasound result, a lost pregnancy at its loss date, and a delivered
+    pregnancy at the kidding date.  Reading all maxima in one statement keeps
+    the check constant-query even for a doe with a long reproductive history.
+
+    The caller holds the doe row lock. Ultrasound, loss, and kidding writes
+    take that same lock first, so no concurrent terminal fact can appear
+    between this snapshot and the new breeding insert.
+    """
+    breeding_facts = (
+        select(
+            func.max(BreedingRecord.breeding_date).label("latest_breeding_date"),
+            func.max(BreedingRecord.ultrasound_result_date).label("latest_ultrasound_result_date"),
+            func.max(BreedingRecord.loss_date).label("latest_loss_date"),
+        )
+        .where(
+            BreedingRecord.farm_id == farm_id,
+            BreedingRecord.doe_id == doe_id,
+        )
+        .subquery()
     )
-    return any(
-        outcome == BreedingOutcome.PENDING.value or kidding_id is None
-        for outcome, kidding_id in result.all()
+    latest_kidding = (
+        select(func.max(KiddingRecord.date))
+        .where(KiddingRecord.farm_id == farm_id, KiddingRecord.doe_id == doe_id)
+        .scalar_subquery()
     )
+    row = (
+        await db.execute(
+            select(
+                breeding_facts.c.latest_breeding_date,
+                breeding_facts.c.latest_ultrasound_result_date,
+                breeding_facts.c.latest_loss_date,
+                latest_kidding.label("latest_kidding_date"),
+            )
+        )
+    ).one()
+    facts = [value for value in row if value is not None]
+    return max(facts) if facts else None
 
 
 async def create_breeding_record(
@@ -111,23 +328,25 @@ async def create_breeding_record(
     breeding_date: date,
     heat_cycle_number: int = 1,
     created_by_id: int | None = None,
+    *,
+    doe_latest_weight_kg: float | None,
+    has_open_breeding: bool,
 ) -> BreedingRecord:
     for animal, role in ((doe, "Doe"), (buck, "Buck")):
         if animal.effective_dob and breeding_date < animal.effective_dob:
             raise ValueError(f"{role} breeding chronology cannot predate its recorded birth date")
-    history = await db.execute(
-        select(BreedingRecord)
-        .options(selectinload(BreedingRecord.kidding_record))
-        .where(BreedingRecord.doe_id == doe.id)
-    )
-    unresolved = [
-        r
-        for r in history.scalars()
-        if r.outcome == BreedingOutcome.PENDING.value
-        or (r.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value and not r.kidding_record)
-    ]
-    if unresolved:
+        if animal.purchase_date and breeding_date < animal.purchase_date:
+            raise ValueError(
+                f"{role} breeding chronology cannot predate its recorded purchase date"
+            )
+    if has_open_breeding:
         raise ValueError(f"{doe.tag_number} already has an unresolved breeding/pregnancy")
+    latest_boundary = await _latest_doe_reproductive_boundary(db, farm.id, doe.id)
+    if latest_boundary is not None and breeding_date <= latest_boundary:
+        raise ValueError(
+            f"Breeding date must be after {doe.tag_number}'s latest reproductive "
+            f"event on {latest_boundary.isoformat()}"
+        )
     ultrasound_date = planned_ultrasound_date(breeding_date)
     br = BreedingRecord(
         farm_id=farm.id,
@@ -151,7 +370,16 @@ async def create_breeding_record(
         animal_id=doe.id,
         breeding_record_id=br.id,
     )
-    move_animal(db, doe, Bucket.BREEDING.value, "Bred", created_by_id=created_by_id)
+    move_animal(
+        db,
+        doe,
+        Bucket.BREEDING.value,
+        "Bred",
+        created_by_id=created_by_id,
+        context="breeding",
+        reference_date=breeding_date,
+        facts=(doe_latest_weight_kg, False),
+    )
     await db.flush()
     return br
 
@@ -213,7 +441,18 @@ async def record_ultrasound_result(
         doe.cull_candidate = False  # she conceived — previous failures forgiven
         ekd = expected_kidding_date(br.breeding_date)
         br.expected_kidding_date = ekd
-        move_animal(db, doe, Bucket.PREGNANCY_EARLY.value, "Ultrasound confirmed pregnant")
+        move_animal(
+            db,
+            doe,
+            Bucket.PREGNANCY_EARLY.value,
+            "Ultrasound confirmed pregnant",
+            created_by_id=created_by_id,
+            context="ultrasound",
+            # A disease hold prevents physical/manual transfer, but the
+            # authoritative pregnancy fact and its feed/lifecycle cohort must
+            # be committed atomically in the same transaction.
+            allow_restricted_reclassification=True,
+        )
         await _add_task(
             db,
             br.farm_id,
@@ -256,25 +495,32 @@ async def record_ultrasound_result(
 async def _update_cull_candidate(db: AsyncSession, doe: Animal) -> None:
     """2 consecutive FAILED cycles → cull candidate flag (per SPEC)."""
     result = await db.execute(
-        select(BreedingRecord)
+        select(BreedingRecord.outcome)
         .where(
             BreedingRecord.doe_id == doe.id,
             BreedingRecord.outcome != BreedingOutcome.PENDING.value,
         )
         .order_by(BreedingRecord.breeding_date.desc(), BreedingRecord.id.desc())
+        .limit(MAX_FAILED_CYCLES_BEFORE_CULL)
     )
-    consecutive_failures = 0
-    for record in result.scalars():
-        if record.outcome == BreedingOutcome.FAILED.value:
-            consecutive_failures += 1
-        else:
-            break
-    if consecutive_failures >= MAX_FAILED_CYCLES_BEFORE_CULL:
+    recent_outcomes = list(result.scalars())
+    if len(recent_outcomes) == MAX_FAILED_CYCLES_BEFORE_CULL and all(
+        outcome == BreedingOutcome.FAILED.value for outcome in recent_outcomes
+    ):
         doe.cull_candidate = True
 
 
-async def mark_aborted(db: AsyncSession, br: BreedingRecord) -> BreedingRecord:
-    """Pregnancy lost → outcome ABORTED, doe to RESTING, open pregnancy tasks skipped.
+async def mark_aborted(
+    db: AsyncSession,
+    br: BreedingRecord,
+    *,
+    loss_date: date,
+    loss_cause: str,
+    loss_notes: str | None,
+    recorded_by_id: int,
+) -> BreedingRecord:
+    """Record an attributed pregnancy loss and close its operational work.
+
     Only a live confirmed pregnancy can abort: a PENDING/FAILED record is a
     no-op, and a pregnancy that already kidded can never be 'aborted' after
     the fact (that falsifies stats and wrongly removes the doe from
@@ -285,15 +531,42 @@ async def mark_aborted(db: AsyncSession, br: BreedingRecord) -> BreedingRecord:
         return br
     if await _kidding_record_of(db, br) is not None:
         return br
+    if loss_cause not in PREGNANCY_LOSS_CAUSES:
+        raise ValueError("Unknown pregnancy loss cause")
+    if loss_date < br.breeding_date:
+        raise ValueError("Pregnancy loss date cannot be before the breeding date")
+    if br.ultrasound_result_date is not None and loss_date < br.ultrasound_result_date:
+        raise ValueError("Pregnancy loss date cannot be before pregnancy confirmation")
+    clean_notes = (loss_notes or "").strip() or None
+    if clean_notes is not None and len(clean_notes) > 4_000:
+        raise ValueError("Pregnancy loss notes cannot exceed 4000 characters")
+
     br.outcome = BreedingOutcome.ABORTED.value
     br.pregnant = False
-    move_animal(db, await _load_doe(db, br), Bucket.RESTING.value, "Pregnancy aborted")
+    br.loss_date = loss_date
+    br.loss_cause = loss_cause
+    br.loss_notes = clean_notes
+    br.loss_recorded_by_id = recorded_by_id
+    br.loss_recorded_at = utcnow()
+    doe = await _load_doe(db, br)
+    if doe.status == AnimalStatus.ACTIVE.value:
+        move_animal(
+            db,
+            doe,
+            Bucket.RESTING.value,
+            "Pregnancy aborted",
+            created_by_id=recorded_by_id,
+            context="abortion",
+            # This is a domain reclassification caused by the recorded loss,
+            # not a health clearance or an operator-requested movement.
+            allow_restricted_reclassification=True,
+        )
     # Locked + re-checked like skip_pending_tasks_for_animal: a worker's
     # committed DONE completion must survive — never overwrite it to SKIPPED.
     for task in await _pending_tasks_for(db, br.farm_id, for_update=True, breeding_record_id=br.id):
         if task.status == TaskStatus.PENDING.value:
             task.status = TaskStatus.SKIPPED.value
-            task.skipped_by_id = None
+            task.skipped_by_id = recorded_by_id
             task.skipped_at = utcnow()
             task.skip_reason = "Pregnancy aborted"
     await db.flush()

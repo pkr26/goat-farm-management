@@ -24,12 +24,14 @@ import { ApiError } from "@/lib/api-client";
 import { usePermissions } from "@/lib/use-permissions";
 
 function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
+  const truncated = row.animals.length < row.animals_total;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2">
           <span>{row.name}</span>
-          <Badge variant="secondary">{row.animals.length} head</Badge>
+          <Badge variant="secondary">{row.animals_total} head</Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {row.bucket} · {row.daily_kg_per_head.toFixed(1)} kg/head/day · {row.who}
@@ -74,6 +76,21 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
               ))}
             </TableBody>
           </Table>
+        )}
+        {truncated && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Showing {row.animals.length} of {row.animals_total} animals.{" "}
+            {canViewAnimals ? (
+              <Link href={row.animals_page_path} className="text-primary underline">
+                View the full bucket register
+              </Link>
+            ) : (
+                "The full register requires animal access."
+              )}
+            <span className="block text-xs">
+              Board preview limit: {row.animals_limit} animals.
+            </span>
+          </p>
         )}
       </CardContent>
     </Card>

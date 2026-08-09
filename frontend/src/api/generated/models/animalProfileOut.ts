@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { AnimalOffspringOut } from './animalOffspringOut';
 import type { AnimalOut } from './animalOut';
 import type { BucketMoveOut } from './bucketMoveOut';
 import type { HealthEventOut } from './healthEventOut';
@@ -11,9 +12,20 @@ import type { WeightRecordOut } from './weightRecordOut';
 
 export interface AnimalProfileOut {
   animal: AnimalOut;
-  kids: AnimalOut[];
+  kids: AnimalOffspringOut[];
+  kids_total: number;
+  kids_offset: number;
   weights: WeightRecordOut[];
+  weights_total: number;
+  weights_offset: number;
   moves: BucketMoveOut[];
+  moves_total: number;
+  moves_offset: number;
   health_events: HealthEventOut[];
+  health_events_total: number;
+  health_events_offset: number;
   breedings: number[];
+  breedings_total: number;
+  breedings_offset: number;
+  history_limit: number;
 }

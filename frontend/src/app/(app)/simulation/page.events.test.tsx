@@ -135,9 +135,18 @@ function registerApiHandlers(options: {
       HttpResponse.json({ breeds: ["osmanabadi"], systems: ["stall_fed"] }),
     ),
     http.get("/api/simulation/defaults", () => HttpResponse.json(DEFAULTS)),
-    http.get("/api/simulation/scenarios", () =>
-      HttpResponse.json(options.scenarios ?? []),
-    ),
+    http.get("/api/simulation/scenarios", ({ request }) => {
+      const scenarios = options.scenarios ?? [];
+      const params = new URL(request.url).searchParams;
+      const limit = Number(params.get("limit") ?? 20);
+      const offset = Number(params.get("offset") ?? 0);
+      return HttpResponse.json({
+        items: scenarios.slice(offset, offset + limit),
+        total: scenarios.length,
+        limit,
+        offset,
+      });
+    }),
     http.get("/api/simulation/herd-snapshot", () =>
       HttpResponse.json({
         does: 48,

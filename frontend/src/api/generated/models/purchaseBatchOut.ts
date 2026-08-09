@@ -4,12 +4,14 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { PurchaseBatchOutSex } from './purchaseBatchOutSex';
 
 export interface PurchaseBatchOut {
   id: number;
   date: string;
   supplier: string | null;
   count: number;
+  sex: PurchaseBatchOutSex;
   avg_age_months: number | null;
   avg_weight_kg: number | null;
   total_price: number | null;

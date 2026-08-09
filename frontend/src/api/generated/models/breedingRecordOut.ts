@@ -19,6 +19,11 @@ export interface BreedingRecordOut {
   kid_count_detected: number | null;
   expected_kidding_date: string | null;
   outcome: string;
+  loss_date: string | null;
+  loss_cause: string | null;
+  loss_notes: string | null;
+  loss_recorded_by_id: number | null;
+  loss_recorded_at: string | null;
   has_kidding?: boolean;
   doe_tag?: string | null;
   buck_tag?: string | null;

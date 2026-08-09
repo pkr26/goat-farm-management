@@ -4,11 +4,13 @@ recent weight records — plus the reports page (herd summary, breeding
 performance, mortality). Read-only aggregates per farm."""
 
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import Select, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
@@ -22,10 +24,8 @@ from ..models import (
     KidStatus,
     Task,
     TaskCategory,
-    TaskStatus,
     WeightRecord,
 )
-from ..schemas.animals import WeightRecordOut
 from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
@@ -35,69 +35,136 @@ from ..schemas.dashboard import (
     MoveSuggestionOut,
     ReportsOut,
 )
-from ..services import ANIMAL_OUT_LOADS, ready_to_move_suggestions, task_scope
+from ..schemas.summaries import (
+    AnimalIdentityOut,
+    DashboardKiddingDueOut,
+    DashboardWeightOut,
+)
+from ..services import actionable_pending_task_predicate, ready_to_move_suggestions, task_scope
 from ..utils import today
-from ._shared import TASK_LOADS, animal_out, breeding_out, task_out
+from ._shared import task_out
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 DASHBOARD_PERM = Annotated[set[str], Depends(require_perm("dashboard.view"))]
 REPORTS_PERM = Annotated[set[str], Depends(require_perm("reports.view"))]
+DASHBOARD_PREVIEW_LIMIT = 100
+RECENT_WEIGHTS_LIMIT = 10
+
+DASHBOARD_TASK_LOADS = (
+    joinedload(Task.assigned_role),
+    joinedload(Task.assigned_user),
+    joinedload(Task.animal),
+)
+
+
+def _animal_identity_out(animal: Animal) -> AnimalIdentityOut:
+    return AnimalIdentityOut.model_validate(animal)
+
+
+async def _task_preview(
+    db: AsyncSession,
+    base: Select[tuple[Task]],
+    *,
+    predicates: tuple[ColumnElement[bool], ...],
+    order_by: tuple[Any, ...],
+) -> tuple[list[Task], int]:
+    """Exact count plus a bounded, relationship-complete task preview."""
+    stmt = base.where(*predicates)
+    rows = (
+        await db.execute(
+            stmt.add_columns(func.count().over().label("preview_total"))
+            .options(*DASHBOARD_TASK_LOADS)
+            .order_by(*order_by)
+            .limit(DASHBOARD_PREVIEW_LIMIT)
+        )
+    ).all()
+    return [row[0] for row in rows], int(rows[0].preview_total) if rows else 0
+
+
+async def _cull_preview(db: AsyncSession, farm_id: int) -> tuple[list[Animal], int]:
+    stmt = select(Animal, func.count().over().label("preview_total")).where(
+        Animal.farm_id == farm_id,
+        Animal.cull_candidate.is_(True),
+        Animal.status == AnimalStatus.ACTIVE.value,
+    )
+    rows = (
+        await db.execute(stmt.order_by(Animal.tag_number, Animal.id).limit(DASHBOARD_PREVIEW_LIMIT))
+    ).all()
+    return [row[0] for row in rows], int(rows[0].preview_total) if rows else 0
 
 
 @router.get("")
 async def dashboard(
     db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: DASHBOARD_PERM
 ) -> DashboardOut:
+    """Exact herd counts plus deterministic, bounded operational previews.
+
+    Each ``*_total`` is calculated in the same SQL statement as its list.
+    Operational lists contain at most ``preview_limit`` rows; recent weights
+    use ``recent_weights_limit``. The dedicated tasks, breeding and animals
+    pages remain the full paginated/history views.
+    """
     defs = list(
         (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
     )
-    active_animals = list(
-        (
-            await db.execute(
-                select(Animal)
-                # Counts reuse these rows for ready_to_move_suggestions and
-                # AnimalOut serialization — both read the history collections.
-                .options(*ANIMAL_OUT_LOADS)
-                .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-            )
-        ).scalars()
-    )
     counts: dict[str, int] = {d.code: 0 for d in defs}
     sex_counts: dict[str, int] = {"M": 0, "F": 0}
-    for animal in active_animals:
-        counts[animal.current_bucket] = counts.get(animal.current_bucket, 0) + 1
-        sex_counts[animal.sex] = sex_counts.get(animal.sex, 0) + 1
+    active_count_rows = (
+        await db.execute(
+            select(Animal.current_bucket, Animal.sex, func.count())
+            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+            .group_by(Animal.current_bucket, Animal.sex)
+        )
+    ).all()
+    for bucket, sex, count in active_count_rows:
+        counts[str(bucket)] = counts.get(str(bucket), 0) + int(count)
+        sex_counts[str(sex)] = sex_counts.get(str(sex), 0) + int(count)
+    total_active = sum(counts.values())
 
     now = today(farm.timezone)
-    pending = (
-        (await task_scope(db, farm, user))
-        .options(*TASK_LOADS)
-        .where(Task.status == TaskStatus.PENDING.value)
-    )
-    todays_tasks = list(
-        (await db.execute(pending.where(Task.due_date == now).order_by(Task.id))).scalars()
-    )
-    overdue_tasks = list(
-        (await db.execute(pending.where(Task.due_date < now).order_by(Task.due_date))).scalars()
-    )
-    ultrasounds_due = list(
-        (
-            await db.execute(
-                pending.where(
-                    Task.category == TaskCategory.ULTRASOUND.value,
-                    Task.due_date <= now + timedelta(days=7),
-                ).order_by(Task.due_date)
-            )
-        ).scalars()
-    )
+    todays_tasks: list[Task] = []
+    overdue_tasks: list[Task] = []
+    ultrasounds_due: list[Task] = []
+    todays_tasks_total = 0
+    overdue_tasks_total = 0
+    ultrasounds_due_total = 0
+    if "tasks.view" in perms:
+        pending = (await task_scope(db, farm, user)).where(actionable_pending_task_predicate())
+        todays_tasks, todays_tasks_total = await _task_preview(
+            db,
+            pending,
+            predicates=(Task.due_date == now,),
+            order_by=(Task.id,),
+        )
+        overdue_tasks, overdue_tasks_total = await _task_preview(
+            db,
+            pending,
+            predicates=(Task.due_date < now,),
+            order_by=(Task.due_date, Task.id),
+        )
+        ultrasounds_due, ultrasounds_due_total = await _task_preview(
+            db,
+            pending,
+            predicates=(
+                Task.category == TaskCategory.ULTRASOUND.value,
+                Task.due_date <= now + timedelta(days=7),
+            ),
+            order_by=(Task.due_date, Task.id),
+        )
 
+    no_kidding = ~(
+        select(KiddingRecord.id)
+        .where(KiddingRecord.breeding_record_id == BreedingRecord.id)
+        .correlate(BreedingRecord)
+        .exists()
+    )
     kiddings_stmt = (
-        select(BreedingRecord)
-        .options(
-            selectinload(BreedingRecord.doe),
-            selectinload(BreedingRecord.buck),
-            selectinload(BreedingRecord.kidding_record),
+        select(
+            BreedingRecord.id,
+            BreedingRecord.doe_id,
+            Animal.tag_number.label("doe_tag"),
+            BreedingRecord.expected_kidding_date,
         )
         .join(Animal, BreedingRecord.doe_id == Animal.id)
         .where(
@@ -107,40 +174,44 @@ async def dashboard(
             # Defensive: pregnancies of sold/dead does are auto-resolved on
             # the status change, but legacy phantom rows must never list here.
             Animal.status == AnimalStatus.ACTIVE.value,
+            no_kidding,
         )
-        .order_by(BreedingRecord.expected_kidding_date)
     )
+    kidding_rows = (
+        await db.execute(
+            kiddings_stmt.add_columns(func.count().over().label("preview_total"))
+            .order_by(BreedingRecord.expected_kidding_date, BreedingRecord.id)
+            .limit(DASHBOARD_PREVIEW_LIMIT)
+        )
+    ).all()
     kiddings_due = [
-        r for r in (await db.execute(kiddings_stmt)).scalars() if r.kidding_record is None
+        DashboardKiddingDueOut(
+            id=row.id,
+            doe_id=row.doe_id,
+            doe_tag=row.doe_tag,
+            expected_kidding_date=row.expected_kidding_date,
+        )
+        for row in kidding_rows
     ]
-
-    cull_candidates = list(
-        (
-            await db.execute(
-                select(Animal)
-                .options(*ANIMAL_OUT_LOADS)
-                .where(
-                    Animal.farm_id == farm.id,
-                    Animal.cull_candidate.is_(True),
-                    Animal.status == AnimalStatus.ACTIVE.value,
-                )
-                .order_by(Animal.tag_number)
-            )
-        ).scalars()
+    kiddings_due_total = int(kidding_rows[0].preview_total) if kidding_rows else 0
+    cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
+    suggestions, suggestions_total = await ready_to_move_suggestions(
+        db, farm, limit=DASHBOARD_PREVIEW_LIMIT
     )
-    suggestions = await ready_to_move_suggestions(db, farm, active_animals)
 
-    recent_weights = list(
-        (
-            await db.execute(
-                select(WeightRecord)
-                .join(Animal, WeightRecord.animal_id == Animal.id)
-                .where(Animal.farm_id == farm.id)
-                .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
-                .limit(10)
-            )
-        ).scalars()
+    recent_weights_stmt = (
+        select(WeightRecord, Animal)
+        .join(Animal, WeightRecord.animal_id == Animal.id)
+        .where(Animal.farm_id == farm.id)
     )
+    recent_weight_rows = (
+        await db.execute(
+            recent_weights_stmt.add_columns(func.count().over().label("preview_total"))
+            .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+            .limit(RECENT_WEIGHTS_LIMIT)
+        )
+    ).all()
+    recent_weights_total = int(recent_weight_rows[0].preview_total) if recent_weight_rows else 0
     status_rows = (
         await db.execute(
             select(Animal.status, func.count())
@@ -149,37 +220,49 @@ async def dashboard(
         )
     ).all()
     status_totals = {str(status): int(count) for status, count in status_rows}
+    can_view_health = "health.view" in perms
 
     return DashboardOut(
         buckets=[
             BucketCountOut(code=d.code, name=d.name, count=counts.get(d.code, 0)) for d in defs
         ],
-        total_active=len(active_animals),
+        total_active=total_active,
         sex_counts=sex_counts,
         status_totals=status_totals,
         todays_tasks=[task_out(t) for t in todays_tasks],
+        todays_tasks_total=todays_tasks_total,
         overdue_tasks=[task_out(t) for t in overdue_tasks],
+        overdue_tasks_total=overdue_tasks_total,
         ultrasounds_due=[task_out(t) for t in ultrasounds_due],
-        kiddings_due=[breeding_out(r) for r in kiddings_due],
-        cull_candidates=[animal_out(a, now, farm.timezone) for a in cull_candidates],
-        suggestions=[
-            MoveSuggestionOut(
-                animal=animal_out(s["animal"], now, farm.timezone),
-                to=s["to"],
-                reason=s["reason"],
+        ultrasounds_due_total=ultrasounds_due_total,
+        kiddings_due=kiddings_due,
+        kiddings_due_total=int(kiddings_due_total),
+        cull_candidates=[_animal_identity_out(a) for a in cull_candidates],
+        cull_candidates_total=cull_candidates_total,
+        suggestions=[MoveSuggestionOut.model_validate(s) for s in suggestions],
+        suggestions_total=suggestions_total,
+        recent_weights=[
+            DashboardWeightOut(
+                id=row[0].id,
+                date=row[0].date,
+                weight_kg=row[0].weight_kg,
+                bcs=row[0].bcs,
+                animal=_animal_identity_out(row[1]),
+                notes=(row[0].notes if "animals.view" in perms and can_view_health else None),
             )
-            for s in suggestions
+            for row in recent_weight_rows
         ],
-        recent_weights=[WeightRecordOut.model_validate(w) for w in recent_weights],
+        recent_weights_total=int(recent_weights_total),
+        preview_limit=DASHBOARD_PREVIEW_LIMIT,
+        recent_weights_limit=RECENT_WEIGHTS_LIMIT,
     )
 
 
 @router.get("/reports")
-async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> ReportsOut:
+async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> ReportsOut:
     """Herd summary, breeding performance, mortality — all aggregated in SQL;
-    only the cull-candidate list is hydrated as ORM rows."""
-
-    reference_date = today(farm.timezone)
+    only a 100-row purpose-specific cull preview is hydrated as ORM rows and
+    its exact count is returned separately."""
 
     # --- herd summary -------------------------------------------------------
     defs = list(
@@ -292,20 +375,7 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         )
     ).one()
 
-    cull_candidates = list(
-        (
-            await db.execute(
-                select(Animal)
-                .options(*ANIMAL_OUT_LOADS)
-                .where(
-                    Animal.farm_id == farm.id,
-                    Animal.cull_candidate.is_(True),
-                    Animal.status == AnimalStatus.ACTIVE.value,
-                )
-                .order_by(Animal.tag_number)
-            )
-        ).scalars()
-    )
+    cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
 
     breeding_stats = BreedingStatsOut(
         total_records=total_records,
@@ -316,7 +386,9 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
             round(float(total_alive) / kiddings_count, 2) if kiddings_count else None
         ),
         twin_rate=_rate(multi_kid, kiddings_count),
-        cull_candidates=[animal_out(a, reference_date, farm.timezone) for a in cull_candidates],
+        cull_candidates=[_animal_identity_out(a) for a in cull_candidates],
+        cull_candidates_total=cull_candidates_total,
+        cull_candidates_limit=DASHBOARD_PREVIEW_LIMIT,
     )
 
     # --- mortality ------------------------------------------------------------

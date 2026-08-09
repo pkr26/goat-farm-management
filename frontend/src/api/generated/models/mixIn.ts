@@ -6,7 +6,10 @@
  */
 
 export interface MixIn {
-  /** @minLength 1 */
+  /**
+     * @minLength 1
+     * @maxLength 30
+     */
   recipe_code: string;
   batch_kg: number;
 }

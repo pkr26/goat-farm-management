@@ -7,8 +7,14 @@
  */
 
 import type { UserOut } from "@/api/generated/models";
+import {
+  isIdempotencyProtectedMutation,
+  runIdempotencyProtectedRequest,
+} from "@/lib/idempotent-request";
 
 let accessToken: string | null = null;
+let accessTokenActorScope: string | null = null;
+let authSessionEpoch = 0;
 let currentFarmId: string | null = null;
 let onAuthFailure: (() => void) | null = null;
 export interface RefreshSessionResult {
@@ -17,9 +23,39 @@ export interface RefreshSessionResult {
 }
 
 let refreshPromise: Promise<RefreshSessionResult | null> | null = null;
+let refreshPromiseEpoch: number | null = null;
+
+function tokenActorScope(token: string | null): string | null {
+  if (!token || typeof globalThis.atob !== "function") return null;
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const padded = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(
+      Math.ceil(payload.length / 4) * 4,
+      "=",
+    );
+    const parsed = JSON.parse(globalThis.atob(padded)) as { sub?: unknown };
+    return typeof parsed.sub === "string" || typeof parsed.sub === "number"
+      ? String(parsed.sub)
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export function setAccessToken(token: string | null): void {
+  // External token installation/teardown marks a new authenticated session.
+  // Same-session refresh writes the rotated token internally without bumping.
+  const changed = token !== accessToken;
+  if (changed) authSessionEpoch += 1;
   accessToken = token;
+  const parsedActor = tokenActorScope(token);
+  // Auth bootstrap deliberately re-applies the token returned by refresh.
+  // Preserve refresh's trusted UserOut fallback when an opaque token has no
+  // decodable JWT subject and the token itself did not change.
+  if (changed || parsedActor !== null || token === null) {
+    accessTokenActorScope = parsedActor;
+  }
 }
 
 export function setCurrentFarmId(farmId: string | null): void {
@@ -30,7 +66,8 @@ export function setOnAuthFailure(handler: (() => void) | null): void {
   onAuthFailure = handler;
 }
 
-async function performRefresh(): Promise<RefreshSessionResult | null> {
+async function performRefresh(expectedEpoch: number): Promise<RefreshSessionResult | null> {
+  if (authSessionEpoch !== expectedEpoch) return null;
   try {
     const resp = await fetch("/api/auth/refresh", {
       method: "POST",
@@ -38,33 +75,46 @@ async function performRefresh(): Promise<RefreshSessionResult | null> {
     });
     if (!resp.ok) return null;
     const body = (await resp.json()) as RefreshSessionResult;
+    if (authSessionEpoch !== expectedEpoch) return null;
     accessToken = body.access_token;
+    accessTokenActorScope =
+      tokenActorScope(body.access_token) ??
+      ((body.user as UserOut | undefined)?.id != null ? String(body.user.id) : null);
     return body;
   } catch {
     return null;
   }
 }
 
-async function performCoordinatedRefresh(): Promise<RefreshSessionResult | null> {
+async function performCoordinatedRefresh(
+  expectedEpoch: number,
+): Promise<RefreshSessionResult | null> {
   // Web Locks coordinates all same-origin tabs/windows. Waiting tabs begin
   // their fetch only after the first response has installed the rotated
   // httpOnly cookie, so they present the current token rather than replaying
   // the old one. The backend's short replay grace remains the fallback for
   // browsers without Web Locks and network-level races.
   if (typeof navigator !== "undefined" && navigator.locks) {
-    return navigator.locks.request("goatfarm-auth-refresh", performRefresh);
+    return navigator.locks.request("goatfarm-auth-refresh", () =>
+      performRefresh(expectedEpoch),
+    );
   }
-  return performRefresh();
+  return performRefresh(expectedEpoch);
 }
 
 export function refreshSession(): Promise<RefreshSessionResult | null> {
   // De-duplicate React/query concurrency inside this JavaScript realm too.
-  if (!refreshPromise) {
-    refreshPromise = performCoordinatedRefresh();
+  const expectedEpoch = authSessionEpoch;
+  if (!refreshPromise || refreshPromiseEpoch !== expectedEpoch) {
+    refreshPromise = performCoordinatedRefresh(expectedEpoch);
+    refreshPromiseEpoch = expectedEpoch;
     const settled = refreshPromise;
     void settled.finally(() => {
       setTimeout(() => {
-        if (refreshPromise === settled) refreshPromise = null;
+        if (refreshPromise === settled) {
+          refreshPromise = null;
+          refreshPromiseEpoch = null;
+        }
       }, 0);
     });
   }
@@ -86,6 +136,38 @@ export class ApiError extends Error {
   }
 }
 
+function assertSafeApiPath(path: string): void {
+  const validationOrigin = "https://goatfarm.invalid";
+  let parsed: URL;
+  try {
+    parsed = new URL(path, validationOrigin);
+  } catch {
+    parsed = new URL("/invalid", validationOrigin);
+  }
+  const rawPathname = path.split(/[?#]/, 1)[0];
+  if (
+    !path.startsWith("/api/") ||
+    parsed.origin !== validationOrigin ||
+    !parsed.pathname.startsWith("/api/") ||
+    parsed.pathname !== rawPathname ||
+    parsed.hash !== "" ||
+    rawPathname.includes("%")
+  ) {
+    const error = new Error("API requests must use a same-origin /api/... path.");
+    error.name = "UnsafeApiPathError";
+    throw error;
+  }
+}
+
+function assertAuthSession(expectedEpoch: number): void {
+  if (authSessionEpoch === expectedEpoch) return;
+  const error = new Error(
+    "Your authenticated session changed while this request was in progress. The request was not replayed.",
+  );
+  error.name = "AuthSessionChangedError";
+  throw error;
+}
+
 /** FastAPI error bodies are {detail: string} or {detail: [{loc, msg}, ...]}. */
 function extractDetail(body: unknown, fallback: string): string {
   if (body && typeof body === "object" && "detail" in body) {
@@ -105,10 +187,14 @@ function extractDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
-async function rawFetch(path: string, init: RequestInit = {}): Promise<Response> {
+async function rawFetch(
+  path: string,
+  init: RequestInit = {},
+  farmScope: string | null = currentFarmId,
+): Promise<Response> {
   const headers = new Headers(init.headers);
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  if (currentFarmId) headers.set("X-Farm-Id", currentFarmId);
+  if (farmScope) headers.set("X-Farm-Id", farmScope);
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -134,14 +220,22 @@ const NO_REFRESH_PATHS = new Set([
 
 /** Shared core: fetch with at most one 401→refresh retry, then map any
  *  remaining error to ApiError. Resolves to the raw (ok) Response. */
-async function apiResponse(path: string, init: RequestInit = {}): Promise<Response> {
-  let resp = await rawFetch(path, init);
+async function apiResponseOnce(
+  path: string,
+  init: RequestInit,
+  farmScope: string | null,
+  sessionScope: number,
+  bufferSuccess: boolean,
+): Promise<Response> {
+  assertAuthSession(sessionScope);
+  let resp = await rawFetch(path, init, farmScope);
   if (resp.status === 401 && !NO_REFRESH_PATHS.has(path)) {
     const refreshed = await tryRefresh();
+    assertAuthSession(sessionScope);
     if (refreshed) {
-      resp = await rawFetch(path, init);
+      resp = await rawFetch(path, init, farmScope);
     } else {
-      accessToken = null;
+      setAccessToken(null);
       onAuthFailure?.();
     }
   }
@@ -154,7 +248,37 @@ async function apiResponse(path: string, init: RequestInit = {}): Promise<Respon
     }
     throw new ApiError(resp.status, extractDetail(body, resp.statusText));
   }
+  // Fully consume protected successful bodies before their logical request is
+  // marked complete. A connection that drops after response headers but
+  // before the JSON arrives is still ambiguous and must retry with the key.
+  if (!bufferSuccess || resp.status === 204) return resp;
+  await resp.clone().arrayBuffer();
   return resp;
+}
+
+async function apiResponse(path: string, init: RequestInit = {}): Promise<Response> {
+  assertSafeApiPath(path);
+  // A farm switch must not move a 401/network replay into a different tenant.
+  // Farm creation is the one actor-scoped protected mutation: it deliberately
+  // neither sends nor hashes a stale selected-farm ID, so a lost response can
+  // be recovered before the actor has any farm at all (or after switching).
+  const farmScope =
+    path.split("?", 1)[0] === "/api/auth/farms" ? null : currentFarmId;
+  const sessionScope = authSessionEpoch;
+  const actorScope = accessTokenActorScope;
+  const protectedMutation = isIdempotencyProtectedMutation(path, init.method);
+  return runIdempotencyProtectedRequest({
+    url: path,
+    init,
+    farmScope,
+    sessionScope,
+    actorScope,
+    execute: (preparedInit) =>
+      apiResponseOnce(path, preparedInit, farmScope, sessionScope, protectedMutation),
+    // The registry owns the untouched canonical response. Every concurrent
+    // consumer gets an independent body stream.
+    cloneResult: (response) => response.clone(),
+  });
 }
 
 /** apiFetch variant that keeps the real status and headers — the orval

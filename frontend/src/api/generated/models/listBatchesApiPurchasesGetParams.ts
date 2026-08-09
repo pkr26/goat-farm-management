@@ -14,6 +14,7 @@ q?: string | null;
 limit?: number;
 /**
  * @minimum 0
+ * @maximum 1000000
  */
 offset?: number;
 };

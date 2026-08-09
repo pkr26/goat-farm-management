@@ -4,8 +4,8 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Home, Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -24,7 +24,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
-import { firstPermittedPathFromList } from "@/lib/permission-navigation";
+import {
+  firstPermittedPathFromList,
+  permittedAppPathFromList,
+} from "@/lib/permission-navigation";
 
 const farmSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
@@ -33,8 +36,9 @@ const farmSchema = z.object({
 });
 type FarmValues = z.infer<typeof farmSchema>;
 
-export default function FarmSelectPage() {
+function FarmSelectPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, farms, farmId, loading, selectFarm, refreshFarms } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
@@ -54,7 +58,11 @@ export default function FarmSelectPage() {
     selectFarm(farm.id);
     try {
       const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
-      router.push(firstPermittedPathFromList(permissions.permissions));
+      const requestedPath = permittedAppPathFromList(
+        searchParams.get("returnTo"),
+        permissions.permissions,
+      );
+      router.push(requestedPath ?? firstPermittedPathFromList(permissions.permissions));
     } catch (error) {
       setServerError(
         error instanceof ApiError ? error.detail : "Could not load permissions for this farm.",
@@ -204,5 +212,13 @@ export default function FarmSelectPage() {
         </Card>
       </div>
     </main>
+  );
+}
+
+export default function FarmSelectPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <FarmSelectPageContent />
+    </Suspense>
   );
 }

@@ -12,6 +12,15 @@ export interface TaskTabsOut {
   upcoming: TaskOut[];
   awaiting: TaskOut[];
   completed: TaskOut[];
+  today_total: number;
+  today_offset: number;
+  overdue_total: number;
+  overdue_offset: number;
+  upcoming_total: number;
+  upcoming_offset: number;
+  awaiting_total: number;
+  awaiting_offset: number;
+  active_limit: number;
   completed_total: number;
   completed_limit: number;
   completed_offset: number;

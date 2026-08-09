@@ -3,7 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import MAX_EMAIL_LENGTH, EmailMixin
-from .common import BoundedId
+from .common import BoundedId, StrictInputModel
 
 
 class WorkerCreateIn(EmailMixin):
@@ -13,11 +13,15 @@ class WorkerCreateIn(EmailMixin):
     role_id: BoundedId
 
 
-class RoleChangeIn(BaseModel):
+class RoleChangeIn(StrictInputModel):
     role_id: BoundedId
 
 
-class PasswordResetIn(BaseModel):
+class WorkerStatusIn(StrictInputModel):
+    is_active: bool
+
+
+class PasswordResetIn(StrictInputModel):
     password: str = Field(min_length=1, max_length=128)
 
 
@@ -33,10 +37,10 @@ class MembershipOut(BaseModel):
     reset_password_block_reason: str | None
 
 
-class RoleIn(BaseModel):
+class RoleIn(StrictInputModel):
     name: str = Field(min_length=1, max_length=80)
     description: str | None = Field(default=None, max_length=255)
-    permissions: list[str] = []
+    permissions: list[str] = Field(default_factory=list, max_length=100)
 
 
 class RoleOut(BaseModel):

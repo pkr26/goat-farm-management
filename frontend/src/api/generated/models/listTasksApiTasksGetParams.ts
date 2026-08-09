@@ -10,9 +10,35 @@ export type ListTasksApiTasksGetParams = {
  * @minimum 1
  * @maximum 200
  */
+active_limit?: number;
+/**
+ * @minimum 0
+ * @maximum 1000000
+ */
+today_offset?: number;
+/**
+ * @minimum 0
+ * @maximum 1000000
+ */
+overdue_offset?: number;
+/**
+ * @minimum 0
+ * @maximum 1000000
+ */
+upcoming_offset?: number;
+/**
+ * @minimum 0
+ * @maximum 1000000
+ */
+awaiting_offset?: number;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
 completed_limit?: number;
 /**
  * @minimum 0
+ * @maximum 1000000
  */
 completed_offset?: number;
 };

@@ -6,20 +6,23 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
   useAbortPregnancyApiBreedingRecordIdAbortPost,
-  useBreedingCandidatesApiBreedingCandidatesGet,
   useBreedingListApiBreedingGet,
   useCreateBreedingApiBreedingPost,
   useGetBreedingRecordApiBreedingRecordIdGet,
   useSubmitUltrasoundApiBreedingRecordIdUltrasoundPost,
 } from "@/api/generated/endpoints";
-import type { BreedingRecordOut } from "@/api/generated/models";
+import {
+  PregnancyLossInCause,
+  type BreedingCandidateAvailabilityOut,
+  type BreedingRecordOut,
+} from "@/api/generated/models";
 import { BreedingCandidatePicker } from "@/components/breeding-candidate-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
@@ -53,10 +56,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 function localToday(): string {
   return farmToday();
@@ -97,27 +102,20 @@ type BreedingValues = z.infer<typeof breedingSchema>;
 function NewBreedingDialog({
   open,
   onOpenChange,
-  candidateDoeIds,
-  activeBuckIds,
+  candidateAvailability,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  candidateDoeIds: number[];
-  activeBuckIds: number[];
+  candidateAvailability: BreedingCandidateAvailabilityOut | null;
   onSaved: () => void;
 }) {
   const createMutation = useCreateBreedingApiBreedingPost();
-  const buckAvailability = useBreedingCandidatesApiBreedingCandidatesGet(
-    { kind: "buck", limit: 1, offset: 0 },
-    { query: { enabled: open && candidateDoeIds.length > 0 && activeBuckIds.length > 0 } },
-  );
-  const eligibleBuckTotal =
-    buckAvailability.data?.status === 200 ? buckAvailability.data.data.total : null;
-  const checkingBucks = activeBuckIds.length > 0 && buckAvailability.isPending;
-  const buckCheckFailed = activeBuckIds.length > 0 && buckAvailability.isError;
-  const hasEligibleBuck =
-    activeBuckIds.length > 0 && eligibleBuckTotal !== null && eligibleBuckTotal > 0;
+  const createFlight = useSingleFlight();
+  const [formError, setFormError] = useState<string | null>(null);
+  const eligibleDoeCount = candidateAvailability?.eligible_doe_count ?? null;
+  const eligibleBuckCount = candidateAvailability?.eligible_buck_count ?? null;
+  const hasEligibleBuck = eligibleBuckCount !== null && eligibleBuckCount > 0;
   const {
     control,
     register,
@@ -130,25 +128,37 @@ function NewBreedingDialog({
   });
 
   async function onSubmit(values: BreedingValues) {
-    try {
-      await createMutation.mutateAsync({
-        data: {
-          doe_id: Number(values.doe_id),
-          buck_id: Number(values.buck_id),
-          breeding_date: values.breeding_date,
-        },
-      });
-      toast.success("Breeding saved.");
-      reset({ doe_id: "", buck_id: "", breeding_date: localToday() });
-      onOpenChange(false);
-      onSaved();
-    } catch (err) {
-      toast.error(errorText(err));
-    }
+    await createFlight.run(async () => {
+      setFormError(null);
+      try {
+        await createMutation.mutateAsync({
+          data: {
+            doe_id: Number(values.doe_id),
+            buck_id: Number(values.buck_id),
+            breeding_date: values.breeding_date,
+          },
+        });
+        toast.success("Breeding saved.");
+        reset({ doe_id: "", buck_id: "", breeding_date: localToday() });
+        onOpenChange(false);
+        onSaved();
+      } catch (err) {
+        const message = errorText(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && (isSubmitting || createFlight.pending)) return;
+        if (!nextOpen) setFormError(null);
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add breeding</DialogTitle>
@@ -156,13 +166,23 @@ function NewBreedingDialog({
             An ultrasound-check task is auto-created for breeding date + 32 days.
           </DialogDescription>
         </DialogHeader>
-        {candidateDoeIds.length === 0 ? (
+        {candidateAvailability === null ? (
+          <p role="alert" className="text-destructive">
+            Candidate availability is unavailable. Refresh the breeding records before adding a
+            breeding.
+          </p>
+        ) : eligibleDoeCount === 0 ? (
           <p className="text-muted-foreground">
             No breeding-ready does right now (female, ≥10 months, ≥22 kg, not
             pregnant).
           </p>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+            {formError && (
+              <p role="alert" className="text-sm text-destructive">
+                {formError}
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="breeding-doe">Doe *</Label>
               <Controller
@@ -176,7 +196,6 @@ function NewBreedingDialog({
                     onValueChange={field.onChange}
                     placeholder="Select doe"
                     dialogTitle="Choose a breeding-ready doe"
-                    eligibleIds={candidateDoeIds}
                     aria-invalid={Boolean(errors.doe_id) || undefined}
                     aria-describedby={errors.doe_id ? "breeding-doe-error" : undefined}
                   />
@@ -199,7 +218,6 @@ function NewBreedingDialog({
                     onValueChange={field.onChange}
                     placeholder="Select buck"
                     dialogTitle="Choose an active buck"
-                    eligibleIds={activeBuckIds}
                     disabled={!hasEligibleBuck}
                     aria-invalid={Boolean(errors.buck_id) || undefined}
                     aria-describedby={errors.buck_id ? "breeding-buck-error" : undefined}
@@ -209,29 +227,11 @@ function NewBreedingDialog({
               {errors.buck_id && (
                 <p id="breeding-buck-error" role="alert" className="text-sm text-destructive">{errors.buck_id.message}</p>
               )}
-              {checkingBucks && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Checking eligible bucks…
-                </p>
-              )}
-              {!checkingBucks && !buckCheckFailed && !hasEligibleBuck && (
+              {!hasEligibleBuck && (
                 <p className="text-sm text-destructive">
                   No eligible bucks are available. Bucks on hold, in quarantine, or otherwise
                   restricted cannot be selected.
                 </p>
-              )}
-              {buckCheckFailed && (
-                <div className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-                  <span role="alert">Could not check eligible bucks.</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void buckAvailability.refetch()}
-                  >
-                    Try again
-                  </Button>
-                </div>
               )}
             </div>
             <div className="space-y-1.5">
@@ -251,8 +251,15 @@ function NewBreedingDialog({
               )}
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting || !hasEligibleBuck}>
-                {isSubmitting ? "Saving…" : "Save breeding"}
+              <Button
+                type="submit"
+                disabled={isSubmitting || createFlight.pending || !hasEligibleBuck}
+              >
+                {isSubmitting || createFlight.pending
+                  ? "Saving…"
+                  : formError
+                    ? "Retry save breeding"
+                    : "Save breeding"}
               </Button>
             </DialogFooter>
           </form>
@@ -276,6 +283,8 @@ function UltrasoundDialog({
   const [kidCount, setKidCount] = useState("2");
   const [resultDate, setResultDate] = useState(localToday());
   const [saving, setSaving] = useState(false);
+  const saveLock = useRef(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const mutation = useSubmitUltrasoundApiBreedingRecordIdUltrasoundPost();
   const earliestResultDate = record.ultrasound_date ?? record.breeding_date;
   const resultDateError = !resultDate
@@ -285,10 +294,15 @@ function UltrasoundDialog({
       : resultDate > localToday()
         ? "Result date can't be in the future"
         : null;
+  const kidCountError = pregnant && !["1", "2", "3"].includes(kidCount)
+    ? "Select the detected kid count"
+    : null;
 
   async function onSubmit() {
-    if (resultDateError) return;
+    if (resultDateError || kidCountError || saveLock.current) return;
+    saveLock.current = true;
     setSaving(true);
+    setFormError(null);
     try {
       await mutation.mutateAsync({
         recordId: record.id,
@@ -302,14 +316,17 @@ function UltrasoundDialog({
       onClose();
       onSaved();
     } catch (err) {
-      toast.error(errorText(err));
+      const message = errorText(err);
+      setFormError(message);
+      toast.error(message);
     } finally {
+      saveLock.current = false;
       setSaving(false);
     }
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Ultrasound result</DialogTitle>
@@ -322,6 +339,11 @@ function UltrasoundDialog({
               : ""}
           </DialogDescription>
         </DialogHeader>
+        {formError && (
+          <p role="alert" className="text-sm text-destructive">
+            {formError}
+          </p>
+        )}
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor={`ultrasound-result-date-${record.id}`}>Result date *</Label>
@@ -354,7 +376,11 @@ function UltrasoundDialog({
             <Checkbox
               id="pregnant"
               checked={pregnant}
-              onCheckedChange={(checked) => setPregnant(checked === true)}
+              onCheckedChange={(checked) => {
+                const selected = checked === true;
+                setPregnant(selected);
+                setKidCount(selected ? "2" : "");
+              }}
             />
             <Label htmlFor="pregnant">Pregnant — confirmed</Label>
           </div>
@@ -373,6 +399,11 @@ function UltrasoundDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {kidCountError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {kidCountError}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -380,10 +411,161 @@ function UltrasoundDialog({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={onSubmit} disabled={saving || Boolean(resultDateError)}>
-            {saving ? "Saving…" : "Save result"}
+          <Button
+            onClick={onSubmit}
+            disabled={saving || Boolean(resultDateError) || Boolean(kidCountError)}
+          >
+            {saving ? "Saving…" : formError ? "Retry save result" : "Save result"}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PregnancyLossDialog({
+  record,
+  onClose,
+  onSaved,
+}: {
+  record: BreedingRecordOut;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const mutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
+  const saveFlight = useSingleFlight();
+  const earliestLossDate =
+    record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date
+      ? record.ultrasound_result_date
+      : record.breeding_date;
+  const [lossDate, setLossDate] = useState(localToday());
+  const [cause, setCause] = useState<PregnancyLossInCause>(PregnancyLossInCause.UNKNOWN);
+  const [notes, setNotes] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const lossDateError = !lossDate
+    ? "Loss date is required"
+    : lossDate < earliestLossDate
+      ? `Loss date cannot be before ${formatDate(earliestLossDate)}`
+      : lossDate > localToday()
+        ? "Loss date can't be in the future"
+        : null;
+  const notesError = notes.length > 4_000 ? "Notes cannot exceed 4000 characters" : null;
+  const saving = mutation.isPending || saveFlight.pending;
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (lossDateError || notesError) return;
+    await saveFlight.run(async () => {
+      setFormError(null);
+      try {
+        await mutation.mutateAsync({
+          recordId: record.id,
+          data: {
+            loss_date: lossDate,
+            cause,
+            notes: notes.trim() || null,
+          },
+        });
+        toast.success("Pregnancy loss recorded.");
+        onClose();
+        onSaved();
+      } catch (err) {
+        const message = errorText(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record pregnancy loss</DialogTitle>
+          <DialogDescription>
+            Doe {record.doe_tag ?? `#${record.doe_id}`} · bred {formatDate(record.breeding_date)}.
+            This closes the pregnancy and retains an auditable reason.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+          <div className="space-y-1.5">
+            <Label htmlFor={`pregnancy-loss-date-${record.id}`}>Loss date *</Label>
+            <Input
+              id={`pregnancy-loss-date-${record.id}`}
+              type="date"
+              min={earliestLossDate}
+              max={localToday()}
+              value={lossDate}
+              aria-invalid={Boolean(lossDateError) || undefined}
+              aria-describedby={lossDateError ? `pregnancy-loss-date-error-${record.id}` : undefined}
+              onChange={(event) => setLossDate(event.target.value)}
+            />
+            {lossDateError && (
+              <p
+                id={`pregnancy-loss-date-error-${record.id}`}
+                role="alert"
+                className="text-sm text-destructive"
+              >
+                {lossDateError}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`pregnancy-loss-cause-${record.id}`}>Cause *</Label>
+            <Select
+              value={cause}
+              onValueChange={(value) => setCause(value as PregnancyLossInCause)}
+            >
+              <SelectTrigger id={`pregnancy-loss-cause-${record.id}`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.values(PregnancyLossInCause).map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {value.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`pregnancy-loss-notes-${record.id}`}>Notes</Label>
+            <Textarea
+              id={`pregnancy-loss-notes-${record.id}`}
+              value={notes}
+              maxLength={4_000}
+              aria-invalid={Boolean(notesError) || undefined}
+              aria-describedby={notesError ? `pregnancy-loss-notes-error-${record.id}` : undefined}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+            {notesError && (
+              <p
+                id={`pregnancy-loss-notes-error-${record.id}`}
+                role="alert"
+                className="text-sm text-destructive"
+              >
+                {notesError}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={saving || Boolean(lossDateError) || Boolean(notesError)}
+            >
+              {saving ? "Recording…" : formError ? "Retry record loss" : "Record pregnancy loss"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
@@ -397,6 +579,7 @@ export default function BreedingPage() {
   const canViewAnimals = can("animals.view");
   const [newOpen, setNewOpen] = useState(false);
   const [ultrasoundFor, setUltrasoundFor] = useState<BreedingRecordOut | null>(null);
+  const [lossFor, setLossFor] = useState<BreedingRecordOut | null>(null);
   const [prefillDismissed, setPrefillDismissed] = useState(false);
   const [requestedUltrasoundId] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
@@ -411,6 +594,7 @@ export default function BreedingPage() {
     { query: { enabled: allowed } },
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const candidateAvailability = payload?.candidate_availability ?? null;
   const pagedPrefillRecord = payload?.records.find(
     (record) => record.id === requestedUltrasoundId,
   );
@@ -438,21 +622,9 @@ export default function BreedingPage() {
       ? requestedRecord
       : null;
   const activeUltrasound = ultrasoundFor ?? deepLinkedUltrasound;
-  const abortMutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
 
   function refresh() {
     invalidateFarmData(queryClient);
-  }
-
-  async function markAborted(record: BreedingRecordOut) {
-    if (!window.confirm("Mark this pregnancy as aborted?")) return;
-    try {
-      await abortMutation.mutateAsync({ recordId: record.id });
-      toast.success("Pregnancy marked as aborted.");
-      refresh();
-    } catch (err) {
-      toast.error(errorText(err));
-    }
   }
 
   if (permsLoading) {
@@ -471,11 +643,16 @@ export default function BreedingPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError
-            ? query.error.detail
-            : "Could not load breeding records."}
-        </p>
+        <div className="space-y-3" role="alert">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError
+              ? query.error.detail
+              : "Could not load breeding records."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry breeding records
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -496,6 +673,24 @@ export default function BreedingPage() {
         }
       />
 
+      {prefillRecordQuery.isError && (
+        <div className="flex flex-wrap items-center gap-2" role="alert">
+          <span className="text-sm text-destructive">
+            {prefillRecordQuery.error instanceof ApiError
+              ? prefillRecordQuery.error.detail
+              : "Could not load the linked ultrasound record."}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void prefillRecordQuery.refetch()}
+          >
+            Retry ultrasound record
+          </Button>
+        </div>
+      )}
+
       {payload.records.length === 0 ? (
         <EmptyState
           icon={HeartHandshake}
@@ -507,7 +702,7 @@ export default function BreedingPage() {
           title="Breeding records"
           description="Ultrasound is due 32 days after breeding; confirmed pregnancies get an expected kidding date."
         >
-          <Table>
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Bred</TableHead>
@@ -559,9 +754,24 @@ export default function BreedingPage() {
                   <TableCell>{formatDate(r.expected_kidding_date)}</TableCell>
                   <TableCell>
                     <OutcomeBadge outcome={r.outcome} />
+                    {r.outcome === "ABORTED" && r.loss_date && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        <p>
+                          {formatDate(r.loss_date)} ·{" "}
+                          {(r.loss_cause ?? "UNKNOWN").replace(/_/g, " ")}
+                        </p>
+                        {r.loss_notes && (
+                          <details>
+                            <summary className="cursor-pointer">Loss notes</summary>
+                            <p className="max-w-80 whitespace-pre-wrap break-words">{r.loss_notes}</p>
+                          </details>
+                        )}
+                      </div>
+                    )}
                   </TableCell>
                   {canManage && (
-                    <TableCell className="space-x-2 text-right">
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                       {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date <= localToday() && (
                         <Button
                           variant="outline"
@@ -580,15 +790,15 @@ export default function BreedingPage() {
                         <Button
                           variant="destructive"
                           size="sm"
-                          disabled={abortMutation.isPending}
-                          onClick={() => markAborted(r)}
+                          onClick={() => setLossFor(r)}
                         >
-                          Abort
+                          Record loss
                         </Button>
                       )}
                       {r.has_kidding && (
                         <span className="text-muted-foreground">Kidded</span>
                       )}
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -609,8 +819,7 @@ export default function BreedingPage() {
         <NewBreedingDialog
           open={newOpen}
           onOpenChange={setNewOpen}
-          candidateDoeIds={payload.candidate_doe_ids}
-          activeBuckIds={payload.active_buck_ids}
+          candidateAvailability={candidateAvailability}
           onSaved={refresh}
         />
       )}
@@ -622,6 +831,14 @@ export default function BreedingPage() {
             setUltrasoundFor(null);
             setPrefillDismissed(true);
           }}
+          onSaved={refresh}
+        />
+      )}
+      {lossFor && (
+        <PregnancyLossDialog
+          key={lossFor.id}
+          record={lossFor}
+          onClose={() => setLossFor(null)}
           onSaved={refresh}
         />
       )}

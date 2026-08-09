@@ -71,22 +71,30 @@ from ..models import (
     planned_ultrasound_date,
     quarantine_schedule,
 )
-from ._common import ANIMAL_OUT_LOADS
 from .animals import (
     TAG_ALPHABET,
     bucket_transition_error,
     generate_unique_tag,
     move_animal,
     require_bucket_transition,
+    skip_inactive_animal_tasks_batch,
     skip_pending_tasks_for_animal,
 )
 from .breeding import (
-    breeding_candidate_does,
+    breeding_candidate_counts,
+    breeding_candidate_page,
+    breeding_weights_as_of,
     create_breeding_record,
     doe_has_open_breeding,
     is_breeding_candidate,
+    is_buck_breeding_candidate,
     mark_aborted,
     record_ultrasound_result,
+)
+from .chronology import (
+    require_animal_event_chronology,
+    require_farm_not_future,
+    require_status_after_recorded_facts,
 )
 from .dashboard import ready_to_move_suggestions
 from .feeding import (
@@ -105,18 +113,24 @@ from .feeding import (
 )
 from .finance import monthly_pnl
 from .health import (
+    inferred_schedule_template,
+    place_movement_restriction,
     record_health_event,
     target_matches_template,
     template_name_for_task,
     vaccination_schedule_for_animal,
+    validated_template,
     validated_template_name,
 )
+from .idempotency import IdempotencyKey, execute_idempotent
 from .kidding import KidSpec, record_kidding
-from .purchases import create_purchase_batch
+from .purchases import create_purchase_batch, schedule_quarantine_tasks
 from .tasks import (
+    actionable_pending_task_predicate,
     complete_task,
     create_manual_task,
     reject_task,
+    resolve_personal_task_role_fallback,
     skip_task,
     spawn_next_occurrence,
     task_scope,
@@ -124,7 +138,6 @@ from .tasks import (
 )
 
 __all__ = [
-    "ANIMAL_OUT_LOADS",
     "BUCKET_ALLOCATION_REFERENCE",
     "DRY_ROUGHAGE",
     "GESTATION_DAYS",
@@ -158,6 +171,7 @@ __all__ = [
     "FeedingShift",
     "HealthEvent",
     "HealthEventType",
+    "IdempotencyKey",
     "InsufficientFeedError",
     "KidEntry",
     "KidSpec",
@@ -173,23 +187,30 @@ __all__ = [
     "TransactionType",
     "User",
     "VaccineTemplate",
+    "actionable_pending_task_predicate",
     "add_feed_stock",
-    "breeding_candidate_does",
+    "breeding_candidate_counts",
+    "breeding_candidate_page",
+    "breeding_weights_as_of",
     "bucket_transition_error",
     "complete_task",
     "create_breeding_record",
     "create_manual_task",
     "create_purchase_batch",
     "doe_has_open_breeding",
+    "execute_idempotent",
     "expected_kidding_date",
     "feeding_plan",
     "generate_unique_tag",
     "get_daily_kg_per_head",
+    "inferred_schedule_template",
     "is_breeding_candidate",
+    "is_buck_breeding_candidate",
     "mark_aborted",
     "mix_feed_batch",
     "monthly_pnl",
     "move_animal",
+    "place_movement_restriction",
     "planned_ultrasound_date",
     "quarantine_schedule",
     "ready_to_move_suggestions",
@@ -199,8 +220,14 @@ __all__ = [
     "record_kidding",
     "record_ultrasound_result",
     "reject_task",
+    "require_animal_event_chronology",
     "require_bucket_transition",
+    "require_farm_not_future",
+    "require_status_after_recorded_facts",
+    "resolve_personal_task_role_fallback",
+    "schedule_quarantine_tasks",
     "set_daily_kg_per_head",
+    "skip_inactive_animal_tasks_batch",
     "skip_pending_tasks_for_animal",
     "skip_task",
     "spawn_next_occurrence",
@@ -208,6 +235,7 @@ __all__ = [
     "task_scope",
     "template_name_for_task",
     "vaccination_schedule_for_animal",
+    "validated_template",
     "validated_template_name",
     "verify_task",
 ]

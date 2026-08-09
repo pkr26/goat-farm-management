@@ -99,6 +99,10 @@ async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001"
             "sex": "F",
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd RBAC fixture",
+            "date_of_birth": (today() - timedelta(days=400)).isoformat(),
+            "weight_kg": 25.0,
+            "weight_date": (today() - timedelta(days=400)).isoformat(),
         },
         headers=owner,
     )
@@ -273,18 +277,20 @@ async def test_worker_landing_and_deactivation(client: httpx.AsyncClient) -> Non
 
     # owner deactivates → access gone (v1: bounce to the farm picker)
     mid = await membership_id(client, owner, "cleaner@farm.in")
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await client.put(
+        f"/api/team/workers/{mid}/status", json={"is_active": False}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
-    # Deactivation increments the account's token version, revoking the
-    # bearer immediately instead of leaving it usable until normal expiry.
+    # Deactivation is tenant-local: the same bearer remains an authenticated
+    # account but no longer authorizes this farm.
     resp = await client.get("/api/tasks", headers=cleaner)
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "Session has been revoked"
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Farm not found"
     resp = await client.get("/api/auth/farms", headers=cleaner)
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "Session has been revoked"
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 async def test_cannot_add_same_person_twice_or_owner(client: httpx.AsyncClient) -> None:

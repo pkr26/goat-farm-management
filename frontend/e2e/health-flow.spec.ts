@@ -22,7 +22,11 @@ test.describe("health flow", () => {
     await signIn(page);
 
     // 5 months old: every age-based first dose (3–4 months) is already due.
-    await createAnimal(page, { tag, dateOfBirth: monthsAgo(5) });
+    await createAnimal(page, {
+      tag,
+      historicalImportReason: "E2E health-flow fixture",
+      dateOfBirth: monthsAgo(5),
+    });
 
     // Record a VACCINE event on the animal through the Health page dialog.
     await page.goto("/health");
@@ -61,7 +65,9 @@ test.describe("health flow", () => {
       tag,
     );
     await page.getByRole("button", { name: "View" }).click();
-    await expect(page).toHaveURL(/\/health\/schedule\/\d+$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/health\/schedule\/\d+\?returnTo=/, {
+      timeout: 15_000,
+    });
     await expect(
       page.getByRole("heading", { name: /Vaccination schedule/ }),
     ).toBeVisible();

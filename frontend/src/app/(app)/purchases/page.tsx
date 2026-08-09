@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Plus, ShoppingCart } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { Controller, useForm , useWatch} from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -53,6 +53,10 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import {
+  isPersistableNonnegativeMoney,
+  MIN_PERSISTED_MONEY_MESSAGE,
+} from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 
 function localToday(): string {
@@ -91,7 +95,12 @@ const batchSchema = z
     sex: z.enum([PurchaseBatchInSex.F, PurchaseBatchInSex.M]),
     avg_age_months: optNum(z.number().min(0, "Cannot be negative").max(240, "At most 240 months")),
     avg_weight_kg: optNum(z.number().min(0, "Cannot be negative")),
-    total_price: optNum(z.number().min(0, "Cannot be negative")),
+    total_price: optNum(
+      z
+        .number()
+        .min(0, "Cannot be negative")
+        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+    ),
     notes: z.string().optional(),
     create_animals: z.boolean(),
   })
@@ -229,6 +238,7 @@ export default function PurchasesPage() {
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState(false);
+  const [pendingBatch, setPendingBatch] = useState<BatchValues | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -251,14 +261,18 @@ export default function PurchasesPage() {
     resolver: zodResolver(batchSchema),
     defaultValues: {
       date: localToday(),
-      count: 50,
+      count: 1,
       sex: PurchaseBatchInSex.F,
       create_animals: true,
     },
   });
   const wCreateAnimals = useWatch({ control, name: "create_animals" });
 
-  async function onSubmit(values: BatchValues) {
+  function onReview(values: BatchValues) {
+    setPendingBatch(values);
+  }
+
+  async function createBatch(values: BatchValues) {
     try {
       await createMutation.mutateAsync({
         data: {
@@ -276,7 +290,13 @@ export default function PurchasesPage() {
       toast.success("Purchase batch created.");
       invalidateFarmData(queryClient);
       setOpen(false);
-      reset();
+      setPendingBatch(null);
+      reset({
+        date: localToday(),
+        count: 1,
+        sex: PurchaseBatchInSex.F,
+        create_animals: true,
+      });
     } catch (err) {
       toast.error(mutationError(err));
     }
@@ -311,10 +331,11 @@ export default function PurchasesPage() {
   function openNewBatch() {
     reset({
       date: localToday(),
-      count: 50,
+      count: 1,
       sex: PurchaseBatchInSex.F,
       create_animals: true,
     });
+    setPendingBatch(null);
     setOpen(true);
   }
 
@@ -407,17 +428,80 @@ export default function PurchasesPage() {
         onClose={() => setDetailId(null)}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) setPendingBatch(null);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>New purchase batch</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            The 45-day quarantine protocol (deworm → PPR → ET+TT → Goat Pox → FMD →
-            footbath/release) is auto-created as dated tasks. An ANIMAL_PURCHASE expense is booked
-            for the total price.
-          </p>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          {pendingBatch ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Review purchase consequences</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                Confirm the batch before these linked farm records are created.
+              </p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border p-4 text-sm">
+                <dt className="text-muted-foreground">Batch</dt>
+                <dd className="text-right font-medium">
+                  {pendingBatch.count} {pendingBatch.sex === PurchaseBatchInSex.F ? "female" : "male"}
+                  {pendingBatch.count === 1 ? " goat" : " goats"}
+                </dd>
+                <dt className="text-muted-foreground">Purchase date</dt>
+                <dd className="text-right">{formatDate(pendingBatch.date)}</dd>
+                <dt className="text-muted-foreground">Animal stubs</dt>
+                <dd className="text-right">
+                  {pendingBatch.create_animals ? `${pendingBatch.count} in QUARANTINE` : "None"}
+                </dd>
+                <dt className="text-muted-foreground">Protocol tasks</dt>
+                <dd className="text-right">
+                  {pendingBatch.create_animals
+                    ? "45-day quarantine schedule"
+                    : "None (no animal stubs)"}
+                </dd>
+                <dt className="text-muted-foreground">Finance entry</dt>
+                <dd className="text-right">
+                  {pendingBatch.total_price === undefined
+                    ? "No expense amount"
+                    : `${formatMoney(pendingBatch.total_price)} ANIMAL_PURCHASE`}
+                </dd>
+              </dl>
+              <p role="alert" className="text-sm font-medium text-destructive">
+                Creation is immediate. This page does not currently provide a batch reversal.
+              </p>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={createMutation.isPending}
+                  onClick={() => setPendingBatch(null)}
+                >
+                  Back and edit
+                </Button>
+                <Button
+                  type="button"
+                  disabled={createMutation.isPending}
+                  onClick={() => void createBatch(pendingBatch)}
+                >
+                  {createMutation.isPending ? "Creating…" : "Confirm and create"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>New purchase batch</DialogTitle>
+              </DialogHeader>
+              <p className="text-sm text-muted-foreground">
+                {wCreateAnimals
+                  ? "Animal stubs and the 45-day quarantine protocol (deworm → PPR → ET+TT → Goat Pox → FMD → footbath/release) will be auto-created. "
+                  : "With animal-stub creation off, this records only the batch and any purchase expense; it creates no quarantine protocol tasks. "}
+                An ANIMAL_PURCHASE expense is booked when a total price is provided.
+              </p>
+              <form onSubmit={handleSubmit(onReview)} className="space-y-4" noValidate>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Batch details
             </p>
@@ -467,6 +551,9 @@ export default function PurchasesPage() {
                   max="240"
                   {...register("avg_age_months")}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Fractional months use an average 30.44-day month for the estimated birth date.
+                </p>
                 {errors.avg_age_months && (
                   <p className="text-sm text-destructive">{errors.avg_age_months.message}</p>
                 )}
@@ -514,10 +601,12 @@ export default function PurchasesPage() {
             </div>
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creating…" : "Create batch"}
+                {isSubmitting ? "Reviewing…" : "Review batch"}
               </Button>
             </DialogFooter>
           </form>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

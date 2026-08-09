@@ -95,15 +95,19 @@ export function AnimalPicker({
     [eligibleIds],
   );
   const selectedAnimalId = /^\d+$/.test(value) ? Number(value) : null;
-  const selectedAnimalQuery = useAnimalProfileApiAnimalsAnimalIdGet(selectedAnimalId ?? 0, {
-    query: {
-      enabled:
-        selectedAnimalId !== null &&
-        selectedOption?.value !== value &&
-        chosenOption?.value !== value,
-      retry: false,
+  const selectedAnimalQuery = useAnimalProfileApiAnimalsAnimalIdGet(
+    selectedAnimalId ?? 0,
+    undefined,
+    {
+      query: {
+        enabled:
+          selectedAnimalId !== null &&
+          selectedOption?.value !== value &&
+          chosenOption?.value !== value,
+        retry: false,
+      },
     },
-  });
+  );
   const selectedAnimal =
     selectedAnimalQuery.data?.status === 200
       ? animalOption(selectedAnimalQuery.data.data.animal, labelVariant)

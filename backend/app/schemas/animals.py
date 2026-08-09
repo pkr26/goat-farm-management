@@ -6,9 +6,13 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .common import (
+    MAX_FREE_TEXT_LENGTH,
     NonNegativeMoneyFloat,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
+    StrictBool,
+    StrictInputModel,
+    StrictInt,
     WeightKgFloat,
 )
 
@@ -30,7 +34,7 @@ BucketStr = Literal[
 ]
 
 
-class AnimalCreateIn(BaseModel):
+class AnimalCreateIn(StrictInputModel):
     tag_number: str | None = Field(default=None, min_length=1, max_length=50)
     name: str | None = Field(default=None, max_length=80)
     sex: Sex
@@ -45,7 +49,13 @@ class AnimalCreateIn(BaseModel):
     purchase_price: NonNegativeMoneyFloat | None = None
     seller_name: str | None = Field(default=None, max_length=120)
     weight_kg: WeightKgFloat | None = None  # optional entry weight record
-    notes: str | None = None
+    weight_date: PastOrTodayDate | None = None
+    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    # Existing-herd migration only. Normal PURCHASED registrations are
+    # server-forced into a managed one-head quarantine batch, while BORN rows
+    # normally come only from the kidding workflow. Supplying a reason marks a
+    # deliberate, owner-only, attributed historical entry instead.
+    historical_import_reason: str | None = Field(default=None, min_length=1, max_length=255)
 
     @model_validator(mode="after")
     def _source_fields_are_coherent(self) -> "AnimalCreateIn":
@@ -64,10 +74,20 @@ class AnimalCreateIn(BaseModel):
             value is not None for value in (self.birth_type, self.birth_weight)
         ):
             raise ValueError("Purchased animals cannot include birth-only fields")
+        if self.historical_import_reason is not None and not self.historical_import_reason.strip():
+            raise ValueError("historical_import_reason cannot be blank")
+        if self.source == "BORN" and not (self.historical_import_reason or "").strip():
+            raise ValueError(
+                "Direct BORN entry is a historical import and requires historical_import_reason"
+            )
+        if self.weight_date is not None and self.weight_kg is None:
+            raise ValueError("weight_date requires weight_kg")
         if self.current_bucket == "MALE_KIDS" and self.sex != "M":
             raise ValueError("Only male animals may enter MALE_KIDS")
         if self.current_bucket == "FEMALE_KIDS" and self.sex != "F":
             raise ValueError("Only female animals may enter FEMALE_KIDS")
+        if self.current_bucket == "RESTING" and self.sex != "F":
+            raise ValueError("Only female animals may enter RESTING")
         if (
             self.current_bucket in {"PREGNANCY_EARLY", "PREGNANCY_LATE", "DELIVERY"}
             and self.sex != "F"
@@ -107,6 +127,7 @@ class AnimalOut(BaseModel):
     restriction_cleared_at: datetime | None
     restriction_cleared_by_id: int | None
     restriction_clearance_reference: str | None
+    restriction_version: int
     mortality_cause: str | None
     mortality_reported_at: date | None
     notes: str | None
@@ -124,10 +145,10 @@ class AnimalListOut(BaseModel):
     total: int
 
 
-class WeightIn(BaseModel):
+class WeightIn(StrictInputModel):
     date: PastOrTodayDate | None = None  # defaults to today
     weight_kg: WeightKgFloat
-    bcs: int | None = Field(default=None, ge=1, le=5)
+    bcs: StrictInt | None = Field(default=None, ge=1, le=5)
     notes: str | None = Field(default=None, max_length=255)  # weight_records.notes String(255)
 
 
@@ -141,9 +162,16 @@ class WeightRecordOut(BaseModel):
     notes: str | None
 
 
-class MoveIn(BaseModel):
+class MoveIn(StrictInputModel):
     to_bucket: BucketStr
     reason: str | None = Field(default=None, max_length=255)  # bucket_moves.reason String(255)
+    history_override: StrictBool = False
+
+    @model_validator(mode="after")
+    def _history_override_requires_reason(self) -> "MoveIn":
+        if self.history_override and not (self.reason or "").strip():
+            raise ValueError("A history override requires a reason")
+        return self
 
 
 class BucketMoveOut(BaseModel):
@@ -156,7 +184,23 @@ class BucketMoveOut(BaseModel):
     moved_at: datetime
 
 
-class StatusChangeIn(BaseModel):
+class AnimalOffspringOut(BaseModel):
+    """Identity/lifecycle fields rendered in a parent's kids table."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tag_number: str
+    name: str | None
+    sex: str
+    date_of_birth: date | None
+    estimated_dob: date | None
+    status: str
+
+
+class StatusChangeIn(StrictInputModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     new_status: Literal["SOLD", "DEAD", "CULLED"]
     date: PastOrTodayDate | None = None  # defaults to today
     sale_price: NonNegativeMoneyFloat | None = None
@@ -164,12 +208,16 @@ class StatusChangeIn(BaseModel):
     notes: str | None = Field(default=None, max_length=255)  # animals.status_notes String(255)
     mortality_cause: str | None = Field(default=None, max_length=120)
     mortality_reported_at: PastOrTodayDate | None = None
-    suspected_scheduled_disease: bool = False
+    suspected_scheduled_disease: StrictBool = False
     suspected_disease: str | None = Field(default=None, max_length=120)
     authority_notified_at: PastOrTodayDate | None = None
 
     @model_validator(mode="after")
     def _death_escalation_fields_are_coherent(self) -> "StatusChangeIn":
+        if self.new_status != "SOLD" and (
+            self.sale_price is not None or self.buyer_name is not None
+        ):
+            raise ValueError("Sale price and buyer require SOLD status")
         if self.new_status != "DEAD" and any(
             value is not None
             for value in (
@@ -182,16 +230,34 @@ class StatusChangeIn(BaseModel):
             raise ValueError("Mortality and disease-escalation fields require DEAD status")
         if self.suspected_scheduled_disease and not self.suspected_disease:
             raise ValueError("A suspected scheduled disease requires an identified disease")
+        if not self.suspected_scheduled_disease and (
+            self.suspected_disease is not None or self.authority_notified_at is not None
+        ):
+            raise ValueError(
+                "Suspected disease and authority notification require "
+                "suspected_scheduled_disease=true"
+            )
         return self
 
 
 class AnimalProfileOut(BaseModel):
     animal: AnimalOut
-    kids: list[AnimalOut]  # animals with dam_id = this animal (v1 profile showed them)
+    kids: list[AnimalOffspringOut]
+    kids_total: int
+    kids_offset: int
     weights: list[WeightRecordOut]
+    weights_total: int
+    weights_offset: int
     moves: list[BucketMoveOut]
+    moves_total: int
+    moves_offset: int
     health_events: list["HealthEventOut"]
+    health_events_total: int
+    health_events_offset: int
     breedings: list[int]  # breeding record ids (details fetched via /api/breeding)
+    breedings_total: int
+    breedings_offset: int
+    history_limit: int
 
 
 class BucketBoardRow(BaseModel):

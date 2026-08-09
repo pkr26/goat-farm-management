@@ -17,12 +17,15 @@ import { renderWithProviders } from "@/test/render";
 
 import FarmSelectPage from "./page";
 
-const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
+const { pushMock, navState } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+  navState: { search: "" },
+}));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/farm-select",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
 }));
 
@@ -38,7 +41,10 @@ function cardOf(name: string): HTMLElement {
 }
 
 describe("FarmSelectPage — loading & logged-out states", () => {
-  beforeEach(() => pushMock.mockClear());
+  beforeEach(() => {
+    pushMock.mockClear();
+    navState.search = "";
+  });
 
   it("shows 'Loading…' while the session bootstrap is still pending", async () => {
     let releaseRefresh: (() => void) | undefined;
@@ -74,7 +80,10 @@ describe("FarmSelectPage — loading & logged-out states", () => {
 });
 
 describe("FarmSelectPage — farm picker", () => {
-  beforeEach(() => pushMock.mockClear());
+  beforeEach(() => {
+    pushMock.mockClear();
+    navState.search = "";
+  });
 
   it("lists the farms with heading, location and Owner fallback for a null role", async () => {
     renderWithProviders(<FarmSelectPage />);
@@ -132,6 +141,35 @@ describe("FarmSelectPage — farm picker", () => {
     expect(localStorage.getItem("goatfarm.farmId")).toBe("2");
   });
 
+  it("restores a permitted internal route and its page state after switching farms", async () => {
+    navState.search = "?returnTo=%2Ftasks%3Ftab%3Doverdue";
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      permissionsHandler(["tasks.view"]),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/tasks?tab=overdue"));
+  });
+
+  it("falls back safely when returnTo is external or unavailable on the selected farm", async () => {
+    navState.search = "?returnTo=https%3A%2F%2Fevil.test%2Fhealth";
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      permissionsHandler(["health.view"]),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/health"));
+    expect(pushMock).not.toHaveBeenCalledWith(expect.stringContaining("evil.test"));
+  });
+
   it("shows the empty-state hint when the user has no farms", async () => {
     server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
 
@@ -145,7 +183,10 @@ describe("FarmSelectPage — farm picker", () => {
 });
 
 describe("FarmSelectPage — create a farm", () => {
-  beforeEach(() => pushMock.mockClear());
+  beforeEach(() => {
+    pushMock.mockClear();
+    navState.search = "";
+  });
 
   it("blocks an empty farm name and never posts", async () => {
     let posts = 0;

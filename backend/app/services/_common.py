@@ -4,7 +4,6 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..models import (
     Animal,
@@ -16,17 +15,6 @@ from ..models import (
     TaskStatus,
 )
 from ..permissions import TASK_CATEGORY_ROLE_MAP
-
-# Explicit eager loads for every Animal whose rows serialize through AnimalOut
-# (or feed the computed properties behind it: latest_weight_kg,
-# days_in_current_bucket, is_currently_pregnant, is_breeding_ready). Mapper-level
-# lazy="selectin" used to guarantee these on every load; now each
-# read path opts in, so plain db.get()/write paths stay lean.
-ANIMAL_OUT_LOADS = (
-    selectinload(Animal.weight_records),
-    selectinload(Animal.bucket_moves),
-    selectinload(Animal.breedings_as_doe).selectinload(BreedingRecord.kidding_record),
-)
 
 
 async def _pending_tasks_for(

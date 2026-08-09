@@ -180,10 +180,10 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
         (
             "conception_rate",
             lambda v: setattr(
-                v.reproduction, "conception_rate", min(0.98, v.reproduction.conception_rate * 0.8)
+                v.reproduction, "conception_rate", v.reproduction.conception_rate * 0.8
             ),
             lambda v: setattr(
-                v.reproduction, "conception_rate", min(0.98, v.reproduction.conception_rate * 1.2)
+                v.reproduction, "conception_rate", min(1.0, v.reproduction.conception_rate * 1.2)
             ),
         ),
         (

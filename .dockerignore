@@ -11,7 +11,8 @@ backend/.ruff_cache
 backend/.env
 backend/keys
 backend/tests
-backend/scripts
+backend/scripts/*
+!backend/scripts/healthcheck.py
 **/__pycache__
 .dockerignore
 docker-compose.yml

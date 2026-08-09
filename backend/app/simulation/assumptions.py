@@ -11,9 +11,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-# Every numeric assumption must be finite: NaN/inf would propagate through a
+# Every numeric assumption must be finite and preserve its JSON type: NaN/inf
+# would propagate through a
 # run and crash JSON serialization of the result (500) — reject at 422 time.
-FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 
 # Head-count ceiling for starting cohorts / scheduled event counts: far above
 # any real farm, small enough that cohort arithmetic can't overflow float64.
@@ -40,7 +41,7 @@ WeightKg = Annotated[FiniteFloat, Field(gt=0.0, le=MAX_WEIGHT_KG)]
 
 
 class _Group(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class MetaAssumptions(_Group):

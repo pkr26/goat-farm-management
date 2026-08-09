@@ -13,4 +13,6 @@ export interface HealthAnimalOptionOut {
   tag_number: string;
   name: string | null;
   current_bucket: string;
+  movement_restricted: boolean;
+  restriction_version: number;
 }

@@ -19,13 +19,17 @@ import {
 import Link from "next/link";
 
 import { useDashboardApiDashboardGet } from "@/api/generated/endpoints";
-import type { AnimalOut, TaskOut } from "@/api/generated/models";
+import type {
+  AnimalIdentityOut,
+  DashboardWeightOut,
+  TaskOut,
+} from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -37,13 +41,22 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday, formatDate } from "@/lib/format";
+import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** v1's Animal.display_name: tag plus optional name. */
-function animalName(a: AnimalOut): string {
+function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
 }
+
+// The backend's purpose-specific recent-weight DTO now carries identity and
+// a permission-filtered note. Generated clients are intentionally refreshed
+// only after all schema work freezes, so bridge that additive contract here.
+type RecentWeight = DashboardWeightOut & {
+  animal: AnimalIdentityOut;
+  notes: string | null;
+};
 
 /** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
 function daysBetween(from: string, to: string): number {
@@ -58,17 +71,19 @@ function TaskLink({
   fallbackHref,
   can,
   label = "Open",
+  returnTo,
 }: {
   task: TaskOut;
   fallbackHref: string;
   can: PermissionCheck;
   label?: string;
+  returnTo: string;
 }) {
   const permittedAction = permittedTaskActionPath(task.action_url, can);
   if (permittedAction) {
     return (
       <Link
-        href={permittedAction}
+        href={withReturnTo(permittedAction, returnTo)}
         className={buttonVariants({ variant: "outline", size: "sm" })}
       >
         {label}
@@ -109,9 +124,16 @@ export default function DashboardPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load the dashboard."}
-        </p>
+        <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError
+              ? query.error.detail
+              : "Could not load the dashboard."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry dashboard
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -120,8 +142,17 @@ export default function DashboardPage() {
   const farm = farms.find((f) => f.id === farmId);
   // Comparisons against server due dates use the backend's UTC today (7-5).
   const today = farmToday();
-  const taskTotal = payload.todays_tasks.length + payload.overdue_tasks.length;
+  const taskTotal = payload.todays_tasks_total + payload.overdue_tasks_total;
   const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
+  const recentWeights = payload.recent_weights as RecentWeight[];
+  const hasBoundedPreview =
+    payload.todays_tasks.length < payload.todays_tasks_total ||
+    payload.overdue_tasks.length < payload.overdue_tasks_total ||
+    payload.ultrasounds_due.length < payload.ultrasounds_due_total ||
+    payload.kiddings_due.length < payload.kiddings_due_total ||
+    payload.cull_candidates.length < payload.cull_candidates_total ||
+    payload.suggestions.length < payload.suggestions_total ||
+    payload.recent_weights.length < payload.recent_weights_total;
 
   return (
     <div className="space-y-6">
@@ -129,6 +160,13 @@ export default function DashboardPage() {
         title={farm ? `${farm.name} — Dashboard` : "Dashboard"}
         description="Herd overview — tasks, breeding dates and recent weights."
       />
+      {hasBoundedPreview && (
+        <p className="text-xs text-muted-foreground">
+          Dashboard operational previews are capped at {payload.preview_limit} rows; recent weights
+          are capped at {payload.recent_weights_limit}. Exact totals are shown, and the operational
+          links open the full registers.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
@@ -149,18 +187,18 @@ export default function DashboardPage() {
           value={taskTotal}
           icon={ListChecks}
           tint={
-            payload.overdue_tasks.length > 0 ? "red" : taskTotal > 0 ? "amber" : "default"
+            payload.overdue_tasks_total > 0 ? "red" : taskTotal > 0 ? "amber" : "default"
           }
         />
       </div>
 
-      {payload.overdue_tasks.length > 0 && (
+      {payload.overdue_tasks_total > 0 && (
         <DataTableCard
           className="ring-red-200 dark:ring-red-900"
           title={
             <span className="flex items-center gap-2">
               <TriangleAlert className="size-4 text-red-600 dark:text-red-400" />
-              Overdue tasks
+              Overdue tasks ({payload.overdue_tasks_total})
             </span>
           }
         >
@@ -176,18 +214,33 @@ export default function DashboardPage() {
                   </TableCell>
                   <TableCell>{t.title}</TableCell>
                   <TableCell className="text-right">
-                    <TaskLink task={t} fallbackHref="/tasks?tab=overdue" can={can} />
+                    <TaskLink
+                      task={t}
+                      fallbackHref="/tasks?tab=overdue"
+                      returnTo="/dashboard"
+                      can={can}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          {payload.overdue_tasks.length < payload.overdue_tasks_total && (
+            <p className="pt-3 text-sm text-muted-foreground">
+              Showing {payload.overdue_tasks.length} of {payload.overdue_tasks_total}.{" "}
+              {can("tasks.view") && (
+                <Link href="/tasks?tab=overdue" className="text-primary underline">
+                  View all overdue tasks
+                </Link>
+              )}
+            </p>
+          )}
         </DataTableCard>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <DataTableCard
-          title="Today's tasks"
+          title={`Today's tasks (${payload.todays_tasks_total})`}
           actions={can("tasks.view") ? (
             <Link
               href="/tasks?tab=today"
@@ -210,17 +263,27 @@ export default function DashboardPage() {
                   <TableRow key={t.id}>
                     <TableCell>{t.title}</TableCell>
                     <TableCell className="text-right">
-                      <TaskLink task={t} fallbackHref="/tasks?tab=today" can={can} />
+                      <TaskLink
+                        task={t}
+                        fallbackHref="/tasks?tab=today"
+                        returnTo="/dashboard"
+                        can={can}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           )}
+          {payload.todays_tasks.length < payload.todays_tasks_total && (
+            <p className="pt-3 text-sm text-muted-foreground">
+              Showing {payload.todays_tasks.length} of {payload.todays_tasks_total}.
+            </p>
+          )}
         </DataTableCard>
 
         <DataTableCard
-          title="Kiddings due in 14 days"
+          title={`Kiddings due in 14 days (${payload.kiddings_due_total})`}
           actions={can("breeding.view") ? (
             <Link
               href="/breeding"
@@ -239,7 +302,10 @@ export default function DashboardPage() {
                   <TableRow key={r.id}>
                     <TableCell>
                       {canViewAnimals ? (
-                        <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
+                        <Link
+                          href={withReturnTo(`/animals/${r.doe_id}`, "/dashboard")}
+                          className="text-primary underline"
+                        >
                           {r.doe_tag ?? `Doe #${r.doe_id}`}
                         </Link>
                       ) : (
@@ -264,10 +330,20 @@ export default function DashboardPage() {
               </TableBody>
             </Table>
           )}
+          {payload.kiddings_due.length < payload.kiddings_due_total && (
+            <p className="pt-3 text-sm text-muted-foreground">
+              Showing {payload.kiddings_due.length} of {payload.kiddings_due_total}.{" "}
+              {can("kidding.view") && (
+                <Link href="/kidding" className="text-primary underline">
+                  View the kidding register
+                </Link>
+              )}
+            </p>
+          )}
         </DataTableCard>
 
         <DataTableCard
-          title="Ultrasounds due in 7 days"
+          title={`Ultrasounds due in 7 days (${payload.ultrasounds_due_total})`}
           actions={can("breeding.view") ? (
             <Link
               href="/breeding"
@@ -290,6 +366,7 @@ export default function DashboardPage() {
                       <TaskLink
                         task={t}
                         fallbackHref="/tasks?tab=today"
+                        returnTo="/dashboard"
                         can={can}
                         label="Record result"
                       />
@@ -299,10 +376,15 @@ export default function DashboardPage() {
               </TableBody>
             </Table>
           )}
+          {payload.ultrasounds_due.length < payload.ultrasounds_due_total && (
+            <p className="pt-3 text-sm text-muted-foreground">
+              Showing {payload.ultrasounds_due.length} of {payload.ultrasounds_due_total}.
+            </p>
+          )}
         </DataTableCard>
 
         <DataTableCard
-          title={`Ready to move (${payload.suggestions.length})`}
+          title={`Ready to move (${payload.suggestions_total})`}
           actions={canViewAnimals ? (
             <Link
               href="/animals"
@@ -323,7 +405,7 @@ export default function DashboardPage() {
                     <TableCell>
                       {canViewAnimals ? (
                         <Link
-                          href={`/animals/${s.animal.id}`}
+                          href={withReturnTo(`/animals/${s.animal.id}`, "/dashboard")}
                           className="text-primary underline"
                         >
                           {animalName(s.animal)}
@@ -341,11 +423,16 @@ export default function DashboardPage() {
               </TableBody>
             </Table>
           )}
-          {payload.cull_candidates.length > 0 && (
+          {payload.suggestions.length < payload.suggestions_total && (
+            <p className="text-sm text-muted-foreground">
+              Showing {payload.suggestions.length} of {payload.suggestions_total} move suggestions.
+            </p>
+          )}
+          {payload.cull_candidates_total > 0 && (
             <p className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
               <TriangleAlert className="size-4 shrink-0" />
               <span>
-                {payload.cull_candidates.length} cull candidate(s) —{" "}
+                {payload.cull_candidates_total} cull candidate(s) —{" "}
                 {can("breeding.view") ? (
                   <Link href="/breeding" className="underline">
                     see breeding page
@@ -405,19 +492,19 @@ export default function DashboardPage() {
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Recent weight records</h2>
-        {payload.recent_weights.length === 0 ? (
+        {recentWeights.length === 0 ? (
           <EmptyState
             icon={Scale}
             title="No weight records yet."
             description="Weights you record will show up here."
           >
             {canViewAnimals && can("animals.create") && (
-            <Link
-              href="/animals/new"
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              Add your first animal
-            </Link>
+              <Link
+                href="/animals/new"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Add your first animal
+              </Link>
             )}
           </EmptyState>
         ) : (
@@ -425,6 +512,7 @@ export default function DashboardPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Animal</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Weight</TableHead>
                   <TableHead>BCS</TableHead>
@@ -432,17 +520,35 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {payload.recent_weights.map((w) => (
+                {recentWeights.map((w) => (
                   <TableRow key={w.id}>
+                    <TableCell>
+                      {canViewAnimals ? (
+                        <Link
+                          href={withReturnTo(`/animals/${w.animal.id}`, "/dashboard")}
+                          className="text-primary underline"
+                        >
+                          {animalName(w.animal)}
+                        </Link>
+                      ) : (
+                        animalName(w.animal)
+                      )}
+                    </TableCell>
                     <TableCell>{formatDate(w.date)}</TableCell>
                     <TableCell>{w.weight_kg.toFixed(1)} kg</TableCell>
                     <TableCell>{w.bcs ?? "—"}</TableCell>
-                    <TableCell>{w.notes ?? ""}</TableCell>
+                    <TableCell>{w.notes ?? "—"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </DataTableCard>
+        )}
+        {recentWeights.length < payload.recent_weights_total && (
+          <p className="text-sm text-muted-foreground">
+            Showing {recentWeights.length} of {payload.recent_weights_total} recent weight
+            records.
+          </p>
         )}
       </section>
     </div>

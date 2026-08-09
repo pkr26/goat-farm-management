@@ -20,6 +20,7 @@ Platform note: flock makes this module Unix-only (Linux/macOS); Windows
 contributors would need an msvcrt fallback — not needed for deployment.
 """
 
+import asyncio
 import base64
 import fcntl
 import hashlib
@@ -27,7 +28,10 @@ import hmac
 import os
 import threading
 import uuid
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -45,6 +49,43 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from .core.config import get_settings
 
 LEGACY_PBKDF2_PREFIX = "pbkdf2_sha256"
+REQUIRED_JWT_CLAIMS = ("sub", "kind", "jti", "iat", "exp", "iss", "aud")
+RESERVED_JWT_CLAIMS = frozenset(REQUIRED_JWT_CLAIMS)
+
+
+class PasswordWorkCapacityError(RuntimeError):
+    """The bounded Argon2 worker pool is already fully occupied."""
+
+
+_password_worker_count = get_settings().argon2_worker_threads
+_password_executor = ThreadPoolExecutor(
+    max_workers=_password_worker_count,
+    thread_name_prefix="goatfarm-argon2",
+)
+_password_slots = threading.BoundedSemaphore(_password_worker_count)
+
+
+async def _run_password_work[ResultT](work: Callable[[], ResultT]) -> ResultT:
+    """Run CPU/memory-hard password work off-loop with no unbounded queue.
+
+    A cancelled HTTP request does not free its slot until the native Argon2
+    call actually finishes; otherwise repeated disconnects could enqueue an
+    arbitrary number of 64-MiB jobs behind the fixed worker count.
+    """
+    if not _password_slots.acquire(blocking=False):
+        raise PasswordWorkCapacityError("Password service is busy")
+    future = asyncio.get_running_loop().run_in_executor(_password_executor, work)
+
+    def release_slot(_future: object) -> None:
+        _password_slots.release()
+
+    try:
+        return await asyncio.shield(future)
+    finally:
+        if future.done():
+            release_slot(future)
+        else:
+            future.add_done_callback(release_slot)
 
 
 def _password_hasher() -> PasswordHasher:
@@ -71,10 +112,16 @@ def hash_password(password: str) -> str:
     return _password_hasher().hash(password)
 
 
+async def hash_password_async(password: str) -> str:
+    return await _run_password_work(lambda: hash_password(password))
+
+
+@lru_cache(maxsize=1)
 def prime_dummy_password_hash() -> str:
     """Compute the throwaway Argon2 hash the login path uses to equalize
-    unknown-email timing. Called from create_app() at boot so the first
-    unknown-email login pays no cold-start cost."""
+    unknown-email timing. Called at boot and cached so the first rejected
+    login reuses the already-computed hash instead of exposing a cold-start
+    timing difference."""
     return hash_password("dummy-password-for-timing-equalization")
 
 
@@ -104,6 +151,10 @@ def verify_password(password: str, stored: str) -> tuple[bool, bool]:
         # never a 500.
         return False, False
     return ok, ok and _password_hasher().check_needs_rehash(stored)
+
+
+async def verify_password_async(password: str, stored: str) -> tuple[bool, bool]:
+    return await _run_password_work(lambda: verify_password(password, stored))
 
 
 # ---------------------------------------------------------------------------
@@ -322,8 +373,15 @@ def issue_token(
         "jti": jti or uuid.uuid4().hex,
         "iat": now,
         "exp": expiry,
+        "iss": s.jwt_issuer,
+        "aud": s.jwt_audience,
     }
     if extra_claims:
+        collision = RESERVED_JWT_CLAIMS.intersection(extra_claims)
+        if collision:
+            raise ValueError(
+                f"extra_claims cannot override reserved JWT claims: {sorted(collision)}"
+            )
         payload.update(extra_claims)
     return jwt.encode(
         payload,
@@ -346,6 +404,7 @@ def issue_refresh_token(
     user_id: int,
     jti: str | None = None,
     *,
+    family_id: str | None = None,
     issued_at: datetime | None = None,
     expires_at: datetime | None = None,
 ) -> str:
@@ -357,6 +416,7 @@ def issue_refresh_token(
         jti=jti,
         issued_at=issued_at,
         expires_at=expires_at,
+        extra_claims={"fid": family_id} if family_id is not None else None,
     )
 
 
@@ -370,6 +430,7 @@ class RefreshClaims(NamedTuple):
 
     user_id: int
     jti: str
+    family_id: str | None
     expires_at: datetime  # naive UTC, like every stored datetime
 
 
@@ -404,13 +465,38 @@ def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
     for key in candidates:
         try:
             # leeway=60s: absorb reasonable clock skew between API instances.
-            payload = jwt.decode(token, key, algorithms=[s.jwt_algorithm], leeway=60)
+            payload = jwt.decode(
+                token,
+                key,
+                algorithms=[s.jwt_algorithm],
+                audience=s.jwt_audience,
+                issuer=s.jwt_issuer,
+                leeway=60,
+                options={"require": list(REQUIRED_JWT_CLAIMS)},
+            )
             break
         except jwt.PyJWTError:
             continue
     if payload is None:
         return None
     if payload.get("kind") != expected_kind:
+        return None
+    subject = payload.get("sub")
+    jti = payload.get("jti")
+    # PyJWT verifies these registered claim types too, but keep the identity
+    # contract explicit: user ids are canonical positive decimal strings and
+    # session ids are non-empty bounded strings.
+    if (
+        not isinstance(subject, str)
+        or len(subject) > 20
+        or not subject.isascii()
+        or not subject.isdecimal()
+    ):
+        return None
+    subject_id = int(subject)
+    if subject != str(subject_id) or subject_id <= 0:
+        return None
+    if not isinstance(jti, str) or not jti or len(jti) > 128:
         return None
     return payload
 
@@ -429,18 +515,18 @@ def decode_token(token: str, expected_kind: str) -> int | None:
 def decode_access_claims(token: str) -> AccessClaims | None:
     """Verified access identity plus its server-checked revocation version.
 
-    Tokens issued before versioning omitted ``ver``; treating those as version
-    zero gives a bounded rollout path while the normal access TTL expires them.
+    ``ver`` is mandatory so a malformed/legacy token cannot silently opt out
+    of the server-side password-change and membership revocation check.
     """
     payload = _decode_payload(token, "access")
     if payload is None:
         return None
     try:
         user_id = int(payload["sub"])
-        token_version = int(payload.get("ver", 0))
+        token_version = payload["ver"]
     except (KeyError, TypeError, ValueError):
         return None
-    if token_version < 0:
+    if isinstance(token_version, bool) or not isinstance(token_version, int) or token_version < 0:
         return None
     return AccessClaims(user_id=user_id, token_version=token_version)
 
@@ -456,8 +542,18 @@ def decode_refresh_claims(token: str) -> RefreshClaims | None:
         return None
     try:
         user_id = int(payload["sub"])
-        jti = str(payload["jti"])
+        jti = payload["jti"]
+        family_id = payload.get("fid")
         expires_at = datetime.fromtimestamp(float(payload["exp"]), UTC).replace(tzinfo=None)
     except (KeyError, TypeError, ValueError, OverflowError, OSError):
         return None
-    return RefreshClaims(user_id=user_id, jti=jti, expires_at=expires_at)
+    if not isinstance(jti, str) or (
+        family_id is not None and (not isinstance(family_id, str) or not 1 <= len(family_id) <= 64)
+    ):
+        return None
+    return RefreshClaims(
+        user_id=user_id,
+        jti=jti,
+        family_id=family_id,
+        expires_at=expires_at,
+    )

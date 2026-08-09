@@ -7,13 +7,16 @@
  */
 
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
+  AnimalIdentityOut,
   AnimalOut,
-  BreedingRecordOut,
+  DashboardKiddingDueOut,
   DashboardOut,
+  DashboardWeightOut,
   TaskOut,
 } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -93,6 +96,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     restriction_cleared_at: null,
     restriction_cleared_by_id: null,
     restriction_clearance_reference: null,
+    restriction_version: 0,
     mortality_cause: null,
     mortality_reported_at: null,
     notes: null,
@@ -101,28 +105,8 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
   };
 }
 
-function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
-  return {
-    id: 1,
-    doe_id: 11,
-    buck_id: 12,
-    breeding_date: "2026-03-01",
-    method: "NATURAL",
-    heat_cycle_number: 1,
-    ultrasound_date: null,
-    ultrasound_result_date: null,
-    ultrasound_done: true,
-    pregnant: true,
-    kid_count_detected: 2,
-    expected_kidding_date: "2026-08-10",
-    outcome: "PREGNANT",
-    doe_tag: "D-101",
-    ...overrides,
-  };
-}
-
 function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
-  return {
+  const payload = {
     buckets: [],
     total_active: 0,
     sex_counts: {},
@@ -134,6 +118,51 @@ function makePayload(overrides: Partial<DashboardOut> = {}): DashboardOut {
     cull_candidates: [],
     suggestions: [],
     recent_weights: [],
+    ...overrides,
+  };
+  return {
+    ...payload,
+    todays_tasks_total: overrides.todays_tasks_total ?? payload.todays_tasks.length,
+    overdue_tasks_total: overrides.overdue_tasks_total ?? payload.overdue_tasks.length,
+    ultrasounds_due_total:
+      overrides.ultrasounds_due_total ?? payload.ultrasounds_due.length,
+    kiddings_due_total: overrides.kiddings_due_total ?? payload.kiddings_due.length,
+    cull_candidates_total:
+      overrides.cull_candidates_total ?? payload.cull_candidates.length,
+    suggestions_total: overrides.suggestions_total ?? payload.suggestions.length,
+    recent_weights_total: overrides.recent_weights_total ?? payload.recent_weights.length,
+    preview_limit: overrides.preview_limit ?? 20,
+    recent_weights_limit: overrides.recent_weights_limit ?? 10,
+  };
+}
+
+function makeKiddingDue(
+  overrides: Partial<DashboardKiddingDueOut> = {},
+): DashboardKiddingDueOut {
+  return {
+    id: 1,
+    doe_id: 11,
+    doe_tag: "D-101",
+    expected_kidding_date: "2026-08-10",
+    ...overrides,
+  };
+}
+
+type RecentWeightFixture = DashboardWeightOut & {
+  animal: AnimalIdentityOut;
+  notes: string | null;
+};
+
+function makeRecentWeight(
+  overrides: Partial<RecentWeightFixture> = {},
+): RecentWeightFixture {
+  return {
+    id: 1,
+    date: "2026-08-01",
+    weight_kg: 23.456,
+    bcs: 3,
+    animal: { id: 51, tag_number: "W-051", name: "Malli" },
+    notes: null,
     ...overrides,
   };
 }
@@ -169,8 +198,8 @@ const POPULATED = makePayload({
   overdue_tasks: [OVERDUE_TASK],
   ultrasounds_due: [ULTRASOUND_TASK],
   kiddings_due: [
-    makeBreeding({ id: 5, doe_id: 11, doe_tag: "D-101", expected_kidding_date: "2026-08-10" }),
-    makeBreeding({ id: 6, doe_id: 22, doe_tag: null, expected_kidding_date: "2026-08-15" }),
+    makeKiddingDue({ id: 5, doe_id: 11, doe_tag: "D-101", expected_kidding_date: "2026-08-10" }),
+    makeKiddingDue({ id: 6, doe_id: 22, doe_tag: "D-022", expected_kidding_date: "2026-08-15" }),
   ],
   cull_candidates: [makeAnimal({ id: 31, tag_number: "G-031", cull_candidate: true })],
   suggestions: [
@@ -186,8 +215,14 @@ const POPULATED = makePayload({
     },
   ],
   recent_weights: [
-    { id: 1, date: "2026-08-01", weight_kg: 23.456, bcs: 3.5, notes: "Post-deworming" },
-    { id: 2, date: "2026-07-28", weight_kg: 18.04, bcs: null, notes: null },
+    makeRecentWeight({ id: 1, notes: "Post-deworming" }),
+    makeRecentWeight({
+      id: 2,
+      date: "2026-07-28",
+      weight_kg: 18.04,
+      bcs: null,
+      animal: { id: 52, tag_number: "W-052", name: null },
+    }),
   ],
 });
 
@@ -242,11 +277,45 @@ describe("DashboardPage — populated aggregates", () => {
     expect(within(card).getByText("3")).toBeInTheDocument();
   });
 
+  it("uses exact totals while clearly labeling bounded dashboard previews", async () => {
+    server.use(
+      dashboardHandler(
+        makePayload({
+          ...POPULATED,
+          todays_tasks_total: 7,
+          overdue_tasks_total: 5,
+          ultrasounds_due_total: 6,
+          kiddings_due_total: 8,
+          suggestions_total: 9,
+          cull_candidates_total: 4,
+          recent_weights_total: 15,
+        }),
+      ),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findByText("Overdue tasks (5)");
+    expect(screen.getByText(/operational previews are capped at 20 rows/)).toHaveTextContent(
+      "recent weights are capped at 10",
+    );
+
+    const taskCard = screen.getByText("Tasks due + overdue").parentElement as HTMLElement;
+    expect(within(taskCard).getByText("12")).toBeInTheDocument();
+    expect(screen.getByText("Showing 2 of 7.")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 5.")).toBeInTheDocument();
+    expect(screen.getByText("Kiddings due in 14 days (8)")).toBeInTheDocument();
+    expect(screen.getByText("Showing 2 of 8.")).toBeInTheDocument();
+    expect(screen.getByText("Ultrasounds due in 7 days (6)")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 6.")).toBeInTheDocument();
+    expect(screen.getByText("Showing 2 of 9 move suggestions.")).toBeInTheDocument();
+    expect(screen.getByText(/4 cull candidate/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 2 of 15 recent weight records/)).toBeInTheDocument();
+  });
+
   it("renders the overdue card with formatted date and whole days late", async () => {
     renderWithProviders(<DashboardPage />);
     await screen.findByText("Deworm batch 4");
 
-    expect(screen.getByText("Overdue tasks")).toBeInTheDocument();
+    expect(screen.getByText("Overdue tasks (1)")).toBeInTheDocument();
     const row = rowOf("Deworm batch 4");
     expect(within(row).getByText(/3d late/)).toBeInTheDocument();
     expect(within(row).getByText(new RegExp(formatDateRe(THREE_DAYS_AGO)))).toBeInTheDocument();
@@ -276,7 +345,7 @@ describe("DashboardPage — populated aggregates", () => {
     const row = rowOf("Vaccinate kids");
     expect(within(row).getByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
-      "/health/new?task=1",
+      "/health/new?task=1&returnTo=%2Fdashboard",
     );
     expect(within(row).queryByRole("link", { name: "View" })).not.toBeInTheDocument();
   });
@@ -299,7 +368,7 @@ describe("DashboardPage — populated aggregates", () => {
     const row = rowOf("D-101");
     expect(within(row).getByRole("link", { name: "D-101" })).toHaveAttribute(
       "href",
-      "/animals/11",
+      "/animals/11?returnTo=%2Fdashboard",
     );
     expect(within(row).getByText("due 10 Aug 2026")).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "Record" })).toHaveAttribute(
@@ -318,13 +387,13 @@ describe("DashboardPage — populated aggregates", () => {
     expect(within(row).queryByRole("link", { name: "Record" })).not.toBeInTheDocument();
   });
 
-  it("falls back to 'Doe #<id>' when the breeding record has no doe tag", async () => {
+  it("renders the required bounded doe identity", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByText("Doe #22");
+    await screen.findByText("D-022");
 
-    expect(screen.getByRole("link", { name: "Doe #22" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "D-022" })).toHaveAttribute(
       "href",
-      "/animals/22",
+      "/animals/22?returnTo=%2Fdashboard",
     );
   });
 
@@ -335,7 +404,7 @@ describe("DashboardPage — populated aggregates", () => {
     const row = rowOf("Ultrasound D-101");
     expect(within(row).getByRole("link", { name: "Record result" })).toHaveAttribute(
       "href",
-      "/breeding/1/ultrasound",
+      "/breeding/1/ultrasound?returnTo=%2Fdashboard",
     );
   });
 
@@ -346,7 +415,7 @@ describe("DashboardPage — populated aggregates", () => {
     const row = rowOf("G-077 · Lakshmi");
     expect(within(row).getByRole("link", { name: "G-077 · Lakshmi" })).toHaveAttribute(
       "href",
-      "/animals/41",
+      "/animals/41?returnTo=%2Fdashboard",
     );
     expect(within(row).getByText("Weight 25.0 kg ≥ threshold")).toBeInTheDocument();
     expect(within(row).getByText("→ FINISHER")).toBeInTheDocument();
@@ -358,7 +427,7 @@ describe("DashboardPage — populated aggregates", () => {
 
     expect(screen.getByRole("link", { name: "G-078" })).toHaveAttribute(
       "href",
-      "/animals/42",
+      "/animals/42?returnTo=%2Fdashboard",
     );
   });
 
@@ -392,7 +461,7 @@ describe("DashboardPage — populated aggregates", () => {
     );
   });
 
-  it("formats recent weights: 1-decimal kg, BCS, notes and formatted date", async () => {
+  it("identifies and links recent weights while formatting their facts", async () => {
     renderWithProviders(<DashboardPage />);
     await screen.findByRole("heading", { name: "Recent weight records" });
 
@@ -400,15 +469,19 @@ describe("DashboardPage — populated aggregates", () => {
     expect(within(row).getByText("1 Aug 2026")).toBeInTheDocument();
     // 23.456 → toFixed(1) rounds to 23.5.
     expect(within(row).getByText("23.5 kg")).toBeInTheDocument();
-    expect(within(row).getByText("3.5")).toBeInTheDocument();
+    expect(within(row).getByText("3")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "W-051 · Malli" })).toHaveAttribute(
+      "href",
+      "/animals/51?returnTo=%2Fdashboard",
+    );
   });
 
-  it("renders '—' for a missing BCS and an empty cell for missing notes", async () => {
+  it("renders '—' for a missing BCS and note", async () => {
     renderWithProviders(<DashboardPage />);
     await screen.findByRole("heading", { name: "Recent weight records" });
 
     const row = rowOf("18.0 kg");
-    expect(within(row).getByText("—")).toBeInTheDocument();
+    expect(within(row).getAllByText("—")).toHaveLength(2);
     expect(within(row).getByText("28 Jul 2026")).toBeInTheDocument();
   });
 
@@ -517,15 +590,25 @@ describe("DashboardPage — loading, error and permission states", () => {
   });
 
   it("surfaces the API error detail when the dashboard request fails", async () => {
+    let attempts = 0;
     server.use(
-      http.get("/api/dashboard", () =>
-        HttpResponse.json({ detail: "dashboard aggregate failed" }, { status: 500 }),
-      ),
+      http.get("/api/dashboard", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ detail: "dashboard aggregate failed" }, { status: 500 })
+          : HttpResponse.json(POPULATED);
+      }),
     );
 
+    const user = userEvent.setup();
     renderWithProviders(<DashboardPage />);
 
-    expect(await screen.findByText("dashboard aggregate failed")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("dashboard aggregate failed");
+    await user.click(screen.getByRole("button", { name: "Retry dashboard" }));
+    expect(
+      await screen.findByRole("heading", { name: "Test Goat Farm — Dashboard" }),
+    ).toBeInTheDocument();
+    expect(attempts).toBe(2);
   });
 
   it("shows the generic message on a network failure", async () => {

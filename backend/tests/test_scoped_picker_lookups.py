@@ -28,6 +28,7 @@ async def create_animal(
         "sex": sex,
         "source": "PURCHASED",
         "current_bucket": bucket or ("BREEDING" if sex == "M" else "FOUNDATION"),
+        "historical_import_reason": "Existing-herd scoped-picker fixture",
     }
     if breeding_ready:
         payload |= {
@@ -93,13 +94,25 @@ async def test_breeding_candidates_are_canonical_paged_and_least_privilege(
         breeding_ready=True,
     )
     await create_animal(client, owner, "DOE-YOUNG", name="Too young")
-    literal_buck = await create_animal(client, owner, "BUCK-%_MATCH", sex="M", name="Literal Buck")
-    inactive_buck = await create_animal(client, owner, "BUCK-DEAD", sex="M")
+    literal_buck = await create_animal(
+        client,
+        owner,
+        "BUCK-%_MATCH",
+        sex="M",
+        name="Literal Buck",
+        breeding_ready=True,
+    )
+    inactive_buck = await create_animal(client, owner, "BUCK-DEAD", sex="M", breeding_ready=True)
     await set_status(client, owner, inactive_buck["id"], "DEAD")
     quarantine_buck = await create_animal(
-        client, owner, "BUCK-QUARANTINE", sex="M", bucket="QUARANTINE"
+        client,
+        owner,
+        "BUCK-QUARANTINE",
+        sex="M",
+        breeding_ready=True,
+        bucket="QUARANTINE",
     )
-    held_buck = await create_animal(client, owner, "BUCK-HELD", sex="M")
+    held_buck = await create_animal(client, owner, "BUCK-HELD", sex="M", breeding_ready=True)
     held = await client.post(
         "/api/health/events",
         json={
@@ -159,6 +172,7 @@ async def test_breeding_candidates_are_canonical_paged_and_least_privilege(
         headers=worker,
     )
     assert literal.status_code == 200, literal.text
+    assert literal.json()["total"] == 1
     assert [row["id"] for row in literal.json()["candidates"]] == [literal_doe["id"]]
     assert literal.json()["candidates"][0]["age_months"] >= 10
     assert literal.json()["candidates"][0]["latest_weight_kg"] == 26.0
@@ -279,6 +293,13 @@ async def test_health_lookups_are_targetable_tenant_safe_and_least_privilege(
     assert batches.status_code == 200, batches.text
     assert batches.json()["total"] == 2
     assert len(batches.json()["batches"]) == 1
+    # A health-only manager gets only the opaque write selector. Supplier,
+    # purchase date, original count and financial fields remain procurement
+    # data behind purchases.view.
+    assert set(batches.json()["batches"][0]) == {
+        "id",
+        "active_quarantine_animal_count",
+    }
     next_batch = await client.get(
         "/api/health/purchase-batches",
         params={"limit": 1, "offset": 1},
@@ -293,7 +314,7 @@ async def test_health_lookups_are_targetable_tenant_safe_and_least_privilege(
         "/api/health/purchase-batches", params={"q": "%_MATCH"}, headers=manager
     )
     assert literal_batches.status_code == 200, literal_batches.text
-    assert [row["id"] for row in literal_batches.json()["batches"]] == [literal_batch["id"]]
+    assert literal_batches.json()["total"] == 0  # supplier text is not a health search channel
     collision_batch = await create_batch(
         client,
         owner,
@@ -307,7 +328,7 @@ async def test_health_lookups_are_targetable_tenant_safe_and_least_privilege(
     assert exact_batch.status_code == 200, exact_batch.text
     assert [row["id"] for row in exact_batch.json()["batches"]] == [literal_batch["id"]]
     assert collision_batch["id"] not in {row["id"] for row in exact_batch.json()["batches"]}
-    assert exact_batch.json()["batches"][0]["active_animal_count"] == 2
+    assert exact_batch.json()["batches"][0]["active_quarantine_animal_count"] == 2
     for hidden_id in (empty_batch["id"], foreign_batch["id"]):
         hidden = await client.get(
             "/api/health/purchase-batches", params={"q": f"#{hidden_id}"}, headers=manager
@@ -315,12 +336,19 @@ async def test_health_lookups_are_targetable_tenant_safe_and_least_privilege(
         assert hidden.status_code == 200, hidden.text
         assert hidden.json()["total"] == 0
 
+    preview = await client.post(
+        "/api/health/events/preview",
+        json={"scope": "batch", "purchase_batch_id": literal_batch["id"]},
+        headers=manager,
+    )
+    assert preview.status_code == 200, preview.text
     event = await client.post(
         "/api/health/events",
         json={
             "scope": "batch",
             "purchase_batch_id": literal_batch["id"],
             "type": "TREATMENT",
+            "expected_animal_ids": preview.json()["target_animal_ids"],
         },
         headers=manager,
     )
@@ -331,8 +359,15 @@ async def test_health_lookups_are_targetable_tenant_safe_and_least_privilege(
         await client.get("/api/health/animals", params={"limit": 101}, headers=manager)
     ).status_code == 422
     assert (
-        await client.get("/api/health/purchase-batches", params={"q": "x" * 121}, headers=manager)
+        await client.get("/api/health/purchase-batches", params={"q": "x" * 21}, headers=manager)
     ).status_code == 422
+    oversized_id = await client.get(
+        "/api/health/purchase-batches",
+        params={"q": f"#{2_147_483_648}"},
+        headers=manager,
+    )
+    assert oversized_id.status_code == 200, oversized_id.text
+    assert oversized_id.json()["total"] == 0
     assert (
         await client.get("/api/breeding/candidates", params={"kind": "doe"}, headers=manager)
     ).status_code == 403

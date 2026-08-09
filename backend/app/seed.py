@@ -4,7 +4,7 @@ RBAC role presets are seeded per farm on farm creation. All idempotent."""
 
 import json
 
-from sqlalchemy import func, select
+from sqlalchemy import String, and_, column, func, literal, or_, select, text, true, tuple_, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,12 +12,14 @@ from .models import (
     Bucket,
     BucketDefinition,
     Farm,
+    FarmMembership,
     FeedInventory,
     FeedRecipe,
     FeedRecipeLine,
     IngredientCategory,
     Role,
     Task,
+    TaskStatus,
     VaccineTemplate,
 )
 from .permissions import ROLE_PRESETS, TASK_CATEGORY_ROLE_MAP
@@ -232,102 +234,136 @@ FARM_INGREDIENTS: list[tuple[str, str]] = [
 ]
 
 
-async def _count(db: AsyncSession, model: type) -> int:
-    result = await db.execute(select(func.count()).select_from(model))
-    return result.scalar_one()
-
-
 async def seed_reference_data(db: AsyncSession) -> None:
     """Idempotently seed global reference tables.
 
-    INSERT ... ON CONFLICT DO NOTHING (not bare count-then-insert): two
-    first-booting uvicorn workers both see empty reference tables, and
-    without the conflict guard the loser crashes on the code/name UNIQUE
-    constraints. The count checks stay as the steady-state
-    fast path so a normal boot writes nothing."""
-    if await _count(db, BucketDefinition) == 0:
-        await db.execute(
-            pg_insert(BucketDefinition)
-            .values(
-                [
-                    {
-                        "code": code.value,
-                        "name": name,
-                        "who": who,
-                        "exit_rule": exit_rule,
-                        "daily_kg_per_head": kg,
-                        "sort_order": order,
-                    }
-                    for order, (code, name, who, exit_rule, kg) in enumerate(BUCKET_DEFINITIONS)
-                ]
+    INSERT ... ON CONFLICT DO NOTHING (not a table-wide count gate): two
+    first-booting workers can race safely, and a later release can add one
+    new bucket, recipe, or vaccine to an already-populated installation.
+    Existing reference rows are deliberately preserved; changing an existing
+    definition remains an explicit data migration rather than a surprise
+    startup rewrite."""
+    # Serialize only this small global constant-data repair across booting
+    # processes. It never locks tenant Farm rows or scans tenant histories.
+    await db.execute(text("SELECT pg_advisory_xact_lock(718204613)"))
+    await db.execute(
+        pg_insert(BucketDefinition)
+        .values(
+            [
+                {
+                    "code": code.value,
+                    "name": name,
+                    "who": who,
+                    "exit_rule": exit_rule,
+                    "daily_kg_per_head": kg,
+                    "sort_order": order,
+                }
+                for order, (code, name, who, exit_rule, kg) in enumerate(BUCKET_DEFINITIONS)
+            ]
+        )
+        .on_conflict_do_nothing()
+    )
+
+    for recipe_code, name, description, lines in FEED_RECIPES:
+        recipe_id = (
+            await db.execute(
+                pg_insert(FeedRecipe)
+                .values(code=recipe_code, name=name, description=description)
+                .on_conflict_do_nothing()
+                # RETURNING tells us whether THIS process inserted the row:
+                # only the winner inserts the lines, so a losing racer
+                # can't duplicate them (feed_recipe_lines has no UNIQUE).
+                .returning(FeedRecipe.id)
             )
-            .on_conflict_do_nothing()
+        ).scalar_one_or_none()
+        if recipe_id is None:
+            continue  # already present, or a concurrent boot won this row and its lines
+        db.add_all(
+            [
+                FeedRecipeLine(recipe_id=recipe_id, ingredient=ing, kg_per_100kg=kg, category=cat)
+                for ing, kg, cat in lines
+            ]
         )
 
-    if await _count(db, FeedRecipe) == 0:
-        for recipe_code, name, description, lines in FEED_RECIPES:
-            recipe_id = (
-                await db.execute(
-                    pg_insert(FeedRecipe)
-                    .values(code=recipe_code, name=name, description=description)
-                    .on_conflict_do_nothing()
-                    # RETURNING tells us whether THIS process inserted the row:
-                    # only the winner inserts the lines, so a losing racer
-                    # can't duplicate them (feed_recipe_lines has no UNIQUE).
-                    .returning(FeedRecipe.id)
-                )
-            ).scalar_one_or_none()
-            if recipe_id is None:
-                continue  # a concurrent boot won this row (and its lines)
-            db.add_all(
-                [
-                    FeedRecipeLine(
-                        recipe_id=recipe_id, ingredient=ing, kg_per_100kg=kg, category=cat
-                    )
-                    for ing, kg, cat in lines
-                ]
-            )
-
-    if await _count(db, VaccineTemplate) == 0:
-        await db.execute(
-            pg_insert(VaccineTemplate)
-            .values(
-                [
-                    {
-                        "name": name,
-                        "first_dose_age_months": first_age,
-                        "booster_weeks": booster,
-                        "repeat_months": repeat,
-                        "timing_note": note,
-                    }
-                    for name, first_age, booster, repeat, note in VACCINE_TEMPLATES
-                ]
-            )
-            .on_conflict_do_nothing()
+    await db.execute(
+        pg_insert(VaccineTemplate)
+        .values(
+            [
+                {
+                    "name": name,
+                    "first_dose_age_months": first_age,
+                    "booster_weeks": booster,
+                    "repeat_months": repeat,
+                    "timing_note": note,
+                }
+                for name, first_age, booster, repeat, note in VACCINE_TEMPLATES
+            ]
         )
+        .on_conflict_do_nothing()
+    )
 
     await db.commit()
 
 
-async def seed_farm_inventory(db: AsyncSession, farm_id: int) -> None:
-    """Seed zero-stock ingredient rows for a newly created farm."""
-    result = await db.execute(
-        select(func.count()).select_from(FeedInventory).where(FeedInventory.farm_id == farm_id)
-    )
-    if result.scalar_one() > 0:
-        return
-    for ingredient, category in FARM_INGREDIENTS:
-        db.add(
-            FeedInventory(
-                farm_id=farm_id,
-                ingredient=ingredient,
-                category=category,
-                unit="kg",
-                qty_on_hand=0.0,
-                reorder_level=100.0,
-            )
+async def _seed_farm_inventories(
+    db: AsyncSession,
+    farm_id: int | None = None,
+    *,
+    farm_ids: list[int] | None = None,
+) -> None:
+    """Insert every missing canonical ingredient for one farm or all farms.
+
+    The INSERT .. SELECT keeps startup's bind count independent of tenant
+    count. ON CONFLICT makes concurrent app boots/new-farm retries safe and
+    deliberately preserves quantities, prices, and operator-edited reorder
+    levels on rows that already exist.
+    """
+    ingredients = (
+        values(
+            column("ingredient", String(120)),
+            column("category", String(20)),
+            name="seed_ingredients",
         )
+        .data(FARM_INGREDIENTS)
+        .alias("seed_ingredients")
+    )
+    source = select(
+        Farm.id,
+        ingredients.c.ingredient,
+        ingredients.c.category,
+        literal("kg"),
+        literal(0.0),
+        literal(100.0),
+    ).select_from(Farm.__table__.join(ingredients, true()))
+    if farm_id is not None and farm_ids is not None:
+        raise ValueError("provide farm_id or farm_ids, not both")
+    if farm_id is not None:
+        source = source.where(Farm.id == farm_id)
+    elif farm_ids is not None:
+        if not farm_ids:
+            return
+        source = source.where(Farm.id.in_(farm_ids))
+    await db.execute(
+        pg_insert(FeedInventory)
+        .from_select(
+            [
+                "farm_id",
+                "ingredient",
+                "category",
+                "unit",
+                "qty_on_hand",
+                "reorder_level",
+            ],
+            source,
+        )
+        .on_conflict_do_nothing(constraint="uq_feed_inventory_farm_ingredient")
+    )
     await db.flush()
+
+
+async def seed_farm_inventory(db: AsyncSession, farm_id: int) -> None:
+    """Repair/seed all canonical zero-stock ingredient rows for one farm."""
+    await _seed_farm_inventories(db, farm_id)
 
 
 def _add_missing_preset_roles(
@@ -350,7 +386,15 @@ def _add_missing_preset_roles(
 
 async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
     """Idempotently seed the RBAC role presets (MOVER, VET, CLEANER, ...) for
-    a farm. Existing roles — including edited presets — are left untouched."""
+    a farm. Existing roles — including edited presets — are left untouched.
+
+    The farm row is the per-tenant seed mutex.  A uniqueness constraint on
+    role name alone cannot make an INSERT-only approach safe because preset
+    names are editable while their codes are the stable identity.  Locking
+    before reading codes serializes concurrent app boots and farm-creation
+    retries without overwriting an operator's edits.
+    """
+    await db.execute(select(Farm.id).where(Farm.id == farm_id).with_for_update())
     result = await db.execute(select(Role.code).where(Role.farm_id == farm_id))
     _add_missing_preset_roles(db, farm_id, set(result.scalars()))
     await db.flush()
@@ -382,33 +426,150 @@ async def backfill_task_assignments(db: AsyncSession, farm_id: int) -> None:
     await db.flush()
 
 
-async def seed_startup(db: AsyncSession) -> None:
-    """App-startup seeding: reference data + per-farm presets/backfills.
-
-    O(1) queries, not O(farms): role codes for every farm come
-    in one bulk select, and the task backfill runs only for farms that
-    actually have orphan auto-generated tasks (a steady-state farm never
-    does, so routine boots issue no per-farm queries at all)."""
-    await seed_reference_data(db)
-    farm_ids = list((await db.execute(select(Farm.id))).scalars())
-    codes_by_farm: dict[int, set[str | None]] = {}
-    if farm_ids:
-        role_rows = await db.execute(select(Role.farm_id, Role.code))
-        for farm_id, code in role_rows.all():
-            codes_by_farm.setdefault(farm_id, set()).add(code)
-        for farm_id in farm_ids:
-            _add_missing_preset_roles(db, farm_id, codes_by_farm.get(farm_id, set()))
-        # Flush the queued roles BEFORE the backfill: sessions run
-        # autoflush=False, so backfill_task_assignments' SELECT would not see
-        # the roles just added above and orphan tasks would stay unassigned.
-        await db.flush()
-        orphan_farms = (
+async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int:
+    """Repair at most one finite, lock-skipping batch of legacy farms."""
+    if not 1 <= batch_size <= 500:
+        raise ValueError("batch_size must be between 1 and 500")
+    preset_codes = [preset["code"] for preset in ROLE_PRESETS]
+    ingredient_names = [ingredient for ingredient, _category in FARM_INGREDIENTS]
+    missing_role = [
+        ~select(Role.id).where(Role.farm_id == Farm.id, Role.code == code).correlate(Farm).exists()
+        for code in preset_codes
+    ]
+    inventory_count = (
+        select(func.count(FeedInventory.id))
+        .where(
+            FeedInventory.farm_id == Farm.id,
+            FeedInventory.ingredient.in_(ingredient_names),
+        )
+        .correlate(Farm)
+        .scalar_subquery()
+    )
+    farm_ids = list(
+        (
             await db.execute(
-                select(Task.farm_id)
-                .where(Task.auto_generated.is_(True), Task.assigned_role_id.is_(None))
-                .distinct()
+                select(Farm.id)
+                .where(or_(*missing_role, inventory_count < len(ingredient_names)))
+                .order_by(Farm.id)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
             )
         ).scalars()
-        for farm_id in orphan_farms:
-            await backfill_task_assignments(db, farm_id)
-    await db.commit()
+    )
+    if not farm_ids:
+        return 0
+
+    role_rows = await db.execute(select(Role.farm_id, Role.code).where(Role.farm_id.in_(farm_ids)))
+    codes_by_farm: dict[int, set[str | None]] = {}
+    for selected_farm_id, code in role_rows.all():
+        codes_by_farm.setdefault(selected_farm_id, set()).add(code)
+    for selected_farm_id in farm_ids:
+        _add_missing_preset_roles(
+            db,
+            selected_farm_id,
+            codes_by_farm.get(selected_farm_id, set()),
+        )
+    await db.flush()
+    await _seed_farm_inventories(db, farm_ids=farm_ids)
+    return len(farm_ids)
+
+
+async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) -> int:
+    """Assign at most one finite, lock-skipping batch of legacy duties.
+
+    Besides older auto-generated duties, D9 requires every live personal duty
+    to retain the assignee's role as a fallback.  Retained inactive membership
+    rows make that lookup stable without rewriting lifetime task history in an
+    access-revocation request.
+    """
+    if not 1 <= batch_size <= 10_000:
+        raise ValueError("batch_size must be between 1 and 10000")
+    pending_personal_without_role = and_(
+        Task.status == TaskStatus.PENDING.value,
+        Task.assigned_user_id.is_not(None),
+        Task.assigned_role_id.is_(None),
+    )
+    legacy_generated_without_role = and_(
+        Task.auto_generated.is_(True),
+        Task.assigned_role_id.is_(None),
+        Task.category.in_(list(TASK_CATEGORY_ROLE_MAP)),
+    )
+    tasks = list(
+        (
+            await db.execute(
+                select(Task)
+                .where(or_(pending_personal_without_role, legacy_generated_without_role))
+                .order_by(Task.id)
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            )
+        ).scalars()
+    )
+    if not tasks:
+        return 0
+    farm_ids = sorted({task.farm_id for task in tasks})
+    personal_pairs = sorted(
+        {
+            (task.farm_id, task.assigned_user_id)
+            for task in tasks
+            if task.assigned_user_id is not None
+        }
+    )
+    membership_roles: dict[tuple[int, int], int] = {}
+    if personal_pairs:
+        membership_rows = await db.execute(
+            select(
+                FarmMembership.farm_id,
+                FarmMembership.user_id,
+                FarmMembership.role_id,
+            ).where(tuple_(FarmMembership.farm_id, FarmMembership.user_id).in_(personal_pairs))
+        )
+        membership_roles = {
+            (farm_id, user_id): role_id for farm_id, user_id, role_id in membership_rows.all()
+        }
+    role_codes = set(TASK_CATEGORY_ROLE_MAP.values())
+    role_rows = await db.execute(
+        select(Role.farm_id, Role.code, Role.id).where(
+            Role.farm_id.in_(farm_ids),
+            Role.code.in_(role_codes),
+            Role.deleted_at.is_(None),
+        )
+    )
+    roles = {(farm_id, code): role_id for farm_id, code, role_id in role_rows.all()}
+    assigned = 0
+    for task in tasks:
+        role_id = (
+            membership_roles.get((task.farm_id, task.assigned_user_id))
+            if task.assigned_user_id is not None
+            else None
+        )
+        if role_id is None:
+            role_code = TASK_CATEGORY_ROLE_MAP.get(task.category)
+            role_id = roles.get((task.farm_id, role_code))
+        if role_id is not None:
+            task.assigned_role_id = role_id
+            assigned += 1
+    await db.flush()
+    return assigned
+
+
+async def repair_legacy_data_batch(
+    db: AsyncSession,
+    *,
+    farm_batch_size: int,
+    task_batch_size: int,
+) -> tuple[int, int]:
+    """One bounded repair unit for the non-blocking maintenance worker."""
+    farms = await repair_legacy_farms_batch(db, batch_size=farm_batch_size)
+    tasks = await backfill_task_assignments_batch(db, batch_size=task_batch_size)
+    return farms, tasks
+
+
+async def seed_startup(db: AsyncSession) -> None:
+    """Boot-critical work is fixed-size global reference data only.
+
+    Existing-tenant repairs run after readiness in finite SKIP LOCKED batches;
+    a rolling deploy must never lock/materialize every Farm or orphan Task.
+    New farms remain synchronously initialized by ``seed_new_farm``.
+    """
+    await seed_reference_data(db)

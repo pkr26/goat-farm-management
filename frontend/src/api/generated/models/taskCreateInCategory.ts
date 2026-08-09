@@ -9,13 +9,6 @@ export type TaskCreateInCategory = typeof TaskCreateInCategory[keyof typeof Task
 
 
 export const TaskCreateInCategory = {
-  VACCINE: 'VACCINE',
-  DEWORMING: 'DEWORMING',
-  ULTRASOUND: 'ULTRASOUND',
-  KIDDING_DUE: 'KIDDING_DUE',
-  WEANING: 'WEANING',
-  BUCKET_MOVE: 'BUCKET_MOVE',
-  QUARANTINE: 'QUARANTINE',
   FEED: 'FEED',
   CLEANING: 'CLEANING',
   OTHER: 'OTHER',

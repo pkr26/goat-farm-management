@@ -129,7 +129,9 @@ async function renderWithResult() {
       HttpResponse.json({ breeds: ["osmanabadi"], systems: ["stall_fed"] }),
     ),
     http.get("/api/simulation/defaults", () => HttpResponse.json(DEFAULTS)),
-    http.get("/api/simulation/scenarios", () => HttpResponse.json([])),
+    http.get("/api/simulation/scenarios", () =>
+      HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0 }),
+    ),
     http.post("/api/simulation/run", () => HttpResponse.json(RESULT)),
   );
   const user = userEvent.setup();

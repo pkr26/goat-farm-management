@@ -6,7 +6,16 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -20,22 +29,41 @@ logger = logging.getLogger("goatfarm.models")
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "deleted_at IS NULL OR (name IS NULL AND email LIKE 'deleted-%@deleted.invalid')",
+            name="ck_users_deleted_profile_scrubbed",
+        ),
+        Index(
+            "ix_users_deleted_id",
+            "id",
+            postgresql_where=text("deleted_at IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str | None] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
     # Included in access JWTs and checked on every authenticated request.
-    # Password changes/resets, deactivation and logout increment the value so
-    # already-issued bearer tokens stop working immediately.
+    # Password changes/resets and logout increment the value so already-issued
+    # bearer tokens stop working immediately. Farm-membership deactivation is
+    # tenant-local and is enforced by the membership lookup instead; it must
+    # not log the same global account out of unrelated farms.
     token_version: Mapped[int] = mapped_column(default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Account deletion keeps a pseudonymous row so immutable farm/audit
+    # attribution survives. Authentication dependencies reject tombstones;
+    # deletion scrubs the email, name and reusable password material.
+    deleted_at: Mapped[datetime | None]
 
     farms: Mapped[list[Farm]] = relationship(back_populates="owner")
     memberships: Mapped[list[FarmMembership]] = relationship(back_populates="user")
 
     @property
     def display_name(self) -> str:
+        if self.deleted_at is not None:
+            return "Deleted account"
         return self.name or self.email
 
 
@@ -65,7 +93,16 @@ class Role(Base):
     """
 
     __tablename__ = "roles"
-    __table_args__ = (UniqueConstraint("farm_id", "name", name="uq_role_name_per_farm"),)
+    __table_args__ = (
+        UniqueConstraint("farm_id", "id", name="uq_roles_farm_id_id"),
+        Index(
+            "uq_roles_farm_active_name",
+            "farm_id",
+            "name",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
@@ -74,11 +111,19 @@ class Role(Base):
     description: Mapped[str | None] = mapped_column(String(255))
     permissions: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of codes
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Custom-role deletion is a tombstone, not an unbounded rewrite of every
+    # historical Task that referenced the role. Active role queries exclude
+    # tombstones; task audit rows may keep this immutable identity/name.
+    deleted_at: Mapped[datetime | None]
 
     farm: Mapped[Farm] = relationship(back_populates="roles")
-    memberships: Mapped[list[FarmMembership]] = relationship(back_populates="role")
+    memberships: Mapped[list[FarmMembership]] = relationship(
+        back_populates="role", foreign_keys="FarmMembership.role_id"
+    )
 
     def permission_set(self) -> set[str]:
+        if self.deleted_at is not None:
+            return set()
         import json
 
         try:
@@ -95,7 +140,22 @@ class FarmMembership(Base):
     a membership — ownership (Farm.owner_id) implies all permissions."""
 
     __tablename__ = "farm_memberships"
-    __table_args__ = (UniqueConstraint("user_id", "farm_id", name="uq_membership_user_farm"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "farm_id", name="uq_membership_user_farm"),
+        UniqueConstraint("farm_id", "user_id", name="uq_farm_memberships_farm_user"),
+        Index(
+            "ix_farm_memberships_active_user_id_id",
+            "user_id",
+            "id",
+            postgresql_where=text("is_active IS TRUE"),
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "role_id"],
+            ["roles.farm_id", "roles.id"],
+            name="fk_farm_memberships_farm_role",
+            ondelete="RESTRICT",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
@@ -110,7 +170,7 @@ class FarmMembership(Base):
 
     user: Mapped[User] = relationship(back_populates="memberships")
     farm: Mapped[Farm] = relationship(back_populates="memberships")
-    role: Mapped[Role] = relationship(back_populates="memberships")
+    role: Mapped[Role] = relationship(back_populates="memberships", foreign_keys=[role_id])
 
 
 class RefreshSession(Base):
@@ -120,17 +180,23 @@ class RefreshSession(Base):
     presented row and inserts its successor into the same rotation family.
     Re-presenting a consumed or revoked jti means a rotated-away token was
     replayed — theft per RFC 6819 §5.2.2.3 — so the whole family is revoked.
-    Logout, password change, owner-initiated worker password resets, and
-    membership deactivation revoke rows outright. The jti alone is useless
-    without the signing key, so it is stored plain (not hashed).
+    Logout, password change, and owner-initiated worker password resets revoke
+    rows outright. A farm-membership deactivation is intentionally tenant-local
+    and leaves the account's global refresh families intact. The jti alone is
+    useless without the signing key, so it is stored plain (not hashed).
     """
 
     __tablename__ = "refresh_sessions"
+    __table_args__ = (
+        Index("ix_refresh_sessions_expires_id", "expires_at", "id"),
+        Index("ix_refresh_sessions_family_created_id", "family_id", "created_at", "id"),
+        Index("ix_refresh_sessions_user_created_id", "user_id", "created_at", "id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     jti: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    family_id: Mapped[str] = mapped_column(String(64), index=True)
+    family_id: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column()
     consumed_at: Mapped[datetime | None] = mapped_column()
     # The successor JTI makes a very short concurrent replay idempotent: two

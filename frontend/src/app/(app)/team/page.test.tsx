@@ -1,7 +1,7 @@
 /**
  * Team page role dialog permission safety: a user holding only team.manage
- * sees the full matrix, cannot grant unheld permissions, and preserves any
- * unheld permissions already present on an edited role.
+ * sees the full matrix, cannot grant unheld permissions, and cannot manage
+ * roles above their own effective-permission ceiling.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -121,7 +121,7 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
     });
   });
 
-  it("preserves checked permissions the editor does not hold when editing", async () => {
+  it("disables editing a role whose permissions exceed the editor's ceiling", async () => {
     const existingRole = {
       id: 12,
       code: null,
@@ -130,34 +130,19 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
       permissions: ["animals.view", "animals.create"],
       member_count: 0,
     };
-    let putBody: Record<string, unknown> | null = null;
     server.use(
       http.get("/api/team", () =>
         HttpResponse.json({ ...TEAM_PAYLOAD, roles: [existingRole] }),
       ),
-      http.put("/api/team/roles/:roleId", async ({ request }) => {
-        putBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ ...existingRole, ...putBody });
-      }),
     );
-    const user = userEvent.setup();
     renderWithProviders(<TeamPage />);
     expect(await screen.findByText("Animal keeper")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const dialog = await screen.findByRole("dialog");
-
-    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toBeChecked();
-    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toHaveAttribute(
-      "aria-disabled",
-      "true",
+    const edit = screen.getByRole("button", { name: "Edit" });
+    expect(edit).toBeDisabled();
+    expect(edit).toHaveAttribute(
+      "title",
+      "You can only edit or delete roles whose permissions you also hold.",
     );
-    expect(within(dialog).getByRole("checkbox", { name: "Add animals" })).toBeChecked();
-    await user.click(within(dialog).getByRole("button", { name: "Save role" }));
-
-    await waitFor(() => expect(putBody).not.toBeNull());
-    expect(putBody).toMatchObject({
-      name: "Animal keeper",
-      permissions: ["animals.view", "animals.create"],
-    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

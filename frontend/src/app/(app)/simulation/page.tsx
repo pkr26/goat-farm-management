@@ -57,6 +57,7 @@ import type {
 import { BreedDefaultsApiSimulationDefaultsGetSystem } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
+import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
@@ -99,14 +100,10 @@ import { usePermissions } from "@/lib/use-permissions";
 const DEFAULT_BREED = "osmanabadi";
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
 const MAX_COMPARE_SCENARIOS = 5;
+const SCENARIO_PAGE_SIZE = 20;
 
-/** Invalid legacy scenarios remain visible so the user can remove them. This
- * compatibility type is safe before and after the generated client refresh. */
-type ScenarioRow = Omit<ScenarioOut, "assumptions"> & {
-  assumptions: SimulationAssumptions | null;
-  valid?: boolean;
-  validation_error?: string | null;
-};
+/** Invalid legacy scenarios remain visible so the user can remove them. */
+type ScenarioRow = ScenarioOut;
 
 type BoundResult = {
   data: SimulationResult;
@@ -608,6 +605,7 @@ export default function SimulationPage() {
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [compareIds, setCompareIds] = useState<string | null>(null);
+  const [scenarioOffset, setScenarioOffset] = useState(0);
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -645,17 +643,33 @@ export default function SimulationPage() {
     },
   );
 
-  const scenariosQuery = useListScenariosApiSimulationScenariosGet({
-    query: { enabled: allowed },
-  });
-  const scenarios: ScenarioRow[] =
-    scenariosQuery.data?.status === 200
-      ? (scenariosQuery.data.data as ScenarioRow[])
-      : [];
-  const usableScenarioIds = new Set(
-    scenarios.filter(scenarioUsable).map((scenario) => scenario.id),
+  const scenariosQuery = useListScenariosApiSimulationScenariosGet(
+    { limit: SCENARIO_PAGE_SIZE, offset: scenarioOffset },
+    { query: { enabled: allowed } },
   );
-  const selectedUsableIds = selectedIds.filter((id) => usableScenarioIds.has(id));
+  const scenarioPage =
+    scenariosQuery.data?.status === 200 ? scenariosQuery.data.data : undefined;
+  const scenarios = scenarioPage?.items ?? [];
+  const scenarioTotal = scenarioPage?.total ?? 0;
+  // Only usable rows can enter this collection. Keep off-page ids so farmers
+  // can compare scenarios selected from different pages; the compare endpoint
+  // re-checks tenant scope and stored validity before running anything.
+  const selectedUsableIds = selectedIds;
+
+  useEffect(() => {
+    if (scenarioPage === undefined || scenarioOffset === 0) return;
+    if (scenarioOffset < scenarioPage.total) return;
+    const lastOffset =
+      scenarioPage.total === 0
+        ? 0
+        : Math.floor((scenarioPage.total - 1) / SCENARIO_PAGE_SIZE) *
+          SCENARIO_PAGE_SIZE;
+    // A concurrent deletion can make the requested page disappear. Re-home
+    // it to the real last page instead of displaying a false empty-farm state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setScenarioOffset(lastOffset);
+    setCompareIds(null);
+  }, [scenarioOffset, scenarioPage]);
 
   const compareQuery = useCompareScenariosApiSimulationScenariosCompareGet(
     { ids: compareIds ?? "" },
@@ -679,6 +693,13 @@ export default function SimulationPage() {
     queryClient.invalidateQueries({
       queryKey: getCompareScenariosApiSimulationScenariosCompareGetQueryKey(),
     });
+    setCompareIds(null);
+  }
+
+  function onScenarioOffsetChange(offset: number) {
+    setScenarioOffset(offset);
+    // A rendered comparison describes the prior selection/page snapshot.
+    // Keep the selections themselves, but require an explicit fresh compare.
     setCompareIds(null);
   }
 
@@ -911,6 +932,15 @@ export default function SimulationPage() {
       toast.success("Scenario deleted.");
       if (loadedScenario?.id === scenario.id) setLoadedScenario(null);
       setSelectedIds((prev) => prev.filter((id) => id !== scenario.id));
+      const remainingTotal = Math.max(0, scenarioTotal - 1);
+      if (scenarioOffset > 0 && scenarioOffset >= remainingTotal) {
+        setScenarioOffset(
+          remainingTotal === 0
+            ? 0
+            : Math.floor((remainingTotal - 1) / SCENARIO_PAGE_SIZE) *
+                SCENARIO_PAGE_SIZE,
+        );
+      }
       invalidateScenarios();
     } catch (err) {
       toast.error(errorMessage(err, "Could not delete the scenario."));
@@ -937,7 +967,7 @@ export default function SimulationPage() {
     if (hasEditorErrors) return;
     setSaveError(null);
     try {
-      await createMutation.mutateAsync({
+      const created = await createMutation.mutateAsync({
         data: {
           name: saveName.trim(),
           notes: saveNotes.trim(),
@@ -945,6 +975,14 @@ export default function SimulationPage() {
         },
       });
       toast.success("Scenario saved.");
+      if (created.status === 201) {
+        // The API intentionally preserves oldest-first ordering, so the new
+        // row belongs on the final page rather than page zero.
+        const nextTotal = scenarioTotal + 1;
+        setScenarioOffset(
+          Math.floor((nextTotal - 1) / SCENARIO_PAGE_SIZE) * SCENARIO_PAGE_SIZE,
+        );
+      }
       invalidateScenarios();
       setSaveOpen(false);
       setSaveName("");
@@ -1935,113 +1973,130 @@ export default function SimulationPage() {
           </p>
         ) : scenariosQuery.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading scenarios…</p>
-        ) : scenarios.length === 0 ? (
+        ) : scenarioTotal === 0 ? (
           <EmptyState
             icon={FolderOpen}
             title="No saved scenarios yet."
             description="Save the current assumptions as a scenario to rerun or compare later."
           />
+        ) : scenarios.length === 0 ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            This scenario page no longer exists. Returning to the last available page…
+          </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-8" />
-                <TableHead>Name</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead>Updated</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {scenarios.map((scenario) => (
-                <TableRow key={scenario.id}>
-                  <TableCell>
-                    <Checkbox
-                      aria-label={`Compare ${scenario.name}`}
-                      checked={
-                        scenarioUsable(scenario) && selectedIds.includes(scenario.id)
-                      }
-                      disabled={
-                        !scenarioUsable(scenario) ||
-                        (!selectedIds.includes(scenario.id) &&
-                          selectedUsableIds.length >= MAX_COMPARE_SCENARIOS)
-                      }
-                      onCheckedChange={(checked) => {
-                        if (!scenarioUsable(scenario)) return;
-                        setCompareIds(null);
-                        setSelectedIds((prev) =>
-                          checked === true
-                            ? prev.includes(scenario.id) ||
-                              selectedUsableIds.length >= MAX_COMPARE_SCENARIOS
-                              ? prev
-                              : [...prev, scenario.id]
-                            : prev.filter((id) => id !== scenario.id),
-                        );
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    <div>{scenario.name}</div>
-                    {!scenarioUsable(scenario) && (
-                      <span className="text-xs font-normal text-destructive">
-                        Invalid saved assumptions
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div>{scenario.notes}</div>
-                    {!scenarioUsable(scenario) && scenario.validation_error && (
-                      <p className="max-w-md text-xs text-destructive">
-                        {scenario.validation_error}
-                      </p>
-                    )}
-                  </TableCell>
-                  <TableCell>{formatDate(scenario.updated_at)}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (!scenarioUsable(scenario)) return;
-                          setAssumptions(scenario.assumptions);
-                          const scenarioEvents = scenario.assumptions.events ?? [];
-                          setEvents(scenarioEvents);
-                          setEventKeys(
-                            scenarioEvents.map(() => `event-${eventKeyCounter.current++}`),
-                          );
-                          setLoadedScenario(scenario);
-                          setInvalidFields(new Set());
-                          setEditorVersion((version) => version + 1);
-                        }}
-                        disabled={!scenarioUsable(scenario)}
-                      >
-                        Load
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void onRunScenario(scenario)}
-                        disabled={!scenarioUsable(scenario) || runningScenarioId !== null}
-                      >
-                        {runningScenarioId === scenario.id ? "Running…" : "Run"}
-                      </Button>
-                      {canManage && (
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={deleteMutation.isPending}
-                          onClick={() => void onDeleteScenario(scenario)}
-                        >
-                          Delete
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
+          <div className="space-y-3">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>Name</TableHead>
+                  <TableHead>Notes</TableHead>
+                  <TableHead>Updated</TableHead>
+                  <TableHead />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {scenarios.map((scenario) => (
+                  <TableRow key={scenario.id}>
+                    <TableCell>
+                      <Checkbox
+                        aria-label={`Compare ${scenario.name}`}
+                        checked={
+                          scenarioUsable(scenario) && selectedIds.includes(scenario.id)
+                        }
+                        disabled={
+                          !scenarioUsable(scenario) ||
+                          (!selectedIds.includes(scenario.id) &&
+                            selectedUsableIds.length >= MAX_COMPARE_SCENARIOS)
+                        }
+                        onCheckedChange={(checked) => {
+                          if (!scenarioUsable(scenario)) return;
+                          setCompareIds(null);
+                          setSelectedIds((prev) =>
+                            checked === true
+                              ? prev.includes(scenario.id) ||
+                                selectedUsableIds.length >= MAX_COMPARE_SCENARIOS
+                                ? prev
+                                : [...prev, scenario.id]
+                              : prev.filter((id) => id !== scenario.id),
+                          );
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <div>{scenario.name}</div>
+                      {!scenarioUsable(scenario) && (
+                        <span className="text-xs font-normal text-destructive">
+                          Invalid saved assumptions
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div>{scenario.notes}</div>
+                      {!scenarioUsable(scenario) && scenario.validation_error && (
+                        <p className="max-w-md text-xs text-destructive">
+                          {scenario.validation_error}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell>{formatDate(scenario.updated_at)}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            if (!scenarioUsable(scenario)) return;
+                            setAssumptions(scenario.assumptions);
+                            const scenarioEvents = scenario.assumptions.events ?? [];
+                            setEvents(scenarioEvents);
+                            setEventKeys(
+                              scenarioEvents.map(
+                                () => `event-${eventKeyCounter.current++}`,
+                              ),
+                            );
+                            setLoadedScenario(scenario);
+                            setInvalidFields(new Set());
+                            setEditorVersion((version) => version + 1);
+                          }}
+                          disabled={!scenarioUsable(scenario)}
+                        >
+                          Load
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void onRunScenario(scenario)}
+                          disabled={
+                            !scenarioUsable(scenario) || runningScenarioId !== null
+                          }
+                        >
+                          {runningScenarioId === scenario.id ? "Running…" : "Run"}
+                        </Button>
+                        {canManage && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={deleteMutation.isPending}
+                            onClick={() => void onDeleteScenario(scenario)}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <PaginationControls
+              total={scenarioTotal}
+              limit={scenarioPage?.limit ?? SCENARIO_PAGE_SIZE}
+              offset={scenarioPage?.offset ?? scenarioOffset}
+              onOffsetChange={onScenarioOffsetChange}
+              label="saved scenarios"
+            />
+          </div>
         )}
         {compareQuery.isError && (
           <p role="alert" className="text-sm text-destructive">

@@ -21,9 +21,15 @@ test.describe("purchases", () => {
     await dialog.getByLabel("Avg age (months)").fill("12");
     await dialog.getByLabel("Avg weight (kg)").fill("24");
     await dialog.getByLabel("Total price (₹)").fill("24000");
-    await dialog.getByRole("button", { name: "Create batch" }).click();
+    await dialog.getByRole("button", { name: "Review batch" }).click();
+    const review = page.getByRole("dialog", { name: "Review purchase consequences" });
+    await expect(review).toBeVisible();
+    await expect(review).toContainText("3 female goats");
+    await expect(review).toContainText("3 in QUARANTINE");
+    await expect(review).toContainText("45-day quarantine schedule");
+    await review.getByRole("button", { name: "Confirm and create" }).click();
     await expect(page.getByText("Purchase batch created.")).toBeVisible();
-    await expect(dialog).toBeHidden();
+    await expect(review).toBeHidden();
 
     // The new batch is listed: count 3, 3 animals stubbed, 8 open quarantine
     // protocol tasks (day 1 … day 45).
@@ -35,7 +41,6 @@ test.describe("purchases", () => {
       await row.getByRole("cell", { name: /^#\d+$/ }).textContent()
     )?.slice(1);
     expect(batchId).toBeTruthy();
-    const firstTag = `B${batchId}-001`;
 
     // Batch detail: the stubbed animals sit in QUARANTINE and the protocol
     // schedule is listed, ending with the day-45 release to FOUNDATION.
@@ -45,8 +50,10 @@ test.describe("purchases", () => {
     await expect(
       detail.getByRole("heading", { name: "Animals created (3)" }),
     ).toBeVisible({ timeout: 15_000 });
-    const animalRow = detail.getByRole("row", { name: new RegExp(firstTag) });
+    const firstTagPattern = new RegExp(`B${batchId}-[0-9a-f]{12}-0001`);
+    const animalRow = detail.getByRole("row", { name: firstTagPattern });
     await expect(animalRow).toBeVisible();
+    const firstTag = await animalRow.getByRole("cell").first().innerText();
     await expect(animalRow.getByRole("cell", { name: "QUARANTINE" })).toBeVisible();
     await expect(animalRow.getByRole("cell", { name: "ACTIVE" })).toBeVisible();
     await expect(

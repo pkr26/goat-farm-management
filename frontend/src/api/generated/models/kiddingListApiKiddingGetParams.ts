@@ -13,6 +13,27 @@ export type KiddingListApiKiddingGetParams = {
 limit?: number;
 /**
  * @minimum 0
+ * @maximum 1000000
  */
 offset?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+upcoming_limit?: number;
+/**
+ * @minimum 0
+ * @maximum 1000000
+ */
+upcoming_offset?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+overdue_limit?: number;
+/**
+ * @minimum 0
+ * @maximum 1000000
+ */
+overdue_offset?: number;
 };

@@ -6,7 +6,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { useReportsApiDashboardReportsGet } from "@/api/generated/endpoints";
-import type { AnimalOut } from "@/api/generated/models";
+import type { AnimalIdentityOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -22,7 +22,7 @@ import { ApiError } from "@/lib/api-client";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** v1's Animal.display_name: tag plus optional name. */
-function animalName(a: AnimalOut): string {
+function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
 }
 
@@ -145,7 +145,7 @@ export default function ReportsPage() {
             <TableRow>
               <TableCell>Cull candidates</TableCell>
               <TableCell className="text-right tabular-nums">
-                {breeding.cull_candidates.length}
+                {breeding.cull_candidates_total}
                 {breeding.cull_candidates.length > 0 && (
                   <span className="ml-2 inline-flex flex-wrap gap-1">
                     {breeding.cull_candidates.map((a) =>
@@ -165,6 +165,19 @@ export default function ReportsPage() {
                           {animalName(a)}
                         </span>
                       ),
+                    )}
+                  </span>
+                )}
+                {breeding.cull_candidates.length < breeding.cull_candidates_total && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    Showing {breeding.cull_candidates.length} of {breeding.cull_candidates_total};
+                    this report preview is capped at {breeding.cull_candidates_limit}.{" "}
+                    {can("breeding.view") ? (
+                      <Link href="/breeding" className="underline">
+                        Review the full operational list
+                      </Link>
+                    ) : (
+                      "The full list requires breeding access."
                     )}
                   </span>
                 )}

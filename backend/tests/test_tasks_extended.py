@@ -1,13 +1,12 @@
 """Extended tests for the tasks & duties module (/api/tasks).
 
 Covers the duty engine end to end against the SPEC contract:
-- manual duty creation (role / specific worker / unassigned, recurrence),
-  including the kept v1 quirk that unknown or cross-farm assignee ids are
-  silently stripped instead of rejected;
+- safe manual duty creation (role / specific worker / unassigned, recurrence)
+  with stale, inactive and cross-farm assignments rejected;
 - tabbed list (today / overdue / upcoming / awaiting / completed) bucketing,
   ordering and the 100-row completed-history cap;
-- worker visibility (own role / personal duties only; verification views
-  farm-wide for tasks.verify holders);
+- worker visibility (own role / personal duties only; only the awaiting-review
+  queue is farm-wide for tasks.verify holders);
 - completion attribution, the not-due-yet guard for auto-generated duties,
   skip semantics;
 - recurring duties spawning the next occurrence (with dedupe);
@@ -23,7 +22,11 @@ from datetime import date, timedelta
 
 import httpx
 import pytest
+from sqlalchemy import select, text, update
 
+from app.db import get_sessionmaker
+from app.models import Farm, FarmMembership, Task, TaskStatus, User
+from app.services.tasks import task_scope
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -130,6 +133,7 @@ async def make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-00
             "sex": "F",
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd test fixture",
         },
         headers=headers,
     )
@@ -138,6 +142,7 @@ async def make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-00
 
 
 async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101") -> dict:
+    dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
         json={
@@ -145,8 +150,10 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101")
             "sex": "F",
             "source": "PURCHASED",
             "current_bucket": "BREEDING",
-            "date_of_birth": iso(today() - timedelta(days=400)),
+            "date_of_birth": iso(dob),
             "weight_kg": 26.0,
+            "weight_date": iso(dob),
+            "historical_import_reason": "Existing-herd test fixture",
         },
         headers=headers,
     )
@@ -155,6 +162,7 @@ async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101")
 
 
 async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict:
+    dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
         json={
@@ -162,6 +170,10 @@ async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01")
             "sex": "M",
             "source": "PURCHASED",
             "current_bucket": "BREEDING",
+            "date_of_birth": iso(dob),
+            "weight_kg": 30.0,
+            "weight_date": iso(dob),
+            "historical_import_reason": "Existing-herd test fixture",
         },
         headers=headers,
     )
@@ -188,9 +200,12 @@ async def make_breeding(
 async def submit_ultrasound(
     client: httpx.AsyncClient, headers: dict, breeding_id: int, pregnant: bool, kid_count: int = 2
 ) -> dict:
+    payload: dict[str, object] = {"pregnant": pregnant}
+    if pregnant:
+        payload["kid_count"] = kid_count
     resp = await client.post(
         f"/api/breeding/{breeding_id}/ultrasound",
-        json={"pregnant": pregnant, "kid_count": kid_count},
+        json=payload,
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -271,6 +286,16 @@ async def test_create_minimal_duty_defaults(client: httpx.AsyncClient) -> None:
 
 @pytest.mark.parametrize(
     "category",
+    ["FEED", "CLEANING", "OTHER"],
+)
+async def test_create_every_safe_manual_category(client: httpx.AsyncClient, category: str) -> None:
+    owner = await owner_with_farm(client)
+    duty = await make_duty(client, owner, f"Duty {category}", category=category)
+    assert duty["category"] == category
+
+
+@pytest.mark.parametrize(
+    "category",
     [
         "VACCINE",
         "DEWORMING",
@@ -279,15 +304,20 @@ async def test_create_minimal_duty_defaults(client: httpx.AsyncClient) -> None:
         "WEANING",
         "BUCKET_MOVE",
         "QUARANTINE",
-        "FEED",
-        "CLEANING",
-        "OTHER",
     ],
 )
-async def test_create_every_valid_category(client: httpx.AsyncClient, category: str) -> None:
+async def test_create_rejects_system_workflow_categories(
+    client: httpx.AsyncClient, category: str
+) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, f"Duty {category}", category=category)
-    assert duty["category"] == category
+    response = await post_duty(
+        client,
+        owner,
+        title=f"Forged {category}",
+        due_date=iso(today()),
+        category=category,
+    )
+    assert response.status_code == 422, response.text
 
 
 async def test_create_with_role_assignment(client: httpx.AsyncClient) -> None:
@@ -302,10 +332,12 @@ async def test_create_with_role_assignment(client: httpx.AsyncClient) -> None:
 async def test_create_with_worker_assignment(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     _, cleaner_id = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in", "Chandu")
+    cleaner_role = await role_id(client, owner, "CLEANER")
     duty = await make_duty(client, owner, "Wash bottles", assigned_user_id=cleaner_id)
     assert duty["assigned_user_id"] == cleaner_id
     assert duty["assigned_user_name"] == "Chandu"
-    assert duty["assigned_role_id"] is None
+    assert duty["assigned_role_id"] == cleaner_role
+    assert duty["assigned_role_name"] == "Cleaner"
 
 
 async def test_create_with_role_and_worker(client: httpx.AsyncClient) -> None:
@@ -372,7 +404,7 @@ async def test_create_title_200_chars_ok(client: httpx.AsyncClient) -> None:
     assert len(duty["title"]) == 200
 
 
-async def test_create_ignores_unknown_extra_fields(client: httpx.AsyncClient) -> None:
+async def test_create_rejects_unknown_extra_fields(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await post_duty(
         client,
@@ -382,8 +414,8 @@ async def test_create_ignores_unknown_extra_fields(client: httpx.AsyncClient) ->
         bogus_field="whatever",
         status="DONE",  # cannot smuggle a state in either
     )
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "PENDING"
+    assert resp.status_code == 422, resp.text
+    assert all_tasks(await get_tabs(client, owner)) == []
 
 
 async def test_create_far_past_date(client: httpx.AsyncClient) -> None:
@@ -541,6 +573,62 @@ async def test_create_recur_days_max_ok(client: httpx.AsyncClient) -> None:
     assert duty["recur_days"] == 3650
 
 
+async def test_create_rejects_recurring_date_without_representable_successor(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    response = await post_duty(
+        client,
+        owner,
+        title="Impossible recurrence",
+        due_date=date.max.isoformat(),
+        recur_days=1,
+    )
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize("action", ["complete", "skip"])
+async def test_legacy_impossible_recurrence_returns_409_without_successor(
+    client: httpx.AsyncClient,
+    action: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        legacy = Task(
+            farm_id=farm_id,
+            title=f"Legacy max-date recurrence {action}",
+            due_date=date.max,
+            status=TaskStatus.PENDING.value,
+            category="OTHER",
+            auto_generated=False,
+            recur_days=1,
+            recurring_series_id=f"legacy-max-date-{action}",
+        )
+        db.add(legacy)
+        await db.commit()
+        task_id = legacy.id
+
+    # Exercise the legacy overflow defense at the representable-date boundary.
+    # In normal present-day requests the stricter future-recurring guard rejects
+    # this row first, so model the day on which the occurrence is actually due.
+    monkeypatch.setattr("app.api.tasks.today", lambda _timezone=None: date.max)
+    response = await client.post(f"/api/tasks/{task_id}/{action}", headers=owner)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Recurring duty cannot schedule a representable next date"
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(Task).where(Task.recurring_series_id == f"legacy-max-date-{action}")
+                )
+            ).scalars()
+        )
+    assert len(rows) == 1
+    assert rows[0].status == TaskStatus.PENDING.value
+
+
 async def test_create_recur_days_fractional_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await post_duty(client, owner, title="R", due_date=iso(today()), recur_days=1.5)
@@ -573,6 +661,28 @@ async def test_create_role_id_above_bound_422(client: httpx.AsyncClient) -> None
     assert resp.status_code == 422
 
 
+@pytest.mark.parametrize("field", ["assigned_role_id", "assigned_user_id"])
+async def test_create_schema_valid_but_int32_impossible_assignment_id_is_400_not_500(
+    client: httpx.AsyncClient,
+    field: str,
+) -> None:
+    owner = await owner_with_farm(client)
+    resp = await post_duty(
+        client,
+        owner,
+        title="Impossible assignment",
+        due_date=iso(today()),
+        **{field: 2**31},
+    )
+    assert resp.status_code == 400, resp.text
+    expected = (
+        "Assigned role is not on this farm"
+        if field == "assigned_role_id"
+        else "Assigned worker is not an active member of this farm"
+    )
+    assert resp.json()["detail"] == expected
+
+
 async def test_create_user_id_zero_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await post_duty(client, owner, title="R", due_date=iso(today()), assigned_user_id=0)
@@ -586,54 +696,111 @@ async def test_create_role_id_noninteger_422(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Assignee stripping (v1 quirk, kept): unknown/cross-farm ids are dropped
+# Invalid assignees fail closed: never acknowledge a duty that nobody can see
 # ---------------------------------------------------------------------------
-async def test_cross_farm_role_id_silently_stripped(client: httpx.AsyncClient) -> None:
+async def test_cross_farm_role_id_rejected(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     rid_b = await role_id(client, owner_b, "CLEANER")
-    duty = await make_duty(client, owner_a, "Cross-farm role", assigned_role_id=rid_b)
-    assert duty["assigned_role_id"] is None
-    assert duty["assigned_role_name"] is None
+    resp = await post_duty(
+        client,
+        owner_a,
+        title="Cross-farm role",
+        due_date=iso(today()),
+        assigned_role_id=rid_b,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Assigned role is not on this farm"
 
 
-async def test_unknown_role_id_silently_stripped(client: httpx.AsyncClient) -> None:
+async def test_unknown_role_id_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Ghost role", assigned_role_id=999_999)
-    assert duty["assigned_role_id"] is None
+    resp = await post_duty(
+        client,
+        owner,
+        title="Ghost role",
+        due_date=iso(today()),
+        assigned_role_id=999_999,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Assigned role is not on this farm"
 
 
-async def test_cross_farm_user_id_silently_stripped(client: httpx.AsyncClient) -> None:
+async def test_cross_farm_user_id_rejected(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     _, owner_b_id = await login_user(client, "b@farm.in", password="ownerpass123")
-    duty = await make_duty(client, owner_a, "Cross-farm user", assigned_user_id=owner_b_id)
-    assert duty["assigned_user_id"] is None
+    resp = await post_duty(
+        client,
+        owner_a,
+        title="Cross-farm user",
+        due_date=iso(today()),
+        assigned_user_id=owner_b_id,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Assigned worker is not an active member of this farm"
 
 
-async def test_unknown_user_id_silently_stripped(client: httpx.AsyncClient) -> None:
+async def test_unknown_user_id_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Ghost user", assigned_user_id=999_999)
-    assert duty["assigned_user_id"] is None
+    resp = await post_duty(
+        client,
+        owner,
+        title="Ghost user",
+        due_date=iso(today()),
+        assigned_user_id=999_999,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Assigned worker is not an active member of this farm"
 
 
-async def test_owner_as_assigned_user_stripped(client: httpx.AsyncClient) -> None:
+async def test_owner_as_assigned_user_rejected(client: httpx.AsyncClient) -> None:
     """The farm owner is not a membership, so he cannot be a duty assignee."""
     owner = await owner_with_farm(client)
     _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
-    duty = await make_duty(client, owner, "Assign to owner", assigned_user_id=owner_id)
-    assert duty["assigned_user_id"] is None
+    resp = await post_duty(
+        client,
+        owner,
+        title="Assign to owner",
+        due_date=iso(today()),
+        assigned_user_id=owner_id,
+    )
+    assert resp.status_code == 400
 
 
-async def test_deactivated_worker_stripped(client: httpx.AsyncClient) -> None:
+async def test_deactivated_worker_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     _, cleaner_id = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
     resp = await client.get("/api/team", headers=owner)
     mid = next(m["id"] for m in resp.json()["memberships"] if m["email"] == "cleaner@farm.in")
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await client.put(
+        f"/api/team/workers/{mid}/status", json={"is_active": False}, headers=owner
+    )
     assert resp.status_code == 200, resp.text
-    duty = await make_duty(client, owner, "Inactive worker", assigned_user_id=cleaner_id)
-    assert duty["assigned_user_id"] is None
+    resp = await post_duty(
+        client,
+        owner,
+        title="Inactive worker",
+        due_date=iso(today()),
+        assigned_user_id=cleaner_id,
+    )
+    assert resp.status_code == 400
+
+
+async def test_worker_and_role_must_match(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    _, cleaner_id = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
+    mover_role_id = await role_id(client, owner, "MOVER")
+    resp = await post_duty(
+        client,
+        owner,
+        title="Conflicting assignment",
+        due_date=iso(today()),
+        assigned_role_id=mover_role_id,
+        assigned_user_id=cleaner_id,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Assigned worker does not hold the assigned role"
 
 
 # ---------------------------------------------------------------------------
@@ -898,12 +1065,44 @@ async def test_empty_farm_tabs_all_empty(client: httpx.AsyncClient) -> None:
         "upcoming",
         "awaiting",
         "completed",
+        "today_total",
+        "today_offset",
+        "overdue_total",
+        "overdue_offset",
+        "upcoming_total",
+        "upcoming_offset",
+        "awaiting_total",
+        "awaiting_offset",
+        "active_limit",
         "completed_total",
         "completed_limit",
         "completed_offset",
     }
     assert all(tabs[key] == [] for key in ("today", "overdue", "upcoming", "awaiting", "completed"))
     assert tabs["completed_total"] == 0
+    assert tabs["today_total"] == tabs["overdue_total"] == tabs["upcoming_total"] == 0
+    assert tabs["awaiting_total"] == 0
+
+
+async def test_active_task_tabs_are_counted_and_independently_paginated(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    for title in ("first", "second", "third"):
+        await make_duty(client, owner, title)
+
+    response = await client.get(
+        "/api/tasks",
+        params={"active_limit": 2, "today_offset": 1},
+        headers=owner,
+    )
+    assert response.status_code == 200, response.text
+    tabs = response.json()
+    assert tabs["today_total"] == 3
+    assert tabs["today_offset"] == 1
+    assert tabs["active_limit"] == 2
+    assert [task["title"] for task in tabs["today"]] == ["second", "third"]
+    assert tabs["overdue"] == [] and tabs["upcoming"] == []
 
 
 async def test_pending_duty_not_in_completed_or_awaiting(client: httpx.AsyncClient) -> None:
@@ -1039,13 +1238,118 @@ async def test_worker_hides_unassigned_duty(client: httpx.AsyncClient) -> None:
     assert duty["id"] not in {t["id"] for t in all_tasks(tabs)}
 
 
-async def test_worker_hides_duty_assigned_to_another_worker(client: httpx.AsyncClient) -> None:
+async def test_personal_duty_is_hidden_from_role_peers_while_assignee_is_active(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     _, cleaner1_id = await worker_headers(client, owner, "CLEANER", "c1@farm.in")
     cleaner2, _ = await worker_headers(client, owner, "CLEANER", "c2@farm.in")
     duty = await make_duty(client, owner, "For c1 only", assigned_user_id=cleaner1_id)
     tabs = await get_tabs(client, cleaner2)
     assert duty["id"] not in {t["id"] for t in all_tasks(tabs)}
+
+
+async def test_task_scope_legacy_personal_null_role_uses_retained_membership(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    _, assignee_id = await worker_headers(client, owner, "CLEANER", "legacy-a@farm.in")
+    _, peer_id = await worker_headers(client, owner, "CLEANER", "legacy-b@farm.in")
+    duty = await make_duty(client, owner, "Legacy personal", assigned_user_id=assignee_id)
+    farm_id = int(owner["X-Farm-Id"])
+
+    # D9 prevents new null-role personal rows. Transactional DDL lets this
+    # test emulate one pre-repair legacy row and roll the constraint/data
+    # change back atomically without weakening the test database.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("ALTER TABLE tasks DROP CONSTRAINT ck_tasks_user_assignment_has_role")
+        )
+        await db.execute(update(Task).where(Task.id == duty["id"]).values(assigned_role_id=None))
+        farm = await db.get(Farm, farm_id)
+        peer = await db.get(User, peer_id)
+        assert farm is not None and peer is not None
+        scoped = await task_scope(db, farm, peer)
+        visible_ids = set((await db.execute(scoped)).scalars())
+        assert all(task.id != duty["id"] for task in visible_ids)
+        await db.execute(
+            update(FarmMembership)
+            .where(
+                FarmMembership.farm_id == farm_id,
+                FarmMembership.user_id == assignee_id,
+            )
+            .values(is_active=False)
+        )
+        scoped = await task_scope(db, farm, peer)
+        fallback_ids = set((await db.execute(scoped)).scalars())
+        assert any(task.id == duty["id"] for task in fallback_ids)
+        await db.rollback()
+
+
+async def test_inactive_animal_pending_task_is_hidden_and_cannot_complete_or_skip(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal_id = await make_animal(client, owner, "INACTIVE-TASK")
+    sold = await client.post(
+        f"/api/animals/{animal_id}/status",
+        json={"new_status": "SOLD", "sale_price": 100},
+        headers=owner,
+    )
+    assert sold.status_code == 200, sold.text
+    farm_id = int(owner["X-Farm-Id"])
+    residue_count = 600
+    async with get_sessionmaker()() as db:
+        residues = [
+            Task(
+                farm_id=farm_id,
+                title=f"Legacy inactive-animal residue {index}",
+                due_date=today(),
+                status=TaskStatus.PENDING.value,
+                category="OTHER",
+                animal_id=animal_id,
+                auto_generated=False,
+                recur_days=1 if index == 0 else None,
+                recurring_series_id="inactive-animal-residue" if index == 0 else None,
+            )
+            for index in range(residue_count)
+        ]
+        db.add_all(residues)
+        await db.commit()
+        task_id = residues[0].id
+        residue_ids = {task.id for task in residues}
+
+    tabs = await get_tabs(client, owner)
+    assert residue_ids.isdisjoint(task["id"] for task in all_tasks(tabs))
+    assert tabs["today_total"] == tabs["overdue_total"] == tabs["upcoming_total"] == 0
+    completed = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)
+    assert completed.status_code == 409, completed.text
+    skipped = await client.post(f"/api/tasks/{task_id}/skip", headers=owner)
+    assert skipped.status_code == 409, skipped.text
+    async with get_sessionmaker()() as db:
+        retained = (
+            (
+                await db.execute(
+                    select(Task).where(
+                        Task.animal_id == animal_id,
+                        Task.status == TaskStatus.PENDING.value,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        series_count = len(
+            (
+                await db.execute(
+                    select(Task.id).where(Task.recurring_series_id == "inactive-animal-residue")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(retained) == residue_count
+    assert series_count == 1
 
 
 async def test_owner_sees_every_assignment(client: httpx.AsyncClient) -> None:
@@ -1099,7 +1403,7 @@ async def test_worker_completed_tab_shows_verified_own_role_duty(client: httpx.A
     assert duty["id"] not in {t["id"] for t in tabs["awaiting"]}
 
 
-async def test_verifier_completed_tab_is_farmwide(client: httpx.AsyncClient) -> None:
+async def test_verifier_completed_tab_remains_assignment_scoped(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     cleaner, _ = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
@@ -1109,7 +1413,8 @@ async def test_verifier_completed_tab_is_farmwide(client: httpx.AsyncClient) -> 
     resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
     assert resp.status_code == 200, resp.text
     manager_tabs = await get_tabs(client, manager)
-    assert duty["id"] in {t["id"] for t in manager_tabs["completed"]}
+    assert duty["id"] not in {t["id"] for t in manager_tabs["completed"]}
+    assert all(row["title"] != "Scrub" for row in manager_tabs["completed"])
 
 
 async def test_worker_still_hides_pending_done_duty_in_completed(client: httpx.AsyncClient) -> None:
@@ -1146,6 +1451,71 @@ async def test_complete_manual_future_duty_allowed(client: httpx.AsyncClient) ->
     resp = await complete_duty(client, owner, duty["id"])
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "DONE"
+
+
+async def test_manual_bucket_move_category_is_rejected_before_any_lifecycle_side_effect(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    doe, _breeding = await make_pregnancy(client, owner, today() - timedelta(days=40))
+    animal_id = doe["id"]
+    before = await client.get(f"/api/animals/{animal_id}", headers=owner)
+    assert before.status_code == 200, before.text
+    assert before.json()["animal"]["current_bucket"] == "PREGNANCY_EARLY"
+    response = await post_duty(
+        client,
+        owner,
+        title="Inspect pen before deciding a move",
+        due_date=iso(today()),
+        category="BUCKET_MOVE",
+        animal_id=animal_id,
+    )
+    assert response.status_code == 422, response.text
+    profile = await client.get(f"/api/animals/{animal_id}", headers=owner)
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["animal"]["current_bucket"] == "PREGNANCY_EARLY"
+    assert profile.json()["moves"] == before.json()["moves"]
+
+
+@pytest.mark.parametrize("category", ["WEANING", "BUCKET_MOVE"])
+async def test_tasks_only_worker_cannot_trigger_legacy_manual_animal_side_effect(
+    client: httpx.AsyncClient,
+    category: str,
+) -> None:
+    owner = await owner_with_farm(client)
+    role = await make_custom_role(
+        client,
+        owner,
+        "Checklist only",
+        ["tasks.view", "tasks.complete"],
+    )
+    await add_worker(client, owner, role, "checklist@farm.in")
+    worker, _ = await login_user(client, "checklist@farm.in")
+    worker["X-Farm-Id"] = owner["X-Farm-Id"]
+    animal_id = await make_animal(client, owner, f"NO-SIDE-EFFECT-{category}")
+    farm_id = int(owner["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        forged = Task(
+            farm_id=farm_id,
+            title=f"Forged manual {category}",
+            due_date=today(),
+            status=TaskStatus.PENDING.value,
+            category=category,
+            animal_id=animal_id,
+            auto_generated=False,
+            assigned_role_id=role,
+        )
+        db.add(forged)
+        await db.commit()
+        task_id = forged.id
+
+    before = await client.get(f"/api/animals/{animal_id}", headers=owner)
+    response = await complete_duty(client, worker, task_id)
+    assert response.status_code == 409, response.text
+    assert "authoritative generated duty" in response.json()["detail"]
+    after = await client.get(f"/api/animals/{animal_id}", headers=owner)
+    assert after.json()["animal"]["current_bucket"] == before.json()["animal"]["current_bucket"]
+    assert after.json()["moves"] == before.json()["moves"]
 
 
 async def test_complete_done_duty_400(client: httpx.AsyncClient) -> None:
@@ -1230,13 +1600,28 @@ async def test_worker_complete_unassigned_duty_403(client: httpx.AsyncClient) ->
     assert resp.status_code == 403
 
 
-async def test_worker_complete_other_workers_duty_403(client: httpx.AsyncClient) -> None:
+async def test_role_peer_can_complete_personal_duty_only_after_assignee_is_inactive(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     _, cleaner1_id = await worker_headers(client, owner, "CLEANER", "c1@farm.in")
-    cleaner2, _ = await worker_headers(client, owner, "CLEANER", "c2@farm.in")
+    cleaner2, cleaner2_id = await worker_headers(client, owner, "CLEANER", "c2@farm.in")
     duty = await make_duty(client, owner, "For c1", assigned_user_id=cleaner1_id)
     resp = await complete_duty(client, cleaner2, duty["id"])
-    assert resp.status_code == 403
+    assert resp.status_code == 403, resp.text
+    team = await client.get("/api/team", headers=owner)
+    assignee_membership_id = next(
+        row["id"] for row in team.json()["memberships"] if row["user_id"] == cleaner1_id
+    )
+    deactivated = await client.put(
+        f"/api/team/workers/{assignee_membership_id}/status",
+        json={"is_active": False},
+        headers=owner,
+    )
+    assert deactivated.status_code == 200, deactivated.text
+    resp = await complete_duty(client, cleaner2, duty["id"])
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["completed_by_id"] == cleaner2_id
 
 
 async def test_auto_duty_not_due_yet_409(client: httpx.AsyncClient) -> None:
@@ -1384,6 +1769,38 @@ async def test_skip_other_roles_duty_403(client: httpx.AsyncClient) -> None:
     assert find_task(tabs, duty["id"])["status"] == "PENDING"
 
 
+async def test_quarantine_protocol_tasks_cannot_be_skipped_into_release_deadlock(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    batch_id = await make_batch(client, owner)
+    batch_tasks = [
+        task
+        for task in all_tasks(await get_tabs(client, owner))
+        if task["purchase_batch_id"] == batch_id
+    ]
+    assert len(batch_tasks) == 8
+
+    for task in batch_tasks:
+        response = await client.post(
+            f"/api/tasks/{task['id']}/skip",
+            json={"reason": "Bypass protocol"},
+            headers=owner,
+        )
+        assert response.status_code == 409, (task, response.text)
+        assert response.json()["detail"] == (
+            "Quarantine protocol duties cannot be skipped; complete the required workflow"
+        )
+
+    persisted = {
+        task["id"]: task
+        for task in all_tasks(await get_tabs(client, owner))
+        if task["purchase_batch_id"] == batch_id
+    }
+    assert set(persisted) == {task["id"] for task in batch_tasks}
+    assert all(task["status"] == "PENDING" for task in persisted.values())
+
+
 async def test_skipped_cleaning_needs_no_verification(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "Scrub", category="CLEANING")
@@ -1454,18 +1871,61 @@ async def test_spawned_occurrence_due_tomorrow_lands_in_upcoming(client: httpx.A
 
 async def test_recurrence_chain_continues(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Chain", recur_days=3)
+    duty = await make_duty(client, owner, "Chain", due=today() - timedelta(days=3), recur_days=3)
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     tabs = await get_tabs(client, owner)
     second = next(t for t in tabs["upcoming"] if t["title"] == "Chain")
+
+    # A recurrence cannot be fast-forwarded before its farm-local due date.
+    early = await complete_duty(client, owner, second["id"])
+    assert early.status_code == 409, early.text
+    assert early.json()["detail"] == "This duty is not due yet"
+
+    # Advance this fixture to the next occurrence date without changing the
+    # farm clock; the real deployment reaches this state as the day advances.
+    async with get_sessionmaker()() as db:
+        row = await db.get(Task, second["id"])
+        assert row is not None
+        row.due_date = today()
+        await db.commit()
     assert (await complete_duty(client, owner, second["id"])).status_code == 200
     tabs = await get_tabs(client, owner)
     thirds = [
         t
         for t in tabs["upcoming"]
-        if t["title"] == "Chain" and t["due_date"] == iso(today() + timedelta(days=6))
+        if t["title"] == "Chain" and t["due_date"] == iso(today() + timedelta(days=3))
     ]
     assert len(thirds) == 1
+
+
+async def test_future_recurring_occurrence_cannot_be_completed_or_skipped(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    first = await make_duty(client, owner, "No recurrence fast-forward", recur_days=1)
+    assert (await complete_duty(client, owner, first["id"])).status_code == 200
+    successor = next(
+        task
+        for task in (await get_tabs(client, owner))["upcoming"]
+        if task["recurring_series_id"] == first["recurring_series_id"]
+    )
+
+    for action in ("complete", "skip"):
+        response = await client.post(f"/api/tasks/{successor['id']}/{action}", headers=owner)
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"] == "This duty is not due yet"
+
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(Task)
+                    .where(Task.recurring_series_id == first["recurring_series_id"])
+                    .order_by(Task.due_date, Task.id)
+                )
+            ).scalars()
+        )
+    assert [row.status for row in rows] == [TaskStatus.DONE.value, TaskStatus.PENDING.value]
 
 
 async def test_non_recurring_completion_spawns_nothing(client: httpx.AsyncClient) -> None:
@@ -1502,13 +1962,25 @@ async def test_recomplete_after_spawned_occurrence_finished_does_not_hit_unique_
     """A slow review may reject occurrence N after N+1 was already done."""
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "late-review@farm.in")
-    first = await make_duty(client, owner, "Late-reviewed sweep", category="CLEANING", recur_days=1)
+    first = await make_duty(
+        client,
+        owner,
+        "Late-reviewed sweep",
+        due=today() - timedelta(days=1),
+        category="CLEANING",
+        recur_days=1,
+    )
     assert (await complete_duty(client, owner, first["id"])).status_code == 200
     second = next(
         task
         for task in (await get_tabs(client, owner))["upcoming"]
         if task["title"] == "Late-reviewed sweep"
     )
+    async with get_sessionmaker()() as db:
+        row = await db.get(Task, second["id"])
+        assert row is not None
+        row.due_date = today()
+        await db.commit()
     assert (await complete_duty(client, owner, second["id"])).status_code == 200
     rejected = await client.post(
         f"/api/tasks/{first['id']}/reject",
@@ -1560,12 +2032,100 @@ async def test_identical_parallel_recurring_series_do_not_merge(
 async def test_recurring_personal_assignment_carried(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     _, cleaner_id = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
+    cleaner_role = await role_id(client, owner, "CLEANER")
     duty = await make_duty(client, owner, "His job", assigned_user_id=cleaner_id, recur_days=2)
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
     tabs = await get_tabs(client, owner)
     nxt = next(t for t in tabs["upcoming"] if t["title"] == "His job")
     assert nxt["assigned_user_id"] == cleaner_id
+    assert nxt["assigned_role_id"] == cleaner_role
     assert nxt["due_date"] == iso(today() + timedelta(days=2))
+
+
+@pytest.mark.parametrize("action", ["complete", "skip"])
+async def test_legacy_personal_recurrence_resolves_retained_role_before_spawn(
+    client: httpx.AsyncClient,
+    action: str,
+) -> None:
+    owner = await owner_with_farm(client)
+    _, worker_id = await worker_headers(client, owner, "CLEANER", f"legacy-{action}@farm.in")
+    peer, _ = await worker_headers(
+        client,
+        owner,
+        "CLEANER",
+        f"legacy-{action}-peer@farm.in",
+    )
+    cleaner_role = await role_id(client, owner, "CLEANER")
+    duty = await make_duty(
+        client,
+        owner,
+        f"Legacy recurrence {action}",
+        assigned_user_id=worker_id,
+        recur_days=1,
+    )
+
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("ALTER TABLE tasks DROP CONSTRAINT ck_tasks_user_assignment_has_role")
+        )
+        await db.execute(update(Task).where(Task.id == duty["id"]).values(assigned_role_id=None))
+        await db.commit()
+
+    try:
+        # The same-role peer sees the legacy row through task_scope and the
+        # mutation lazily repairs the missing role before authorization and
+        # successor insertion. This closes the compatibility gap where list
+        # visibility could otherwise lead to an action-time 403 or CHECK 500.
+        team = await client.get("/api/team", headers=owner)
+        membership_id = next(
+            row["id"] for row in team.json()["memberships"] if row["user_id"] == worker_id
+        )
+        deactivated = await client.put(
+            f"/api/team/workers/{membership_id}/status",
+            json={"is_active": False},
+            headers=owner,
+        )
+        assert deactivated.status_code == 200, deactivated.text
+        response = await client.post(f"/api/tasks/{duty['id']}/{action}", headers=peer)
+        assert response.status_code == 200, response.text
+        async with get_sessionmaker()() as db:
+            rows = list(
+                (
+                    await db.execute(
+                        select(Task)
+                        .where(Task.recurring_series_id == duty["recurring_series_id"])
+                        .order_by(Task.due_date, Task.id)
+                    )
+                ).scalars()
+            )
+        assert len(rows) == 2
+        assert all(row.assigned_user_id == worker_id for row in rows)
+        assert all(row.assigned_role_id == cleaner_role for row in rows)
+        assert rows[-1].status == TaskStatus.PENDING.value
+    finally:
+        # Restore the invariant even if an assertion above fails, so a local
+        # developer can continue running other tests in this same session DB.
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                text(
+                    "UPDATE tasks AS task SET assigned_role_id = membership.role_id "
+                    "FROM farm_memberships AS membership "
+                    "WHERE task.assigned_user_id IS NOT NULL "
+                    "AND task.assigned_role_id IS NULL "
+                    "AND membership.farm_id = task.farm_id "
+                    "AND membership.user_id = task.assigned_user_id"
+                )
+            )
+            await db.execute(
+                text(
+                    "ALTER TABLE tasks ADD CONSTRAINT ck_tasks_user_assignment_has_role "
+                    "CHECK (assigned_user_id IS NULL OR assigned_role_id IS NOT NULL) NOT VALID"
+                )
+            )
+            await db.execute(
+                text("ALTER TABLE tasks VALIDATE CONSTRAINT ck_tasks_user_assignment_has_role")
+            )
+            await db.commit()
 
 
 async def test_recurring_large_interval(client: httpx.AsyncClient) -> None:
@@ -1960,36 +2520,47 @@ async def test_ultrasound_form_closes_the_duty(client: httpx.AsyncClient) -> Non
     assert us["id"] in {t["id"] for t in tabs["completed"]}
 
 
-async def test_unlinked_manual_vaccine_duty_is_a_plain_checklist(
-    client: httpx.AsyncClient,
-) -> None:
-    """Only an animal-linked clinical duty routes through the health form."""
-    owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "PPR vaccine due", category="VACCINE")
-    assert duty["action_url"] is None
-    resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 200
-
-
-async def test_unlinked_manual_deworming_duty_is_a_plain_checklist(
+async def test_unlinked_manual_vaccine_duty_is_rejected(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Deworm herd", category="DEWORMING")
-    resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 200
-
-
-async def test_manual_vaccine_duty_completed_via_health_form(client: httpx.AsyncClient) -> None:
-    owner = await owner_with_farm(client)
-    _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
-    animal_id = await make_animal(client, owner)
-    duty = await make_duty(
+    resp = await post_duty(
         client,
         owner,
-        "PPR vaccine due",
+        title="PPR vaccine due",
+        due_date=iso(today()),
         category="VACCINE",
-        animal_id=animal_id,
+    )
+    assert resp.status_code == 422
+
+
+async def test_unlinked_manual_deworming_duty_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    resp = await post_duty(
+        client,
+        owner,
+        title="Deworm herd",
+        due_date=iso(today()),
+        category="DEWORMING",
+    )
+    assert resp.status_code == 422
+
+
+async def test_generated_vaccine_duty_completed_via_health_form(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    _, owner_id = await login_user(client, "owner@farm.in", password="ownerpass123")
+    doe, _breeding = await make_pregnancy(
+        client,
+        owner,
+        today() - timedelta(days=140),
+    )
+    animal_id = doe["id"]
+    duty = next(
+        row
+        for row in all_tasks(await get_tabs(client, owner))
+        if row["category"] == "VACCINE" and row["animal_id"] == animal_id
     )
     assert duty["action_url"] == f"/health/new?task_id={duty['id']}&animal_id={animal_id}"
     resp = await client.post(
@@ -2085,21 +2656,28 @@ async def test_health_form_rejects_non_vaccine_task_id(client: httpx.AsyncClient
     assert find_task(tabs, duty["id"])["status"] == "PENDING"  # duty untouched
 
 
-async def test_manual_ultrasound_duty_without_link_completable(client: httpx.AsyncClient) -> None:
-    """A manual ULTRASOUND duty has no breeding record to link to, so no form exists."""
+async def test_manual_ultrasound_duty_is_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Check doe", category="ULTRASOUND")
-    assert duty["action_url"] is None
-    resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 200, resp.text
+    resp = await post_duty(
+        client,
+        owner,
+        title="Check doe",
+        due_date=iso(today()),
+        category="ULTRASOUND",
+    )
+    assert resp.status_code == 422, resp.text
 
 
-async def test_manual_kidding_due_duty_without_link_completable(client: httpx.AsyncClient) -> None:
+async def test_manual_kidding_due_duty_is_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Watch pen", category="KIDDING_DUE")
-    assert duty["action_url"] is None
-    resp = await complete_duty(client, owner, duty["id"])
-    assert resp.status_code == 200, resp.text
+    resp = await post_duty(
+        client,
+        owner,
+        title="Watch pen",
+        due_date=iso(today()),
+        category="KIDDING_DUE",
+    )
+    assert resp.status_code == 422, resp.text
 
 
 # ---------------------------------------------------------------------------

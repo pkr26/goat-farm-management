@@ -145,15 +145,23 @@ export async function pickRemoteOption(
 
 export interface NewAnimal {
   tag: string;
+  /** Owner audit reason for this direct historical born-on-farm import. */
+  historicalImportReason: string;
   sex?: "F" | "M";
   /** Display text, e.g. "FOUNDATION". Defaults to the form default (QUARANTINE). */
   bucket?: string;
   dateOfBirth?: string;
   entryWeightKg?: number;
+  /** Date of the imported entry weight, required for as-of breeding fixtures. */
+  entryWeightDate?: string;
 }
 
 /** Create an animal through the Animals page dialog; waits for the success toast. */
 export async function createAnimal(page: Page, animal: NewAnimal): Promise<void> {
+  if (animal.entryWeightDate !== undefined && animal.entryWeightKg === undefined) {
+    throw new Error("entryWeightDate requires entryWeightKg");
+  }
+
   await page.goto("/animals");
   await page.getByRole("button", { name: "Add animal" }).click();
   const dialog = page.getByRole("dialog", { name: "Add animal" });
@@ -162,6 +170,11 @@ export async function createAnimal(page: Page, animal: NewAnimal): Promise<void>
   if (animal.sex) {
     await pickSelectOption(dialog, "Sex *", animal.sex === "M" ? "Male" : "Female");
   }
+  await pickSelectOption(
+    dialog,
+    "Source *",
+    "Historical born-on-farm import",
+  );
   if (animal.bucket) {
     await pickSelectOption(dialog, "Bucket *", animal.bucket);
   }
@@ -171,6 +184,12 @@ export async function createAnimal(page: Page, animal: NewAnimal): Promise<void>
   if (animal.entryWeightKg !== undefined) {
     await dialog.getByLabel("Entry weight (kg)").fill(String(animal.entryWeightKg));
   }
+  if (animal.entryWeightDate !== undefined) {
+    await dialog.getByLabel("Entry weight date").fill(animal.entryWeightDate);
+  }
+  await dialog
+    .getByLabel("Historical import reason *")
+    .fill(animal.historicalImportReason);
   await dialog.getByRole("button", { name: "Save animal" }).click();
   await expect(page.getByText("Animal added.")).toBeVisible();
   await expect(dialog).toBeHidden();
@@ -206,6 +225,23 @@ export async function createBreeding(
   doeTag: string,
   breedingDate?: string,
 ): Promise<void> {
+  // A buck that is eligible today may have no weight (or insufficient age) as
+  // of a backdated breeding. Create and select a date-correct buck explicitly
+  // so serial specs cannot accidentally reuse a later-only fixture.
+  let preferredBuckTag: string | undefined;
+  if (breedingDate !== undefined) {
+    preferredBuckTag = uniqueTag("E2E-BUCK");
+    await createAnimal(page, {
+      tag: preferredBuckTag,
+      historicalImportReason: "E2E backdated breeding buck fixture",
+      sex: "M",
+      bucket: "BREEDING",
+      dateOfBirth: monthsAgo(20),
+      entryWeightKg: 30,
+      entryWeightDate: breedingDate,
+    });
+  }
+
   await page.goto("/breeding");
   await page.getByRole("button", { name: "Add breeding" }).click();
   let dialog = page.getByRole("dialog", { name: "Add breeding" });
@@ -223,11 +259,15 @@ export async function createBreeding(
   if (await noEligibleBuck.isVisible()) {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
+    preferredBuckTag = uniqueTag("E2E-BUCK");
     await createAnimal(page, {
-      tag: uniqueTag("E2E-BUCK"),
+      tag: preferredBuckTag,
+      historicalImportReason: "E2E breeding buck fixture",
       sex: "M",
       bucket: "BREEDING",
-      dateOfBirth: monthsAgo(14),
+      dateOfBirth: monthsAgo(20),
+      entryWeightKg: 30,
+      entryWeightDate: breedingDate,
     });
     await page.goto("/breeding");
     await page.getByRole("button", { name: "Add breeding" }).click();
@@ -237,7 +277,16 @@ export async function createBreeding(
   }
 
   await pickRemoteOption(dialog, "Doe *", new RegExp(doeTag), doeTag);
-  await pickRemoteOption(dialog, "Buck *", null);
+  if (preferredBuckTag !== undefined) {
+    await pickRemoteOption(
+      dialog,
+      "Buck *",
+      new RegExp(preferredBuckTag),
+      preferredBuckTag,
+    );
+  } else {
+    await pickRemoteOption(dialog, "Buck *", null);
+  }
   if (breedingDate) {
     await dialog.getByLabel("Breeding date *").fill(breedingDate);
   }

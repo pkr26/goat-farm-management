@@ -63,6 +63,12 @@ jobs:
         working-directory: backend
         run: python -m mypy --strict app
 
+      - name: OpenAPI snapshot is current
+        working-directory: backend
+        run: |
+          python scripts/export_openapi.py
+          git diff --exit-code -- ../shared/openapi.json
+
       - name: Migration round-trip and metadata drift check
         working-directory: backend
         env:
@@ -70,8 +76,12 @@ jobs:
         run: |
           alembic upgrade head
           alembic check
-          alembic downgrade f5b1a09c8d7e
+          # Exercise the complete historical chain in both directions.  A
+          # partial downgrade can leave early revisions permanently untested
+          # until a real restore or rollback needs them.
+          alembic downgrade base
           alembic upgrade head
+          alembic check
 
       - name: pytest (real PostgreSQL)
         working-directory: backend
@@ -110,6 +120,20 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: ESLint
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: TypeScript
+        working-directory: frontend
+        run: pnpm typecheck
+
+      - name: Generated API client is current
+        working-directory: frontend
+        run: |
+          pnpm orval
+          git diff --exit-code -- src/api/generated
+
       - name: Vitest
         working-directory: frontend
         run: pnpm test
@@ -127,6 +151,10 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     services:
       postgres:
         image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
@@ -141,11 +169,12 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
-      # playwright.config.ts's webServer boots both backend and Next dev
-      # server; the backend needs a DB URL and the auth limiter off (E2E
-      # register flow bursts past the per-IP window).
+      # playwright.config.ts's webServer boots both backend and a production
+      # Next standalone server; the backend needs a DB URL and the auth
+      # limiter off (E2E register flow bursts past the per-IP window).
       GOATFARM_DATABASE_URL: postgresql+asyncpg://runner@localhost:5432/goatfarm_e2e
       GOATFARM_AUTH_RATE_LIMIT_ENABLED: "false"
+      E2E_BROWSER: ${{ matrix.browser }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -184,18 +213,20 @@ jobs:
 
       - name: Install Playwright browsers
         working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
 
       - name: Run Playwright e2e
         working-directory: frontend
-        run: pnpm exec playwright test --reporter=list
+        run: pnpm exec playwright test
 
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: playwright-report
-          path: frontend/playwright-report
+          name: playwright-report-${{ matrix.browser }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
           retention-days: 7
 
   # Sanity-check the Dockerfile still builds so a broken image doesn't
@@ -227,8 +258,19 @@ jobs:
           push: false
           load: true
           tags: goatfarm-backend:ci
+      - name: Build frontend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          tags: goatfarm-frontend:ci
       - name: Exercise authentication in the built image
         run: |
+          docker run --rm --network host \
+            -e GOATFARM_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \
+            goatfarm-backend:ci alembic upgrade head
           docker run --rm --detach --name goatfarm-backend-smoke --network host \
             -e GOATFARM_DATABASE_URL=postgresql+asyncpg://postgres@localhost:5432/postgres \
             -e GOATFARM_AUTH_RATE_LIMIT_ENABLED=false \

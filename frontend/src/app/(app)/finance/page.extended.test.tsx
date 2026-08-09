@@ -210,6 +210,42 @@ describe("FinancePage totals and P&L", () => {
     expect(within(row).getByText("₹1,50,000")).toHaveClass("line-through");
     expect(within(row).queryByRole("button", { name: "Correct" })).not.toBeInTheDocument();
   });
+
+  it("shows whether an entry is manual, system-generated, or a correction", async () => {
+    server.use(
+      financeHandler({
+        ...PAYLOAD,
+        transactions: [
+          { ...TXN_EXPENSE, notes: "manual feed" },
+          {
+            ...TXN_INCOME,
+            id: 7,
+            notes: "automatic sale",
+            source_type: "ANIMAL_SALE",
+            source_id: 11,
+          },
+          {
+            ...TXN_INCOME,
+            id: 8,
+            notes: "corrected automatic sale",
+            source_type: "ANIMAL_SALE",
+            source_id: 11,
+            correction_of_id: 7,
+          },
+        ],
+        transactions_total: 3,
+      }),
+    );
+    await renderLoaded();
+
+    expect(within(screen.getByText("manual feed").closest("tr")!).getByText("Manual entry"))
+      .toBeInTheDocument();
+    expect(within(screen.getByText("automatic sale").closest("tr")!).getByText("Source: Animal sale #11"))
+      .toBeInTheDocument();
+    const correctionRow = screen.getByText("corrected automatic sale").closest("tr")!;
+    expect(within(correctionRow).getByText("Correction of transaction #7")).toBeInTheDocument();
+    expect(within(correctionRow).getByText("Source: Animal sale #11")).toBeInTheDocument();
+  });
 });
 
 describe("FinancePage filters", () => {
@@ -342,6 +378,27 @@ describe("FinancePage RBAC and errors", () => {
     renderWithProviders(<FinancePage />);
     expect(await screen.findByText("ledger unavailable")).toBeInTheDocument();
   });
+
+  it("announces a finance query failure and retries it", async () => {
+    let fail = true;
+    let calls = 0;
+    server.use(
+      http.get("/api/finance", () => {
+        calls += 1;
+        return fail
+          ? HttpResponse.json({ detail: "ledger temporarily unavailable" }, { status: 503 })
+          : HttpResponse.json(PAYLOAD);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FinancePage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ledger temporarily unavailable");
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Retry finance" }));
+    expect(await screen.findByText("Total income")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
 });
 
 describe("FinancePage correction dialog", () => {
@@ -373,8 +430,35 @@ describe("FinancePage correction dialog", () => {
     return { user, dialog: await screen.findByRole("dialog", { name: "Correct transaction #1" }) };
   }
 
+  async function confirmCorrection(
+    user: ReturnType<typeof userEvent.setup>,
+    dialog: HTMLElement,
+  ) {
+    await user.click(
+      within(dialog).getByRole("checkbox", {
+        name: /I understand the original transaction will be voided and replaced/i,
+      }),
+    );
+  }
+
+  it("requires an explicit acknowledgement of the correction consequence", async () => {
+    const { user, dialog } = await openCorrection();
+    const submit = within(dialog).getByRole("button", { name: "Record correction" });
+    const acknowledgement = within(dialog).getByRole("checkbox", {
+      name: /I understand the original transaction will be voided and replaced/i,
+    });
+
+    expect(submit).toBeDisabled();
+    expect(acknowledgement).toHaveAccessibleDescription(
+      /original row will be marked void and retained/i,
+    );
+    await user.click(acknowledgement);
+    expect(submit).toBeEnabled();
+  });
+
   it("requires an audit reason before creating the replacement", async () => {
     const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
     await user.clear(within(dialog).getByLabelText("Correction reason *"));
     await user.type(within(dialog).getByLabelText("Correction reason *"), "no");
     await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
@@ -383,8 +467,23 @@ describe("FinancePage correction dialog", () => {
     expect(correctionCalls).toBe(0);
   });
 
+  it("rejects a non-zero correction below half a paisa", async () => {
+    const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
+    const amount = within(dialog).getByLabelText("Amount (₹) *");
+    await user.clear(amount);
+    await user.type(amount, "0.004");
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Fix amount");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
+      .toBeInTheDocument();
+    expect(correctionCalls).toBe(0);
+  });
+
   it("posts a full replacement while preserving the original as an audit row", async () => {
     const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
     const amount = within(dialog).getByLabelText("Amount (₹) *");
     await user.clear(amount);
     await user.type(amount, "145000");
@@ -417,6 +516,7 @@ describe("FinancePage correction dialog", () => {
       }),
     );
     const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
 
     expect(screen.queryByRole("link", { name: "G-011" })).not.toBeInTheDocument();
     expect(within(dialog).getByLabelText("Linked animal")).toHaveTextContent("G-011");
@@ -439,11 +539,21 @@ describe("FinancePage correction dialog", () => {
       ),
     );
     const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
     await user.type(within(dialog).getByLabelText("Correction reason *"), "Wrong amount");
     await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
 
     expect(await within(dialog).findByText("transaction is already voided")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("single-flights a double-click on Record correction", async () => {
+    const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Correct receipt");
+
+    await user.dblClick(within(dialog).getByRole("button", { name: "Record correction" }));
+    await waitFor(() => expect(correctionCalls).toBe(1));
   });
 });
 
@@ -519,6 +629,17 @@ describe("FinancePage new-transaction dialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
 
     expect(await within(dialog).findByText("Amount must be greater than 0")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects a non-zero transaction amount below half a paisa", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Amount/), "0.004");
+    await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
+
+    expect(await within(dialog).findByText("Amount must be at least ₹0.005"))
+      .toBeInTheDocument();
     expect(postCalls).toBe(0);
   });
 
@@ -629,5 +750,34 @@ describe("FinancePage new-transaction dialog", () => {
 
     expect(await within(dialog).findByText("database locked")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("announces a failed add and retries without clearing the form", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/finance/new", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "ledger write conflict" }, { status: 409 })
+          : HttpResponse.json({ ...TXN_EXPENSE, id: 3 }, { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    const amount = within(dialog).getByLabelText(/Amount/);
+    await user.type(amount, "100");
+    await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("ledger write conflict");
+    expect(amount).toHaveValue(100);
+    await user.click(within(dialog).getByRole("button", { name: "Retry add transaction" }));
+    await waitFor(() => expect(calls).toBe(2));
+  });
+
+  it("single-flights a double-click on Add transaction", async () => {
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Amount/), "100");
+
+    await user.dblClick(within(dialog).getByRole("button", { name: "Add transaction" }));
+    await waitFor(() => expect(postCalls).toBe(1));
   });
 });

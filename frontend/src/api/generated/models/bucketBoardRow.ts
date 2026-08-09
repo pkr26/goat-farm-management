@@ -4,7 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { AnimalOut } from './animalOut';
+import type { BucketAnimalOut } from './bucketAnimalOut';
 
 export interface BucketBoardRow {
   bucket: string;
@@ -12,5 +12,8 @@ export interface BucketBoardRow {
   who: string;
   exit_rule: string;
   daily_kg_per_head: number;
-  animals: AnimalOut[];
+  animals: BucketAnimalOut[];
+  animals_total: number;
+  animals_limit: number;
+  animals_page_path: string;
 }

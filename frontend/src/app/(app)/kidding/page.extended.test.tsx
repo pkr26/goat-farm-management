@@ -69,6 +69,11 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     kid_count_detected: 2,
     expected_kidding_date: daysFromToday(10),
     outcome: "CONFIRMED_PREGNANT",
+    loss_date: null,
+    loss_cause: null,
+    loss_notes: null,
+    loss_recorded_by_id: null,
+    loss_recorded_at: null,
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -131,7 +136,13 @@ describe("KiddingPage", () => {
   let payload: {
     records: KiddingRecordOut[];
     upcoming: BreedingRecordOut[];
+    upcoming_total: number;
+    upcoming_limit: number;
+    upcoming_offset: number;
     overdue: BreedingRecordOut[];
+    overdue_total: number;
+    overdue_limit: number;
+    overdue_offset: number;
     total: number;
     limit: number;
     offset: number;
@@ -143,7 +154,13 @@ describe("KiddingPage", () => {
     payload = {
       records: [HISTORY],
       upcoming: [UPCOMING_REC],
+      upcoming_total: 1,
+      upcoming_limit: 25,
+      upcoming_offset: 0,
       overdue: [OVERDUE_REC],
+      overdue_total: 1,
+      overdue_limit: 25,
+      overdue_offset: 0,
       total: 1,
       limit: 50,
       offset: 0,
@@ -152,6 +169,22 @@ describe("KiddingPage", () => {
       http.get("/api/kidding", () => {
         listCalls += 1;
         return HttpResponse.json(payload);
+      }),
+      http.get("/api/breeding/:recordId", ({ params }) => {
+        const record = [...payload.overdue, ...payload.upcoming].find(
+          (candidate) => String(candidate.id) === String(params.recordId),
+        );
+        return record
+          ? HttpResponse.json(record)
+          : HttpResponse.json({ detail: "Breeding record not found" }, { status: 404 });
+      }),
+      http.get("/api/kidding/pregnancies/:recordId", ({ params }) => {
+        const record = [...payload.overdue, ...payload.upcoming].find(
+          (candidate) => String(candidate.id) === String(params.recordId),
+        );
+        return record
+          ? HttpResponse.json(record)
+          : HttpResponse.json({ detail: "Pregnancy not found" }, { status: 404 });
       }),
       http.post("/api/kidding", async ({ request }) => {
         postBody = (await request.json()) as Record<string, unknown>;
@@ -167,6 +200,93 @@ describe("KiddingPage", () => {
   }
 
   // ---------- list rendering ----------
+
+  it("paginates upcoming, overdue and history queues independently", async () => {
+    const requests: URLSearchParams[] = [];
+    server.use(
+      http.get("/api/kidding", ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        requests.push(new URLSearchParams(query));
+        return HttpResponse.json({
+          ...payload,
+          upcoming_total: 60,
+          upcoming_limit: 25,
+          upcoming_offset: Number(query.get("upcoming_offset") ?? 0),
+          overdue_total: 60,
+          overdue_limit: 25,
+          overdue_offset: Number(query.get("overdue_offset") ?? 0),
+          total: 120,
+          limit: 50,
+          offset: Number(query.get("offset") ?? 0),
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    const upcomingCard = screen
+      .getByText("Upcoming (next 30 days)")
+      .closest('[data-slot="card"]') as HTMLElement;
+    await user.click(within(upcomingCard).getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      const latest = requests.at(-1);
+      expect(latest?.get("upcoming_offset")).toBe("25");
+      expect(latest?.get("overdue_offset")).toBe("0");
+      expect(latest?.get("offset")).toBe("0");
+    });
+
+    const overdueCard = screen
+      .getByText("Overdue (past expected date, no kidding recorded)")
+      .closest('[data-slot="card"]') as HTMLElement;
+    await user.click(within(overdueCard).getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      const latest = requests.at(-1);
+      expect(latest?.get("upcoming_offset")).toBe("25");
+      expect(latest?.get("overdue_offset")).toBe("25");
+      expect(latest?.get("offset")).toBe("0");
+    });
+
+    const historyCard = screen
+      .getByText("Recent kiddings")
+      .closest('[data-slot="card"]') as HTMLElement;
+    await user.click(within(historyCard).getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      const latest = requests.at(-1);
+      expect(latest?.get("upcoming_offset")).toBe("25");
+      expect(latest?.get("overdue_offset")).toBe("25");
+      expect(latest?.get("offset")).toBe("50");
+    });
+  });
+
+  it("re-homes only a due queue whose current page disappears", async () => {
+    const upcomingOffsets: number[] = [];
+    let shrunk = false;
+    server.use(
+      http.get("/api/kidding", ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        const requestedOffset = Number(query.get("upcoming_offset") ?? 0);
+        upcomingOffsets.push(requestedOffset);
+        if (requestedOffset === 25) shrunk = true;
+        return HttpResponse.json({
+          ...payload,
+          upcoming_total: shrunk ? 1 : 60,
+          upcoming_limit: 25,
+          upcoming_offset: requestedOffset,
+          overdue_offset: Number(query.get("overdue_offset") ?? 0),
+          offset: Number(query.get("offset") ?? 0),
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const upcomingCard = screen
+      .getByText("Upcoming (next 30 days)")
+      .closest('[data-slot="card"]') as HTMLElement;
+
+    await user.click(within(upcomingCard).getByRole("button", { name: "Next" }));
+
+    await waitFor(() => expect(upcomingOffsets).toEqual([0, 25, 0]));
+  });
 
   it("renders the overdue card with days late and a record button", async () => {
     await renderLoaded();
@@ -184,6 +304,7 @@ describe("KiddingPage", () => {
 
   it("hides the overdue card when nothing is overdue", async () => {
     payload.overdue = [];
+    payload.overdue_total = 0;
     renderWithProviders(<KiddingPage />);
     await screen.findByText("big twins");
     expect(screen.queryByText(/Overdue/)).not.toBeInTheDocument();
@@ -205,6 +326,7 @@ describe("KiddingPage", () => {
   it("shows a dash for days left when the expected date is missing", async () => {
     payload.upcoming = [makeBreeding({ id: 13, expected_kidding_date: null, kid_count_detected: null })];
     payload.overdue = [];
+    payload.overdue_total = 0;
     renderWithProviders(<KiddingPage />);
     const section = (await screen.findByText("Upcoming (next 30 days)")).closest(
       "[data-slot='card']",
@@ -214,7 +336,9 @@ describe("KiddingPage", () => {
 
   it("shows the upcoming empty state when nothing is due", async () => {
     payload.upcoming = [];
+    payload.upcoming_total = 0;
     payload.overdue = [];
+    payload.overdue_total = 0;
     renderWithProviders(<KiddingPage />);
     expect(
       await screen.findByText("No confirmed pregnancies due in the next 30 days."),
@@ -236,6 +360,7 @@ describe("KiddingPage", () => {
   it("renders a dash in the kids cell when a kidding has no kids", async () => {
     payload.records = [makeKidding({ id: 22, kids: [] })];
     payload.overdue = [];
+    payload.overdue_total = 0;
     renderWithProviders(<KiddingPage />);
     const section = (await screen.findByText("Recent kiddings")).closest(
       "[data-slot='card']",
@@ -247,6 +372,7 @@ describe("KiddingPage", () => {
   it("shows the history empty state when no kiddings exist", async () => {
     payload.records = [];
     payload.overdue = [];
+    payload.overdue_total = 0;
     renderWithProviders(<KiddingPage />);
     expect(await screen.findByText("No kiddings recorded yet.")).toBeInTheDocument();
   });
@@ -259,6 +385,30 @@ describe("KiddingPage", () => {
     );
     renderWithProviders(<KiddingPage />);
     expect(await screen.findByText("kidding blew up")).toBeInTheDocument();
+  });
+
+  it("announces a list failure and retries it in place", async () => {
+    let fail = true;
+    let calls = 0;
+    server.use(
+      http.get("/api/kidding", () => {
+        calls += 1;
+        return fail
+          ? HttpResponse.json({ detail: "kidding temporarily unavailable" }, { status: 503 })
+          : HttpResponse.json(payload);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<KiddingPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "kidding temporarily unavailable",
+    );
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Retry kidding data" }));
+
+    expect(await screen.findByText("Recent kiddings")).toBeInTheDocument();
+    expect(calls).toBe(2);
   });
 
   // ---------- RBAC ----------
@@ -316,10 +466,23 @@ describe("KiddingPage", () => {
 
   it("removes kid rows but never below one", async () => {
     const { user, dialog } = await openDialog();
-    const removeButtons = () => within(dialog).getAllByRole("button", { name: "Remove kid" });
+    const removeButtons = () => within(dialog).getAllByRole("button", { name: /Remove kid/ });
     await user.click(removeButtons()[1]);
     expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(1);
     expect(removeButtons()[0]).toBeDisabled();
+  });
+
+  it("unregisters a removed kid so stale values are not submitted", async () => {
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText("Kid 2 tag (auto if blank)"), "STALE-2");
+    await user.type(within(dialog).getByLabelText("Kid 2 weight (kg)"), "9.9");
+    await user.click(within(dialog).getByRole("button", { name: "Remove kid 2" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody!.kids).toEqual([
+      { tag: null, sex: "F", birth_weight: null, status: "ALIVE" },
+    ]);
   });
 
   it("rejects an emptied kidding date before posting", async () => {
@@ -360,7 +523,11 @@ describe("KiddingPage", () => {
       target: { value: "-1" },
     });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
-    expect(await within(dialog).findByText("Must be ≥ 0")).toBeInTheDocument();
+    const error = await within(dialog).findByRole("alert", { name: "" });
+    expect(error).toHaveTextContent("Must be ≥ 0");
+    expect(within(dialog).getByLabelText("Kid 1 weight (kg)")).toHaveAccessibleDescription(
+      "Must be ≥ 0",
+    );
     expect(postBody).toBeNull();
   });
 
@@ -431,6 +598,42 @@ describe("KiddingPage", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("announces a failed kidding save and retries without losing the rows", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/kidding", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "kidding version conflict" }, { status: 409 })
+          : HttpResponse.json(makeKidding({ id: 99 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText("Kid 1 tag (auto if blank)"), "G-NEW");
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "kidding version conflict",
+    );
+    expect(within(dialog).getByLabelText("Kid 1 tag (auto if blank)")).toHaveValue("G-NEW");
+    await user.click(within(dialog).getByRole("button", { name: "Retry save kidding" }));
+    await waitFor(() => expect(calls).toBe(2));
+  });
+
+  it("single-flights a double-click on Save kidding", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/kidding", () => {
+        calls += 1;
+        return HttpResponse.json(makeKidding({ id: 99 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+
+    await user.dblClick(within(dialog).getByRole("button", { name: "Save kidding" }));
+    await waitFor(() => expect(calls).toBe(1));
+  });
+
   it("Cancel closes the dialog without posting", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -459,6 +662,43 @@ describe("KiddingPage", () => {
       window.history.replaceState({}, "", "/kidding?breeding_id=999");
       await renderLoaded();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("fetches and opens a linked pregnancy outside both current due pages", async () => {
+      const older = makeBreeding({
+        id: 99,
+        expected_kidding_date: daysFromToday(45),
+        doe_tag: "G-099",
+      });
+      let breedingDetailCalls = 0;
+      let kiddingPregnancyCalls = 0;
+      server.use(
+        permissionsHandler(["kidding.view", "kidding.manage"]),
+        http.get("/api/breeding/99", () => {
+          breedingDetailCalls += 1;
+          return HttpResponse.json(older);
+        }),
+        http.get("/api/kidding/pregnancies/99", () => {
+          kiddingPregnancyCalls += 1;
+          return HttpResponse.json(older);
+        }),
+      );
+      window.history.replaceState({}, "", "/kidding?breeding_id=99");
+      renderWithProviders(<KiddingPage />);
+
+      const dialog = await screen.findByRole("dialog", { name: "Record kidding" });
+      expect(within(dialog).getByText(/Doe G-099 · due/)).toBeInTheDocument();
+      expect(kiddingPregnancyCalls).toBe(1);
+      expect(breedingDetailCalls).toBe(0);
+    });
+
+    it("does not honor a forged record deep link without kidding.manage", async () => {
+      server.use(permissionsHandler(["kidding.view"]));
+      window.history.replaceState({}, "", "/kidding?breeding_id=12");
+      await renderLoaded();
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Record kidding" })).not.toBeInTheDocument();
     });
   });
 });

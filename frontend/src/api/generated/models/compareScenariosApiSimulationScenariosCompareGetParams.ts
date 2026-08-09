@@ -6,5 +6,8 @@
  */
 
 export type CompareScenariosApiSimulationScenariosCompareGetParams = {
+/**
+ * @maxLength 128
+ */
 ids: string;
 };

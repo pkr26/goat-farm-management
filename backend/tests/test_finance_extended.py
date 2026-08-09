@@ -101,26 +101,45 @@ async def make_animal(
         "source": "PURCHASED",
         "current_bucket": bucket,
     } | overrides
+    if payload["current_bucket"] == "BREEDING":
+        dob = iso(today() - timedelta(days=400 if payload["sex"] == "F" else 500))
+        payload.setdefault("date_of_birth", dob)
+        payload.setdefault("weight_kg", 26.0 if payload["sex"] == "F" else 30.0)
+        payload.setdefault("weight_date", dob)
+    if payload["source"] == "PURCHASED":
+        payload.setdefault("historical_import_reason", "Existing-herd test fixture")
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
 
 
 async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-1") -> dict:
-    """A breeding-ready doe (400 days old, 26 kg entry weight, BREEDING bucket)."""
+    """A mature doe with weight history predating backdated breeding fixtures."""
+    dob = today() - timedelta(days=800)
     return await make_animal(
         client,
         headers,
         tag=tag,
         sex="F",
         bucket="BREEDING",
-        date_of_birth=iso(today() - timedelta(days=400)),
+        date_of_birth=iso(dob),
         weight_kg=26.0,
+        weight_date=iso(dob),
     )
 
 
 async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-1") -> dict:
-    return await make_animal(client, headers, tag=tag, sex="M", bucket="BREEDING")
+    dob = today() - timedelta(days=800)
+    return await make_animal(
+        client,
+        headers,
+        tag=tag,
+        sex="M",
+        bucket="BREEDING",
+        date_of_birth=iso(dob),
+        weight_kg=30.0,
+        weight_date=iso(dob),
+    )
 
 
 async def make_breeding(
@@ -148,7 +167,15 @@ async def make_breeding(
 async def ultrasound(
     client: httpx.AsyncClient, headers: dict, br_id: int, pregnant: bool, kid_count: int = 2
 ) -> dict:
-    payload: dict = {"pregnant": pregnant}
+    detail = await client.get(f"/api/breeding/{br_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    # Historical reporting fixtures record the observation on its planned
+    # check date.  Using implicit "today" would make the next backdated heat
+    # cycle predate a factual ultrasound result.
+    payload: dict = {
+        "pregnant": pregnant,
+        "date": detail.json()["ultrasound_date"],
+    }
     if pregnant:
         payload["kid_count"] = kid_count
     resp = await client.post(f"/api/breeding/{br_id}/ultrasound", json=payload, headers=headers)
@@ -286,6 +313,24 @@ async def test_create_amount_one_paisa(client: httpx.AsyncClient) -> None:
     assert txn["amount"] == 0.01
 
 
+async def test_create_sub_paisa_amount_is_rejected_instead_of_booked_as_zero(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    response = await client.post(
+        "/api/finance/new",
+        json={
+            "date": iso(today()),
+            "type": "EXPENSE",
+            "category": "OTHER",
+            "amount": 0.001,
+        },
+        headers=owner,
+    )
+    assert response.status_code == 422, response.text
+    assert (await get_finance(client, owner))["transactions"] == []
+
+
 @pytest.mark.parametrize(
     ("amount", "expected"),
     [
@@ -371,39 +416,51 @@ async def test_create_related_animal_own_farm_linked(client: httpx.AsyncClient) 
     assert txn["animal_tag"] == "G-101"
 
 
-async def test_create_related_animal_unknown_id_stripped(client: httpx.AsyncClient) -> None:
+async def test_create_related_animal_unknown_id_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    txn = await add_txn(client, owner, related_animal_id=999999)
-    assert txn["related_animal_id"] is None
-    assert txn["animal_tag"] is None
+    resp = await client.post(
+        "/api/finance/new",
+        json=txn_payload(related_animal_id=999999),
+        headers=owner,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Related animal is not on this farm"
+    assert (await get_finance(client, owner))["transactions"] == []
 
 
-async def test_create_related_animal_cross_farm_stripped(client: httpx.AsyncClient) -> None:
+async def test_create_related_animal_cross_farm_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
     other = await owner_with_farm(client, email="b@farm.in", farm_name="Farm B")
     foreign = await make_animal(client, other, tag="FOREIGN-1")
-    # Documented behavior: a foreign-farm animal link is stripped, not stored.
-    txn = await add_txn(client, owner, related_animal_id=foreign["id"])
-    assert txn["related_animal_id"] is None
-    assert txn["animal_tag"] is None
+    resp = await client.post(
+        "/api/finance/new",
+        json=txn_payload(related_animal_id=foreign["id"]),
+        headers=owner,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Related animal is not on this farm"
+    assert (await get_finance(client, owner))["transactions"] == []
 
 
-async def test_create_related_animal_int32_max_stripped(client: httpx.AsyncClient) -> None:
+async def test_create_related_animal_int32_max_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    # Largest id the int32 PK column could ever hold; no such animal → stripped.
-    txn = await add_txn(client, owner, related_animal_id=2_147_483_647)
-    assert txn["related_animal_id"] is None
+    resp = await client.post(
+        "/api/finance/new",
+        json=txn_payload(related_animal_id=2_147_483_647),
+        headers=owner,
+    )
+    assert resp.status_code == 400
 
 
-async def test_create_unknown_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_create_unknown_extra_field_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post(
         "/api/finance/new",
         json=txn_payload() | {"farm_id": 999, "hacker": "yes"},
         headers=owner,
     )
-    assert resp.status_code == 201, resp.text
-    assert "hacker" not in resp.json()
+    assert resp.status_code == 422, resp.text
+    assert (await get_finance(client, owner))["transactions"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +762,62 @@ async def test_correction_preserves_audit_trail_and_replaces_totals(
     assert replay.status_code == 409
 
 
+@pytest.mark.parametrize("reason", ["   ", "  x  "])
+async def test_correction_rejects_reason_that_is_too_short_after_trimming(
+    client: httpx.AsyncClient, reason: str
+) -> None:
+    owner = await owner_with_farm(client)
+    original = await add_txn(client, owner, amount=125.0)
+    response = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json={
+            "date": iso(today()),
+            "type": "EXPENSE",
+            "category": "FEED",
+            "amount": 100,
+            "reason": reason,
+        },
+        headers=owner,
+    )
+    assert response.status_code == 422, response.text
+    original_row = next(
+        row
+        for row in (await get_finance(client, owner))["transactions"]
+        if row["id"] == original["id"]
+    )
+    assert original_row["voided_at"] is None
+
+
+async def test_correction_rejects_foreign_animal_without_voiding_original(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
+    other = await owner_with_farm(client, email="b@farm.in", farm_name="Farm B")
+    foreign = await make_animal(client, other, tag="FOREIGN-CORRECTION")
+    original = await add_txn(client, owner, amount=125.0)
+
+    resp = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json={
+            "date": iso(today()),
+            "type": "EXPENSE",
+            "category": "FEED",
+            "amount": 100,
+            "related_animal_id": foreign["id"],
+            "reason": "Attempted foreign link",
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Related animal is not on this farm"
+
+    data = await get_finance(client, owner)
+    assert len(data["transactions"]) == 1
+    assert data["transactions"][0]["id"] == original["id"]
+    assert data["transactions"][0]["voided_at"] is None
+    assert data["total_expense"] == 125.0
+
+
 async def test_totals_hand_computed(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     await add_txn(client, owner, type="INCOME", category="ANIMAL_SALE", amount=1000.0)
@@ -1001,6 +1114,18 @@ async def test_dashboard_empty_farm(client: httpx.AsyncClient) -> None:
     assert dash["cull_candidates"] == []
     assert dash["suggestions"] == []
     assert dash["recent_weights"] == []
+    assert dash["preview_limit"] == 100
+    assert dash["recent_weights_limit"] == 10
+    for total_field in (
+        "todays_tasks_total",
+        "overdue_tasks_total",
+        "ultrasounds_due_total",
+        "kiddings_due_total",
+        "cull_candidates_total",
+        "suggestions_total",
+        "recent_weights_total",
+    ):
+        assert dash[total_field] == 0
 
 
 async def test_dashboard_bucket_counts_hand_computed(client: httpx.AsyncClient) -> None:
@@ -1057,6 +1182,8 @@ async def test_dashboard_todays_tasks(client: httpx.AsyncClient) -> None:
     dash = await get_dashboard(client, owner)
     assert [t["title"] for t in dash["todays_tasks"]] == ["Sweep the shed"]
     assert [t["title"] for t in dash["overdue_tasks"]] == ["Old duty"]
+    assert dash["todays_tasks_total"] == 1
+    assert dash["overdue_tasks_total"] == 1
 
 
 async def test_dashboard_overdue_tasks_oldest_first(client: httpx.AsyncClient) -> None:
@@ -1134,7 +1261,10 @@ async def test_dashboard_kidding_due_within_14_days(client: httpx.AsyncClient) -
     by_tag = {r["doe_tag"]: r for r in dash["kiddings_due"]}
     assert by_tag["KD-1"]["expected_kidding_date"] == iso(today() + timedelta(days=10))
     assert by_tag["KD-2"]["expected_kidding_date"] == iso(today() - timedelta(days=20))
-    assert all(r["has_kidding"] is False for r in dash["kiddings_due"])
+    assert all(
+        set(row) == {"id", "doe_id", "doe_tag", "expected_kidding_date"}
+        for row in dash["kiddings_due"]
+    )
 
 
 async def test_dashboard_pending_breeding_not_in_kiddings_due(client: httpx.AsyncClient) -> None:
@@ -1179,7 +1309,7 @@ async def test_dashboard_cull_candidate_after_two_failed_cycles(
     doe = await make_doe(client, owner, tag="CULL-1")
     buck = await make_buck(client, owner, tag="CULL-1-BUCK")
     br1 = await make_breeding(
-        client, owner, doe["id"], buck["id"], today() - timedelta(days=60), heat_cycle_number=1
+        client, owner, doe["id"], buck["id"], today() - timedelta(days=75), heat_cycle_number=1
     )
     await ultrasound(client, owner, br1["id"], pregnant=False)
     dash = await get_dashboard(client, owner)
@@ -1190,14 +1320,15 @@ async def test_dashboard_cull_candidate_after_two_failed_cycles(
     await ultrasound(client, owner, br2["id"], pregnant=False)
     dash = await get_dashboard(client, owner)
     assert [a["id"] for a in dash["cull_candidates"]] == [doe["id"]]
-    assert dash["cull_candidates"][0]["cull_candidate"] is True
+    assert set(dash["cull_candidates"][0]) == {"id", "tag_number", "name"}
+    assert dash["cull_candidates_total"] == 1
 
 
 async def test_dashboard_sold_cull_candidate_removed(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     doe = await make_doe(client, owner, tag="CULL-2")
     buck = await make_buck(client, owner, tag="CULL-2-BUCK")
-    for cycle, days in ((1, 60), (2, 35)):
+    for cycle, days in ((1, 75), (2, 35)):
         br = await make_breeding(
             client,
             owner,
@@ -1215,11 +1346,25 @@ async def test_dashboard_sold_cull_candidate_removed(client: httpx.AsyncClient) 
 
 async def test_dashboard_recent_weights(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    await make_animal(client, owner, tag="W-1", weight_kg=18.5)
+    animal = await make_animal(client, owner, tag="W-1", weight_kg=18.5)
     dash = await get_dashboard(client, owner)
     assert len(dash["recent_weights"]) == 1
+    assert dash["recent_weights_total"] == 1
     assert dash["recent_weights"][0]["weight_kg"] == 18.5
     assert dash["recent_weights"][0]["date"] == iso(today())
+    assert dash["recent_weights"][0]["animal"] == {
+        "id": animal["id"],
+        "tag_number": "W-1",
+        "name": None,
+    }
+    assert set(dash["recent_weights"][0]) == {
+        "id",
+        "date",
+        "weight_kg",
+        "bcs",
+        "animal",
+        "notes",
+    }
 
 
 async def test_dashboard_recent_weights_max_10(client: httpx.AsyncClient) -> None:
@@ -1228,6 +1373,8 @@ async def test_dashboard_recent_weights_max_10(client: httpx.AsyncClient) -> Non
         await make_animal(client, owner, tag=f"W-{i:02d}", weight_kg=10.0 + i)
     dash = await get_dashboard(client, owner)
     assert len(dash["recent_weights"]) == 10
+    assert dash["recent_weights_total"] == 12
+    assert dash["recent_weights_limit"] == 10
 
 
 async def test_dashboard_recent_weights_newest_first(client: httpx.AsyncClient) -> None:
@@ -1264,6 +1411,7 @@ async def test_dashboard_suggestion_breeding_ready_doe(client: httpx.AsyncClient
     dash = await get_dashboard(client, owner)
     suggestions = [s for s in dash["suggestions"] if s["animal"]["id"] == doe["id"]]
     assert len(suggestions) == 1
+    assert dash["suggestions_total"] == 1
     assert suggestions[0]["to"] == "BREEDING"
     assert "Breeding-ready" in suggestions[0]["reason"]
 
@@ -1319,6 +1467,227 @@ async def test_dashboard_mover_worker_allowed(client: httpx.AsyncClient) -> None
     assert (await client.get("/api/dashboard", headers=mover)).status_code == 200
 
 
+async def test_dashboard_task_rows_require_tasks_view_and_skip_task_scope(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    dashboard_only_id = await custom_role_id(client, owner, "Dashboard Only", ["dashboard.view"])
+    dashboard_only = await worker_headers(
+        client, owner, dashboard_only_id, "dashboard-only@farm.in"
+    )
+    task_reader_id = await custom_role_id(
+        client, owner, "Assigned Task Reader", ["dashboard.view", "tasks.view"]
+    )
+    task_reader = await worker_headers(
+        client, owner, task_reader_id, "dashboard-task-reader@farm.in"
+    )
+    created = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Private assigned duty",
+            "due_date": iso(today()),
+            "category": "OTHER",
+            "assigned_role_id": task_reader_id,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+
+    async def forbidden_task_scope(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("dashboard called task_scope without tasks.view")
+
+    from app.api import dashboard as dashboard_api
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(dashboard_api, "task_scope", forbidden_task_scope)
+        response = await client.get("/api/dashboard", headers=dashboard_only)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["todays_tasks"] == []
+    assert body["overdue_tasks"] == []
+    assert body["ultrasounds_due"] == []
+
+    authorized = await client.get("/api/dashboard", headers=task_reader)
+    assert authorized.status_code == 200, authorized.text
+    row = next(
+        task for task in authorized.json()["todays_tasks"] if task["id"] == created.json()["id"]
+    )
+    assert set(row) == {
+        "id",
+        "title",
+        "due_date",
+        "status",
+        "category",
+        "auto_generated",
+        "animal_id",
+        "purchase_batch_id",
+        "breeding_record_id",
+        "assigned_role_id",
+        "assigned_user_id",
+        "recur_days",
+        "recurring_series_id",
+        "completed_by_id",
+        "completed_at",
+        "verified_by_id",
+        "verified_at",
+        "verification_note",
+        "skipped_by_id",
+        "skipped_at",
+        "skip_reason",
+        "assigned_role_name",
+        "assigned_user_name",
+        "animal_tag",
+        "needs_verification",
+        "action_url",
+    }
+    assert row["title"] == "Private assigned duty"
+    assert row["assigned_role_id"] == task_reader_id
+    assert row["assigned_role_name"] == "Assigned Task Reader"
+
+
+async def test_cleaner_dashboard_nested_rows_exclude_profile_secrets(
+    client: httpx.AsyncClient,
+) -> None:
+    """dashboard.view exposes display context, not AnimalOut or weight notes."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(
+        client,
+        owner,
+        tag="DASH-PRIVATE",
+        sex="F",
+        bucket="FOUNDATION",
+        date_of_birth=iso(today() - timedelta(days=400)),
+        purchase_date=iso(today() - timedelta(days=400)),
+        purchase_price=9876.0,
+        seller_name="Confidential Seller",
+        notes="Private herd profile note",
+        weight_kg=26.0,
+        weight_date=iso(today() - timedelta(days=400)),
+        historical_import_reason="Legacy dashboard privacy fixture",
+    )
+    newest_weight = await client.post(
+        f"/api/animals/{animal['id']}/weight",
+        json={
+            "date": iso(today()),
+            "weight_kg": 27.0,
+            "bcs": 4,
+            "notes": "Private veterinary observation",
+        },
+        headers=owner,
+    )
+    assert newest_weight.status_code == 201, newest_weight.text
+    cleaner_role = await preset_role_id(client, owner, "CLEANER")
+    cleaner = await worker_headers(client, owner, cleaner_role, "dashboard-cleaner@farm.in")
+    mover_role = await preset_role_id(client, owner, "MOVER")
+    mover = await worker_headers(client, owner, mover_role, "dashboard-mover@farm.in")
+    vet_role = await preset_role_id(client, owner, "VET")
+    vet = await worker_headers(client, owner, vet_role, "dashboard-vet@farm.in")
+
+    owner_dashboard = await get_dashboard(client, owner)
+    owner_suggestion = next(
+        row for row in owner_dashboard["suggestions"] if row["animal"]["id"] == animal["id"]
+    )
+    assert set(owner_suggestion["animal"]) == {"id", "tag_number", "name"}
+    assert owner_dashboard["recent_weights"][0]["notes"] == "Private veterinary observation"
+    assert owner_dashboard["recent_weights"][0]["animal"] == {
+        "id": animal["id"],
+        "tag_number": "DASH-PRIVATE",
+        "name": None,
+    }
+
+    delegated_dashboard = await get_dashboard(client, cleaner)
+    delegated_suggestion = next(
+        row for row in delegated_dashboard["suggestions"] if row["animal"]["id"] == animal["id"]
+    )
+    assert set(delegated_suggestion["animal"]) == {"id", "tag_number", "name"}
+    assert delegated_suggestion["animal"]["tag_number"] == "DASH-PRIVATE"
+    assert set(delegated_dashboard["recent_weights"][0]) == {
+        "id",
+        "date",
+        "weight_kg",
+        "bcs",
+        "animal",
+        "notes",
+    }
+    assert delegated_dashboard["recent_weights"][0]["weight_kg"] == 27.0
+    assert delegated_dashboard["recent_weights"][0]["animal"]["tag_number"] == "DASH-PRIVATE"
+    assert delegated_dashboard["recent_weights"][0]["notes"] is None
+
+    authorized_dashboard = await get_dashboard(client, mover)
+    authorized_suggestion = next(
+        row for row in authorized_dashboard["suggestions"] if row["animal"]["id"] == animal["id"]
+    )
+    assert set(authorized_suggestion["animal"]) == {"id", "tag_number", "name"}
+    assert set(authorized_dashboard["recent_weights"][0]) == {
+        "id",
+        "date",
+        "weight_kg",
+        "bcs",
+        "animal",
+        "notes",
+    }
+    assert authorized_dashboard["recent_weights"][0]["notes"] is None
+
+    health_authorized_dashboard = await get_dashboard(client, vet)
+    health_authorized_suggestion = next(
+        row
+        for row in health_authorized_dashboard["suggestions"]
+        if row["animal"]["id"] == animal["id"]
+    )
+    assert set(health_authorized_suggestion["animal"]) == {"id", "tag_number", "name"}
+    assert health_authorized_dashboard["recent_weights"][0]["notes"] == (
+        "Private veterinary observation"
+    )
+
+
+async def test_cleaner_dashboard_kidding_due_uses_minimum_display_context(
+    client: httpx.AsyncClient,
+) -> None:
+    """The dashboard card must not embed the complete breeding record."""
+    owner = await owner_with_farm(client)
+    historical_date = today() - timedelta(days=600)
+    doe = await make_animal(
+        client,
+        owner,
+        tag="DUE-PRIVATE",
+        sex="F",
+        bucket="BREEDING",
+        date_of_birth=iso(historical_date),
+        weight_kg=28.0,
+        weight_date=iso(historical_date),
+        historical_import_reason="Legacy kidding-due privacy fixture",
+    )
+    buck = await make_animal(
+        client,
+        owner,
+        tag="DUE-BUCK",
+        sex="M",
+        bucket="BREEDING",
+        date_of_birth=iso(historical_date),
+        weight_kg=30.0,
+        weight_date=iso(historical_date),
+        historical_import_reason="Legacy kidding-due buck fixture",
+    )
+    breeding = await make_breeding(
+        client, owner, doe["id"], buck["id"], today() - timedelta(days=140)
+    )
+    await ultrasound(client, owner, breeding["id"], pregnant=True)
+    cleaner_role = await preset_role_id(client, owner, "CLEANER")
+    cleaner = await worker_headers(client, owner, cleaner_role, "kidding-cleaner@farm.in")
+    vet_role = await preset_role_id(client, owner, "VET")
+    vet = await worker_headers(client, owner, vet_role, "kidding-vet@farm.in")
+
+    expected_fields = {"id", "doe_id", "doe_tag", "expected_kidding_date"}
+    for headers in (owner, cleaner, vet):
+        row = next(
+            item
+            for item in (await get_dashboard(client, headers))["kiddings_due"]
+            if item["id"] == breeding["id"]
+        )
+        assert set(row) == expected_fields
+        assert row["doe_tag"] == "DUE-PRIVATE"
+
+
 # ---------------------------------------------------------------------------
 # GET /api/dashboard/reports — herd summary, breeding performance, mortality
 # ---------------------------------------------------------------------------
@@ -1339,6 +1708,8 @@ async def test_reports_empty_farm(client: httpx.AsyncClient) -> None:
     assert breeding["kids_per_kidding"] is None
     assert breeding["twin_rate"] is None
     assert breeding["cull_candidates"] == []
+    assert breeding["cull_candidates_total"] == 0
+    assert breeding["cull_candidates_limit"] == 100
     mortality = rep["mortality"]
     assert mortality["total_deaths"] == 0
     assert mortality["deaths_by_month"] == []
@@ -1432,7 +1803,7 @@ async def test_reports_first_cycle_rate_excludes_later_cycles(client: httpx.Asyn
     buck = await make_buck(client, owner, tag="CR-3-BUCK")
     # Cycle 1 fails, cycle 2 confirms (same doe).
     br1 = await make_breeding(
-        client, owner, doe["id"], buck["id"], today() - timedelta(days=60), heat_cycle_number=1
+        client, owner, doe["id"], buck["id"], today() - timedelta(days=75), heat_cycle_number=1
     )
     await ultrasound(client, owner, br1["id"], pregnant=False)
     br2 = await make_breeding(
@@ -1544,7 +1915,7 @@ async def test_reports_cull_candidates_listed(client: httpx.AsyncClient) -> None
     owner = await owner_with_farm(client)
     doe = await make_doe(client, owner, tag="RC-1")
     buck = await make_buck(client, owner, tag="RC-1-BUCK")
-    for cycle, days in ((1, 60), (2, 35)):
+    for cycle, days in ((1, 75), (2, 35)):
         br = await make_breeding(
             client,
             owner,
@@ -1557,6 +1928,7 @@ async def test_reports_cull_candidates_listed(client: httpx.AsyncClient) -> None
     rep = await get_reports(client, owner)
     ids = [a["id"] for a in rep["breeding"]["cull_candidates"]]
     assert ids == [doe["id"]]
+    assert rep["breeding"]["cull_candidates_total"] == 1
 
 
 async def test_reports_cross_farm_isolation(client: httpx.AsyncClient) -> None:
@@ -1604,3 +1976,73 @@ async def test_reports_worker_with_permission_allowed(client: httpx.AsyncClient)
     rid = await custom_role_id(client, owner, "Analyst", ["reports.view"])
     worker = await worker_headers(client, owner, rid, "analyst@farm.in")
     assert (await client.get("/api/dashboard/reports", headers=worker)).status_code == 200
+
+
+async def test_reports_only_cull_rows_expose_identity_not_animal_profile(
+    client: httpx.AsyncClient,
+) -> None:
+    """reports.view permits aggregates and labels, not full cull-animal records."""
+    owner = await owner_with_farm(client)
+    doe = await make_animal(
+        client,
+        owner,
+        tag="REPORT-PRIVATE",
+        sex="F",
+        bucket="BREEDING",
+        date_of_birth=iso(today() - timedelta(days=400)),
+        purchase_date=iso(today() - timedelta(days=400)),
+        purchase_price=7654.0,
+        seller_name="Report Secret Seller",
+        notes="Report-only users must not see this",
+        weight_kg=26.0,
+        weight_date=iso(today() - timedelta(days=400)),
+        historical_import_reason="Legacy report privacy fixture",
+    )
+    buck = await make_animal(
+        client,
+        owner,
+        tag="REPORT-BUCK",
+        sex="M",
+        bucket="BREEDING",
+        date_of_birth=iso(today() - timedelta(days=500)),
+        purchase_date=iso(today() - timedelta(days=500)),
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=500)),
+        historical_import_reason="Legacy report breeding fixture",
+    )
+    for cycle, days_ago in ((1, 75), (2, 35)):
+        breeding = await make_breeding(
+            client,
+            owner,
+            doe["id"],
+            buck["id"],
+            today() - timedelta(days=days_ago),
+            heat_cycle_number=cycle,
+        )
+        await ultrasound(client, owner, breeding["id"], pregnant=False)
+
+    owner_reports = await get_reports(client, owner)
+    owner_cull = next(
+        row for row in owner_reports["breeding"]["cull_candidates"] if row["id"] == doe["id"]
+    )
+    assert set(owner_cull) == {"id", "tag_number", "name"}
+
+    analyst_role = await custom_role_id(client, owner, "Reports Only", ["reports.view"])
+    analyst = await worker_headers(client, owner, analyst_role, "reports-only@farm.in")
+    delegated_reports = await get_reports(client, analyst)
+    delegated_cull = next(
+        row for row in delegated_reports["breeding"]["cull_candidates"] if row["id"] == doe["id"]
+    )
+    assert set(delegated_cull) == {"id", "tag_number", "name"}
+    assert delegated_cull["tag_number"] == "REPORT-PRIVATE"
+
+    authorized_role = await custom_role_id(
+        client, owner, "Reports and Animals", ["reports.view", "animals.view"]
+    )
+    authorized = await worker_headers(client, owner, authorized_role, "reports-animals@farm.in")
+    authorized_cull = next(
+        row
+        for row in (await get_reports(client, authorized))["breeding"]["cull_candidates"]
+        if row["id"] == doe["id"]
+    )
+    assert set(authorized_cull) == {"id", "tag_number", "name"}

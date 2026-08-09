@@ -1,107 +1,226 @@
-"""Dashboard helpers."""
+"""Bounded dashboard query helpers."""
 
+from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Date, and_, case, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from ..models import Animal, AnimalStatus, BreedingOutcome, BreedingRecord, Bucket, Farm
-from ..utils import today
+from ..models import (
+    MIN_BREEDING_AGE_MONTHS,
+    MIN_BREEDING_WEIGHT_KG,
+    Animal,
+    AnimalStatus,
+    BreedingOutcome,
+    BreedingRecord,
+    Bucket,
+    BucketMove,
+    Farm,
+    HealthEvent,
+    KiddingRecord,
+    WeightRecord,
+)
+from ..utils import add_months, business_date, today
+
+
+def _age_months(dob: date | None, reference_date: date) -> int | None:
+    if dob is None:
+        return None
+    months = (reference_date.year - dob.year) * 12 + (reference_date.month - dob.month)
+    if reference_date.day < dob.day:
+        months -= 1
+    return max(months, 0)
 
 
 async def ready_to_move_suggestions(
-    db: AsyncSession, farm: Farm, animals: list[Animal] | None = None
-) -> list[dict[str, Any]]:
-    """Bucket-move suggestions per SPEC thresholds.
+    db: AsyncSession,
+    farm: Farm,
+    *,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
+    """Return a deterministic suggestion preview plus its exact SQL count.
 
-    `animals` may supply the caller's already-loaded ACTIVE herd (the
-    dashboard counts the same rows anyway — one herd scan per request instead
-    of two). The relationships the thresholds read must be eager-loaded on
-    those rows (ANIMAL_OUT_LOADS — async sessions forbid implicit lazy loads);
-    the fallback query keeps the explicit selectinloads for clarity."""
-    if animals is None:
-        result = await db.execute(
-            select(Animal)
-            .options(
-                # is_breeding_ready / days_in_current_bucket / _gestation_days read
-                # these relationships.
-                selectinload(Animal.weight_records),
-                selectinload(Animal.bucket_moves),
-                selectinload(Animal.breedings_as_doe).selectinload(BreedingRecord.kidding_record),
-            )
-            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-        )
-        animals = list(result.scalars().all())
-    suggestions: list[dict[str, Any]] = []
+    Only scalar animal context and each history's latest relevant row cross
+    the database boundary. The former implementation hydrated every active
+    animal with every weight, bucket move, breeding and kidding row before it
+    could decide whether even one suggestion existed.
+    """
     reference_date = today(farm.timezone)
+    effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
+    latest_weight_recorded = (
+        select(WeightRecord.weight_kg)
+        .where(WeightRecord.animal_id == Animal.id)
+        .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+        .limit(1)
+        .correlate(Animal)
+        .scalar_subquery()
+    )
+    latest_weight_as_of = (
+        select(WeightRecord.weight_kg)
+        .where(
+            WeightRecord.animal_id == Animal.id,
+            WeightRecord.date <= reference_date,
+        )
+        .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+        .limit(1)
+        .correlate(Animal)
+        .scalar_subquery()
+    )
+    birth_weight_as_of = case(
+        (effective_dob <= reference_date, Animal.birth_weight),
+        else_=None,
+    )
+    latest_move = (
+        select(BucketMove.moved_at)
+        .where(BucketMove.animal_id == Animal.id)
+        .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
+        .limit(1)
+        .correlate(Animal)
+        .scalar_subquery()
+    )
+    # A confirmed pregnancy ceases to be open as soon as its kidding row is
+    # recorded. Ordering matches the prior Python max(breeding_date, id).
+    latest_open_pregnancy = (
+        select(BreedingRecord.breeding_date)
+        .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
+        .where(
+            BreedingRecord.farm_id == farm.id,
+            BreedingRecord.doe_id == Animal.id,
+            BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+            KiddingRecord.id.is_(None),
+        )
+        .order_by(BreedingRecord.breeding_date.desc(), BreedingRecord.id.desc())
+        .limit(1)
+        .correlate(Animal)
+        .scalar_subquery()
+    )
+    active_withdrawal = (
+        select(HealthEvent.id)
+        .where(
+            HealthEvent.farm_id == farm.id,
+            HealthEvent.animal_id == Animal.id,
+            HealthEvent.withdrawal_until >= reference_date,
+        )
+        .correlate(Animal)
+        .exists()
+    )
+    context = (
+        select(
+            Animal.id.label("animal_id"),
+            Animal.tag_number,
+            Animal.name,
+            Animal.sex,
+            Animal.current_bucket,
+            Animal.created_at,
+            Animal.movement_restricted,
+            Animal.suspected_scheduled_disease,
+            effective_dob.label("effective_dob"),
+            func.coalesce(latest_weight_recorded, Animal.birth_weight).label("latest_weight"),
+            func.coalesce(latest_weight_as_of, birth_weight_as_of).label("latest_weight_as_of"),
+            latest_move.label("latest_moved_at"),
+            latest_open_pregnancy.label("open_pregnancy_date"),
+            active_withdrawal.label("has_active_withdrawal"),
+        )
+        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+        .subquery("dashboard_animal_context")
+    )
 
-    def _gestation_days(animal: Animal) -> int | None:
-        confirmed = [
-            r
-            for r in animal.breedings_as_doe
-            if r.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value and not r.kidding_record
-        ]
-        if not confirmed:
-            return None
-        latest = max(confirmed, key=lambda r: (r.breeding_date, r.id or 0))
-        return (reference_date - latest.breeding_date).days
+    age_cutoff = add_months(reference_date, -MIN_BREEDING_AGE_MONTHS)
+    male_sale_age_cutoff = add_months(reference_date, -8)
+    bucket_started_local_date = cast(
+        func.timezone(
+            farm.timezone,
+            func.timezone(
+                "UTC",
+                func.coalesce(context.c.latest_moved_at, context.c.created_at),
+            ),
+        ),
+        Date,
+    )
+    qualifies = and_(
+        # Suggestions must never contradict the authoritative write paths:
+        # every lifecycle move and sale is blocked while either safety hold
+        # is active, regardless of which transition rule would otherwise fit.
+        context.c.movement_restricted.is_(False),
+        context.c.suspected_scheduled_disease.is_(False),
+        or_(
+            and_(
+                context.c.sex == "F",
+                context.c.current_bucket.in_([Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value]),
+                context.c.effective_dob.is_not(None),
+                context.c.effective_dob <= age_cutoff,
+                context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
+                context.c.open_pregnancy_date.is_(None),
+            ),
+            and_(
+                context.c.sex == "F",
+                context.c.current_bucket == Bucket.RESTING.value,
+                bucket_started_local_date <= reference_date - timedelta(days=30),
+                context.c.effective_dob.is_not(None),
+                context.c.effective_dob <= age_cutoff,
+                context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
+                context.c.open_pregnancy_date.is_(None),
+            ),
+            and_(
+                context.c.current_bucket == Bucket.PREGNANCY_EARLY.value,
+                context.c.open_pregnancy_date <= reference_date - timedelta(days=100),
+            ),
+            and_(
+                context.c.current_bucket == Bucket.PREGNANCY_LATE.value,
+                context.c.open_pregnancy_date <= reference_date - timedelta(days=135),
+            ),
+            and_(
+                context.c.sex == "M",
+                context.c.current_bucket == Bucket.MALE_KIDS.value,
+                context.c.effective_dob.is_not(None),
+                context.c.effective_dob <= male_sale_age_cutoff,
+                context.c.latest_weight >= 24.0,
+                context.c.has_active_withdrawal.is_(False),
+            ),
+        ),
+    )
+    candidates = select(context, func.count().over().label("suggestions_total")).where(qualifies)
+    rows = (
+        await db.execute(
+            candidates.order_by(context.c.tag_number, context.c.animal_id).limit(limit)
+        )
+    ).all()
 
-    for animal in animals:
-        bucket = animal.current_bucket
-        if (
-            animal.sex == "F"
-            and bucket in (Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value)
-            and animal.is_breeding_ready_on(reference_date)
-        ):
-            suggestions.append(
-                {
-                    "animal": animal,
-                    "to": Bucket.BREEDING.value,
-                    "reason": "Breeding-ready (≥10 mo, ≥22 kg)",
-                }
+    suggestions: list[dict[str, Any]] = []
+    for row in rows:
+        bucket = row.current_bucket
+        if bucket in (Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value):
+            target = Bucket.BREEDING.value
+            reason = "Breeding-ready (≥10 mo, ≥22 kg)"
+        elif bucket == Bucket.RESTING.value:
+            started_at = row.latest_moved_at or row.created_at
+            bucket_days = max(
+                (reference_date - business_date(started_at, farm.timezone)).days,
+                0,
             )
-        elif (
-            animal.sex == "F"
-            and bucket == Bucket.RESTING.value
-            and animal.days_in_current_bucket_on(reference_date, farm.timezone) >= 30
-        ):
-            bucket_days = animal.days_in_current_bucket_on(reference_date, farm.timezone)
-            suggestions.append(
-                {
-                    "animal": animal,
-                    "to": Bucket.BREEDING.value,
-                    "reason": f"{bucket_days} days resting (flush done)",
-                }
-            )
+            target = Bucket.BREEDING.value
+            reason = f"{bucket_days} days resting (flush done)"
         elif bucket == Bucket.PREGNANCY_EARLY.value:
-            day = _gestation_days(animal)
-            if day is not None and day >= 100:
-                suggestions.append(
-                    {
-                        "animal": animal,
-                        "to": Bucket.PREGNANCY_LATE.value,
-                        "reason": f"Gestation day {day} (≥100)",
-                    }
-                )
+            gestation_day = (reference_date - row.open_pregnancy_date).days
+            target = Bucket.PREGNANCY_LATE.value
+            reason = f"Gestation day {gestation_day} (≥100)"
         elif bucket == Bucket.PREGNANCY_LATE.value:
-            day = _gestation_days(animal)
-            if day is not None and day >= 135:
-                suggestions.append(
-                    {
-                        "animal": animal,
-                        "to": Bucket.DELIVERY.value,
-                        "reason": f"Gestation day {day} (≥135, due soon)",
-                    }
-                )
-        elif animal.sex == "M" and bucket == Bucket.MALE_KIDS.value:
-            age, weight = animal.age_months_on(reference_date), animal.latest_weight_kg
-            if age is not None and age >= 8 and weight is not None and weight >= 24:
-                suggestions.append(
-                    {
-                        "animal": animal,
-                        "to": "SELL",
-                        "reason": f"{age} mo, {weight:.1f} kg — market ready",
-                    }
-                )
-    return suggestions
+            gestation_day = (reference_date - row.open_pregnancy_date).days
+            target = Bucket.DELIVERY.value
+            reason = f"Gestation day {gestation_day} (≥135, due soon)"
+        else:
+            age = _age_months(row.effective_dob, reference_date)
+            target = "SELL"
+            reason = f"{age} mo, {row.latest_weight:.1f} kg — market ready"
+        suggestions.append(
+            {
+                "animal": {
+                    "id": row.animal_id,
+                    "tag_number": row.tag_number,
+                    "name": row.name,
+                },
+                "to": target,
+                "reason": reason,
+            }
+        )
+    return suggestions, int(rows[0].suggestions_total) if rows else 0

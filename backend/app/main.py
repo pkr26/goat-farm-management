@@ -1,11 +1,13 @@
 """FastAPI app factory. Dev: uvicorn app.main:app --reload (from backend/)."""
 
+import asyncio
 import logging
 import math
 import re
+import time
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime
 from typing import Any
@@ -17,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.middleware.base import RequestResponseEndpoint
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -37,9 +40,11 @@ from .api import (
 )
 from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
-from .deps import purge_expired_refresh_sessions
-from .security import prime_dummy_password_hash, validate_jwt_keypair
-from .seed import seed_startup
+from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
+from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
+from .seed import repair_legacy_data_batch, seed_startup
+from .services.animals import skip_inactive_animal_tasks_batch
+from .services.idempotency import purge_expired_idempotency_records
 
 logger = logging.getLogger("goatfarm")
 
@@ -57,13 +62,24 @@ class RequestBodyLimitMiddleware:
     from turning an otherwise bounded schema field into process-memory DoS.
     """
 
-    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+    def __init__(self, app: ASGIApp, max_bytes: int, max_target_bytes: int) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.max_target_bytes = max_target_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
+            return
+
+        raw_path = scope.get("raw_path") or str(scope.get("path", "")).encode("utf-8")
+        query_string = scope.get("query_string", b"")
+        if len(raw_path) + (1 if query_string else 0) + len(query_string) > self.max_target_bytes:
+            response = JSONResponse(
+                status_code=414,
+                content={"detail": "Request target is too long"},
+            )
+            await response(scope, receive, send)
             return
 
         headers = {name.lower(): value for name, value in scope.get("headers", [])}
@@ -129,10 +145,164 @@ def _configure_logging() -> None:
             handler.addFilter(_RequestIdFilter())
 
 
+async def _refresh_session_cleanup_loop(
+    interval_seconds: int,
+    batch_size: int,
+    max_batches: int,
+) -> None:
+    """Bound refresh-session retention for a process that runs indefinitely."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            removed_total = 0
+            for _batch in range(max_batches):
+                async with get_sessionmaker()() as db:
+                    removed = await purge_expired_refresh_sessions(
+                        db,
+                        batch_size=batch_size,
+                    )
+                    await db.commit()
+                removed_total += removed
+                if removed < batch_size:
+                    break
+            if removed_total:
+                logger.info("purged %d expired refresh_sessions rows", removed_total)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A transient database outage must not kill the maintenance loop;
+            # readiness reports the outage and the next interval retries.
+            logger.exception("periodic refresh-session cleanup failed")
+
+
+async def _idempotency_cleanup_loop(
+    interval_seconds: int,
+    batch_size: int,
+    max_batches: int,
+) -> None:
+    """Purge finite expiry batches outside all user request transactions."""
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            removed_total = 0
+            for _batch in range(max_batches):
+                async with get_sessionmaker()() as db:
+                    removed = await purge_expired_idempotency_records(db, batch_size=batch_size)
+                    await db.commit()
+                removed_total += removed
+                if removed < batch_size:
+                    break
+            if removed_total:
+                logger.info("purged %d expired idempotency records", removed_total)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic idempotency cleanup failed")
+
+
+async def _legacy_data_repair_loop(
+    interval_seconds: int,
+    farm_batch_size: int,
+    task_batch_size: int,
+    max_batches: int,
+) -> None:
+    """Repair legacy tenants after readiness, in finite concurrent-safe units."""
+    while True:
+        try:
+            repaired_farms = 0
+            repaired_tasks = 0
+            for _batch in range(max_batches):
+                async with get_sessionmaker()() as db:
+                    farms, tasks_count = await repair_legacy_data_batch(
+                        db,
+                        farm_batch_size=farm_batch_size,
+                        task_batch_size=task_batch_size,
+                    )
+                    await db.commit()
+                repaired_farms += farms
+                repaired_tasks += tasks_count
+                if farms < farm_batch_size and tasks_count < task_batch_size:
+                    break
+            if repaired_farms or repaired_tasks:
+                logger.info(
+                    "legacy repair updated farms=%d tasks=%d",
+                    repaired_farms,
+                    repaired_tasks,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic legacy-data repair failed")
+        await asyncio.sleep(interval_seconds)
+
+
+async def _inactive_animal_task_cleanup_loop(
+    interval_seconds: int,
+    batch_size: int,
+    max_batches: int,
+) -> None:
+    """Converge hidden duties after animal lifecycle exits in finite units."""
+    while True:
+        try:
+            removed_total = 0
+            for _batch in range(max_batches):
+                async with get_sessionmaker()() as db:
+                    removed = await skip_inactive_animal_tasks_batch(
+                        db,
+                        batch_size=batch_size,
+                    )
+                    await db.commit()
+                removed_total += removed
+                if removed < batch_size:
+                    break
+            if removed_total:
+                logger.info(
+                    "skipped %d pending tasks linked to inactive animals",
+                    removed_total,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic inactive-animal task cleanup failed")
+        await asyncio.sleep(interval_seconds)
+
+
+async def _deleted_membership_cleanup_loop(
+    interval_seconds: int,
+    batch_size: int,
+    max_batches: int,
+) -> None:
+    """Converge retained memberships after authoritative User tombstones."""
+    while True:
+        try:
+            deactivated_total = 0
+            for _batch in range(max_batches):
+                async with get_sessionmaker()() as db:
+                    deactivated = await deactivate_deleted_user_memberships(
+                        db,
+                        batch_size=batch_size,
+                    )
+                    await db.commit()
+                deactivated_total += deactivated
+                if deactivated < batch_size:
+                    break
+            if deactivated_total:
+                logger.info(
+                    "deactivated %d memberships retained for deleted users",
+                    deactivated_total,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("periodic deleted-membership cleanup failed")
+        await asyncio.sleep(interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    # Schema is owned by Alembic (alembic upgrade head); startup seeds are
-    # idempotent reference data, role presets and task backfills.
+    # Schema is owned by Alembic (alembic upgrade head). Before readiness we
+    # seed only fixed-size global reference data; tenant role/inventory/task
+    # repair is the finite post-readiness worker below.
     logger.info("startup (environment=%s)", get_settings().environment)
     # Fail before accepting traffic when active/previous production key files
     # are missing, malformed, weak, duplicate, unreadable, or when the active
@@ -144,20 +314,78 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     try:
         async with get_sessionmaker()() as db:
             await seed_startup(db)
-            # Sweep expired refresh sessions on boot so the table doesn't
-            # accumulate 14-day-old rows forever.
-            # Restarts happen regularly enough that on-boot is sufficient
-            # until a proper scheduler is introduced.
-            removed = await purge_expired_refresh_sessions(db)
+            # One finite boot batch bounds readiness latency; the periodic
+            # worker continues any remaining expiry cleanup after readiness.
+            removed = await purge_expired_refresh_sessions(
+                db,
+                batch_size=get_settings().refresh_session_cleanup_batch_size,
+            )
             if removed:
                 logger.info("purged %d expired refresh_sessions rows", removed)
             await db.commit()
     except Exception:
         logger.critical("startup seeding failed; refusing to serve", exc_info=True)
         raise
-    yield
-    logger.info("shutdown: disposing database engine")
-    await get_engine().dispose()
+    refresh_cleanup_task = asyncio.create_task(
+        _refresh_session_cleanup_loop(
+            get_settings().refresh_session_cleanup_interval_seconds,
+            get_settings().refresh_session_cleanup_batch_size,
+            get_settings().refresh_session_cleanup_max_batches,
+        ),
+        name="refresh-session-cleanup",
+    )
+    idempotency_cleanup_task = asyncio.create_task(
+        _idempotency_cleanup_loop(
+            get_settings().idempotency_cleanup_interval_seconds,
+            get_settings().idempotency_cleanup_batch_size,
+            get_settings().idempotency_cleanup_max_batches,
+        ),
+        name="idempotency-cleanup",
+    )
+    legacy_repair_task = asyncio.create_task(
+        _legacy_data_repair_loop(
+            get_settings().legacy_repair_interval_seconds,
+            get_settings().legacy_repair_farm_batch_size,
+            get_settings().legacy_repair_task_batch_size,
+            get_settings().legacy_repair_max_batches,
+        ),
+        name="legacy-data-repair",
+    )
+    inactive_animal_task_cleanup_task = asyncio.create_task(
+        _inactive_animal_task_cleanup_loop(
+            get_settings().inactive_animal_task_cleanup_interval_seconds,
+            get_settings().inactive_animal_task_cleanup_batch_size,
+            get_settings().inactive_animal_task_cleanup_max_batches,
+        ),
+        name="inactive-animal-task-cleanup",
+    )
+    deleted_membership_cleanup_task = asyncio.create_task(
+        _deleted_membership_cleanup_loop(
+            get_settings().deleted_membership_cleanup_interval_seconds,
+            get_settings().deleted_membership_cleanup_batch_size,
+            get_settings().deleted_membership_cleanup_max_batches,
+        ),
+        name="deleted-membership-cleanup",
+    )
+    try:
+        yield
+    finally:
+        refresh_cleanup_task.cancel()
+        idempotency_cleanup_task.cancel()
+        legacy_repair_task.cancel()
+        inactive_animal_task_cleanup_task.cancel()
+        deleted_membership_cleanup_task.cancel()
+        for cleanup_task in (
+            refresh_cleanup_task,
+            idempotency_cleanup_task,
+            legacy_repair_task,
+            inactive_animal_task_cleanup_task,
+            deleted_membership_cleanup_task,
+        ):
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
+        logger.info("shutdown: disposing database engine")
+        await get_engine().dispose()
 
 
 def _json_safe(value: Any) -> Any:
@@ -179,10 +407,22 @@ def _json_safe(value: Any) -> Any:
 
 
 async def request_validation_handler(_request: Request, exc: Exception) -> JSONResponse:
-    """Standard 422 shape ({"detail": [...]}), sanitized so the offending
-    input values can never break response serialization."""
+    """Return a stable 422 without reflecting rejected request data.
+
+    Pydantic's raw errors include an ``input`` member.  Echoing it can place a
+    mistyped password, clinical note, or other sensitive value into browser
+    tooling and intermediary diagnostics.  Clients only need the location,
+    machine type, and message; those fields are also safe from non-finite JSON
+    values that motivated the original sanitizer.
+    """
     errors = exc.errors() if isinstance(exc, RequestValidationError) else []
-    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(errors))})
+    public_errors = [
+        {key: error[key] for key in ("type", "loc", "msg") if key in error} for error in errors
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _json_safe(jsonable_encoder(public_errors))},
+    )
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -190,6 +430,16 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     internals leak to the client."""
     logger.error("unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+async def password_capacity_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Keep Argon2 bursts from queuing memory-hard work or blocking the loop."""
+    assert isinstance(exc, PasswordWorkCapacityError)
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Password service is busy — please retry shortly."},
+        headers={"Retry-After": "1"},
+    )
 
 
 async def healthz() -> dict[str, str]:
@@ -223,8 +473,14 @@ def create_app() -> FastAPI:
         openapi_url=None if is_production else "/openapi.json",
     )
     app.add_exception_handler(RequestValidationError, request_validation_handler)
+    app.add_exception_handler(PasswordWorkCapacityError, password_capacity_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
-    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_bytes=settings.max_request_body_bytes,
+        max_target_bytes=settings.max_request_target_bytes,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -232,7 +488,14 @@ def create_app() -> FastAPI:
         # Enumerated (not "*") so the credentialed preflight surface matches
         # exactly what the API and SPA use.
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "X-Farm-Id"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Farm-Id",
+            "X-Request-ID",
+        ],
+        expose_headers=["Idempotency-Replayed", "X-Request-ID", "Retry-After"],
     )
     trusted = [h.strip() for h in settings.trusted_proxy_hosts.split(",") if h.strip()]
     if trusted:
@@ -250,17 +513,37 @@ def create_app() -> FastAPI:
         incoming = request.headers.get("X-Request-ID", "")
         request_id = incoming if _REQUEST_ID_RE.fullmatch(incoming) else uuid.uuid4().hex
         token = _request_id_var.set(request_id)
+        started = time.perf_counter()
+        status_code = 500
         try:
             response = await call_next(request)
+            status_code = response.status_code
+            response.headers["X-Request-ID"] = request_id
+            # API deployments are sometimes exposed directly rather than
+            # solely through the hardened Next.js server. Keep baseline
+            # browser protections at this application boundary too.
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            response.headers.setdefault("Referrer-Policy", "no-referrer")
+            response.headers.setdefault(
+                "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+            )
+            if request.url.path.startswith("/api/"):
+                # Auth and farm payloads contain private data and bearer-adjacent
+                # state. Shared browsers/proxies must not retain API responses.
+                response.headers["Cache-Control"] = "no-store"
+                response.headers["Pragma"] = "no-cache"
+            return response
         finally:
+            duration_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "request method=%s path=%s status=%d duration_ms=%.2f",
+                request.method,
+                request.url.path,
+                status_code,
+                duration_ms,
+            )
             _request_id_var.reset(token)
-        response.headers["X-Request-ID"] = request_id
-        if request.url.path.startswith("/api/"):
-            # Auth and farm payloads contain private data and bearer-adjacent
-            # state. Shared browsers/proxies must not retain API responses.
-            response.headers["Cache-Control"] = "no-store"
-            response.headers["Pragma"] = "no-cache"
-        return response
 
     app.get("/healthz", include_in_schema=True)(healthz)
     app.get("/readyz", include_in_schema=True)(readyz)

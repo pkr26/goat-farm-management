@@ -19,6 +19,27 @@ def money(value: Decimal | float | int | str) -> Decimal:
     return Decimal(str(value)).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
 
 
+def allocate_money(
+    value: Decimal | float | int | str,
+    parts: int,
+) -> list[Decimal]:
+    """Split a non-negative amount into exact-paise, non-negative shares.
+
+    Rounding ``value / parts`` independently can make the final remainder
+    negative (₹0.02 / 4 rounds each ordinary share to ₹0.01). Allocate whole
+    paise with ``divmod`` instead: the first ``remainder`` shares receive one
+    extra paise and the returned list always sums exactly to ``money(value)``.
+    """
+    if parts < 1:
+        raise ValueError("parts must be positive")
+    total = money(value)
+    if total < 0:
+        raise ValueError("value cannot be negative")
+    paise = int(total / MONEY_QUANTUM)
+    base, remainder = divmod(paise, parts)
+    return [MONEY_QUANTUM * (base + (1 if index < remainder else 0)) for index in range(parts)]
+
+
 def today(timezone_name: str = DEFAULT_BUSINESS_TIMEZONE) -> date:
     """Return the current business date in an IANA timezone.
 

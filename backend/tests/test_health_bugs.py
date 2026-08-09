@@ -32,6 +32,7 @@ async def _make_animal(client: httpx.AsyncClient, headers: dict) -> dict:
             "sex": "F",
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Existing-herd test fixture",
         },
         headers=headers,
     )

@@ -13,6 +13,11 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // A high-core workstation otherwise launches enough independent jsdom
+    // processes to thrash memory and make unrelated 5 s interaction tests
+    // fail nondeterministically. Two workers retain useful parallelism while
+    // keeping the full release gate stable on both laptops and CI runners.
+    maxWorkers: 2,
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
   },

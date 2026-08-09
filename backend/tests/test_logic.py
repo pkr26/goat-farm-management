@@ -52,7 +52,7 @@ async def make_doe(
     headers: dict,
     tag: str = "D-101",
     bucket: str = "BREEDING",
-    dob_days: int = 400,
+    dob_days: int = 800,
     weight_kg: float | None = 26.0,
 ) -> dict:
     """Create a doe via POST /api/animals (entry weight creates a WeightRecord)."""
@@ -62,20 +62,27 @@ async def make_doe(
         "source": "PURCHASED",
         "current_bucket": bucket,
         "date_of_birth": (today() - timedelta(days=dob_days)).isoformat(),
+        "historical_import_reason": "Existing-herd test fixture",
     }
     if weight_kg is not None:
         payload["weight_kg"] = weight_kg
+        payload["weight_date"] = payload["date_of_birth"]
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
 
 
 async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict:
+    dob = today() - timedelta(days=800)
     payload = {
         "tag_number": tag,
         "sex": "M",
         "source": "PURCHASED",
         "current_bucket": "BREEDING",
+        "date_of_birth": dob.isoformat(),
+        "weight_kg": 30.0,
+        "weight_date": dob.isoformat(),
+        "historical_import_reason": "Existing-herd test fixture",
     }
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
@@ -111,11 +118,21 @@ async def make_bred_doe(
 
 
 async def submit_ultrasound(
-    client: httpx.AsyncClient, headers: dict, breeding_id: int, pregnant: bool, kid_count: int = 2
+    client: httpx.AsyncClient,
+    headers: dict,
+    breeding_id: int,
+    pregnant: bool,
+    kid_count: int = 2,
+    result_date: date | None = None,
 ) -> dict:
+    payload: dict[str, object] = {"pregnant": pregnant}
+    if pregnant:
+        payload["kid_count"] = kid_count
+    if result_date is not None:
+        payload["date"] = result_date.isoformat()
     resp = await client.post(
         f"/api/breeding/{breeding_id}/ultrasound",
-        json={"pregnant": pregnant, "kid_count": kid_count},
+        json=payload,
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -178,11 +195,18 @@ async def complete_quarantine_prerequisites(
         if task["category"] == "BUCKET_MOVE":
             continue
         if task["category"] in {"VACCINE", "DEWORMING"}:
+            preview = await client.post(
+                "/api/health/events/preview",
+                json={"scope": "batch", "purchase_batch_id": batch_id},
+                headers=headers,
+            )
+            assert preview.status_code == 200, preview.text
             response = await client.post(
                 "/api/health/events",
                 json={
                     "scope": "batch",
                     "purchase_batch_id": batch_id,
+                    "expected_animal_ids": preview.json()["target_animal_ids"],
                     "type": task["category"],
                     "task_id": task["id"],
                 },
@@ -377,7 +401,13 @@ async def test_ultrasound_pregnant_creates_three_followup_tasks(
 async def test_two_failed_cycles_flag_cull_candidate(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, buck, br1 = await make_bred_doe(client, headers, today() - timedelta(days=120))
-    br1 = await submit_ultrasound(client, headers, br1["id"], pregnant=False)
+    br1 = await submit_ultrasound(
+        client,
+        headers,
+        br1["id"],
+        pregnant=False,
+        result_date=today() - timedelta(days=80),
+    )
     assert br1["outcome"] == "FAILED"
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["cull_candidate"] is False
@@ -415,8 +445,8 @@ async def test_kidding_creates_kid_animals_and_weaning_task(client: httpx.AsyncC
     assert all(a["dam_id"] == doe["id"] and a["sire_id"] == buck["id"] for a in born)
     assert all(a["current_bucket"] == "RECOVERY" for a in born)
     assert all(a["date_of_birth"] == kidding_date.isoformat() for a in born)
-    twins = [a for a in born if a["birth_type"] == "TWIN"]
-    assert len(twins) == 2
+    triplets = [a for a in born if a["birth_type"] == "TRIPLET"]
+    assert len(triplets) == 2  # litter size includes the stillborn delivery
 
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["current_bucket"] == "RECOVERY"
@@ -473,10 +503,13 @@ async def test_quarantine_batch_creates_45_day_task_set(client: httpx.AsyncClien
     detail = resp.json()
     stubbed = detail["animals"]
     assert len(stubbed) == 3
+    tag_prefix = stubbed[0]["tag_number"].rsplit("-", 1)[0]
+    assert tag_prefix.startswith(f"B{batch_id}-")
+    assert len(tag_prefix.removeprefix(f"B{batch_id}-")) == 12
     assert [a["tag_number"] for a in stubbed] == [
-        f"B{batch_id}-001",
-        f"B{batch_id}-002",
-        f"B{batch_id}-003",
+        f"{tag_prefix}-0001",
+        f"{tag_prefix}-0002",
+        f"{tag_prefix}-0003",
     ]
     assert all(a["current_bucket"] == "QUARANTINE" for a in stubbed)
     assert all(a["purchase_price"] == 10000.0 for a in stubbed)  # total split evenly
@@ -542,6 +575,7 @@ async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_list
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()["sex"] == "F"
     default_batch_id = resp.json()["id"]
     resp = await client.post(
         "/api/purchases/new",
@@ -549,6 +583,7 @@ async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_list
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
+    assert resp.json()["sex"] == "M"
     buck_batch_id = resp.json()["id"]
 
     resp = await client.get(f"/api/purchases/{default_batch_id}", headers=headers)
@@ -558,7 +593,8 @@ async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_list
     assert {a["sex"] for a in buck_stubs} == {"M"}
 
     # Release the buck batch from quarantine (day-45 task) and confirm the
-    # stubs surface as bucks, never as candidate does.
+    # stubs remain male, but do not enter either readiness picker until they
+    # have explicit mature-age and adult-weight evidence.
     detail = resp.json()
     release = next(t for t in detail["tasks"] if t["category"] == "BUCKET_MOVE")
     await complete_quarantine_prerequisites(client, headers, buck_batch_id, detail["tasks"])
@@ -570,12 +606,15 @@ async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_list
             "animals"
         ]
     )
-    resp = await client.get("/api/breeding", headers=headers)
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
     stub_ids = {a["id"] for a in buck_stubs}
-    assert stub_ids.isdisjoint(body["candidate_doe_ids"])
-    assert stub_ids <= set(body["active_buck_ids"])
+    for kind in ("doe", "buck"):
+        resp = await client.get(
+            "/api/breeding/candidates",
+            params={"kind": kind},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert stub_ids.isdisjoint(row["id"] for row in resp.json()["candidates"])
 
 
 async def test_purchase_batch_explicit_zero_price_books_zero_expense(
@@ -618,7 +657,14 @@ async def test_purchase_batch_explicit_zero_price_books_zero_expense(
 async def test_feeding_plan_split_math(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     for i in range(4):
-        await make_doe(client, headers, tag=f"D-{i}", dob_days=800, weight_kg=None)
+        await make_doe(
+            client,
+            headers,
+            tag=f"D-{i}",
+            bucket="BREEDING",
+            dob_days=800,
+            weight_kg=26.0,
+        )
     resp = await client.get("/api/feeding/plan", headers=headers)
     assert resp.status_code == 200, resp.text
     plan = resp.json()["lines"]
@@ -790,3 +836,24 @@ async def test_purchase_batch_per_head_prices_sum_to_total(client: httpx.AsyncCl
     prices = [a["purchase_price"] for a in resp.json()["animals"]]
     assert prices == [333.34, 333.33, 333.33]
     assert round(sum(prices), 2) == 1000.00
+
+
+async def test_purchase_batch_tiny_total_never_creates_a_negative_head_price(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 4,
+            "create_animals": True,
+            "total_price": 0.02,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    detail = await client.get(f"/api/purchases/{resp.json()['id']}", headers=headers)
+    prices = sorted(animal["purchase_price"] for animal in detail.json()["animals"])
+    assert prices == [0.0, 0.0, 0.01, 0.01]
+    assert round(sum(prices), 2) == 0.02

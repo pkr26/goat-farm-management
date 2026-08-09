@@ -20,18 +20,21 @@ test.describe("kidding flow", () => {
     const doeTag = uniqueTag("E2E-KDOE");
     const kid1 = uniqueTag("E2E-KID-A");
     const kid2 = uniqueTag("E2E-KID-B");
+    const breedingDate = daysAgo(155);
     await signIn(page);
 
     // Breeding-ready doe, then breed her 155 days ago (gestation is 150 days)
     // so the confirmed pregnancy is already overdue and recordable.
     await createAnimal(page, {
       tag: doeTag,
+      historicalImportReason: "E2E kidding-flow doe fixture",
       sex: "F",
       bucket: "FOUNDATION",
-      dateOfBirth: monthsAgo(14),
+      dateOfBirth: monthsAgo(20),
       entryWeightKg: 24,
+      entryWeightDate: breedingDate,
     });
-    await createBreeding(page, doeTag, daysAgo(155));
+    await createBreeding(page, doeTag, breedingDate);
     await recordUltrasoundPregnant(page, doeTag);
 
     // The overdue card on the Kidding page offers the Record kidding action.

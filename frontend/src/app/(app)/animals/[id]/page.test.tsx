@@ -20,12 +20,12 @@ import { renderWithProviders } from "@/test/render";
 
 import AnimalProfilePage from "./page";
 
-const nav = vi.hoisted(() => ({ id: "1" }));
+const nav = vi.hoisted(() => ({ id: "1", search: "" }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/animals/1",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(nav.search),
   useParams: () => ({ id: nav.id }),
 }));
 
@@ -86,6 +86,7 @@ const ANIMAL = {
   restriction_cleared_at: null,
   restriction_cleared_by_id: null,
   restriction_clearance_reference: null,
+  restriction_version: 0,
   mortality_cause: null,
   mortality_reported_at: null,
   notes: "Calm doe, good milker.",
@@ -112,10 +113,14 @@ const KID = {
 const PROFILE = {
   animal: ANIMAL,
   kids: [KID],
+  kids_total: 1,
+  kids_offset: 0,
   weights: [
     { id: 11, date: "2026-07-01", weight_kg: 28.44, bcs: 3, notes: "Pre-monsoon" },
     { id: 12, date: "2026-08-01", weight_kg: 32.5, bcs: null, notes: null },
   ],
+  weights_total: 2,
+  weights_offset: 0,
   moves: [
     { id: 31, from_bucket: null, to_bucket: "QUARANTINE", reason: null, moved_at: "2026-06-20" },
     {
@@ -126,6 +131,8 @@ const PROFILE = {
       moved_at: "2026-07-25",
     },
   ],
+  moves_total: 2,
+  moves_offset: 0,
   health_events: [
     {
       id: 41,
@@ -184,11 +191,28 @@ const PROFILE = {
       notes: null,
     },
   ],
+  health_events_total: 2,
+  health_events_offset: 0,
   breedings: [],
+  breedings_total: 0,
+  breedings_offset: 0,
+  history_limit: 25,
 };
 
 function profileWith(animal: Record<string, unknown>, extra: Record<string, unknown> = {}) {
-  return { ...PROFILE, ...extra, animal: { ...ANIMAL, ...animal } };
+  const profile = { ...PROFILE, ...extra, animal: { ...ANIMAL, ...animal } };
+  for (const [itemsKey, totalKey] of [
+    ["kids", "kids_total"],
+    ["weights", "weights_total"],
+    ["moves", "moves_total"],
+    ["health_events", "health_events_total"],
+    ["breedings", "breedings_total"],
+  ] as const) {
+    if (itemsKey in extra && !(totalKey in extra)) {
+      (profile as Record<string, unknown>)[totalKey] = (extra[itemsKey] as unknown[]).length;
+    }
+  }
+  return profile;
 }
 
 describe("AnimalProfilePage", () => {
@@ -209,6 +233,7 @@ describe("AnimalProfilePage", () => {
 
   beforeEach(() => {
     nav.id = "1";
+    nav.search = "";
     getCalls = 0;
     weightBodies = [];
     moveBodies = [];
@@ -232,6 +257,18 @@ describe("AnimalProfilePage", () => {
       http.post("/api/health/restrictions/1/clear", async ({ request }) => {
         clearanceBodies.push((await request.json()) as Record<string, unknown>);
         return new HttpResponse(null, { status: 204 });
+      }),
+      http.get("/api/health/restrictions/1", ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        return HttpResponse.json({
+          animal_id: 1,
+          restriction_version: 0,
+          active: false,
+          actions: [],
+          total: 0,
+          limit: Number(params.get("limit") ?? 25),
+          offset: Number(params.get("offset") ?? 0),
+        });
       }),
     );
   });
@@ -312,6 +349,16 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByText("Male")).toBeInTheDocument();
     });
 
+    it("restores the permitted originating page instead of always returning to the herd list", async () => {
+      nav.search = "?returnTo=%2Fdashboard";
+      await renderProfile();
+
+      expect(screen.getByRole("link", { name: "Back to dashboard" })).toHaveAttribute(
+        "href",
+        "/dashboard",
+      );
+    });
+
     it("shows purchase details with ₹ formatting for PURCHASED animals", async () => {
       useProfileHandler(
         profileWith({
@@ -386,6 +433,82 @@ describe("AnimalProfilePage", () => {
   });
 
   describe("history cards", () => {
+    it("paginates each bounded history independently with the shared API limit", async () => {
+      const requests: URLSearchParams[] = [];
+      server.use(
+        http.get("/api/animals/1", ({ request }) => {
+          const query = new URL(request.url).searchParams;
+          requests.push(new URLSearchParams(query));
+          return HttpResponse.json({
+            ...PROFILE,
+            weights_total: 60,
+            weights_offset: Number(query.get("weights_offset") ?? 0),
+            moves_total: 60,
+            moves_offset: Number(query.get("moves_offset") ?? 0),
+            kids_total: 60,
+            kids_offset: Number(query.get("kids_offset") ?? 0),
+            health_events_total: 60,
+            health_events_offset: Number(query.get("health_events_offset") ?? 0),
+            breedings_total: 60,
+            breedings_offset: Number(query.get("breedings_offset") ?? 0),
+          });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+
+      const weightsCard = screen
+        .getByText("Weight history (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+      await user.click(
+        within(weightsCard).getByRole("button", { name: "Next" }),
+      );
+      await waitFor(() => {
+        const latest = requests.at(-1);
+        expect(latest?.get("history_limit")).toBe("25");
+        expect(latest?.get("weights_offset")).toBe("25");
+        expect(latest?.get("moves_offset")).toBe("0");
+      });
+
+      const movesCard = screen
+        .getByText("Bucket moves (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+      await user.click(within(movesCard).getByRole("button", { name: "Next" }));
+      await waitFor(() => {
+        const latest = requests.at(-1);
+        expect(latest?.get("weights_offset")).toBe("25");
+        expect(latest?.get("moves_offset")).toBe("25");
+        expect(latest?.get("kids_offset")).toBe("0");
+        expect(latest?.get("health_events_offset")).toBe("0");
+        expect(latest?.get("breedings_offset")).toBe("0");
+      });
+
+      const kidsCard = screen
+        .getByText("Kids (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+      await user.click(within(kidsCard).getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requests.at(-1)?.get("kids_offset")).toBe("25"));
+
+      const healthCard = screen
+        .getByText("Health events (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+      await user.click(within(healthCard).getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requests.at(-1)?.get("health_events_offset")).toBe("25"));
+
+      const breedingCard = screen
+        .getByText("Breeding history (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+      await user.click(within(breedingCard).getByRole("button", { name: "Next" }));
+      await waitFor(() => {
+        const latest = requests.at(-1);
+        expect(latest?.get("weights_offset")).toBe("25");
+        expect(latest?.get("moves_offset")).toBe("25");
+        expect(latest?.get("kids_offset")).toBe("25");
+        expect(latest?.get("health_events_offset")).toBe("25");
+        expect(latest?.get("breedings_offset")).toBe("25");
+      });
+    });
+
     it("renders the weight history with count, formatting and bcs dash", async () => {
       await renderProfile();
       const card = screen.getByText("Weight history (2)").closest('[data-slot="card"]') as HTMLElement;
@@ -485,13 +608,21 @@ describe("AnimalProfilePage", () => {
     });
 
     it("shows the server detail on a 500", async () => {
+      let attempts = 0;
       server.use(
-        http.get("/api/animals/1", () =>
-          HttpResponse.json({ detail: "Profile query failed" }, { status: 500 }),
-        ),
+        http.get("/api/animals/1", () => {
+          attempts += 1;
+          return attempts === 1
+            ? HttpResponse.json({ detail: "Profile query failed" }, { status: 500 })
+            : HttpResponse.json(PROFILE);
+        }),
       );
+      const user = userEvent.setup();
       renderWithProviders(<AnimalProfilePage />);
-      expect(await screen.findByText("Profile query failed")).toBeInTheDocument();
+      expect(await screen.findByRole("alert")).toHaveTextContent("Profile query failed");
+      await user.click(screen.getByRole("button", { name: "Retry animal profile" }));
+      expect(await screen.findByRole("heading", { name: /G-001/ })).toBeInTheDocument();
+      expect(attempts).toBe(2);
     });
 
     it("treats a non-numeric id as not found and never calls the API", async () => {
@@ -545,6 +676,55 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByRole("button", { name: "Change status" })).toBeInTheDocument();
     });
 
+    it("shows the exact restriction-audit total and paginates its immutable actions", async () => {
+      const requests: Array<{ limit: number; offset: number }> = [];
+      server.use(
+        http.get("/api/health/restrictions/1", ({ request }) => {
+          const params = new URL(request.url).searchParams;
+          const limit = Number(params.get("limit") ?? 25);
+          const offset = Number(params.get("offset") ?? 0);
+          requests.push({ limit, offset });
+          return HttpResponse.json({
+            animal_id: 1,
+            restriction_version: 3,
+            active: false,
+            actions: [
+              {
+                id: offset + 1,
+                restriction_version: offset === 0 ? 3 : 2,
+                action: offset === 0 ? "CLEARED" : "PLACED",
+                acted_at: offset === 0 ? "2026-08-07T10:15:00Z" : "2026-07-01T09:00:00Z",
+                acted_by_id: 7,
+                action_reference: offset === 0 ? "VET-CLEAR-3" : "HEALTH-EVENT-41",
+                disease_target: "PPR",
+                health_event_id: 41,
+              },
+            ],
+            total: 60,
+            limit,
+            offset,
+          });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+
+      expect(await screen.findByText("Movement restriction audit (60)")).toBeInTheDocument();
+      expect(screen.getByText("VET-CLEAR-3")).toBeInTheDocument();
+      const pagination = screen.getByRole("navigation", {
+        name: "movement restriction actions pagination",
+      });
+      expect(within(pagination).getByText("Showing 1–25 of 60 movement restriction actions"))
+        .toBeInTheDocument();
+      expect(requests).toContainEqual({ limit: 25, offset: 0 });
+
+      await user.click(within(pagination).getByRole("button", { name: "Next" }));
+      expect(await screen.findByText("HEALTH-EVENT-41")).toBeInTheDocument();
+      expect(requests).toContainEqual({ limit: 25, offset: 25 });
+      expect(within(pagination).getByText("Showing 26–50 of 60 movement restriction actions"))
+        .toBeInTheDocument();
+    });
+
     it("blocks movement during a health hold and records an audited clearance", async () => {
       useProfileHandler(
         profileWith({
@@ -552,6 +732,7 @@ describe("AnimalProfilePage", () => {
           restriction_reason: "Scheduled-disease suspicion",
           suspected_disease: "PPR",
           authority_notified_at: "2026-08-06",
+          restriction_version: 1,
         }),
       );
       const user = userEvent.setup();
@@ -570,8 +751,58 @@ describe("AnimalProfilePage", () => {
       await user.click(confirm);
 
       await waitFor(() => expect(clearanceBodies).toEqual([
-        { clearance_reference: "VET-CLEAR-2026-18" },
+        {
+          clearance_reference: "VET-CLEAR-2026-18",
+          expected_restriction_version: 1,
+        },
       ]));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("refreshes a superseded restriction episode before allowing a clearance retry", async () => {
+      let currentProfile = profileWith({
+        movement_restricted: true,
+        restriction_reason: "Scheduled-disease suspicion",
+        restriction_version: 1,
+      });
+      const submittedVersions: number[] = [];
+      server.use(
+        http.get("/api/animals/1", () => {
+          getCalls += 1;
+          return HttpResponse.json(currentProfile);
+        }),
+        http.post("/api/health/restrictions/1/clear", async ({ request }) => {
+          const body = (await request.json()) as { expected_restriction_version: number };
+          submittedVersions.push(body.expected_restriction_version);
+          if (submittedVersions.length === 1) {
+            currentProfile = profileWith({
+              movement_restricted: true,
+              restriction_reason: "Replacement restriction episode",
+              restriction_version: 2,
+            });
+            return HttpResponse.json(
+              { detail: "Movement restriction was superseded; refresh the current episode" },
+              { status: 409 },
+            );
+          }
+          return new HttpResponse(null, { status: 204 });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record clearance");
+      await user.type(within(dialog).getByLabelText("Clearance reference *"), "VET-REVIEW-22");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm clearance" }));
+
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        "Movement restriction was superseded",
+      );
+      const retry = await within(dialog).findByRole("button", { name: "Retry clearance" });
+      expect(retry).toBeEnabled();
+      expect(within(dialog).getByLabelText("Clearance reference *")).toHaveValue("VET-REVIEW-22");
+
+      await user.click(retry);
+      await waitFor(() => expect(submittedVersions).toEqual([1, 2]));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
 
@@ -784,11 +1015,41 @@ describe("AnimalProfilePage", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       const combo = () => within(dialog).getByRole("combobox");
+      await user.type(within(dialog).getByLabelText(/sale price/i), "9000");
+      await user.type(within(dialog).getByLabelText(/buyer name/i), "Old buyer");
       await pickOption(user, combo(), "DEAD");
       expect(within(dialog).queryByLabelText(/sale price/i)).not.toBeInTheDocument();
       expect(within(dialog).queryByLabelText(/buyer name/i)).not.toBeInTheDocument();
       await pickOption(user, combo(), "SOLD");
-      expect(within(dialog).getByLabelText(/sale price/i)).toBeInTheDocument();
+      expect(within(dialog).getByLabelText(/sale price/i)).toHaveValue(null);
+      expect(within(dialog).getByLabelText(/buyer name/i)).toHaveValue("");
+    });
+
+    it("clears hidden scheduled-disease fields when the report is turned off or status changes", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      const combo = () => within(dialog).getByRole("combobox");
+      await pickOption(user, combo(), "DEAD");
+      const checkbox = within(dialog).getByRole("checkbox", {
+        name: "Suspected scheduled/notifiable disease",
+      });
+      await user.click(checkbox);
+      await user.type(within(dialog).getByLabelText("Suspected disease *"), "PPR");
+      setInput(within(dialog).getByLabelText("Authority notified date"), "2026-08-07");
+
+      await user.click(checkbox);
+      await user.click(checkbox);
+      expect(within(dialog).getByLabelText("Suspected disease *")).toHaveValue("");
+      expect(within(dialog).getByLabelText("Authority notified date")).toHaveValue("");
+
+      await pickOption(user, combo(), "CULLED");
+      await pickOption(user, combo(), "DEAD");
+      expect(
+        within(dialog).getByRole("checkbox", {
+          name: "Suspected scheduled/notifiable disease",
+        }),
+      ).not.toBeChecked();
     });
 
     it("POSTs a SOLD status with price and buyer, toasts, closes and refetches", async () => {
@@ -906,6 +1167,17 @@ describe("AnimalProfilePage", () => {
       setInput(within(dialog).getByLabelText(/sale price/i), "-100");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       expect(await within(dialog).findByText(/expected number to be >=0/)).toBeInTheDocument();
+      expect(statusBodies).toHaveLength(0);
+    });
+
+    it("rejects a non-zero sale price below half a paisa without a POST", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      setInput(within(dialog).getByLabelText(/sale price/i), "0.004");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
+        .toBeInTheDocument();
       expect(statusBodies).toHaveLength(0);
     });
 

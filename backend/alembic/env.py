@@ -36,8 +36,9 @@ LOCK_TIMEOUT = "10s"
 
 
 def run_migrations_offline() -> None:
+    settings = get_settings()
     context.configure(
-        url=get_settings().database_url,
+        url=settings.migration_database_url or settings.database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -53,9 +54,20 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
+    settings = get_settings()
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = get_settings().database_url
-    connectable = async_engine_from_config(configuration, prefix="sqlalchemy.")
+    configuration["sqlalchemy.url"] = settings.migration_database_url or settings.database_url
+    # Alembic is a separate engine from app.db. Carry the same wire-TLS and
+    # statement-timeout guarantees across instead of silently falling back to
+    # asyncpg/libpq defaults during the most privileged database operation.
+    connectable = async_engine_from_config(
+        configuration,
+        prefix="sqlalchemy.",
+        connect_args={
+            "ssl": settings.db_sslmode,
+            "server_settings": {"statement_timeout": str(settings.db_statement_timeout_ms)},
+        },
+    )
     async with connectable.connect() as connection:
         # Session-level SET autobegins a transaction in SQLAlchemy 2.0 —
         # commit it, or Alembic would join that outer transaction and every

@@ -9,23 +9,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, AnimalStatus, BreedingOutcome, BreedingRecord, Farm
+from ..models import Animal, BreedingOutcome, BreedingRecord, Farm
 from ..schemas.breeding import (
+    BreedingCandidateAvailabilityOut,
     BreedingCandidateListOut,
     BreedingCandidateOut,
     BreedingCreateIn,
     BreedingListOut,
     BreedingRecordOut,
+    PregnancyLossIn,
     UltrasoundIn,
 )
-from ..schemas.common import MAX_INT32_ID
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..services import (
-    breeding_candidate_does,
+    breeding_candidate_counts,
+    breeding_candidate_page,
+    breeding_weights_as_of,
     create_breeding_record,
     doe_has_open_breeding,
     is_breeding_candidate,
+    is_buck_breeding_candidate,
     mark_aborted,
     record_ultrasound_result,
+    require_farm_not_future,
 )
 from ..utils import today
 from ._shared import breeding_out
@@ -34,9 +40,8 @@ router = APIRouter(prefix="/api/breeding", tags=["breeding"])
 
 NOT_FOUND = "Breeding record not found"
 
-# History is explicitly paginated; the picker payloads ride along unchanged.
-# The page-size bound limits a single response, not the history a user can
-# retrieve (the response carries total/limit/offset for that distinction).
+# History and candidate identities are independently paginated. The history
+# response carries only bounded aggregate availability for managers.
 BREEDING_HISTORY_DEFAULT_LIMIT = 100
 BREEDING_HISTORY_MAX_LIMIT = 200
 BREEDING_CANDIDATE_DEFAULT_LIMIT = 50
@@ -61,7 +66,7 @@ async def _get_breeding_record(
             selectinload(BreedingRecord.buck),
             selectinload(BreedingRecord.kidding_record),
         )
-        .where(BreedingRecord.id == record_id)
+        .where(BreedingRecord.id == record_id, BreedingRecord.farm_id == farm.id)
     )
     if for_update:
         # SELECT ... FOR UPDATE: concurrent ultrasound/abort/kidding calls
@@ -93,13 +98,18 @@ async def _lock_doe_then_breeding_record(
     row = (
         await db.execute(
             select(BreedingRecord.doe_id, BreedingRecord.farm_id).where(
-                BreedingRecord.id == record_id
+                BreedingRecord.id == record_id,
+                BreedingRecord.farm_id == farm.id,
             )
         )
     ).first()
-    if row is None or row.farm_id != farm.id:
+    if row is None:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
-    await db.execute(select(Animal.id).where(Animal.id == row.doe_id).with_for_update())
+    await db.execute(
+        select(Animal.id)
+        .where(Animal.id == row.doe_id, Animal.farm_id == farm.id)
+        .with_for_update()
+    )
     return await _get_breeding_record(db, farm, record_id, for_update=True)
 
 
@@ -111,7 +121,7 @@ async def breeding_list(
     limit: Annotated[int, Query(ge=1, le=BREEDING_HISTORY_MAX_LIMIT)] = (
         BREEDING_HISTORY_DEFAULT_LIMIT
     ),
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> BreedingListOut:
     where = BreedingRecord.farm_id == farm.id
     total = (
@@ -129,22 +139,16 @@ async def breeding_list(
         .offset(offset)
         .limit(limit)
     )
-    # Candidate pickers from v1's "new breeding" form ride along in the list
-    # payload: eligible does per SPEC rules, active males as bucks.
-    does = await breeding_candidate_does(db, farm)
-    bucks_result = await db.execute(
-        select(Animal.id)
-        .where(
-            Animal.farm_id == farm.id,
-            Animal.sex == "M",
-            Animal.status == AnimalStatus.ACTIVE.value,
+    availability = None
+    if "breeding.manage" in perms:
+        eligible_doe_count, eligible_buck_count = await breeding_candidate_counts(db, farm)
+        availability = BreedingCandidateAvailabilityOut(
+            eligible_doe_count=eligible_doe_count,
+            eligible_buck_count=eligible_buck_count,
         )
-        .order_by(Animal.tag_number)
-    )
     return BreedingListOut(
         records=[breeding_out(br) for br in records_result.scalars()],
-        candidate_doe_ids=[doe.id for doe in does],
-        active_buck_ids=list(bucks_result.scalars()),
+        candidate_availability=availability,
         total=total,
         limit=limit,
         offset=offset,
@@ -161,43 +165,24 @@ async def breeding_candidates(
     limit: Annotated[int, Query(ge=1, le=BREEDING_CANDIDATE_MAX_LIMIT)] = (
         BREEDING_CANDIDATE_DEFAULT_LIMIT
     ),
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> BreedingCandidateListOut:
     """Search a bounded page of animals eligible for the breeding form.
 
     This domain-scoped summary deliberately does not grant access to the full
-    animal register. Doe eligibility comes from the same canonical service as
-    the create path; bucks are active farm-local males.
+    animal register. Eligibility, literal search, count, and pagination are
+    evaluated in SQL; each selected row carries only its latest weight scalar.
     """
-    if kind == "doe":
-        animals = await breeding_candidate_does(db, farm)
-    else:
-        result = await db.execute(
-            select(Animal)
-            .options(selectinload(Animal.weight_records))
-            .where(
-                Animal.farm_id == farm.id,
-                Animal.sex == "M",
-                Animal.status == AnimalStatus.ACTIVE.value,
-            )
-            .order_by(Animal.tag_number, Animal.id)
-        )
-        animals = [animal for animal in result.scalars().all() if animal.is_buck_eligible]
-
-    needle = (q or "").strip().casefold()
-    if needle:
-        # Python substring matching makes SQL wildcard characters literal by
-        # construction, matching the public animal-search contract safely.
-        animals = [
-            animal
-            for animal in animals
-            if needle in animal.tag_number.casefold()
-            or (animal.name is not None and needle in animal.name.casefold())
-        ]
-
-    total = len(animals)
     reference_date = today(farm.timezone)
-    page = animals[offset : offset + limit]
+    page, total = await breeding_candidate_page(
+        db,
+        farm,
+        kind,
+        q=q,
+        limit=limit,
+        offset=offset,
+        reference_date=reference_date,
+    )
     return BreedingCandidateListOut(
         candidates=[
             BreedingCandidateOut(
@@ -205,9 +190,9 @@ async def breeding_candidates(
                 tag_number=animal.tag_number,
                 name=animal.name,
                 age_months=animal.age_months_on(reference_date),
-                latest_weight_kg=animal.latest_weight_kg,
+                latest_weight_kg=latest_weight_kg,
             )
-            for animal in page
+            for animal, latest_weight_kg in page
         ],
         total=total,
         limit=limit,
@@ -233,43 +218,59 @@ async def create_breeding(
     farm: CurrentFarm,
     perms: Annotated[set[str], Depends(require_perm("breeding.manage"))],
 ) -> BreedingRecordOut:
+    try:
+        require_farm_not_future(payload.breeding_date, farm, "breeding_date")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
     # int32 DataError (500). The doe row is locked FOR UPDATE: a concurrent
     # sale/death must serialize against the breeding — the loser re-reads the
     # committed status and fails the eligibility check below instead of
     # leaving an open PENDING breeding on a non-ACTIVE doe.
-    doe: Animal | None = None
-    if payload.doe_id <= MAX_INT32_ID:
-        doe_result = await db.execute(
-            select(Animal)
-            # The eligibility predicate reads these relationships.
-            .options(
-                selectinload(Animal.weight_records),
-                selectinload(Animal.breedings_as_doe).selectinload(BreedingRecord.kidding_record),
-            )
-            .where(Animal.id == payload.doe_id)
-            .with_for_update()
-        )
-        doe = doe_result.scalar_one_or_none()
-    buck = (
-        (
-            await db.execute(select(Animal).where(Animal.id == payload.buck_id).with_for_update())
-        ).scalar_one_or_none()
-        if payload.buck_id <= MAX_INT32_ID
-        else None
-    )
-    if doe is None or buck is None or doe.farm_id != farm.id or buck.farm_id != farm.id:
+    if payload.doe_id > MAX_INT32_ID or payload.buck_id > MAX_INT32_ID:
         raise HTTPException(status_code=404, detail="Doe or buck not found")
+    candidate_ids = sorted({payload.doe_id, payload.buck_id})
+    locked_ids = list(
+        (
+            await db.execute(
+                select(Animal.id)
+                .where(Animal.farm_id == farm.id, Animal.id.in_(candidate_ids))
+                .order_by(Animal.id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if locked_ids != candidate_ids:
+        raise HTTPException(status_code=404, detail="Doe or buck not found")
+
+    # Load only scalar animal rows after both are locked in canonical order.
+    # Eligibility history is represented by bounded SQL facts below, so a
+    # long-lived animal cannot amplify a breeding write through its lifetime
+    # weight or breeding collections.
+    animals = list(
+        (
+            await db.execute(
+                select(Animal).where(Animal.farm_id == farm.id, Animal.id.in_(candidate_ids))
+            )
+        ).scalars()
+    )
+    animals_by_id = {animal.id: animal for animal in animals}
+    doe = animals_by_id[payload.doe_id]
+    buck = animals_by_id[payload.buck_id]
+    weights = await breeding_weights_as_of(db, candidate_ids, payload.breeding_date)
+    has_open_breeding = await doe_has_open_breeding(db, farm.id, doe.id)
     # Same eligibility rules as v1's doe/buck pickers — a forged request
     # cannot breed a male, a sold doe, or an already-pregnant doe. Targeted
     # one-doe check: no full candidate-set build per create.
-    if (
-        not is_breeding_candidate(
-            doe,
-            has_open_breeding=await doe_has_open_breeding(db, doe.id),
-            reference_date=today(farm.timezone),
-        )
-        or not buck.is_buck_eligible
+    if not is_breeding_candidate(
+        doe,
+        latest_weight_kg=weights.get(doe.id),
+        has_open_breeding=has_open_breeding,
+        reference_date=payload.breeding_date,
+    ) or not is_buck_breeding_candidate(
+        buck,
+        latest_weight_kg=weights.get(buck.id),
+        reference_date=payload.breeding_date,
     ):
         raise HTTPException(
             status_code=400,
@@ -285,6 +286,8 @@ async def create_breeding(
             payload.breeding_date,
             payload.heat_cycle_number,
             created_by_id=user.id,
+            doe_latest_weight_kg=weights.get(doe.id),
+            has_open_breeding=has_open_breeding,
         )
         br_id = br.id
         await db.commit()
@@ -329,7 +332,13 @@ async def submit_ultrasound(
         # Re-checked under the row lock, so a raced double submit serializes:
         # the loser re-reads the committed outcome and lands here.
         raise HTTPException(status_code=409, detail="Ultrasound result already recorded")
-    # kid_count is ignored unless pregnant — the service nulls it otherwise.
+    result_date = payload.date or today(farm.timezone)
+    try:
+        require_farm_not_future(result_date, farm, "ultrasound date")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    # UltrasoundIn rejects kid_count for a non-pregnant result before any
+    # record or task state can be mutated.
     try:
         await record_ultrasound_result(
             db,
@@ -338,7 +347,7 @@ async def submit_ultrasound(
             payload.kid_count,
             # Legacy clients may omit the date, but every newly submitted
             # result must retain an auditable farm-local observation date.
-            result_date=payload.date or today(farm.timezone),
+            result_date=result_date,
             created_by_id=user.id,
         )
     except ValueError as exc:
@@ -352,7 +361,9 @@ async def submit_ultrasound(
 @router.post("/{record_id}/abort")
 async def abort_pregnancy(
     record_id: int,
+    payload: PregnancyLossIn,
     db: DbSession,
+    user: CurrentUser,
     farm: CurrentFarm,
     perms: Annotated[set[str], Depends(require_perm("breeding.manage"))],
 ) -> BreedingRecordOut:
@@ -365,6 +376,18 @@ async def abort_pregnancy(
             status_code=409,
             detail="Only a confirmed pregnancy without a kidding record can be aborted",
         )
-    await mark_aborted(db, br)
+    try:
+        require_farm_not_future(payload.loss_date, farm, "pregnancy loss date")
+        await mark_aborted(
+            db,
+            br,
+            loss_date=payload.loss_date,
+            loss_cause=payload.cause,
+            loss_notes=payload.notes,
+            recorded_by_id=user.id,
+        )
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     await db.commit()
     return breeding_out(br)

@@ -25,5 +25,7 @@ export interface AnimalCreateIn {
   purchase_price?: number | null;
   seller_name?: string | null;
   weight_kg?: number | null;
+  weight_date?: string | null;
   notes?: string | null;
+  historical_import_reason?: string | null;
 }

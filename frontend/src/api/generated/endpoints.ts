@@ -29,6 +29,7 @@ import type {
   AnimalCreateIn,
   AnimalListOut,
   AnimalOut,
+  AnimalProfileApiAnimalsAnimalIdGetParams,
   AnimalProfileOut,
   BreedDefaultsApiSimulationDefaultsGetParams,
   BreedingCandidateListOut,
@@ -57,9 +58,11 @@ import type {
   HTTPValidationError,
   HealthAnimalOptionListOut,
   HealthAnimalOptionsApiHealthAnimalsGetParams,
+  HealthBulkTargetIn,
+  HealthBulkTargetPreviewOut,
   HealthEventIn,
   HealthEventListOut,
-  HealthEventOut,
+  HealthEventMutationOut,
   HealthPurchaseBatchOptionListOut,
   HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams,
   HealthzHealthzGet200,
@@ -72,6 +75,7 @@ import type {
   ListAnimalsApiAnimalsGetParams,
   ListBatchesApiPurchasesGetParams,
   ListEventsApiHealthEventsGetParams,
+  ListScenariosApiSimulationScenariosGetParams,
   ListTasksApiTasksGetParams,
   ListTransactionsApiFinanceGetParams,
   LoginIn,
@@ -79,8 +83,11 @@ import type {
   MixIn,
   MoveIn,
   MovementRestrictionClearIn,
+  MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams,
+  MovementRestrictionHistoryOut,
   PasswordResetIn,
   PermissionsOut,
+  PregnancyLossIn,
   PurchaseBatchDetailOut,
   PurchaseBatchIn,
   PurchaseBatchListOut,
@@ -95,6 +102,7 @@ import type {
   RunScenarioApiSimulationScenariosScenarioIdRunPostParams,
   ScenarioCompareOut,
   ScenarioCreateIn,
+  ScenarioListOut,
   ScenarioOut,
   ScenarioUpdateIn,
   ScheduleOut,
@@ -116,7 +124,8 @@ import type {
   UserOut,
   WeightIn,
   WeightRecordOut,
-  WorkerCreateIn
+  WorkerCreateIn,
+  WorkerStatusIn
 } from './models';
 
 import { customInstance } from '../custom-instance';
@@ -1084,7 +1093,10 @@ export const getDeleteAccountApiAuthAccountDeleteUrl = () => {
 }
 
 /**
- * Permanently remove a non-owner account after password confirmation.
+ * Remove account access and profile data after password confirmation.
+ *
+ * Farm operational and audit rows retain a pseudonymous actor reference so
+ * attributed history is not silently rewritten when a worker leaves.
  * @summary Delete Account
  */
 export const deleteAccountApiAuthAccountDelete = async (accountDeleteIn: AccountDeleteIn, options?: Parameters<typeof customInstance>[1]): Promise<deleteAccountApiAuthAccountDeleteResponse> => {
@@ -1713,20 +1725,29 @@ export type animalProfileApiAnimalsAnimalIdGetResponseError = (animalProfileApiA
 
 export type animalProfileApiAnimalsAnimalIdGetResponse = (animalProfileApiAnimalsAnimalIdGetResponseSuccess | animalProfileApiAnimalsAnimalIdGetResponseError)
 
-export const getAnimalProfileApiAnimalsAnimalIdGetUrl = (animalId: number,) => {
+export const getAnimalProfileApiAnimalsAnimalIdGetUrl = (animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/animals/${animalId}`
+  return stringifiedParams.length > 0 ? `/api/animals/${animalId}?${stringifiedParams}` : `/api/animals/${animalId}`
 }
 
 /**
  * @summary Animal Profile
  */
-export const animalProfileApiAnimalsAnimalIdGet = async (animalId: number, options?: Parameters<typeof customInstance>[1]): Promise<animalProfileApiAnimalsAnimalIdGetResponse> => {
+export const animalProfileApiAnimalsAnimalIdGet = async (animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams, options?: Parameters<typeof customInstance>[1]): Promise<animalProfileApiAnimalsAnimalIdGetResponse> => {
 
-  return customInstance<animalProfileApiAnimalsAnimalIdGetResponse>(getAnimalProfileApiAnimalsAnimalIdGetUrl(animalId),
+  return customInstance<animalProfileApiAnimalsAnimalIdGetResponse>(getAnimalProfileApiAnimalsAnimalIdGetUrl(animalId,params),
   {
     ...options,
     method: 'GET'
@@ -1739,23 +1760,25 @@ export const animalProfileApiAnimalsAnimalIdGet = async (animalId: number, optio
 
 
 
-export const getAnimalProfileApiAnimalsAnimalIdGetQueryKey = (animalId: number,) => {
+export const getAnimalProfileApiAnimalsAnimalIdGetQueryKey = (animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams,) => {
     return [
-    `/api/animals/${animalId}`
+    `/api/animals/${animalId}`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getAnimalProfileApiAnimalsAnimalIdGetQueryOptions = <TData = Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getAnimalProfileApiAnimalsAnimalIdGetQueryOptions = <TData = Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getAnimalProfileApiAnimalsAnimalIdGetQueryKey(animalId);
+  const queryKey =  queryOptions?.queryKey ?? getAnimalProfileApiAnimalsAnimalIdGetQueryKey(animalId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>> = ({ signal }) => animalProfileApiAnimalsAnimalIdGet(animalId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>> = ({ signal }) => animalProfileApiAnimalsAnimalIdGet(animalId,params, { signal, ...requestOptions });
 
 
 
@@ -1769,7 +1792,8 @@ export type AnimalProfileApiAnimalsAnimalIdGetQueryError = ErrorType<HTTPValidat
 
 
 export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
- animalId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>> & Pick<
+ animalId: number,
+    params: undefined |  AnimalProfileApiAnimalsAnimalIdGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>,
           TError,
@@ -1779,7 +1803,8 @@ export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
- animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>> & Pick<
+ animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>,
           TError,
@@ -1789,7 +1814,8 @@ export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
- animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -1797,11 +1823,12 @@ export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType
  */
 
 export function useAnimalProfileApiAnimalsAnimalIdGet<TData = Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
- animalId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ animalId: number,
+    params?: AnimalProfileApiAnimalsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof animalProfileApiAnimalsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getAnimalProfileApiAnimalsAnimalIdGetQueryOptions(animalId,options)
+  const queryOptions = getAnimalProfileApiAnimalsAnimalIdGetQueryOptions(animalId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -2115,6 +2142,11 @@ export const getBucketsBoardApiBucketsGetUrl = () => {
 }
 
 /**
+ * All buckets with exact occupancy and a tag-ordered 100-animal preview.
+ *
+ * Every caller receives the same purpose-specific animal shape. The full,
+ * independently-authorized register is the paginated ``/animals`` page in
+ * ``animals_page_path``.
  * @summary Buckets Board
  */
 export const bucketsBoardApiBucketsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<bucketsBoardApiBucketsGetResponse> => {
@@ -2462,8 +2494,8 @@ export const getBreedingCandidatesApiBreedingCandidatesGetUrl = (params: Breedin
  * Search a bounded page of animals eligible for the breeding form.
  *
  * This domain-scoped summary deliberately does not grant access to the full
- * animal register. Doe eligibility comes from the same canonical service as
- * the create path; bucks are active farm-local males.
+ * animal register. Eligibility, literal search, count, and pagination are
+ * evaluated in SQL; each selected row carries only its latest weight scalar.
  * @summary Breeding Candidates
  */
 export const breedingCandidatesApiBreedingCandidatesGet = async (params: BreedingCandidatesApiBreedingCandidatesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<breedingCandidatesApiBreedingCandidatesGetResponse> => {
@@ -2797,14 +2829,15 @@ export const getAbortPregnancyApiBreedingRecordIdAbortPostUrl = (recordId: numbe
 /**
  * @summary Abort Pregnancy
  */
-export const abortPregnancyApiBreedingRecordIdAbortPost = async (recordId: number, options?: Parameters<typeof customInstance>[1]): Promise<abortPregnancyApiBreedingRecordIdAbortPostResponse> => {
+export const abortPregnancyApiBreedingRecordIdAbortPost = async (recordId: number,
+    pregnancyLossIn: PregnancyLossIn, options?: Parameters<typeof customInstance>[1]): Promise<abortPregnancyApiBreedingRecordIdAbortPostResponse> => {
 
   return customInstance<abortPregnancyApiBreedingRecordIdAbortPostResponse>(getAbortPregnancyApiBreedingRecordIdAbortPostUrl(recordId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(pregnancyLossIn)
   }
 );}
 
@@ -2813,8 +2846,8 @@ export const abortPregnancyApiBreedingRecordIdAbortPost = async (recordId: numbe
 
 
 export const getAbortPregnancyApiBreedingRecordIdAbortPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, TError,{recordId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, TError,{recordId: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, TError,{recordId: number;data: PregnancyLossIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, TError,{recordId: number;data: PregnancyLossIn}, TContext> => {
 
 const mutationKey = ['abortPregnancyApiBreedingRecordIdAbortPost'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -2826,10 +2859,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, {recordId: number}> = (props) => {
-          const {recordId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, {recordId: number;data: PregnancyLossIn}> = (props) => {
+          const {recordId,data} = props ?? {};
 
-          return  abortPregnancyApiBreedingRecordIdAbortPost(recordId,requestOptions)
+          return  abortPregnancyApiBreedingRecordIdAbortPost(recordId,data,requestOptions)
         }
 
 
@@ -2840,18 +2873,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type AbortPregnancyApiBreedingRecordIdAbortPostMutationResult = NonNullable<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>>
-
+    export type AbortPregnancyApiBreedingRecordIdAbortPostMutationBody = PregnancyLossIn
     export type AbortPregnancyApiBreedingRecordIdAbortPostMutationError = ErrorType<HTTPValidationError>
 
     /**
  * @summary Abort Pregnancy
  */
 export const useAbortPregnancyApiBreedingRecordIdAbortPost = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, TError,{recordId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>, TError,{recordId: number;data: PregnancyLossIn}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof abortPregnancyApiBreedingRecordIdAbortPost>>,
         TError,
-        {recordId: number},
+        {recordId: number;data: PregnancyLossIn},
         TContext
       > => {
       return useMutation(getAbortPregnancyApiBreedingRecordIdAbortPostMutationOptions(options), queryClient);
@@ -3074,6 +3107,127 @@ export const useCreateKiddingApiKiddingPost = <TError = ErrorType<HTTPValidation
       return useMutation(getCreateKiddingApiKiddingPostMutationOptions(options), queryClient);
     }
 
+export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse200 = {
+  data: BreedingRecordOut
+  status: 200
+}
+
+export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseSuccess = (kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse200) & {
+  headers: Headers;
+};
+export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseError = (kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse422) & {
+  headers: Headers;
+};
+
+export type kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse = (kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseSuccess | kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponseError)
+
+export const getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetUrl = (breedingRecordId: number,) => {
+
+
+
+
+  return `/api/kidding/pregnancies/${breedingRecordId}`
+}
+
+/**
+ * Resolve one live pregnancy for a task/deep-link independent of pages.
+ * @summary Kidding Pregnancy
+ */
+export const kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet = async (breedingRecordId: number, options?: Parameters<typeof customInstance>[1]): Promise<kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse> => {
+
+  return customInstance<kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetResponse>(getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetUrl(breedingRecordId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryKey = (breedingRecordId: number,) => {
+    return [
+    `/api/kidding/pregnancies/${breedingRecordId}`
+    ] as const;
+    }
+
+
+export const getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryOptions = <TData = Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError = ErrorType<HTTPValidationError>>(breedingRecordId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryKey(breedingRecordId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>> = ({ signal }) => kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet(breedingRecordId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: breedingRecordId !== null && breedingRecordId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type KiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>>
+export type KiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet<TData = Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ breedingRecordId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet<TData = Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ breedingRecordId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet<TData = Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ breedingRecordId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Kidding Pregnancy
+ */
+
+export function useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet<TData = Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ breedingRecordId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof kiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryOptions(breedingRecordId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export type healthAnimalOptionsApiHealthAnimalsGetResponse200 = {
   data: HealthAnimalOptionListOut
   status: 200
@@ -3240,10 +3394,12 @@ export const getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetUrl = (para
 }
 
 /**
- * Targetable batch summaries without exposing the purchase ledger.
+ * Opaque targetable batch ids without exposing the purchase ledger.
  *
- * Batches with no active animals are omitted because the health write path
- * cannot apply an event to them.
+ * Only the id needed by the health write and the current quarantine target
+ * count are returned. Supplier, purchase date, original count and price are
+ * procurement data and require ``purchases.view``. Search is deliberately
+ * exact-id-only so a health-only role cannot probe supplier names.
  * @summary Health Purchase Batch Options
  */
 export const healthPurchaseBatchOptionsApiHealthPurchaseBatchesGet = async (params?: HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams, options?: Parameters<typeof customInstance>[1]): Promise<healthPurchaseBatchOptionsApiHealthPurchaseBatchesGetResponse> => {
@@ -3324,6 +3480,141 @@ export function useHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGet<TData =
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getHealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse200 = {
+  data: MovementRestrictionHistoryOut
+  status: 200
+}
+
+export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseSuccess = (movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse200) & {
+  headers: Headers;
+};
+export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseError = (movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse422) & {
+  headers: Headers;
+};
+
+export type movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse = (movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseSuccess | movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponseError)
+
+export const getMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetUrl = (animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/health/restrictions/${animalId}?${stringifiedParams}` : `/api/health/restrictions/${animalId}`
+}
+
+/**
+ * @summary Movement Restriction History
+ */
+export const movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet = async (animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams, options?: Parameters<typeof customInstance>[1]): Promise<movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse> => {
+
+  return customInstance<movementRestrictionHistoryApiHealthRestrictionsAnimalIdGetResponse>(getMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetUrl(animalId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetQueryKey = (animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams,) => {
+    return [
+    `/api/health/restrictions/${animalId}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetQueryOptions = <TData = Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetQueryKey(animalId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>> = ({ signal }) => movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet(animalId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: animalId !== null && animalId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>>
+export type MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet<TData = Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ animalId: number,
+    params: undefined |  MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet<TData = Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet<TData = Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Movement Restriction History
+ */
+
+export function useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet<TData = Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError = ErrorType<HTTPValidationError>>(
+ animalId: number,
+    params?: MovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof movementRestrictionHistoryApiHealthRestrictionsAnimalIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGetQueryOptions(animalId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -3561,7 +3852,7 @@ export function useListEventsApiHealthEventsGet<TData = Awaited<ReturnType<typeo
 
 
 export type recordEventApiHealthEventsPostResponse201 = {
-  data: HealthEventOut[]
+  data: HealthEventMutationOut
   status: 201
 }
 
@@ -3588,11 +3879,10 @@ export const getRecordEventApiHealthEventsPostUrl = () => {
 }
 
 /**
- * One HealthEvent row per targeted ACTIVE animal.
+ * Record an individual event or an exact reviewed bulk target snapshot.
  *
- * A task-linked event must match the task's exact scope, health type and
- * seeded schedule template. This prevents a generic health note from
- * completing an unrelated quarantine vaccine duty.
+ * A durable idempotency key makes retries return the first committed event
+ * set without re-evaluating mutable bucket/batch membership.
  * @summary Record Event
  */
 export const recordEventApiHealthEventsPost = async (healthEventIn: HealthEventIn, options?: Parameters<typeof customInstance>[1]): Promise<recordEventApiHealthEventsPostResponse> => {
@@ -3653,6 +3943,97 @@ export const useRecordEventApiHealthEventsPost = <TError = ErrorType<HTTPValidat
         TContext
       > => {
       return useMutation(getRecordEventApiHealthEventsPostMutationOptions(options), queryClient);
+    }
+
+export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse200 = {
+  data: HealthBulkTargetPreviewOut
+  status: 200
+}
+
+export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type previewBulkEventTargetsApiHealthEventsPreviewPostResponseSuccess = (previewBulkEventTargetsApiHealthEventsPreviewPostResponse200) & {
+  headers: Headers;
+};
+export type previewBulkEventTargetsApiHealthEventsPreviewPostResponseError = (previewBulkEventTargetsApiHealthEventsPreviewPostResponse422) & {
+  headers: Headers;
+};
+
+export type previewBulkEventTargetsApiHealthEventsPreviewPostResponse = (previewBulkEventTargetsApiHealthEventsPreviewPostResponseSuccess | previewBulkEventTargetsApiHealthEventsPreviewPostResponseError)
+
+export const getPreviewBulkEventTargetsApiHealthEventsPreviewPostUrl = () => {
+
+
+
+
+  return `/api/health/events/preview`
+}
+
+/**
+ * Return the exact, bounded active-animal snapshot a bulk write must present.
+ * @summary Preview Bulk Event Targets
+ */
+export const previewBulkEventTargetsApiHealthEventsPreviewPost = async (healthBulkTargetIn: HealthBulkTargetIn, options?: Parameters<typeof customInstance>[1]): Promise<previewBulkEventTargetsApiHealthEventsPreviewPostResponse> => {
+
+  return customInstance<previewBulkEventTargetsApiHealthEventsPreviewPostResponse>(getPreviewBulkEventTargetsApiHealthEventsPreviewPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(healthBulkTargetIn)
+  }
+);}
+
+
+
+
+
+export const getPreviewBulkEventTargetsApiHealthEventsPreviewPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewBulkEventTargetsApiHealthEventsPreviewPost>>, TError,{data: HealthBulkTargetIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewBulkEventTargetsApiHealthEventsPreviewPost>>, TError,{data: HealthBulkTargetIn}, TContext> => {
+
+const mutationKey = ['previewBulkEventTargetsApiHealthEventsPreviewPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewBulkEventTargetsApiHealthEventsPreviewPost>>, {data: HealthBulkTargetIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewBulkEventTargetsApiHealthEventsPreviewPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewBulkEventTargetsApiHealthEventsPreviewPostMutationResult = NonNullable<Awaited<ReturnType<typeof previewBulkEventTargetsApiHealthEventsPreviewPost>>>
+    export type PreviewBulkEventTargetsApiHealthEventsPreviewPostMutationBody = HealthBulkTargetIn
+    export type PreviewBulkEventTargetsApiHealthEventsPreviewPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Preview Bulk Event Targets
+ */
+export const usePreviewBulkEventTargetsApiHealthEventsPreviewPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewBulkEventTargetsApiHealthEventsPreviewPost>>, TError,{data: HealthBulkTargetIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof previewBulkEventTargetsApiHealthEventsPreviewPost>>,
+        TError,
+        {data: HealthBulkTargetIn},
+        TContext
+      > => {
+      return useMutation(getPreviewBulkEventTargetsApiHealthEventsPreviewPostMutationOptions(options), queryClient);
     }
 
 export type vaccinationScheduleApiHealthScheduleAnimalIdGetResponse200 = {
@@ -3811,8 +4192,7 @@ export const getListTasksApiTasksGetUrl = (params?: ListTasksApiTasksGetParams,)
 }
 
 /**
- * All five v1 tabs in one payload; per-tab counts are the list lengths
- * (the completed history keeps v1's 100-row cap).
+ * All five v1 tabs as deterministic, independently pageable lists.
  * @summary List Tasks
  */
 export const listTasksApiTasksGet = async (params?: ListTasksApiTasksGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listTasksApiTasksGetResponse> => {
@@ -3933,8 +4313,12 @@ export const getCreateTaskApiTasksPostUrl = () => {
 }
 
 /**
- * Manual duty. v1 silently stripped unknown/cross-farm role or worker
- * ids instead of rejecting — kept.
+ * Create a manual duty with explicit, farm-scoped assignments.
+ *
+ * Assignment is operational state, not optional enrichment.  Silently
+ * dropping an invalid worker or role leaves an apparently successful duty
+ * visible only to the owner, so reject stale, inactive, and cross-farm
+ * references instead.
  * @summary Create Task
  */
 export const createTaskApiTasksPost = async (taskCreateIn: TaskCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createTaskApiTasksPostResponse> => {
@@ -4387,7 +4771,10 @@ export const getFeedingTodayApiFeedingPlanGetUrl = () => {
 }
 
 /**
- * Today's 3-shift plan (bucket × recipe × headcount) + today's dispensing log.
+ * Today's plan plus the latest 200 dispensing records for today.
+ *
+ * ``records_total`` remains the truthful full-day count. Clients needing
+ * older rows use the paginated ``GET /api/feeding/records`` endpoint.
  * @summary Feeding Today
  */
 export const feedingTodayApiFeedingPlanGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<feedingTodayApiFeedingPlanGetResponse> => {
@@ -5494,7 +5881,7 @@ export const getAddTransactionApiFinanceNewPostUrl = () => {
 }
 
 /**
- * Record an income/expense; a foreign-farm animal link is stripped, not stored.
+ * Record an income/expense with an optional verified farm-animal link.
  * @summary Add Transaction
  */
 export const addTransactionApiFinanceNewPost = async (transactionIn: TransactionIn, options?: Parameters<typeof customInstance>[1]): Promise<addTransactionApiFinanceNewPostResponse> => {
@@ -5901,7 +6288,11 @@ export const getBatchDetailApiPurchasesBatchIdGetUrl = (batchId: number,) => {
 }
 
 /**
- * One batch with its quarantine task schedule and stubbed animals.
+ * One batch with its quarantine schedule and purpose-scoped animals.
+ *
+ * The schedule itself belongs to procurement, but task assignment and
+ * completion attribution remain task-module data. Likewise, a batch animal
+ * can be tracked through quarantine without granting its complete profile.
  * @summary Batch Detail
  */
 export const batchDetailApiPurchasesBatchIdGet = async (batchId: number, options?: Parameters<typeof customInstance>[1]): Promise<batchDetailApiPurchasesBatchIdGetResponse> => {
@@ -6022,6 +6413,12 @@ export const getDashboardApiDashboardGetUrl = () => {
 }
 
 /**
+ * Exact herd counts plus deterministic, bounded operational previews.
+ *
+ * Each ``*_total`` is calculated in the same SQL statement as its list.
+ * Operational lists contain at most ``preview_limit`` rows; recent weights
+ * use ``recent_weights_limit``. The dedicated tasks, breeding and animals
+ * pages remain the full paginated/history views.
  * @summary Dashboard
  */
 export const dashboardApiDashboardGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<dashboardApiDashboardGetResponse> => {
@@ -6143,7 +6540,8 @@ export const getReportsApiDashboardReportsGetUrl = () => {
 
 /**
  * Herd summary, breeding performance, mortality — all aggregated in SQL;
- * only the cull-candidate list is hydrated as ORM rows.
+ * only a 100-row purpose-specific cull preview is hydrated as ORM rows and
+ * its exact count is returned separately.
  * @summary Reports
  */
 export const reportsApiDashboardReportsGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<reportsApiDashboardReportsGetResponse> => {
@@ -6544,44 +6942,45 @@ export const useChangeRoleApiTeamWorkersMembershipIdRolePost = <TError = ErrorTy
       return useMutation(getChangeRoleApiTeamWorkersMembershipIdRolePostMutationOptions(options), queryClient);
     }
 
-export type toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse200 = {
+export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse200 = {
   data: MembershipOut
   status: 200
 }
 
-export type toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse422 = {
+export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse422 = {
   data: HTTPValidationError
   status: 422
 }
 
-export type toggleWorkerApiTeamWorkersMembershipIdTogglePostResponseSuccess = (toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse200) & {
+export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseSuccess = (setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse200) & {
   headers: Headers;
 };
-export type toggleWorkerApiTeamWorkersMembershipIdTogglePostResponseError = (toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse422) & {
+export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseError = (setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse422) & {
   headers: Headers;
 };
 
-export type toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse = (toggleWorkerApiTeamWorkersMembershipIdTogglePostResponseSuccess | toggleWorkerApiTeamWorkersMembershipIdTogglePostResponseError)
+export type setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse = (setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseSuccess | setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponseError)
 
-export const getToggleWorkerApiTeamWorkersMembershipIdTogglePostUrl = (membershipId: number,) => {
-
-
+export const getSetWorkerStatusApiTeamWorkersMembershipIdStatusPutUrl = (membershipId: number,) => {
 
 
-  return `/api/team/workers/${membershipId}/toggle`
+
+
+  return `/api/team/workers/${membershipId}/status`
 }
 
 /**
- * @summary Toggle Worker
+ * @summary Set Worker Status
  */
-export const toggleWorkerApiTeamWorkersMembershipIdTogglePost = async (membershipId: number, options?: Parameters<typeof customInstance>[1]): Promise<toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse> => {
+export const setWorkerStatusApiTeamWorkersMembershipIdStatusPut = async (membershipId: number,
+    workerStatusIn: WorkerStatusIn, options?: Parameters<typeof customInstance>[1]): Promise<setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse> => {
 
-  return customInstance<toggleWorkerApiTeamWorkersMembershipIdTogglePostResponse>(getToggleWorkerApiTeamWorkersMembershipIdTogglePostUrl(membershipId),
+  return customInstance<setWorkerStatusApiTeamWorkersMembershipIdStatusPutResponse>(getSetWorkerStatusApiTeamWorkersMembershipIdStatusPutUrl(membershipId),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(workerStatusIn)
   }
 );}
 
@@ -6589,11 +6988,11 @@ export const toggleWorkerApiTeamWorkersMembershipIdTogglePost = async (membershi
 
 
 
-export const getToggleWorkerApiTeamWorkersMembershipIdTogglePostMutationOptions = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkerApiTeamWorkersMembershipIdTogglePost>>, TError,{membershipId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof toggleWorkerApiTeamWorkersMembershipIdTogglePost>>, TError,{membershipId: number}, TContext> => {
+export const getSetWorkerStatusApiTeamWorkersMembershipIdStatusPutMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setWorkerStatusApiTeamWorkersMembershipIdStatusPut>>, TError,{membershipId: number;data: WorkerStatusIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof setWorkerStatusApiTeamWorkersMembershipIdStatusPut>>, TError,{membershipId: number;data: WorkerStatusIn}, TContext> => {
 
-const mutationKey = ['toggleWorkerApiTeamWorkersMembershipIdTogglePost'];
+const mutationKey = ['setWorkerStatusApiTeamWorkersMembershipIdStatusPut'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -6603,10 +7002,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof toggleWorkerApiTeamWorkersMembershipIdTogglePost>>, {membershipId: number}> = (props) => {
-          const {membershipId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setWorkerStatusApiTeamWorkersMembershipIdStatusPut>>, {membershipId: number;data: WorkerStatusIn}> = (props) => {
+          const {membershipId,data} = props ?? {};
 
-          return  toggleWorkerApiTeamWorkersMembershipIdTogglePost(membershipId,requestOptions)
+          return  setWorkerStatusApiTeamWorkersMembershipIdStatusPut(membershipId,data,requestOptions)
         }
 
 
@@ -6616,22 +7015,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type ToggleWorkerApiTeamWorkersMembershipIdTogglePostMutationResult = NonNullable<Awaited<ReturnType<typeof toggleWorkerApiTeamWorkersMembershipIdTogglePost>>>
-
-    export type ToggleWorkerApiTeamWorkersMembershipIdTogglePostMutationError = ErrorType<HTTPValidationError>
+    export type SetWorkerStatusApiTeamWorkersMembershipIdStatusPutMutationResult = NonNullable<Awaited<ReturnType<typeof setWorkerStatusApiTeamWorkersMembershipIdStatusPut>>>
+    export type SetWorkerStatusApiTeamWorkersMembershipIdStatusPutMutationBody = WorkerStatusIn
+    export type SetWorkerStatusApiTeamWorkersMembershipIdStatusPutMutationError = ErrorType<HTTPValidationError>
 
     /**
- * @summary Toggle Worker
+ * @summary Set Worker Status
  */
-export const useToggleWorkerApiTeamWorkersMembershipIdTogglePost = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof toggleWorkerApiTeamWorkersMembershipIdTogglePost>>, TError,{membershipId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+export const useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setWorkerStatusApiTeamWorkersMembershipIdStatusPut>>, TError,{membershipId: number;data: WorkerStatusIn}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof toggleWorkerApiTeamWorkersMembershipIdTogglePost>>,
+        Awaited<ReturnType<typeof setWorkerStatusApiTeamWorkersMembershipIdStatusPut>>,
         TError,
-        {membershipId: number},
+        {membershipId: number;data: WorkerStatusIn},
         TContext
       > => {
-      return useMutation(getToggleWorkerApiTeamWorkersMembershipIdTogglePostMutationOptions(options), queryClient);
+      return useMutation(getSetWorkerStatusApiTeamWorkersMembershipIdStatusPutMutationOptions(options), queryClient);
     }
 
 export type resetPasswordApiTeamWorkersMembershipIdResetPasswordPostResponse200 = {
@@ -6662,7 +7061,7 @@ export const getResetPasswordApiTeamWorkersMembershipIdResetPasswordPostUrl = (m
 }
 
 /**
- * Reset only a global account this farm demonstrably provisioned.
+ * Owner-only reset of a global account this farm demonstrably provisioned.
  * @summary Reset Password
  */
 export const resetPasswordApiTeamWorkersMembershipIdResetPasswordPost = async (membershipId: number,
@@ -7563,7 +7962,7 @@ export const useCreateScenarioApiSimulationScenariosPost = <TError = ErrorType<H
     }
 
 export type listScenariosApiSimulationScenariosGetResponse200 = {
-  data: ScenarioOut[]
+  data: ScenarioListOut
   status: 200
 }
 
@@ -7581,20 +7980,27 @@ export type listScenariosApiSimulationScenariosGetResponseError = (listScenarios
 
 export type listScenariosApiSimulationScenariosGetResponse = (listScenariosApiSimulationScenariosGetResponseSuccess | listScenariosApiSimulationScenariosGetResponseError)
 
-export const getListScenariosApiSimulationScenariosGetUrl = () => {
+export const getListScenariosApiSimulationScenariosGetUrl = (params?: ListScenariosApiSimulationScenariosGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/simulation/scenarios`
+  return stringifiedParams.length > 0 ? `/api/simulation/scenarios?${stringifiedParams}` : `/api/simulation/scenarios`
 }
 
 /**
  * @summary List Scenarios
  */
-export const listScenariosApiSimulationScenariosGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<listScenariosApiSimulationScenariosGetResponse> => {
+export const listScenariosApiSimulationScenariosGet = async (params?: ListScenariosApiSimulationScenariosGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listScenariosApiSimulationScenariosGetResponse> => {
 
-  return customInstance<listScenariosApiSimulationScenariosGetResponse>(getListScenariosApiSimulationScenariosGetUrl(),
+  return customInstance<listScenariosApiSimulationScenariosGetResponse>(getListScenariosApiSimulationScenariosGetUrl(params),
   {
     ...options,
     method: 'GET'
@@ -7607,23 +8013,23 @@ export const listScenariosApiSimulationScenariosGet = async ( options?: Paramete
 
 
 
-export const getListScenariosApiSimulationScenariosGetQueryKey = () => {
+export const getListScenariosApiSimulationScenariosGetQueryKey = (params?: ListScenariosApiSimulationScenariosGetParams,) => {
     return [
-    `/api/simulation/scenarios`
+    `/api/simulation/scenarios`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getListScenariosApiSimulationScenariosGetQueryOptions = <TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getListScenariosApiSimulationScenariosGetQueryOptions = <TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(params?: ListScenariosApiSimulationScenariosGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListScenariosApiSimulationScenariosGetQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListScenariosApiSimulationScenariosGetQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>> = ({ signal }) => listScenariosApiSimulationScenariosGet({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>> = ({ signal }) => listScenariosApiSimulationScenariosGet(params, { signal, ...requestOptions });
 
 
 
@@ -7637,7 +8043,7 @@ export type ListScenariosApiSimulationScenariosGetQueryError = ErrorType<HTTPVal
 
 
 export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
-  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>> & Pick<
+ params: undefined |  ListScenariosApiSimulationScenariosGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>,
           TError,
@@ -7647,7 +8053,7 @@ export function useListScenariosApiSimulationScenariosGet<TData = Awaited<Return
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>> & Pick<
+ params?: ListScenariosApiSimulationScenariosGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>,
           TError,
@@ -7657,7 +8063,7 @@ export function useListScenariosApiSimulationScenariosGet<TData = Awaited<Return
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListScenariosApiSimulationScenariosGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -7665,11 +8071,11 @@ export function useListScenariosApiSimulationScenariosGet<TData = Awaited<Return
  */
 
 export function useListScenariosApiSimulationScenariosGet<TData = Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError = ErrorType<HTTPValidationError>>(
-  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ params?: ListScenariosApiSimulationScenariosGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listScenariosApiSimulationScenariosGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getListScenariosApiSimulationScenariosGetQueryOptions(options)
+  const queryOptions = getListScenariosApiSimulationScenariosGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

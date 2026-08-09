@@ -132,7 +132,7 @@ describe("AnimalsPage", () => {
       tag_number: "G-101",
       // Defaults from the dialog's pre-selected selects.
       sex: "F",
-      source: "BORN",
+      source: "PURCHASED",
       current_bucket: "QUARANTINE",
       breed: "Osmanabadi",
       // Blank optionals are mapped to null.
@@ -141,6 +141,8 @@ describe("AnimalsPage", () => {
       birth_type: null,
       birth_weight: null,
       weight_kg: null,
+      weight_date: null,
+      historical_import_reason: null,
       notes: null,
     });
 

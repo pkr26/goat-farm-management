@@ -1,15 +1,20 @@
 """Animals module: list/filters, create, profile, bucket moves, weights, status."""
 
+import re
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
+    MIN_BREEDING_AGE_MONTHS,
+    MIN_BREEDING_WEIGHT_KG,
+    MIN_BUCK_BREEDING_AGE_MONTHS,
+    MIN_BUCK_BREEDING_WEIGHT_KG,
     Animal,
     AnimalStatus,
     BreedingOutcome,
@@ -17,6 +22,9 @@ from ..models import (
     Bucket,
     BucketMove,
     HealthEvent,
+    KiddingRecord,
+    KidEntry,
+    KidStatus,
     Transaction,
     TransactionCategory,
     TransactionType,
@@ -25,6 +33,7 @@ from ..models import (
 from ..schemas.animals import (
     AnimalCreateIn,
     AnimalListOut,
+    AnimalOffspringOut,
     AnimalOut,
     AnimalProfileOut,
     AnimalStatusStr,
@@ -36,22 +45,52 @@ from ..schemas.animals import (
     WeightIn,
     WeightRecordOut,
 )
-from ..schemas.common import MAX_INT32_ID
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.health import HealthEventOut
 from ..services import (
-    ANIMAL_OUT_LOADS,
+    IdempotencyKey,
+    create_purchase_batch,
+    doe_has_open_breeding,
+    execute_idempotent,
     generate_unique_tag,
     mark_aborted,
     move_animal,
+    place_movement_restriction,
+    require_animal_event_chronology,
     require_bucket_transition,
+    require_farm_not_future,
+    require_status_after_recorded_facts,
+    schedule_quarantine_tasks,
     skip_pending_tasks_for_animal,
 )
 from ..utils import money, today
-from ._shared import animal_out
+from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out
 
 router = APIRouter(prefix="/api/animals", tags=["animals"])
 
 NOT_FOUND = "Animal not found"
+PROFILE_HISTORY_DEFAULT_LIMIT = 25
+PROFILE_HISTORY_MAX_LIMIT = 100
+
+
+def _unique_constraint_name(exc: IntegrityError) -> str | None:
+    """Recover a PostgreSQL unique-constraint name through asyncpg's wrapper."""
+    orig = getattr(exc, "orig", None)
+    name = getattr(orig, "constraint_name", None)
+    if isinstance(name, str):
+        return name
+    match = re.search(r'violates unique constraint "([^"]+)"', str(orig))
+    return match.group(1) if match else None
+
+
+async def _profile_computed_facts(
+    db: AsyncSession,
+    animal: Animal,
+    reference_date: date,
+    timezone_name: str,
+) -> AnimalComputedFacts:
+    """Current profile facts without lifetime relationship hydration."""
+    return (await animal_computed_facts(db, [animal], reference_date, timezone_name))[animal.id]
 
 
 async def _get_animal(
@@ -60,24 +99,21 @@ async def _get_animal(
     animal_id: int,
     *,
     for_update: bool = False,
-    with_details: bool = False,
 ) -> Animal:
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
     # int32 DataError (500).
     animal: Animal | None
-    if animal_id > MAX_INT32_ID:
+    if not 1 <= animal_id <= MAX_INT32_ID:
         animal = None
     elif for_update:
         # SELECT ... FOR UPDATE: concurrent mutations (e.g. two sales) take
         # the row lock in turn — the loser re-reads the committed row and
         # fails the state check instead of double-applying side effects.
-        result = await db.execute(select(Animal).where(Animal.id == animal_id).with_for_update())
+        stmt = select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm_id)
+        result = await db.execute(stmt.with_for_update())
         animal = result.scalar_one_or_none()
     else:
-        stmt = select(Animal).where(Animal.id == animal_id)
-        if with_details:
-            # AnimalOut's computed fields read these collections.
-            stmt = stmt.options(*ANIMAL_OUT_LOADS)
+        stmt = select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm_id)
         result = await db.execute(stmt)
         animal = result.scalar_one_or_none()
     if animal is None or animal.farm_id != farm_id:
@@ -90,30 +126,35 @@ async def _animal_out(
     animal: Animal,
     reference_date: date,
     timezone_name: str,
+    permissions: set[str],
 ) -> AnimalOut:
-    """AnimalOut with computed fields (age, latest weight, pregnancy state...).
-    Expire + re-select so relationships are freshly selectin-loaded — FK-only
-    child inserts (weight/move) leave previously loaded collections stale, and
-    a never-loaded persistent animal would trigger a forbidden lazy load."""
+    """Serialize current facts without loading the animal's lifetime history."""
     animal_id = animal.id  # read before expire: expired attrs can't be touched
     db.expire(animal)
-    result = await db.execute(
-        select(Animal).options(*ANIMAL_OUT_LOADS).where(Animal.id == animal_id)
+    result = await db.execute(select(Animal).where(Animal.id == animal_id))
+    refreshed = result.scalar_one()
+    computed = await _profile_computed_facts(db, refreshed, reference_date, timezone_name)
+    return animal_out(
+        refreshed,
+        reference_date,
+        timezone_name,
+        permissions=permissions,
+        computed=computed,
     )
-    return animal_out(result.scalar_one(), reference_date, timezone_name)
 
 
 @router.get("")
 async def list_animals(
     db: DbSession,
     farm: CurrentFarm,
-    _perms: Annotated[set[str], Depends(require_perm("animals.view"))],
+    perms: Annotated[set[str], Depends(require_perm("animals.view"))],
     bucket: BucketStr | None = None,
     sex: Sex | None = None,
     status: AnimalStatusStr | None = None,
+    include_all_statuses: bool = False,
     q: Annotated[str | None, Query(max_length=60)] = None,
-    limit: Annotated[int | None, Query(ge=1, le=1000)] = None,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> AnimalListOut:
     stmt = select(Animal).where(Animal.farm_id == farm.id)
     if bucket is not None:
@@ -122,7 +163,9 @@ async def list_animals(
         stmt = stmt.where(Animal.sex == sex)
     if status is not None:
         stmt = stmt.where(Animal.status == status)
-    else:  # v1 default: the herd list shows ACTIVE animals unless asked otherwise
+    elif not include_all_statuses:
+        # Backward-compatible API default. Clients that label a filter "All
+        # statuses" must opt in explicitly instead of relying on omission.
         stmt = stmt.where(Animal.status == AnimalStatus.ACTIVE.value)
     if q and q.strip():
         # Escape LIKE wildcards: a literal "%"/"_" in the query
@@ -135,18 +178,25 @@ async def list_animals(
                 Animal.name.ilike(pattern, escape="\\"),
             )
         )
-    stmt = stmt.order_by(Animal.current_bucket, Animal.tag_number)
-    if limit is None and offset == 0:
-        # Default (unpaginated) behavior: the full filtered list, as always.
-        result = await db.execute(stmt.options(*ANIMAL_OUT_LOADS))
-        reference_date = today(farm.timezone)
-        animals = [animal_out(a, reference_date, farm.timezone) for a in result.scalars()]
-        return AnimalListOut(animals=animals, total=len(animals))
-    # Paginated: `total` stays the full filtered count so clients can page.
+    # Every request is finite, including callers that omit pagination. `total`
+    # remains the full filtered count so clients can always page honestly.
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    result = await db.execute(stmt.options(*ANIMAL_OUT_LOADS).offset(offset).limit(limit))
+    result = await db.execute(
+        stmt.order_by(Animal.current_bucket, Animal.tag_number).offset(offset).limit(limit)
+    )
     reference_date = today(farm.timezone)
-    animals = [animal_out(a, reference_date, farm.timezone) for a in result.scalars()]
+    page_animals = list(result.scalars())
+    computed = await animal_computed_facts(db, page_animals, reference_date, farm.timezone)
+    animals = [
+        animal_out(
+            animal,
+            reference_date,
+            farm.timezone,
+            permissions=perms,
+            computed=computed[animal.id],
+        )
+        for animal in page_animals
+    ]
     return AnimalListOut(animals=animals, total=total)
 
 
@@ -156,17 +206,46 @@ async def create_animal(
     db: DbSession,
     farm: CurrentFarm,
     user: CurrentUser,
-    _perms: Annotated[set[str], Depends(require_perm("animals.create"))],
+    perms: Annotated[set[str], Depends(require_perm("animals.create"))],
+    response: Response,
+    idempotency_key: IdempotencyKey = None,
 ) -> AnimalOut:
-    tag_number = (payload.tag_number or "").strip()
-    if tag_number:
-        existing = await db.execute(
-            select(Animal.id).where(Animal.farm_id == farm.id, Animal.tag_number == tag_number)
-        )
-        if existing.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
-            )
+    farm_date = today(farm.timezone)
+    try:
+        for field_name, value in (
+            ("date_of_birth", payload.date_of_birth),
+            ("estimated_dob", payload.estimated_dob),
+            ("purchase_date", payload.purchase_date),
+            ("weight_date", payload.weight_date),
+        ):
+            if value is not None:
+                require_farm_not_future(value, farm, field_name)
+        recorded_dob = payload.date_of_birth or payload.estimated_dob
+        if (
+            payload.purchase_date is not None
+            and recorded_dob is not None
+            and payload.purchase_date < recorded_dob
+        ):
+            raise ValueError("purchase_date cannot predate the recorded birth date")
+        if payload.weight_date is not None and recorded_dob is not None:
+            if payload.weight_date < recorded_dob:
+                raise ValueError("weight_date cannot predate the recorded birth date")
+        if (
+            payload.weight_date is not None
+            and payload.purchase_date is not None
+            and payload.weight_date < payload.purchase_date
+        ):
+            raise ValueError("weight_date cannot predate purchase_date")
+        if (
+            payload.source == "PURCHASED"
+            and not (payload.historical_import_reason or "").strip()
+            and payload.weight_date is not None
+            and payload.weight_date < (payload.purchase_date or farm_date)
+        ):
+            raise ValueError("weight_date cannot predate purchase_date")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
     # enum/date/non-negativity guards from v1 now live in AnimalCreateIn's validators.
     # A blank tag gets an auto-generated one; that retries once on a lost race.
     # Capture farm.id/user.id up front: a rollback in the retry path expires
@@ -176,84 +255,195 @@ async def create_animal(
     farm_id = farm.id
     farm_timezone = farm.timezone
     user_id = user.id
-    attempts = 1 if tag_number else 2
-    for attempt in range(attempts):
-        if not tag_number:
-            tag_number = await generate_unique_tag(db, farm_id)
-        animal = Animal(
-            farm_id=farm_id,
-            tag_number=tag_number,
-            name=(payload.name or "").strip() or None,
-            sex=payload.sex,
-            source=payload.source,
-            current_bucket=payload.current_bucket,
-            date_of_birth=payload.date_of_birth,
-            estimated_dob=payload.estimated_dob,
-            birth_type=payload.birth_type,
-            breed=payload.breed.strip() or "Osmanabadi",
-            birth_weight=payload.birth_weight,
-            purchase_date=payload.purchase_date,
-            purchase_price=money(payload.purchase_price)
-            if payload.purchase_price is not None
-            else None,
-            seller_name=(payload.seller_name or "").strip() or None,
-            notes=(payload.notes or "").strip() or None,
-            status=AnimalStatus.ACTIVE.value,
+    historical_import_reason = (payload.historical_import_reason or "").strip()
+    if historical_import_reason and user_id != farm.owner_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the farm owner may import historical animal lifecycle data",
         )
-        db.add(animal)
-        try:
-            await db.flush()
-            db.add(
-                BucketMove(
-                    animal_id=animal.id,
-                    from_bucket=None,
-                    to_bucket=payload.current_bucket,
-                    reason="Initial entry",
-                    created_by_id=user_id,
-                )
+    managed_purchase = payload.source == "PURCHASED" and not historical_import_reason
+    initial_bucket = Bucket.QUARANTINE.value if managed_purchase else payload.current_bucket
+    if historical_import_reason:
+        # A direct import cannot fabricate a pregnancy, delivery or lactating
+        # recovery state without its authoritative breeding/kidding records.
+        # Import into an ordinary cohort, then record the historical domain
+        # workflow so every reproductive fact remains linked and auditable.
+        workflow_only_buckets = {
+            Bucket.PREGNANCY_EARLY.value,
+            Bucket.PREGNANCY_LATE.value,
+            Bucket.DELIVERY.value,
+            Bucket.RECOVERY.value,
+        }
+        if initial_bucket in workflow_only_buckets:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Historical animals cannot start in {initial_bucket}; "
+                    "import an ordinary cohort and record the breeding/kidding workflow"
+                ),
             )
-            if payload.weight_kg is not None and payload.weight_kg > 0:
-                db.add(
-                    WeightRecord(
-                        animal_id=animal.id,
-                        date=today(farm_timezone),
-                        weight_kg=payload.weight_kg,
-                        notes="Entry weight",
-                        created_by_id=user_id,
-                    )
-                )
-            # Individual and batch purchase entry points must have identical
-            # ledger semantics. An explicitly supplied ₹0 is still a factual
-            # purchase amount and receives an auditable source-linked row.
-            if payload.source == "PURCHASED" and payload.purchase_price is not None:
-                db.add(
-                    Transaction(
-                        farm_id=farm_id,
-                        date=payload.purchase_date or today(farm_timezone),
-                        type=TransactionType.EXPENSE.value,
-                        category=TransactionCategory.ANIMAL_PURCHASE.value,
-                        amount=money(payload.purchase_price),
-                        related_animal_id=animal.id,
-                        notes=f"Purchase of {animal.tag_number}"
-                        + (f" from {animal.seller_name}" if animal.seller_name else ""),
-                        created_by_id=user_id,
-                        source_type="ANIMAL_PURCHASE",
-                        source_id=animal.id,
-                    )
-                )
-            await db.commit()
-            return await _animal_out(db, animal, today(farm_timezone), farm_timezone)
-        except IntegrityError:
-            # A concurrent insert won the tag race past the pre-check above
-            # (uq_animal_tag_per_farm) — answer exactly like the pre-check,
-            # never 500; auto tags retry once with a fresh generated tag.
-            await db.rollback()
-            if attempt + 1 == attempts:
+        if initial_bucket == Bucket.BREEDING.value:
+            dob = payload.date_of_birth or payload.estimated_dob
+            age_months = None
+            if dob is not None:
+                age_months = (farm_date.year - dob.year) * 12 + (farm_date.month - dob.month)
+                if farm_date.day < dob.day:
+                    age_months -= 1
+            min_age = (
+                MIN_BUCK_BREEDING_AGE_MONTHS if payload.sex == "M" else MIN_BREEDING_AGE_MONTHS
+            )
+            min_weight = (
+                MIN_BUCK_BREEDING_WEIGHT_KG if payload.sex == "M" else MIN_BREEDING_WEIGHT_KG
+            )
+            if age_months is None or age_months < min_age or (payload.weight_kg or 0) < min_weight:
                 raise HTTPException(
-                    status_code=400, detail=f"Tag '{tag_number}' already exists on this farm."
-                ) from None
-            tag_number = ""
-    raise AssertionError("unreachable")  # the loop always returns or raises
+                    status_code=422,
+                    detail=(
+                        f"Historical BREEDING entry requires age at least {min_age} months "
+                        f"and entry weight at least {min_weight:g} kg"
+                    ),
+                )
+    requested_tag = (payload.tag_number or "").strip()
+
+    async def mutate() -> AnimalOut:
+        attempts = 1 if requested_tag else 2
+        for attempt in range(attempts):
+            tag_number = requested_tag or await generate_unique_tag(db, farm_id)
+            try:
+                # A savepoint keeps the durable idempotency claim alive if an
+                # auto-generated tag loses its rare uniqueness race.
+                async with db.begin_nested():
+                    if requested_tag:
+                        existing = await db.execute(
+                            select(Animal.id).where(
+                                Animal.farm_id == farm_id,
+                                Animal.tag_number == tag_number,
+                            )
+                        )
+                        if existing.scalar_one_or_none() is not None:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Tag '{tag_number}' already exists on this farm.",
+                            )
+
+                    purchase_batch = None
+                    if managed_purchase:
+                        purchase_batch = await create_purchase_batch(
+                            db,
+                            farm,
+                            payload.purchase_date or farm_date,
+                            (payload.seller_name or "").strip(),
+                            1,
+                            None,
+                            payload.weight_kg,
+                            payload.purchase_price,
+                            (payload.notes or "").strip(),
+                            False,
+                            created_by_id=user_id,
+                            sex=payload.sex,
+                        )
+                    animal = Animal(
+                        farm_id=farm_id,
+                        tag_number=tag_number,
+                        name=(payload.name or "").strip() or None,
+                        sex=payload.sex,
+                        source=payload.source,
+                        current_bucket=initial_bucket,
+                        date_of_birth=payload.date_of_birth,
+                        estimated_dob=payload.estimated_dob,
+                        birth_type=payload.birth_type,
+                        breed=payload.breed.strip() or "Osmanabadi",
+                        birth_weight=payload.birth_weight,
+                        purchase_date=(payload.purchase_date or farm_date)
+                        if managed_purchase
+                        else payload.purchase_date,
+                        purchase_price=money(payload.purchase_price)
+                        if payload.purchase_price is not None
+                        else None,
+                        seller_name=(payload.seller_name or "").strip() or None,
+                        purchase_batch_id=(
+                            purchase_batch.id if purchase_batch is not None else None
+                        ),
+                        notes=(payload.notes or "").strip() or None,
+                        status=AnimalStatus.ACTIVE.value,
+                    )
+                    db.add(animal)
+                    await db.flush()
+                    db.add(
+                        BucketMove(
+                            animal_id=animal.id,
+                            from_bucket=None,
+                            to_bucket=initial_bucket,
+                            reason=(
+                                f"Historical import: {historical_import_reason}"[:255]
+                                if historical_import_reason
+                                else (
+                                    f"Purchase batch #{purchase_batch.id}"
+                                    if purchase_batch is not None
+                                    else "Initial entry"
+                                )
+                            ),
+                            created_by_id=user_id,
+                        )
+                    )
+                    if payload.weight_kg is not None and payload.weight_kg > 0:
+                        db.add(
+                            WeightRecord(
+                                animal_id=animal.id,
+                                date=payload.weight_date or farm_date,
+                                weight_kg=payload.weight_kg,
+                                notes="Entry weight",
+                                created_by_id=user_id,
+                            )
+                        )
+                    if purchase_batch is not None:
+                        await schedule_quarantine_tasks(db, farm, purchase_batch)
+                    elif payload.source == "PURCHASED" and payload.purchase_price is not None:
+                        db.add(
+                            Transaction(
+                                farm_id=farm_id,
+                                date=payload.purchase_date or farm_date,
+                                type=TransactionType.EXPENSE.value,
+                                category=TransactionCategory.ANIMAL_PURCHASE.value,
+                                amount=money(payload.purchase_price),
+                                related_animal_id=animal.id,
+                                notes=f"Purchase of {animal.tag_number}"
+                                + (f" from {animal.seller_name}" if animal.seller_name else ""),
+                                created_by_id=user_id,
+                                source_type="ANIMAL_PURCHASE",
+                                source_id=animal.id,
+                            )
+                        )
+                    # The session deliberately disables autoflush. Persist all
+                    # entry facts before the SQL-backed serializer computes
+                    # latest weight/move/provenance, otherwise an incorrect
+                    # response would also be cached by durable idempotency.
+                    await db.flush()
+                    result = await _animal_out(db, animal, farm_date, farm_timezone, perms)
+                return result
+            except IntegrityError as exc:
+                if _unique_constraint_name(exc) != "uq_animal_tag_per_farm":
+                    raise
+                if attempt + 1 == attempts:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Tag '{tag_number}' already exists on this farm.",
+                    ) from None
+        raise AssertionError("unreachable")
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm_id,
+        actor_id=user_id,
+        operation="POST /api/animals",
+        payload=payload,
+        path_identity={},
+        success_status=201,
+        response_type=AnimalOut,
+        mutate=mutate,
+    )
 
 
 @router.get("/{animal_id}")
@@ -261,47 +451,142 @@ async def animal_profile(
     animal_id: int,
     db: DbSession,
     farm: CurrentFarm,
-    _perms: Annotated[set[str], Depends(require_perm("animals.view"))],
+    perms: Annotated[set[str], Depends(require_perm("animals.view"))],
+    history_limit: Annotated[int, Query(ge=1, le=PROFILE_HISTORY_MAX_LIMIT)] = (
+        PROFILE_HISTORY_DEFAULT_LIMIT
+    ),
+    kids_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    weights_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    moves_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    health_events_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    breedings_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> AnimalProfileOut:
-    animal = await _get_animal(db, farm.id, animal_id, with_details=True)
+    animal = await _get_animal(db, farm.id, animal_id)
+    reference_date = today(farm.timezone)
+    computed = await _profile_computed_facts(db, animal, reference_date, farm.timezone)
+
+    kids_where = (Animal.farm_id == farm.id, Animal.dam_id == animal.id)
+    weights_where = WeightRecord.animal_id == animal.id
+    moves_where = BucketMove.animal_id == animal.id
+    health_where = (HealthEvent.farm_id == farm.id, HealthEvent.animal_id == animal.id)
+    breedings_where = (
+        BreedingRecord.farm_id == farm.id,
+        BreedingRecord.doe_id == animal.id,
+    )
+    totals = (
+        await db.execute(
+            select(
+                select(func.count(Animal.id)).where(*kids_where).scalar_subquery(),
+                select(func.count(WeightRecord.id)).where(weights_where).scalar_subquery(),
+                select(func.count(BucketMove.id)).where(moves_where).scalar_subquery(),
+                (
+                    select(func.count(HealthEvent.id)).where(*health_where).scalar_subquery()
+                    if "health.view" in perms
+                    else literal(0)
+                ),
+                (
+                    select(func.count(BreedingRecord.id)).where(*breedings_where).scalar_subquery()
+                    if "breeding.view" in perms
+                    else literal(0)
+                ),
+            )
+        )
+    ).one()
+    kids_total, weights_total, moves_total, health_total, breedings_total = map(int, totals)
+
     kids_result = await db.execute(
         select(Animal)
-        .options(*ANIMAL_OUT_LOADS)
-        .where(Animal.farm_id == farm.id, Animal.dam_id == animal.id)
-        .order_by(Animal.tag_number)
+        .where(*kids_where)
+        .order_by(Animal.tag_number, Animal.id)
+        .offset(kids_offset)
+        .limit(history_limit)
     )
     weights_result = await db.execute(
         select(WeightRecord)
-        .where(WeightRecord.animal_id == animal.id)
+        .where(weights_where)
         .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+        .offset(weights_offset)
+        .limit(history_limit)
     )
     moves_result = await db.execute(
         select(BucketMove)
-        .where(BucketMove.animal_id == animal.id)
+        .where(moves_where)
         .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
+        .offset(moves_offset)
+        .limit(history_limit)
     )
-    health_result = await db.execute(
-        select(HealthEvent)
-        .where(HealthEvent.animal_id == animal.id)
-        .order_by(HealthEvent.date.desc(), HealthEvent.id.desc())
-    )
-    # breedings_as_doe is eager-loaded (with_details); newest first for the client.
-    breeding_ids = [
-        br.id
-        for br in sorted(
-            animal.breedings_as_doe,
-            key=lambda r: (r.breeding_date, r.id or 0),
-            reverse=True,
+    health_events: list[HealthEventOut] = []
+    if "health.view" in perms:
+        health_result = await db.execute(
+            select(HealthEvent)
+            .where(*health_where)
+            .order_by(HealthEvent.date.desc(), HealthEvent.id.desc())
+            .offset(health_events_offset)
+            .limit(history_limit)
         )
-    ]
-    reference_date = today(farm.timezone)
+        health_events = [HealthEventOut.model_validate(event) for event in health_result.scalars()]
+    breeding_ids: list[int] = []
+    if "breeding.view" in perms:
+        breeding_ids = list(
+            (
+                await db.execute(
+                    select(BreedingRecord.id)
+                    .where(*breedings_where)
+                    .order_by(BreedingRecord.breeding_date.desc(), BreedingRecord.id.desc())
+                    .offset(breedings_offset)
+                    .limit(history_limit)
+                )
+            ).scalars()
+        )
     return AnimalProfileOut(
-        animal=animal_out(animal, reference_date, farm.timezone),
-        kids=[animal_out(k, reference_date, farm.timezone) for k in kids_result.scalars()],
-        weights=[WeightRecordOut.model_validate(w) for w in weights_result.scalars()],
-        moves=[BucketMoveOut.model_validate(m) for m in moves_result.scalars()],
-        health_events=[HealthEventOut.model_validate(e) for e in health_result.scalars()],
+        animal=animal_out(
+            animal,
+            reference_date,
+            farm.timezone,
+            permissions=perms,
+            computed=computed,
+        ),
+        kids=[AnimalOffspringOut.model_validate(kid) for kid in kids_result.scalars()],
+        kids_total=kids_total,
+        kids_offset=kids_offset,
+        weights=[
+            WeightRecordOut(
+                id=weight.id,
+                date=weight.date,
+                weight_kg=weight.weight_kg,
+                bcs=weight.bcs,
+                # Weight and BCS are operational herd facts. Narrative is
+                # free text and can carry clinical detail, so it follows the
+                # same health.view boundary as dashboard weight narratives.
+                notes=weight.notes if "health.view" in perms else None,
+            )
+            for weight in weights_result.scalars()
+        ],
+        weights_total=weights_total,
+        weights_offset=weights_offset,
+        moves=[
+            BucketMoveOut(
+                id=move.id,
+                from_bucket=move.from_bucket,
+                to_bucket=move.to_bucket,
+                # Movement coordinates are ordinary herd operations. The
+                # arbitrary narrative can contain diagnoses, commercial
+                # provenance, or an owner's import rationale, so it follows
+                # the health.view boundary used by other profile free text.
+                reason=move.reason if "health.view" in perms else None,
+                moved_at=move.moved_at,
+            )
+            for move in moves_result.scalars()
+        ],
+        moves_total=moves_total,
+        moves_offset=moves_offset,
+        health_events=health_events,
+        health_events_total=health_total,
+        health_events_offset=health_events_offset,
         breedings=breeding_ids,
+        breedings_total=breedings_total,
+        breedings_offset=breedings_offset,
+        history_limit=history_limit,
     )
 
 
@@ -312,20 +597,22 @@ async def move_bucket(
     db: DbSession,
     farm: CurrentFarm,
     user: CurrentUser,
-    _perms: Annotated[set[str], Depends(require_perm("animals.move"))],
+    perms: Annotated[set[str], Depends(require_perm("animals.move"))],
 ) -> AnimalOut:
     # Lock the animal before checking its lifecycle state; status, move and
     # weight writes must serialize rather than append an after-the-fact move.
     animal = await _get_animal(db, farm.id, animal_id, for_update=True)
-    try:
-        require_bucket_transition(animal, payload.to_bucket)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    # Batch quarantine can only be released by its guarded day-45 task. A
-    # standalone manually entered animal has no protocol task and remains
-    # movable for historical-data correction.
+    reference_date = today(farm.timezone)
+    computed = await _profile_computed_facts(db, animal, reference_date, farm.timezone)
+    transition_facts = (computed.latest_weight_kg, computed.is_currently_pregnant)
+    if payload.history_override and user.id != farm.owner_id:
+        raise HTTPException(status_code=403, detail="Only the farm owner may override history")
+    context: Literal["history_override", "manual", "orphan_weaning"] = (
+        "history_override" if payload.history_override else "manual"
+    )
     if (
-        animal.current_bucket == Bucket.QUARANTINE.value
+        not payload.history_override
+        and animal.current_bucket == Bucket.QUARANTINE.value
         and payload.to_bucket == Bucket.FOUNDATION.value
         and animal.purchase_batch_id is not None
     ):
@@ -333,44 +620,135 @@ async def move_bucket(
             status_code=409,
             detail="Purchased quarantine animals must be released through the guarded batch task",
         )
+    if (
+        not payload.history_override
+        and animal.current_bucket == Bucket.RECOVERY.value
+        and payload.to_bucket in {Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value}
+        and animal.dam_id is not None
+    ):
+        # A kid can remain in RECOVERY when its dam leaves the herd while the
+        # kid is under a disease hold: the automatic early-wean correctly
+        # cannot move it. After an authorised clearance, permit exactly the
+        # sex-matched recovery transition, but only for a real kidding-linked
+        # kid whose recorded dam is now terminal. This cannot be used to forge
+        # ordinary manual lifecycle moves.
+        orphan_provenance = (
+            await db.execute(
+                select(KidEntry.id)
+                .join(KiddingRecord, KidEntry.kidding_record_id == KiddingRecord.id)
+                .join(Animal, KiddingRecord.doe_id == Animal.id)
+                .where(
+                    KidEntry.farm_id == farm.id,
+                    KidEntry.animal_id == animal.id,
+                    KidEntry.status == KidStatus.ALIVE.value,
+                    KidEntry.sex == animal.sex,
+                    KiddingRecord.farm_id == farm.id,
+                    KiddingRecord.doe_id == animal.dam_id,
+                    Animal.farm_id == farm.id,
+                    Animal.status != AnimalStatus.ACTIVE.value,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if orphan_provenance is not None:
+            context = "orphan_weaning"
+    try:
+        require_bucket_transition(
+            animal,
+            payload.to_bucket,
+            context=context,
+            reference_date=reference_date,
+            facts=transition_facts,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    if (
+        not payload.history_override
+        and animal.sex == "F"
+        and animal.current_bucket == Bucket.BREEDING.value
+        and payload.to_bucket == Bucket.RESTING.value
+        and await doe_has_open_breeding(db, farm.id, animal.id)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Resolve the doe's open breeding before moving her to RESTING",
+        )
+    if (
+        not payload.history_override
+        and payload.to_bucket in {Bucket.PREGNANCY_LATE.value, Bucket.DELIVERY.value}
+        and not computed.is_currently_pregnant
+    ):
+        raise HTTPException(status_code=409, detail="Pregnancy movement requires a live pregnancy")
+    move_reason = (payload.reason or "").strip()
+    if payload.history_override:
+        move_reason = f"[HISTORY OVERRIDE] {move_reason}"[:255]
+    elif context == "orphan_weaning" and not move_reason:
+        move_reason = "Dam no longer active — deferred early wean after hold clearance"
     move_animal(
         db,
         animal,
         payload.to_bucket,
-        reason=(payload.reason or "").strip(),
+        reason=move_reason,
         created_by_id=user.id,
+        context=context,
+        reference_date=reference_date,
+        facts=transition_facts,
     )
     await db.commit()
-    return await _animal_out(db, animal, today(farm.timezone), farm.timezone)
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
 
 
 @router.post("/{animal_id}/weight", status_code=201)
 async def record_weight(
     animal_id: int,
     payload: WeightIn,
+    response: Response,
     db: DbSession,
     farm: CurrentFarm,
     user: CurrentUser,
     _perms: Annotated[set[str], Depends(require_perm("animals.weight"))],
+    idempotency_key: IdempotencyKey = None,
 ) -> WeightRecordOut:
-    animal = await _get_animal(db, farm.id, animal_id, for_update=True)
-    if animal.status != AnimalStatus.ACTIVE.value:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{animal.tag_number} is {animal.status.lower()} — cannot record a weight.",
+    async def mutate() -> WeightRecordOut:
+        animal = await _get_animal(db, farm.id, animal_id, for_update=True)
+        if animal.status != AnimalStatus.ACTIVE.value:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{animal.tag_number} is {animal.status.lower()} — cannot record a weight.",
+            )
+        # finite/positive/future-date/bcs-range guards from v1 live in
+        # WeightIn's validators.
+        record_date = payload.date or today(farm.timezone)
+        try:
+            require_farm_not_future(record_date, farm, "weight date")
+            require_animal_event_chronology(animal, record_date, "Weight record")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        record = WeightRecord(
+            animal_id=animal.id,
+            date=record_date,
+            weight_kg=payload.weight_kg,
+            bcs=payload.bcs,
+            notes=(payload.notes or "").strip() or None,
+            created_by_id=user.id,
         )
-    # finite/positive/future-date/bcs-range guards from v1 live in WeightIn's validators.
-    record = WeightRecord(
-        animal_id=animal.id,
-        date=payload.date or today(farm.timezone),
-        weight_kg=payload.weight_kg,
-        bcs=payload.bcs,
-        notes=(payload.notes or "").strip() or None,
-        created_by_id=user.id,
+        db.add(record)
+        await db.flush()
+        return WeightRecordOut.model_validate(record)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="animals.weight.create",
+        payload=payload,
+        path_identity={"animal_id": animal_id},
+        success_status=201,
+        response_type=WeightRecordOut,
+        mutate=mutate,
     )
-    db.add(record)
-    await db.commit()
-    return WeightRecordOut.model_validate(record)
 
 
 @router.post("/{animal_id}/status")
@@ -380,7 +758,7 @@ async def change_status(
     db: DbSession,
     farm: CurrentFarm,
     user: CurrentUser,
-    _perms: Annotated[set[str], Depends(require_perm("animals.status"))],
+    perms: Annotated[set[str], Depends(require_perm("animals.status"))],
 ) -> AnimalOut:
     animal = await _get_animal(db, farm.id, animal_id, for_update=True)
     # Only an ACTIVE animal can change status — replaying a sale on an
@@ -402,6 +780,33 @@ async def change_status(
             ),
         )
     status_date = payload.date or today(farm.timezone)
+    try:
+        require_farm_not_future(status_date, farm, "status date")
+        require_animal_event_chronology(animal, status_date, "Status change")
+        await require_status_after_recorded_facts(db, animal, status_date)
+        if payload.mortality_reported_at is not None:
+            require_farm_not_future(payload.mortality_reported_at, farm, "mortality_reported_at")
+            if payload.mortality_reported_at < status_date:
+                raise ValueError("mortality_reported_at cannot predate the death date")
+        if payload.authority_notified_at is not None:
+            require_farm_not_future(payload.authority_notified_at, farm, "authority_notified_at")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    if payload.new_status in (AnimalStatus.SOLD.value, AnimalStatus.CULLED.value):
+        withdrawal = (
+            await db.execute(
+                select(func.max(HealthEvent.withdrawal_until)).where(
+                    HealthEvent.farm_id == farm.id,
+                    HealthEvent.animal_id == animal.id,
+                    HealthEvent.withdrawal_until >= status_date,
+                )
+            )
+        ).scalar_one_or_none()
+        if withdrawal is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
+            )
     animal.status = payload.new_status
     animal.status_date = status_date
     animal.status_notes = (payload.notes or "").strip() or None
@@ -409,11 +814,15 @@ async def change_status(
         animal.mortality_cause = (payload.mortality_cause or "").strip() or None
         animal.mortality_reported_at = payload.mortality_reported_at
         if payload.suspected_scheduled_disease:
-            animal.suspected_scheduled_disease = True
-            animal.suspected_disease = (payload.suspected_disease or "").strip() or None
+            place_movement_restriction(
+                db,
+                animal,
+                disease_target=payload.suspected_disease or "",
+                restriction_reason="Scheduled-disease suspicion recorded with mortality",
+                action_reference=f"Mortality status change effective {status_date.isoformat()}",
+                acted_by_id=user.id,
+            )
             animal.authority_notified_at = payload.authority_notified_at
-            animal.movement_restricted = True
-            animal.restriction_reason = "Scheduled-disease suspicion recorded with mortality"
     # new_status is never ACTIVE here: clear the cull flag and stop the
     # animal's pending tasks (a dead/sold animal must not generate work).
     animal.cull_candidate = False
@@ -428,13 +837,35 @@ async def change_status(
         open_result = await db.execute(
             select(BreedingRecord)
             .where(
+                BreedingRecord.farm_id == farm.id,
                 BreedingRecord.doe_id == animal.id,
                 BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                ~select(KiddingRecord.id)
+                .where(
+                    KiddingRecord.farm_id == farm.id,
+                    KiddingRecord.breeding_record_id == BreedingRecord.id,
+                )
+                .exists(),
             )
+            .order_by(BreedingRecord.id)
             .with_for_update()
         )
         for br in open_result.scalars():
-            await mark_aborted(db, br)
+            try:
+                await mark_aborted(
+                    db,
+                    br,
+                    loss_date=status_date,
+                    loss_cause="ANIMAL_STATUS_CHANGE",
+                    loss_notes=f"Pregnancy auto-resolved when doe was marked {payload.new_status}",
+                    recorded_by_id=user.id,
+                )
+            except ValueError as exc:
+                # The status request and its pregnancy resolution are one
+                # atomic chronology: a backdated removal cannot silently
+                # predate a later recorded pregnancy confirmation.
+                await db.rollback()
+                raise HTTPException(status_code=422, detail=str(exc)) from None
             if br.outcome == BreedingOutcome.ABORTED.value:
                 # mark_aborted calls move_animal → RESTING, but move_animal
                 # short-circuits on non-ACTIVE animals (she's already
@@ -466,12 +897,20 @@ async def change_status(
                 Animal.status == AnimalStatus.ACTIVE.value,
                 Animal.current_bucket == Bucket.RECOVERY.value,
             )
+            .order_by(Animal.id)
             .with_for_update()
         )
         orphan_reason = f"Dam marked {payload.new_status.lower()} — early wean"
         for kid in orphans_result.scalars():
             target = Bucket.MALE_KIDS.value if kid.sex == "M" else Bucket.FEMALE_KIDS.value
-            move_animal(db, kid, target, orphan_reason, created_by_id=user.id)
+            move_animal(
+                db,
+                kid,
+                target,
+                orphan_reason,
+                created_by_id=user.id,
+                context="weaning",
+            )
 
     await skip_pending_tasks_for_animal(db, farm.id, animal.id)
 
@@ -495,4 +934,4 @@ async def change_status(
                 )
             )
     await db.commit()
-    return await _animal_out(db, animal, today(farm.timezone), farm.timezone)
+    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)

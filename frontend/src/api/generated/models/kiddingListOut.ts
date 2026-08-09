@@ -10,7 +10,13 @@ import type { KiddingRecordOut } from './kiddingRecordOut';
 export interface KiddingListOut {
   records: KiddingRecordOut[];
   upcoming: BreedingRecordOut[];
+  upcoming_total: number;
+  upcoming_limit: number;
+  upcoming_offset: number;
   overdue: BreedingRecordOut[];
+  overdue_total: number;
+  overdue_limit: number;
+  overdue_offset: number;
   total: number;
   limit: number;
   offset: number;

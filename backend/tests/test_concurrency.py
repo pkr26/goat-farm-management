@@ -17,6 +17,7 @@ import asyncio
 from datetime import date, timedelta
 
 import httpx
+import pytest
 from sqlalchemy import select, text
 
 from app.db import get_sessionmaker
@@ -26,13 +27,26 @@ from app.models import (
     AnimalStatus,
     BreedingRecord,
     BucketFeedSetting,
+    Farm,
+    FeedInventory,
     FeedRecipe,
     FeedRecipeLine,
+    Role,
     Task,
     TaskCategory,
     TaskStatus,
+    User,
 )
-from app.seed import CONC, GREEN, WET
+from app.seed import (
+    CONC,
+    DRY_STOVER,
+    FARM_INGREDIENTS,
+    GREEN,
+    ROLE_PRESETS,
+    WET,
+    seed_default_roles,
+    seed_farm_inventory,
+)
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
@@ -79,6 +93,24 @@ async def wait_until_blocked(timeout_seconds: float = 10.0) -> None:
     raise AssertionError("the racing request never blocked on the holder's lock")
 
 
+async def wait_for_blocked_sessions(expected: int, timeout_seconds: float = 10.0) -> None:
+    """Wait until an exact lock graph has queued at least ``expected`` sessions."""
+    for _ in range(int(timeout_seconds / 0.01)):
+        async with get_sessionmaker()() as db:
+            blocked = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                    )
+                )
+            ).scalar_one()
+        if blocked >= expected:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"expected {expected} lock-waiting sessions, saw fewer")
+
+
 async def make_animal(
     client: httpx.AsyncClient,
     headers: dict,
@@ -93,6 +125,13 @@ async def make_animal(
         "source": "PURCHASED",
         "current_bucket": bucket,
     } | overrides
+    if payload["source"] == "PURCHASED":
+        payload.setdefault("historical_import_reason", "Existing-herd test fixture")
+    if sex == "M" and bucket == "BREEDING":
+        dob = today() - timedelta(days=800)
+        payload.setdefault("date_of_birth", iso(dob))
+        payload.setdefault("weight_kg", 30.0)
+        payload.setdefault("weight_date", iso(dob))
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -100,13 +139,15 @@ async def make_animal(
 
 async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-1") -> int:
     """A breeding-ready doe (>=10 months old, 26 kg entry weight, FOUNDATION)."""
+    dob = today() - timedelta(days=800)
     return await make_animal(
         client,
         headers,
         tag=tag,
         sex="F",
-        date_of_birth=iso(today() - timedelta(days=400)),
+        date_of_birth=iso(dob),
         weight_kg=26.0,
+        weight_date=iso(dob),
     )
 
 
@@ -130,6 +171,47 @@ async def task_tabs(client: httpx.AsyncClient, headers: dict) -> dict:
 
 def all_tasks(tabs: dict) -> list[dict]:
     return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+
+
+# ---------------------------------------------------------------------------
+# Startup seeding — two workers cannot duplicate editable preset roles
+# ---------------------------------------------------------------------------
+async def test_concurrent_role_seed_serializes_on_farm_row(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(
+        client,
+        email="concurrent-role-seed@farm.in",
+        farm_name="Concurrent Role Seed Farm",
+    )
+    farm_id = int(headers["X-Farm-Id"])
+
+    # Simulate a legacy/partial farm.  The API-created presets are removed in
+    # one committed transaction before two app workers try to repair them.
+    async with get_sessionmaker()() as db:
+        roles = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
+        for role in roles:
+            await db.delete(role)
+        await db.commit()
+
+    async with get_sessionmaker()() as holder:
+        await holder.execute(select(Farm.id).where(Farm.id == farm_id).with_for_update())
+
+        async def competing_seed() -> None:
+            async with get_sessionmaker()() as contender:
+                await seed_default_roles(contender, farm_id)
+                await contender.commit()
+
+        contender_task = asyncio.create_task(competing_seed())
+        await wait_until_blocked()
+        await seed_default_roles(holder, farm_id)
+        await holder.commit()
+        await contender_task
+
+    async with get_sessionmaker()() as db:
+        seeded = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
+    assert len(seeded) == len(ROLE_PRESETS)
+    assert {role.code for role in seeded} == {preset["code"] for preset in ROLE_PRESETS}
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +348,40 @@ async def test_concurrent_mixes_never_oversell_stock(client: httpx.AsyncClient) 
         assert stock[line["ingredient"]] >= 0
 
 
+async def test_concurrent_dry_roughage_dispenses_never_oversell_inventory(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    items = {row["ingredient"]: row for row in await inventory(client, owner)}
+    stocked = await client.post(
+        f"/api/feeding/inventory/{items[DRY_STOVER]['id']}/add",
+        json={"qty_kg": 5.0},
+        headers=owner,
+    )
+    assert stocked.status_code == 200, stocked.text
+    payload = {
+        "bucket": "QUARANTINE",
+        "shift": "MORNING",
+        "recipe_code": "DRY_ROUGHAGE_ONLY",
+        "qty_kg": 5.0,
+    }
+    async with second_client() as other:
+        await warm(other, owner)
+        one, two = await asyncio.gather(
+            client.post("/api/feeding/dispense", json=payload, headers=owner),
+            other.post("/api/feeding/dispense", json=payload, headers=owner),
+        )
+
+    assert sorted([one.status_code, two.status_code]) == [201, 400]
+    loser = one if one.status_code == 400 else two
+    assert loser.json()["detail"] == ("Dry jowar stover: need 5.000 kg, have 0.000 kg")
+    after = {row["ingredient"]: row for row in await inventory(client, owner)}
+    assert after[DRY_STOVER]["qty_on_hand"] == 0.0
+    plan = await client.get("/api/feeding/plan", headers=owner)
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["records_total"] == 1
+
+
 # ---------------------------------------------------------------------------
 # B4.4 — a double completion applies the side effects exactly once
 # ---------------------------------------------------------------------------
@@ -352,14 +468,17 @@ async def test_create_animal_tag_race_returns_pre_check_400(client: httpx.AsyncC
 
 
 # ---------------------------------------------------------------------------
-# B5.2 — a generated batch tag colliding with an existing animal tag is a
+# B5.2 — the cryptographically unlikely generated-tag collision still gets a
 # clean 409 (rolled back wholesale), and the retry succeeds on a fresh id
 # ---------------------------------------------------------------------------
-async def test_purchase_batch_tag_collision_409_then_retry(client: httpx.AsyncClient) -> None:
+async def test_purchase_batch_tag_collision_409_then_retry(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     owner = await owner_with_farm(client)
-    # The first batch id on a fresh farm is 1, so its first generated tag is
-    # "B1-001" — squat on it with a manually created animal.
-    await make_animal(client, owner, tag="B1-001")
+    # Force the normally unguessable nonce so the IntegrityError backstop can
+    # be exercised deterministically rather than relying on a 2^-48 event.
+    monkeypatch.setattr("app.services.purchases.secrets.token_hex", lambda _n: "deadbeefcafe")
+    await make_animal(client, owner, tag="B1-deadbeefcafe-0001")
     payload = {"date": iso(today()), "count": 2, "create_animals": True}
     resp = await client.post("/api/purchases/new", json=payload, headers=owner)
     assert resp.status_code == 409, resp.text  # never a 500 IntegrityError
@@ -372,7 +491,10 @@ async def test_purchase_batch_tag_collision_409_then_retry(client: httpx.AsyncCl
     batch_id = resp.json()["id"]
     resp = await client.get(f"/api/purchases/{batch_id}", headers=owner)
     tags = [a["tag_number"] for a in resp.json()["animals"]]
-    assert tags == [f"B{batch_id}-001", f"B{batch_id}-002"]  # documented format intact
+    assert tags == [
+        f"B{batch_id}-deadbeefcafe-0001",
+        f"B{batch_id}-deadbeefcafe-0002",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -438,17 +560,11 @@ async def test_concurrent_mixes_of_reversed_recipes_never_deadlock(
 async def test_skip_never_overwrites_a_committed_completion(
     client: httpx.AsyncClient,
 ) -> None:
-    """change_status locks the animal and skips its pending tasks; a
-    concurrent completion holds the task lock and commits DONE + side
-    effects. The unlocked skip read used to load PENDING, then its UPDATE
-    landed after the completion commit and overwrote DONE → SKIPPED. The skip
-    path now locks the task rows FOR UPDATE and re-checks PENDING, so a
-    committed DONE always survives.
+    """Animal deactivation no longer rewrites task rows synchronously.
 
-    The completer is a scripted session holding the row lock uncommitted,
-    which forces the dangerous interleave deterministically: the skip request
-    blocks on the lock until the completion commits (old code blocked only at
-    its own UPDATE — after having read PENDING — and still overwrote DONE).
+    A scripted completion may hold a task lock while the status transition
+    commits independently; the inactive-animal visibility/cleanup path must
+    not overwrite the later DONE commit or introduce the old lock inversion.
     """
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
@@ -483,9 +599,10 @@ async def test_skip_never_overwrites_a_committed_completion(
         client.post(f"/api/animals/{aid}/status", json={"new_status": "SOLD"}, headers=owner)
     )
     try:
-        await wait_until_blocked()  # the skipper is stuck on the completer's lock
+        # Status writes deliberately do not wait on task rows.  Pending duties
+        # become invisible immediately and bounded cleanup handles leftovers.
+        resp = await asyncio.wait_for(skip_request, timeout=5)
         await completer.commit()
-        resp = await skip_request
     finally:
         # Never leak a lock-holding session (see the B4.2 test above).
         await completer.rollback()
@@ -615,11 +732,12 @@ async def test_concurrent_double_abort_aborts_once(client: httpx.AsyncClient) ->
     owner = await owner_with_farm(client)
     doe, br = await bred_doe_with_record(client, owner, breeding_date=today() - timedelta(days=40))
     await confirm_pregnancy(client, owner, br["id"])
+    loss = {"loss_date": iso(today()), "cause": "UNKNOWN", "notes": "Concurrent loss"}
     async with second_client() as other:
         await warm(other, owner)
         r1, r2 = await asyncio.gather(
-            client.post(f"/api/breeding/{br['id']}/abort", headers=owner),
-            other.post(f"/api/breeding/{br['id']}/abort", headers=owner),
+            client.post(f"/api/breeding/{br['id']}/abort", json=loss, headers=owner),
+            other.post(f"/api/breeding/{br['id']}/abort", json=loss, headers=owner),
         )
     # The loser takes the breeding-row lock, re-reads ABORTED and 409s.
     assert sorted([r1.status_code, r2.status_code]) == [200, 409]
@@ -651,11 +769,12 @@ async def test_kidding_vs_abort_never_aborted_with_live_kids(
         "ease": "NORMAL",
         "kids": [{"sex": "M"}],
     }
+    loss = {"loss_date": iso(today()), "cause": "UNKNOWN", "notes": "Concurrent loss"}
     async with second_client() as other:
         await warm(other, owner)
         r_kid, r_abort = await asyncio.gather(
             client.post("/api/kidding", json=kidding_payload, headers=owner),
-            other.post(f"/api/breeding/{br['id']}/abort", headers=owner),
+            other.post(f"/api/breeding/{br['id']}/abort", json=loss, headers=owner),
         )
     # Both flows lock the doe then the breeding row: they serialize, and the
     # loser re-reads the committed state and fails its own state guard.
@@ -672,6 +791,78 @@ async def test_kidding_vs_abort_never_aborted_with_live_kids(
         # No born kids from an aborted pregnancy.
         resp = await client.get("/api/animals", headers=owner, params={"q": "D-US-K"})
         assert resp.json()["animals"] == []
+
+
+async def test_kidding_locks_buck_and_doe_before_breeding_record(
+    client: httpx.AsyncClient,
+) -> None:
+    """Kidding and a forged concurrent re-breeding share one parent lock order.
+
+    The breeding row holder is a deterministic barrier.  Historically the
+    kidding request held DOE then waited at the barrier, while re-breeding
+    held the lower-id BUCK and waited on DOE.  Releasing the barrier made the
+    kid insert request BUCK KEY SHARE and PostgreSQL aborted the cycle as a
+    deadlock/500.  Kidding now locks both parents by ascending id before the
+    breeding row, so re-breeding waits without holding either parent.
+    """
+    owner = await owner_with_farm(client, email="kidding-parent-locks@farm.in")
+    buck = await make_animal(client, owner, tag="K-LOCK-B", sex="M", bucket="BREEDING")
+    doe = await make_doe(client, owner, tag="K-LOCK-D")
+    assert buck < doe  # the ordering needed by the historical deadlock
+    breeding_date = today() - timedelta(days=150)
+    created = await client.post(
+        "/api/breeding",
+        json={"doe_id": doe, "buck_id": buck, "breeding_date": iso(breeding_date)},
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    breeding_id = created.json()["id"]
+    await confirm_pregnancy(client, owner, breeding_id)
+
+    holder = get_sessionmaker()()
+    await holder.execute(
+        select(BreedingRecord.id).where(BreedingRecord.id == breeding_id).with_for_update()
+    )
+    kidding_request: asyncio.Task[httpx.Response] | None = None
+    rebreed_request: asyncio.Task[httpx.Response] | None = None
+    try:
+        async with second_client() as other:
+            await warm(other, owner)
+            kidding_request = asyncio.create_task(
+                client.post(
+                    "/api/kidding",
+                    json={
+                        "breeding_record_id": breeding_id,
+                        "date": iso(today()),
+                        "ease": "NORMAL",
+                        "kids": [{"sex": "F"}],
+                    },
+                    headers=owner,
+                )
+            )
+            await wait_until_blocked()  # parent locks acquired; waiting on breeding row
+            rebreed_request = asyncio.create_task(
+                other.post(
+                    "/api/breeding",
+                    json={"doe_id": doe, "buck_id": buck, "breeding_date": iso(today())},
+                    headers=owner,
+                )
+            )
+            await wait_for_blocked_sessions(2)
+            await holder.commit()
+            kidding_response, rebreed_response = await asyncio.wait_for(
+                asyncio.gather(kidding_request, rebreed_request),
+                timeout=10,
+            )
+    finally:
+        await holder.rollback()
+        await holder.close()
+        for request in (kidding_request, rebreed_request):
+            if request is not None and not request.done():
+                request.cancel()
+
+    assert kidding_response.status_code == 201, kidding_response.text
+    assert rebreed_response.status_code == 400, rebreed_response.text
 
 
 # ---------------------------------------------------------------------------
@@ -784,6 +975,64 @@ async def test_feed_setting_blocked_insert_upserts_cleanly(
     assert rows[0].daily_kg_per_head == 1.5  # the request's value won the upsert
 
 
+async def test_farm_inventory_seed_waits_on_conflict_and_repairs_remaining_rows() -> None:
+    """A concurrent seed must preserve the winning row and still add all others."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="seed-race-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Seed Race Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.commit()
+        farm_id = farm.id
+
+    ingredient, category = FARM_INGREDIENTS[0]
+    holder = get_sessionmaker()()
+    holder.add(
+        FeedInventory(
+            farm_id=farm_id,
+            ingredient=ingredient,
+            category=category,
+            unit="kg",
+            qty_on_hand=42.125,
+            reorder_level=9.0,
+        )
+    )
+    await holder.flush()
+
+    async def seed_concurrently() -> None:
+        async with get_sessionmaker()() as db:
+            await seed_farm_inventory(db, farm_id)
+            await db.commit()
+
+    seed_task = asyncio.create_task(seed_concurrently())
+    try:
+        await wait_until_blocked()
+        await holder.commit()
+        await seed_task
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not seed_task.done():
+            seed_task.cancel()
+
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(FeedInventory)
+                    .where(FeedInventory.farm_id == farm_id)
+                    .order_by(FeedInventory.ingredient)
+                )
+            ).scalars()
+        )
+    assert len(rows) == len(FARM_INGREDIENTS)
+    assert {row.ingredient for row in rows} == {name for name, _category in FARM_INGREDIENTS}
+    preserved = next(row for row in rows if row.ingredient == ingredient)
+    assert preserved.qty_on_hand == 42.125
+    assert preserved.reorder_level == 9.0
+
+
 # ---------------------------------------------------------------------------
 # 2-6 — the health form's linked-duty completion is row-locked
 # ---------------------------------------------------------------------------
@@ -792,20 +1041,30 @@ async def test_health_form_double_complete_spawns_one_occurrence(
 ) -> None:
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
-    resp = await client.post(
-        "/api/tasks",
-        json={
-            "title": "Herd FMD round",
-            "due_date": iso(today()),
-            "category": "VACCINE",
-            "recur_days": 1,
-            "animal_id": aid,
-        },
-        headers=owner,
-    )
-    assert resp.status_code == 201, resp.text
-    task_id = resp.json()["id"]
-    payload = {"animal_id": aid, "type": "VACCINE", "product_name": "FMD", "task_id": task_id}
+    # Public manual-task creation intentionally permits only safe categories.
+    # This direct legacy fixture keeps coverage of the health-form recurrence
+    # race without reopening forged manual VACCINE duties.
+    async with get_sessionmaker()() as db:
+        task = Task(
+            farm_id=int(owner["X-Farm-Id"]),
+            title="Herd FMD round",
+            due_date=today(),
+            category=TaskCategory.VACCINE.value,
+            animal_id=aid,
+            recur_days=1,
+            recurring_series_id="health-form-race-series",
+            auto_generated=False,
+        )
+        db.add(task)
+        await db.commit()
+        task_id = task.id
+    payload = {
+        "animal_id": aid,
+        "type": "VACCINE",
+        "product_name": "FMD",
+        "disease_target": "FMD",
+        "task_id": task_id,
+    }
     async with second_client() as other:
         await warm(other, owner)
         r1, r2 = await asyncio.gather(
@@ -943,6 +1202,8 @@ async def test_kidding_stamp_survives_concurrent_user_skip(
         await holder.execute(select(Task).where(Task.id == due_task["id"]).with_for_update())
     ).scalar_one()
     row.status = TaskStatus.SKIPPED.value
+    row.skipped_at = utcnow()
+    row.skip_reason = "Concurrent user skip fixture"
     await holder.flush()
 
     request = asyncio.create_task(

@@ -37,4 +37,5 @@ export interface HealthEventIn {
   isolation_started_at?: string | null;
   notes?: string | null;
   task_id?: number | null;
+  expected_animal_ids?: number[] | null;
 }

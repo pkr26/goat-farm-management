@@ -6,20 +6,23 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import {
   useListEventsApiHealthEventsGet,
   useListTasksApiTasksGet,
+  usePreviewBulkEventTargetsApiHealthEventsPreviewPost,
   useRecordEventApiHealthEventsPost,
 } from "@/api/generated/endpoints";
 import {
   HealthEventInBucket,
   HealthEventInType,
+  type HealthBulkTargetIn,
+  type HealthBulkTargetPreviewOut,
   type HealthEventIn,
   type TaskOut,
 } from "@/api/generated/models";
@@ -69,6 +72,11 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { addDays, farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import {
+  isPersistableNonnegativeMoney,
+  MIN_PERSISTED_MONEY_MESSAGE,
+} from "@/lib/persisted-numbers";
+import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 
 import { taskPrefill } from "./task-prefill";
@@ -127,6 +135,10 @@ const eventSchema = z
       .refine(
         (s) => s === "" || (Number.isFinite(Number(s)) && Number(s) >= 0),
         "Cost must be a number ≥ 0",
+      )
+      .refine(
+        (s) => s === "" || isPersistableNonnegativeMoney(Number(s)),
+        MIN_PERSISTED_MONEY_MESSAGE,
       )
       .optional(),
     next_due_date: z.string().optional(),
@@ -245,7 +257,7 @@ function FieldError({ message, id }: { message?: string; id?: string }) {
   return <p id={id} role="alert" className="text-sm text-destructive">{message}</p>;
 }
 
-export default function HealthPage() {
+function HealthPageContent() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("health.view");
   const canManage = can("health.manage");
@@ -253,6 +265,11 @@ export default function HealthPage() {
   const canViewTasks = can("tasks.view");
   const queryClient = useQueryClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = permittedAppPath(searchParams.get("returnTo"), can);
+  const hasDeepLink = ["task_id", "animal_id", "purchase_batch_id"].some((key) =>
+    searchParams.has(key),
+  );
   const [eventOffset, setEventOffset] = useState(0);
   const eventLimit = 50;
 
@@ -276,7 +293,12 @@ export default function HealthPage() {
     : [];
 
   const recordMutation = useRecordEventApiHealthEventsPost();
-  const [scheduleAnimalId, setScheduleAnimalId] = useState("");
+  const previewMutation = usePreviewBulkEventTargetsApiHealthEventsPreviewPost();
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [bulkPreview, setBulkPreview] = useState<HealthBulkTargetPreviewOut | null>(null);
+  const [scheduleAnimalId, setScheduleAnimalId] = useState(
+    () => searchParams.get("schedule_animal_id") ?? "",
+  );
   const [prefillTaskId, setPrefillTaskId] = useState<string | null>(null);
 
   /** value → label map for the local task select. */
@@ -294,6 +316,7 @@ export default function HealthPage() {
     control,
     setValue,
     getValues,
+    unregister,
     formState: { errors, isSubmitting },
   } = useForm<EventValues>({
     resolver: zodResolver(eventSchema),
@@ -357,7 +380,7 @@ export default function HealthPage() {
     if (taskIdStr === NONE) {
       const prev = appliedPrefillRef.current;
       if (prev) {
-        if (prev.scope && getValues("scope") === prev.scope) setValue("scope", "animal");
+        if (prev.scope && getValues("scope") === prev.scope) changeScope("animal");
         if (prev.type && getValues("type") === prev.type) setValue("type", "VACCINE");
         if (
           prev.product_name !== undefined &&
@@ -380,11 +403,11 @@ export default function HealthPage() {
     const applied: NonNullable<typeof appliedPrefillRef.current> = {};
     if (task.animal_id) {
       applied.scope = "animal";
-      setValue("scope", "animal");
+      changeScope("animal");
       setValue("animal_id", String(task.animal_id));
     } else if (task.purchase_batch_id) {
       applied.scope = "batch";
-      setValue("scope", "batch");
+      changeScope("batch");
       setValue("purchase_batch_id", String(task.purchase_batch_id));
     }
     if (task.category === "VACCINE" || task.category === "DEWORMING") {
@@ -406,11 +429,34 @@ export default function HealthPage() {
     appliedPrefillRef.current = applied;
   }
 
+  function changeScope(nextScope: EventValues["scope"]) {
+    setBulkPreview(null);
+    setRecordError(null);
+    setValue("scope", nextScope, { shouldValidate: true });
+    for (const [field, fieldScope] of [
+      ["animal_id", "animal"],
+      ["bucket", "bucket"],
+      ["purchase_batch_id", "batch"],
+    ] as const) {
+      if (fieldScope !== nextScope) {
+        unregister(field);
+        setValue(field, "");
+      }
+    }
+  }
+
+  function closeDeepLinkedDialog() {
+    setRecordError(null);
+    setBulkPreview(null);
+    if (returnTo) router.push(returnTo);
+    else if (hasDeepLink) router.replace("/health");
+  }
+
   // /health/new?... redirects here: auto-open the dialog and preserve any
   // animal/batch/task context supplied by the originating workflow.
   useEffect(() => {
     if (!canManage || prefillTaskId !== null) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(searchParams.toString());
     const taskId = params.get("task_id");
     const animalId = params.get("animal_id");
     const batchId = params.get("purchase_batch_id");
@@ -420,11 +466,11 @@ export default function HealthPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(true);
     if (animalId) {
-      setValue("scope", "animal");
+      changeScope("animal");
       setValue("animal_id", animalId);
     }
     if (batchId) {
-      setValue("scope", "batch");
+      changeScope("batch");
       setValue("purchase_batch_id", batchId);
     }
     if (taskId) {
@@ -445,6 +491,45 @@ export default function HealthPage() {
   }, [prefillTaskId, tasksQuery.data]);
 
   async function onSubmit(values: EventValues) {
+    let reviewedAnimalIds: number[] | undefined;
+    if (values.scope !== "animal") {
+      const selectedBatchId = values.purchase_batch_id
+        ? Number(values.purchase_batch_id)
+        : null;
+      const previewMatchesSelection =
+        bulkPreview?.scope === values.scope &&
+        (values.scope === "bucket"
+          ? bulkPreview.bucket === values.bucket
+          : bulkPreview.purchase_batch_id === selectedBatchId);
+      if (!previewMatchesSelection) {
+        const target: HealthBulkTargetIn =
+          values.scope === "bucket"
+            ? {
+                scope: "bucket",
+                bucket: values.bucket as HealthBulkTargetIn["bucket"],
+              }
+            : { scope: "batch", purchase_batch_id: selectedBatchId };
+        setRecordError(null);
+        try {
+          const response = await previewMutation.mutateAsync({ data: target });
+          if (response.status !== 200) return;
+          const currentScope = getValues("scope");
+          const stillCurrent =
+            currentScope === target.scope &&
+            (target.scope === "bucket"
+              ? getValues("bucket") === target.bucket
+              : Number(getValues("purchase_batch_id")) === target.purchase_batch_id);
+          if (stillCurrent) setBulkPreview(response.data);
+        } catch (err) {
+          const message =
+            err instanceof ApiError ? err.detail : "Could not review the bulk target set.";
+          setRecordError(message);
+          toast.error(message);
+        }
+        return;
+      }
+      reviewedAnimalIds = bulkPreview.target_animal_ids;
+    }
     const payload: HealthEventIn = {
       scope: values.scope,
       animal_id:
@@ -485,15 +570,28 @@ export default function HealthPage() {
         : null,
       notes: values.notes?.trim() || null,
       task_id: values.task_id && values.task_id !== NONE ? Number(values.task_id) : null,
+      expected_animal_ids: reviewedAnimalIds,
     };
+    setRecordError(null);
     try {
-      await recordMutation.mutateAsync({ data: payload });
-      toast.success("Health event recorded.");
+      const response = await recordMutation.mutateAsync({ data: payload });
+      const recordedCount = response.status === 201 ? response.data.length : 0;
+      toast.success(
+        values.scope === "animal"
+          ? "Health event recorded."
+          : `Health event recorded for ${recordedCount} animal${recordedCount === 1 ? "" : "s"}.`,
+      );
       invalidateFarmData(queryClient);
       setOpen(false);
+      setBulkPreview(null);
       reset();
+      if (returnTo) router.push(returnTo);
+      else if (hasDeepLink) router.replace("/health");
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+      const message = err instanceof ApiError ? err.detail : "Could not save the health event.";
+      if (values.scope !== "animal") setBulkPreview(null);
+      setRecordError(message);
+      toast.error(message);
     }
   }
 
@@ -513,11 +611,16 @@ export default function HealthPage() {
   if (eventsQuery.isLoading || !eventPayload) {
     if (eventsQuery.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {eventsQuery.error instanceof ApiError
-            ? eventsQuery.error.detail
-            : "Could not load health events."}
-        </p>
+        <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+          <p className="text-sm text-destructive">
+            {eventsQuery.error instanceof ApiError
+              ? eventsQuery.error.detail
+              : "Could not load health events."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void eventsQuery.refetch()}>
+            Retry health events
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -535,6 +638,7 @@ export default function HealthPage() {
             <Button
               onClick={() => {
                 reset();
+                setRecordError(null);
                 setOpen(true);
               }}
             >
@@ -569,7 +673,14 @@ export default function HealthPage() {
           <Button
             variant="outline"
             disabled={!scheduleAnimalId}
-            onClick={() => router.push(`/health/schedule/${scheduleAnimalId}`)}
+            onClick={() =>
+              router.push(
+                withReturnTo(
+                  `/health/schedule/${scheduleAnimalId}`,
+                  `/health?schedule_animal_id=${encodeURIComponent(scheduleAnimalId)}`,
+                ),
+              )
+            }
           >
             View
           </Button>
@@ -611,7 +722,10 @@ export default function HealthPage() {
                   </TableCell>
                   <TableCell>
                     {e.animal_tag && canViewAnimals ? (
-                      <Link href={`/animals/${e.animal_id}`} className="text-primary underline">
+                      <Link
+                        href={withReturnTo(`/animals/${e.animal_id}`, "/health")}
+                        className="text-primary underline"
+                      >
                         {e.animal_tag}
                       </Link>
                     ) : e.animal_tag ? (
@@ -696,7 +810,13 @@ export default function HealthPage() {
         />
       </DataTableCard>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          if (!nextOpen) closeDeepLinkedDialog();
+        }}
+      >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add health event</DialogTitle>
@@ -704,27 +824,46 @@ export default function HealthPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Apply to</legend>
-              <div className="flex gap-4">
-                {(
-                  [
-                    ["animal", "Single animal"],
-                    ["bucket", "Whole bucket"],
-                    ["batch", "Purchase batch"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Label key={value} className="flex items-center gap-1.5 font-normal">
-                    <input type="radio" value={value} {...register("scope")} />
-                    {label}
-                  </Label>
-                ))}
-              </div>
+              <Controller
+                control={control}
+                name="scope"
+                render={({ field }) => (
+                  <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+                    {(
+                      [
+                        ["animal", "Single animal"],
+                        ["bucket", "Whole bucket"],
+                        ["batch", "Purchase batch"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Label key={value} className="flex items-center gap-1.5 font-normal">
+                        <input
+                          type="radio"
+                          name={field.name}
+                          value={value}
+                          checked={field.value === value}
+                          onBlur={field.onBlur}
+                          onChange={() => {
+                            field.onChange(value);
+                            changeScope(value);
+                          }}
+                        />
+                        {label}
+                      </Label>
+                    ))}
+                  </div>
+                )}
+              />
               {scope === "animal" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-animal">Animal *</Label>
                   <HealthAnimalPicker
                     id="event-animal"
                     value={wAnimalId || ""}
-                    onValueChange={(v) => setValue("animal_id", v, { shouldValidate: true })}
+                    onValueChange={(v) => {
+                      setBulkPreview(null);
+                      setValue("animal_id", v, { shouldValidate: true });
+                    }}
                     placeholder="Pick an animal"
                     dialogTitle="Choose an animal for this health event"
                     aria-invalid={Boolean(errors.animal_id) || undefined}
@@ -738,7 +877,11 @@ export default function HealthPage() {
                   <Label htmlFor="event-bucket">Bucket *</Label>
                   <Select
                     value={wBucket || ""}
-                    onValueChange={(v) => setValue("bucket", v, { shouldValidate: true })}
+                    onValueChange={(v) => {
+                      setBulkPreview(null);
+                      setRecordError(null);
+                      setValue("bucket", v, { shouldValidate: true });
+                    }}
                   >
                     <SelectTrigger
                       id="event-bucket"
@@ -765,9 +908,11 @@ export default function HealthPage() {
                   <HealthPurchaseBatchPicker
                     id="event-batch"
                     value={wPurchaseBatchId || ""}
-                    onValueChange={(v) =>
-                      setValue("purchase_batch_id", v, { shouldValidate: true })
-                    }
+                    onValueChange={(v) => {
+                      setBulkPreview(null);
+                      setRecordError(null);
+                      setValue("purchase_batch_id", v, { shouldValidate: true });
+                    }}
                     placeholder="Pick a batch"
                     dialogTitle="Choose a purchase batch for this health event"
                     aria-invalid={Boolean(errors.purchase_batch_id) || undefined}
@@ -777,6 +922,49 @@ export default function HealthPage() {
                 </div>
               )}
             </fieldset>
+
+            {scope !== "animal" && bulkPreview && (
+              <div
+                role="status"
+                className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+              >
+                <p className="font-medium">
+                  Reviewed target snapshot: {bulkPreview.target_count} active animal
+                  {bulkPreview.target_count === 1 ? "" : "s"}
+                </p>
+                <p className="mt-1 text-xs">
+                  Confirming records only the reviewed IDs. An animal that joins an unlinked scope
+                  afterward is not silently added; if a reviewed animal leaves the scope (or a
+                  linked batch no longer matches exactly), the server rejects the write and
+                  requires a fresh review.
+                </p>
+                {bulkPreview.target_animals.length > 0 ? (
+                  <ul
+                    aria-label="Reviewed target animals"
+                    className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-300/70 bg-background/60 px-2 py-1.5 text-xs dark:border-amber-800"
+                  >
+                    {bulkPreview.target_animals.map((animal) => (
+                      <li key={animal.id}>
+                        <span className="font-medium">{animal.tag_number}</span>
+                        {animal.name ? ` · ${animal.name}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs">No active animals are in this reviewed target.</p>
+                )}
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-medium">
+                    Review exact animal IDs
+                  </summary>
+                  <p className="mt-1 break-words font-mono text-xs">
+                    {bulkPreview.target_animal_ids.length > 0
+                      ? bulkPreview.target_animal_ids.join(", ")
+                      : "No active animal IDs were returned."}
+                  </p>
+                </details>
+              </div>
+            )}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -904,7 +1092,32 @@ export default function HealthPage() {
                   </p>
                 )}
               </div>
-              {canViewTasks && pendingHealthTasks.length > 0 && (
+              {canViewTasks && tasksQuery.isLoading && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Loading linked duties…
+                </p>
+              )}
+              {canViewTasks && tasksQuery.isError && (
+                <div
+                  role="alert"
+                  className="space-y-2 rounded-lg border border-destructive/40 p-3 text-sm"
+                >
+                  <p className="text-destructive">
+                    {tasksQuery.error instanceof ApiError
+                      ? tasksQuery.error.detail
+                      : "Could not load linked duties."}
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void tasksQuery.refetch()}
+                  >
+                    Retry linked duties
+                  </Button>
+                </div>
+              )}
+              {canViewTasks && !tasksQuery.isError && pendingHealthTasks.length > 0 && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-task">Linked duty (completes it)</Label>
                   <Select
@@ -1045,14 +1258,25 @@ export default function HealthPage() {
                   <Input id="official_tag_number" maxLength={80} {...register("official_tag_number")} />
                 </div>
                 <div className="flex items-center gap-2 sm:col-span-2">
-                  <Checkbox
-                    id="suspected_scheduled_disease"
-                    checked={suspectedScheduledDisease}
-                    onCheckedChange={(checked) =>
-                      setValue("suspected_scheduled_disease", checked === true, {
-                        shouldValidate: true,
-                      })
-                    }
+                  <Controller
+                    control={control}
+                    name="suspected_scheduled_disease"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="suspected_scheduled_disease"
+                        checked={field.value}
+                        onCheckedChange={(checked) => {
+                          const selected = checked === true;
+                          if (!selected) {
+                            unregister("authority_notified_at");
+                            unregister("isolation_started_at");
+                            setValue("authority_notified_at", "");
+                            setValue("isolation_started_at", "");
+                          }
+                          field.onChange(selected);
+                        }}
+                      />
+                    )}
                   />
                   <Label htmlFor="suspected_scheduled_disease" className="font-normal">
                     Suspected scheduled/notifiable disease — apply movement restriction
@@ -1101,13 +1325,36 @@ export default function HealthPage() {
               <Input id="notes" {...register("notes")} />
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving…" : "Save event"}
+              {recordError && (
+                <p role="alert" className="mr-auto text-sm text-destructive">
+                  {recordError} Check the event details, then try again.
+                </p>
+              )}
+              <Button type="submit" disabled={isSubmitting || previewMutation.isPending}>
+                {isSubmitting || previewMutation.isPending
+                  ? bulkPreview
+                    ? "Saving…"
+                    : "Reviewing targets…"
+                  : scope !== "animal" && !bulkPreview
+                    ? "Review target animals"
+                    : scope !== "animal"
+                      ? `Confirm for ${bulkPreview?.target_count ?? 0} animals`
+                      : recordError
+                        ? "Retry save"
+                        : "Save event"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function HealthPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <HealthPageContent />
+    </Suspense>
   );
 }

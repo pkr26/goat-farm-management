@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
@@ -18,9 +19,10 @@ from ..models import (
     KiddingRecord,
     KidStatus,
 )
-from ..schemas.common import MAX_INT32_ID
+from ..schemas.breeding import BreedingRecordOut
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.kidding import KiddingCreateIn, KiddingListOut, KiddingRecordOut, KidEntryOut
-from ..services import KidSpec, record_kidding
+from ..services import KidSpec, record_kidding, require_farm_not_future
 from ..utils import today
 from ._shared import breeding_out
 
@@ -28,6 +30,8 @@ router = APIRouter(prefix="/api/kidding", tags=["kidding"])
 
 NOT_FOUND = "Breeding record not found"
 ALREADY_KIDDED = "This pregnancy already has a kidding record"
+DUE_DEFAULT_LIMIT = 30
+DUE_MAX_LIMIT = 100
 
 
 def _unique_constraint_name(exc: IntegrityError) -> str | None:
@@ -64,33 +68,62 @@ async def kidding_list(
     farm: CurrentFarm,
     perms: Annotated[set[str], Depends(require_perm("kidding.view"))],
     limit: Annotated[int, Query(ge=1, le=200)] = 30,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    upcoming_limit: Annotated[int, Query(ge=1, le=DUE_MAX_LIMIT)] = DUE_DEFAULT_LIMIT,
+    upcoming_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+    overdue_limit: Annotated[int, Query(ge=1, le=DUE_MAX_LIMIT)] = DUE_DEFAULT_LIMIT,
+    overdue_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> KiddingListOut:
-    awaiting_result = await db.execute(
-        select(BreedingRecord)
-        .options(
-            selectinload(BreedingRecord.doe),
-            selectinload(BreedingRecord.buck),
-            selectinload(BreedingRecord.kidding_record),
-        )
-        .join(Animal, BreedingRecord.doe_id == Animal.id)
-        .where(
-            BreedingRecord.farm_id == farm.id,
-            BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
-            # Defensive: a sold/dead doe's pregnancy is auto-resolved on the
-            # status change, but legacy phantom rows must never list here.
-            Animal.status == AnimalStatus.ACTIVE.value,
-        )
-        .order_by(BreedingRecord.expected_kidding_date)
-    )
-    awaiting = [r for r in awaiting_result.scalars() if r.kidding_record is None]
     now = today(farm.timezone)
     horizon = now + timedelta(days=30)
-    # Overdue pregnancies are not "upcoming" — they are listed separately.
-    upcoming = [
-        r for r in awaiting if r.expected_kidding_date and now <= r.expected_kidding_date <= horizon
-    ]
-    overdue = [r for r in awaiting if r.expected_kidding_date and r.expected_kidding_date < now]
+    awaiting_where = (
+        BreedingRecord.farm_id == farm.id,
+        BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+        BreedingRecord.expected_kidding_date.is_not(None),
+        # Defensive: a sold/dead doe's pregnancy is auto-resolved on the
+        # status change, but legacy phantom rows must never list here.
+        Animal.status == AnimalStatus.ACTIVE.value,
+        KiddingRecord.id.is_(None),
+    )
+
+    async def due_page(
+        *date_predicates: ColumnElement[bool], page_limit: int, page_offset: int
+    ) -> tuple[list[BreedingRecord], int]:
+        joins = (
+            select(BreedingRecord)
+            .join(Animal, BreedingRecord.doe_id == Animal.id)
+            .outerjoin(
+                KiddingRecord,
+                KiddingRecord.breeding_record_id == BreedingRecord.id,
+            )
+            .where(*awaiting_where, *date_predicates)
+        )
+        total = (await db.execute(select(func.count()).select_from(joins.subquery()))).scalar_one()
+        rows = await db.execute(
+            joins.options(
+                selectinload(BreedingRecord.doe),
+                selectinload(BreedingRecord.buck),
+                selectinload(BreedingRecord.kidding_record),
+            )
+            .order_by(BreedingRecord.expected_kidding_date, BreedingRecord.id)
+            .offset(page_offset)
+            .limit(page_limit)
+        )
+        return list(rows.scalars()), int(total)
+
+    # Overdue pregnancies are not "upcoming" — each is an independent,
+    # bounded SQL page rather than a Python slice of the farm's full history.
+    upcoming, upcoming_total = await due_page(
+        BreedingRecord.expected_kidding_date >= now,
+        BreedingRecord.expected_kidding_date <= horizon,
+        page_limit=upcoming_limit,
+        page_offset=upcoming_offset,
+    )
+    overdue, overdue_total = await due_page(
+        BreedingRecord.expected_kidding_date < now,
+        page_limit=overdue_limit,
+        page_offset=overdue_offset,
+    )
     history_result = await db.execute(
         select(KiddingRecord)
         .options(selectinload(KiddingRecord.kids), selectinload(KiddingRecord.doe))
@@ -107,11 +140,55 @@ async def kidding_list(
     return KiddingListOut(
         records=[_kidding_out(r) for r in history_result.scalars()],
         upcoming=[breeding_out(r) for r in upcoming],
+        upcoming_total=upcoming_total,
+        upcoming_limit=upcoming_limit,
+        upcoming_offset=upcoming_offset,
         overdue=[breeding_out(r) for r in overdue],
+        overdue_total=overdue_total,
+        overdue_limit=overdue_limit,
+        overdue_offset=overdue_offset,
         total=total,
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/pregnancies/{breeding_record_id}")
+async def kidding_pregnancy(
+    breeding_record_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: Annotated[set[str], Depends(require_perm("kidding.view"))],
+) -> BreedingRecordOut:
+    """Resolve one live pregnancy for a task/deep-link independent of pages."""
+    if not 1 <= breeding_record_id <= MAX_INT32_ID:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    record = (
+        await db.execute(
+            select(BreedingRecord)
+            .join(Animal, BreedingRecord.doe_id == Animal.id)
+            .outerjoin(
+                KiddingRecord,
+                KiddingRecord.breeding_record_id == BreedingRecord.id,
+            )
+            .options(
+                selectinload(BreedingRecord.doe),
+                selectinload(BreedingRecord.buck),
+                selectinload(BreedingRecord.kidding_record),
+            )
+            .where(
+                BreedingRecord.id == breeding_record_id,
+                BreedingRecord.farm_id == farm.id,
+                BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                BreedingRecord.expected_kidding_date.is_not(None),
+                Animal.status == AnimalStatus.ACTIVE.value,
+                KiddingRecord.id.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    return breeding_out(record)
 
 
 @router.post("", status_code=201)
@@ -130,22 +207,45 @@ async def create_kidding(
         raise HTTPException(status_code=404, detail=NOT_FOUND)
     row = (
         await db.execute(
-            select(BreedingRecord.doe_id, BreedingRecord.farm_id).where(
-                BreedingRecord.id == payload.breeding_record_id
+            select(
+                BreedingRecord.doe_id,
+                BreedingRecord.buck_id,
+                BreedingRecord.farm_id,
+            ).where(
+                BreedingRecord.id == payload.breeding_record_id,
+                BreedingRecord.farm_id == farm.id,
             )
         )
     ).first()
-    if row is None or row.farm_id != farm.id:
+    if row is None:
         raise HTTPException(status_code=404, detail=NOT_FOUND)
-    # Canonical lock order (animal → breeding → task, same as the abort and
-    # ultrasound flows): a concurrent abort serializes against this — the
-    # loser re-reads the committed outcome and fails its state guard, so a
-    # pregnancy can never end ABORTED with live born kids.
-    await db.execute(select(Animal.id).where(Animal.id == row.doe_id).with_for_update())
+    # Canonical lock order (all referenced animals by id → breeding → task,
+    # matching create-breeding): recording a live kid inserts both dam and sire
+    # FKs. Locking only the doe allowed a concurrent re-breeding request to hold
+    # the lower-id buck while waiting for this doe, while this transaction then
+    # waited for the buck's FK KEY SHARE lock — a deterministic deadlock. Taking
+    # both parents in one ordered statement closes that cycle and also keeps the
+    # existing abort-vs-kidding serialization guarantee.
+    parent_ids = sorted({row.doe_id, row.buck_id})
+    locked_parent_ids = list(
+        (
+            await db.execute(
+                select(Animal.id)
+                .where(Animal.farm_id == farm.id, Animal.id.in_(parent_ids))
+                .order_by(Animal.id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if locked_parent_ids != parent_ids:  # defensive against corrupted legacy rows
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
     result = await db.execute(
         select(BreedingRecord)
         .options(selectinload(BreedingRecord.doe), selectinload(BreedingRecord.kidding_record))
-        .where(BreedingRecord.id == payload.breeding_record_id)
+        .where(
+            BreedingRecord.id == payload.breeding_record_id,
+            BreedingRecord.farm_id == farm.id,
+        )
         .with_for_update()
     )
     br = result.scalar_one_or_none()
@@ -157,8 +257,15 @@ async def create_kidding(
     # a forged request against a PENDING/FAILED/ABORTED breeding is rejected.
     if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
         raise HTTPException(status_code=400, detail="Kidding requires a confirmed pregnancy")
-    # "Not in the future" is enforced by the schema (PastOrTodayDate, with the
-    # one-day east-of-UTC headroom); only the breeding-date bound remains here.
+    try:
+        require_farm_not_future(payload.date, farm, "kidding date")
+        for kid in payload.kids:
+            if kid.mortality_reported_at is not None:
+                require_farm_not_future(kid.mortality_reported_at, farm, "mortality_reported_at")
+                if kid.mortality_reported_at < payload.date:
+                    raise ValueError("mortality_reported_at cannot predate the kidding date")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     if payload.date < br.breeding_date:
         raise HTTPException(
             status_code=400, detail="Kidding date cannot be before the breeding date"
@@ -173,6 +280,7 @@ async def create_kidding(
         kids.append(
             {
                 "tag": tag or f"{br.doe.tag_number}-K{i + 1}",
+                "tag_is_explicit": bool(tag),
                 "sex": kid.sex,
                 "birth_weight": kid.birth_weight,
                 "status": kid.status,

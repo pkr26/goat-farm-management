@@ -5,11 +5,19 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from .constants import VERIFICATION_REQUIRED_CATEGORIES
+from .constants import MAX_TASK_TITLE_LENGTH, VERIFICATION_REQUIRED_CATEGORIES
 from .enums import TaskCategory, TaskStatus
 
 if TYPE_CHECKING:
@@ -27,12 +35,76 @@ class Task(Base):
             "due_date",
             name="uq_task_recurring_series_due",
         ),
+        ForeignKeyConstraint(
+            ["farm_id", "animal_id"],
+            ["animals.farm_id", "animals.id"],
+            name="fk_tasks_farm_animal",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "purchase_batch_id"],
+            ["purchase_batches.farm_id", "purchase_batches.id"],
+            name="fk_tasks_farm_purchase_batch",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "breeding_record_id"],
+            ["breeding_records.farm_id", "breeding_records.id"],
+            name="fk_tasks_farm_breeding_record",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "assigned_role_id"],
+            ["roles.farm_id", "roles.id"],
+            name="fk_tasks_farm_assigned_role",
+        ),
+        ForeignKeyConstraint(
+            ["farm_id", "assigned_user_id"],
+            ["farm_memberships.farm_id", "farm_memberships.user_id"],
+            name="fk_tasks_farm_assigned_membership",
+        ),
         Index("ix_tasks_farm_status_due", "farm_id", "status", "due_date"),
+        CheckConstraint(
+            "status IN ('PENDING', 'DONE', 'SKIPPED', 'VERIFIED')",
+            name="ck_tasks_status",
+        ),
+        CheckConstraint(
+            "category IN ('VACCINE', 'DEWORMING', 'ULTRASOUND', 'KIDDING_DUE', "
+            "'WEANING', 'BUCKET_MOVE', 'QUARANTINE', 'FEED', 'CLEANING', 'OTHER')",
+            name="ck_tasks_category",
+        ),
+        CheckConstraint(
+            "(recur_days IS NULL AND recurring_series_id IS NULL) OR "
+            "(recur_days IS NOT NULL AND recur_days BETWEEN 1 AND 3650 "
+            "AND recurring_series_id IS NOT NULL "
+            "AND btrim(recurring_series_id) <> '')",
+            name="ck_tasks_recurrence",
+        ),
+        CheckConstraint(
+            "status NOT IN ('DONE', 'VERIFIED') OR completed_at IS NOT NULL",
+            name="ck_tasks_completion_timestamp",
+        ),
+        CheckConstraint(
+            "verified_by_id IS NULL OR verified_at IS NOT NULL",
+            name="ck_tasks_verification_attribution",
+        ),
+        CheckConstraint(
+            "(status = 'VERIFIED' AND verified_at IS NOT NULL) OR "
+            "(status <> 'VERIFIED' AND verified_by_id IS NULL AND verified_at IS NULL)",
+            name="ck_tasks_verification_state",
+        ),
+        CheckConstraint(
+            "(status = 'SKIPPED' AND skipped_at IS NOT NULL) OR "
+            "(status <> 'SKIPPED' AND skipped_by_id IS NULL AND skipped_at IS NULL "
+            "AND skip_reason IS NULL)",
+            name="ck_tasks_skip_state",
+        ),
+        CheckConstraint(
+            "status <> 'PENDING' OR assigned_user_id IS NULL OR assigned_role_id IS NOT NULL",
+            name="ck_tasks_user_assignment_has_role",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
-    title: Mapped[str] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(String(MAX_TASK_TITLE_LENGTH))
     due_date: Mapped[date] = mapped_column(index=True)
     status: Mapped[str] = mapped_column(String(10), default=TaskStatus.PENDING.value, index=True)
     animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)
@@ -70,9 +142,9 @@ class Task(Base):
     # parallel duties.
     recurring_series_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
-    animal: Mapped[Animal | None] = relationship()
-    breeding_record: Mapped[BreedingRecord | None] = relationship()
-    assigned_role: Mapped[Role | None] = relationship()
+    animal: Mapped[Animal | None] = relationship(foreign_keys=[animal_id])
+    breeding_record: Mapped[BreedingRecord | None] = relationship(foreign_keys=[breeding_record_id])
+    assigned_role: Mapped[Role | None] = relationship(foreign_keys=[assigned_role_id])
     assigned_user: Mapped[User | None] = relationship(foreign_keys="Task.assigned_user_id")
     completed_by: Mapped[User | None] = relationship(foreign_keys="Task.completed_by_id")
     verified_by: Mapped[User | None] = relationship(foreign_keys="Task.verified_by_id")
@@ -82,3 +154,38 @@ class Task(Base):
     def needs_verification(self) -> bool:
         """DONE for these categories means 'awaiting verification', not final."""
         return self.category in VERIFICATION_REQUIRED_CATEGORIES
+
+
+Index(
+    "ix_tasks_farm_pending_due_id",
+    Task.farm_id,
+    Task.due_date,
+    Task.id,
+    postgresql_where=text("status = 'PENDING'"),
+)
+Index(
+    "ix_tasks_farm_pending_category_due_id",
+    Task.farm_id,
+    Task.category,
+    Task.due_date,
+    Task.id,
+    postgresql_where=text("status = 'PENDING'"),
+)
+Index(
+    "ix_tasks_farm_animal_pending",
+    Task.farm_id,
+    Task.animal_id,
+    postgresql_where=text("status = 'PENDING' AND animal_id IS NOT NULL"),
+)
+Index(
+    "ix_tasks_pending_farm_role",
+    Task.farm_id,
+    Task.assigned_role_id,
+    postgresql_where=text("status = 'PENDING' AND assigned_role_id IS NOT NULL"),
+)
+Index(
+    "ix_tasks_pending_animal_id_id",
+    Task.animal_id,
+    Task.id,
+    postgresql_where=text("status = 'PENDING' AND animal_id IS NOT NULL"),
+)

@@ -135,7 +135,7 @@ describe("InventoryPage stock table", () => {
       .closest('[data-slot="card"]') as HTMLElement;
     expect(within(card).getByText("Lactating 60/40")).toBeInTheDocument();
     expect(within(card).getByText("LACTATING_60_40")).toBeInTheDocument();
-    expect(within(card).getByText("175.3")).toBeInTheDocument();
+    expect(within(card).getByText("175.25")).toBeInTheDocument();
   });
 
   it("shows the error detail when the inventory GET fails", async () => {
@@ -235,17 +235,70 @@ describe("InventoryPage add-stock dialog", () => {
     expect(addCalls).toBe(0);
   });
 
-  it("blocks a zero price (blank is allowed, 0 is not)", async () => {
+  it("blocks stock below half a gram before it reaches the API", async () => {
+    const { user, dialog } = await openAddStock();
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "0.0004");
+    await user.click(within(dialog).getByRole("button", { name: "Add" }));
+
+    expect(await within(dialog).findByText("Quantity must be at least 0.0005 kg"))
+      .toBeInTheDocument();
+    expect(addCalls).toBe(0);
+  });
+
+  it("posts an explicit zero price instead of treating it as blank or invalid", async () => {
     const { user, dialog } = await openAddStock();
 
     await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "10");
     await user.type(within(dialog).getByLabelText(/Price per kg/), "0");
     await user.click(within(dialog).getByRole("button", { name: "Add" }));
 
+    await waitFor(() => expect(addCalls).toBe(1));
+    expect(addBody).toEqual({ qty_kg: 10, price_per_kg: 0 });
+  });
+
+  it("blocks a non-zero price below half a paisa", async () => {
+    const { user, dialog } = await openAddStock();
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "10");
+    await user.type(within(dialog).getByLabelText(/Price per kg/), "0.004");
+    await user.click(within(dialog).getByRole("button", { name: "Add" }));
+
     expect(
-      await within(dialog).findByText("Price must be greater than 0 (or leave blank)"),
+      await within(dialog).findByText("Price must be ₹0 or at least ₹0.005 (or leave blank)"),
     ).toBeInTheDocument();
     expect(addCalls).toBe(0);
+  });
+
+  it("blocks a positive price whose derived expense would round to zero", async () => {
+    const { user, dialog } = await openAddStock();
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "0.001");
+    await user.type(within(dialog).getByLabelText(/Price per kg/), "0.005");
+    await user.click(within(dialog).getByRole("button", { name: "Add" }));
+
+    expect(
+      await within(dialog).findByText("Positive-price restock must total at least ₹0.01"),
+    ).toBeInTheDocument();
+    expect(addCalls).toBe(0);
+  });
+
+  it("shows gram-scale inventory and finished stock without rounding them to zero", async () => {
+    server.use(
+      inventoryHandler([{ ...ITEM_MAIZE, qty_on_hand: 0.001 }]),
+      http.get("/api/feeding/finished-stock", () =>
+        HttpResponse.json([
+          {
+            recipe_code: "LACTATING_60_40",
+            recipe_name: "Lactating 60/40",
+            qty_on_hand: 0.001,
+          },
+        ]),
+      ),
+    );
+
+    await renderLoaded();
+    expect(screen.getAllByText("0.001")).toHaveLength(2);
   });
 
   it("POSTs quantity with a null price when price is left blank", async () => {
@@ -328,6 +381,22 @@ describe("InventoryPage mix-batch dialog", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Mix batch" }));
     expect(await within(dialog).findByText("Pick a recipe")).toBeInTheDocument();
+    expect(mixCalls).toBe(0);
+  });
+
+  it("blocks mixing and offers retry when recipes fail to load", async () => {
+    server.use(
+      http.get("/api/feeding/recipes", () =>
+        HttpResponse.json({ detail: "recipes unavailable" }, { status: 503 }),
+      ),
+    );
+    const { dialog } = await openMix();
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Could not load recipes",
+    );
+    expect(within(dialog).getByRole("button", { name: "Mix batch" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Retry recipes" })).toBeEnabled();
     expect(mixCalls).toBe(0);
   });
 

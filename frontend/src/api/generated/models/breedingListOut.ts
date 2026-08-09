@@ -4,12 +4,12 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { BreedingCandidateAvailabilityOut } from './breedingCandidateAvailabilityOut';
 import type { BreedingRecordOut } from './breedingRecordOut';
 
 export interface BreedingListOut {
   records: BreedingRecordOut[];
-  candidate_doe_ids: number[];
-  active_buck_ids: number[];
+  candidate_availability: BreedingCandidateAvailabilityOut | null;
   total: number;
   limit: number;
   offset: number;

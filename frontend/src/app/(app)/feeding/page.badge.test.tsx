@@ -1,17 +1,15 @@
 /**
- * Feeding plan "done" badge: a bucket split across several
- * recipe lines (each with its own daily_kg) must only show "done" once the
- * dispensed total covers the SUM of that bucket's lines — never when a
- * single line's daily_kg is reached.
+ * Feeding completion is allocation-specific: bucket + recipe + shift.
+ * Bucket volume remains visible, but cannot make the plan complete by itself.
  */
 
 import { screen, within } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import { server } from "@/test/msw-server";
-import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
+import { renderWithProviders } from "@/test/render";
+import { server } from "@/test/msw-server";
 
 import FeedingPage from "./page";
 
@@ -22,13 +20,6 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-const SHIFTS = [
-  { shift: "MORNING", pct: 40, kg: 8, time: "6:30 AM" },
-  { shift: "AFTERNOON", pct: 20, kg: 4, time: "1:30 PM" },
-  { shift: "NIGHT", pct: 40, kg: 8, time: "7:30 PM" },
-];
-
-/** BREEDING split into two recipe lines: 30 kg + 15 kg = 45 kg planned. */
 const LINE_A = {
   bucket: "BREEDING",
   recipe_code: "LACTATING_60_40",
@@ -36,7 +27,11 @@ const LINE_A = {
   heads: 20,
   kg_per_head: 1.5,
   daily_kg: 30,
-  shifts: SHIFTS,
+  shifts: [
+    { shift: "MORNING", pct: 40, kg: 12, time: "6:30 AM" },
+    { shift: "AFTERNOON", pct: 20, kg: 6, time: "1:30 PM" },
+    { shift: "NIGHT", pct: 40, kg: 12, time: "7:30 PM" },
+  ],
 };
 const LINE_B = {
   bucket: "BREEDING",
@@ -45,33 +40,49 @@ const LINE_B = {
   heads: 10,
   kg_per_head: 1.5,
   daily_kg: 15,
-  shifts: SHIFTS,
+  shifts: [
+    { shift: "MORNING", pct: 40, kg: 6, time: "6:30 AM" },
+    { shift: "AFTERNOON", pct: 20, kg: 3, time: "1:30 PM" },
+    { shift: "NIGHT", pct: 40, kg: 6, time: "7:30 PM" },
+  ],
 };
-
-function planWith(dispensedKg: number) {
-  return http.get("/api/feeding/plan", () =>
-    HttpResponse.json({
-      lines: [LINE_A, LINE_B],
-      records:
-        dispensedKg > 0
-          ? [
-              {
-                id: 1,
-                date: farmToday(),
-                shift: "MORNING",
-                bucket: "BREEDING",
-                recipe_code: "LACTATING_60_40",
-                qty_kg: dispensedKg,
-              },
-            ]
-          : [],
-    }),
-  );
-}
 
 const RECIPES_HANDLER = http.get("/api/feeding/recipes", () =>
   HttpResponse.json({ recipes: [], allocation: [] }),
 );
+
+function record(
+  id: number,
+  recipe_code: string,
+  shift: string,
+  qty_kg: number,
+) {
+  return {
+    id,
+    date: farmToday(),
+    bucket: "BREEDING",
+    recipe_code,
+    shift,
+    qty_kg,
+  };
+}
+
+function planWith(records: ReturnType<typeof record>[]) {
+  return http.get("/api/feeding/plan", () =>
+    HttpResponse.json({
+      lines: [LINE_A, LINE_B],
+      records,
+      records_total: records.length,
+      records_limit: 200,
+      dispensed_totals: records.map(({ bucket, recipe_code, shift, qty_kg }) => ({
+        bucket,
+        recipe_code,
+        shift,
+        qty_kg,
+      })),
+    }),
+  );
+}
 
 function rowOf(text: string): HTMLElement {
   const row = screen.getByText(text).closest("tr");
@@ -79,27 +90,38 @@ function rowOf(text: string): HTMLElement {
   return row as HTMLElement;
 }
 
-describe("FeedingPage done badge per-bucket aggregation (7-3)", () => {
-  it("no 'done' badge when only the first line's daily_kg is dispensed", async () => {
-    server.use(planWith(30), RECIPES_HANDLER);
+describe("FeedingPage allocation completion", () => {
+  it("does not mark completion when bucket volume is all on one recipe and shift", async () => {
+    server.use(
+      planWith([record(1, "LACTATING_60_40", "MORNING", 45)]),
+      RECIPES_HANDLER,
+    );
     renderWithProviders(<FeedingPage />);
 
-    // 30 kg dispensed covers line A (30 kg) but not the bucket (45 kg).
     await screen.findByText("Lactating 60/40");
-    const rowA = rowOf("Lactating 60/40");
-    const rowB = rowOf("Flush 70/30");
-    expect(within(rowA).queryByText("done")).not.toBeInTheDocument();
-    expect(within(rowB).queryByText("done")).not.toBeInTheDocument();
+    expect(within(rowOf("Lactating 60/40")).queryByText("done")).not.toBeInTheDocument();
+    expect(within(rowOf("Flush 70/30")).queryByText("done")).not.toBeInTheDocument();
+    expect(screen.getByText("45.0 / 45.0 kg recorded")).toBeInTheDocument();
+    expect(screen.getByText("0/2 rations")).toBeInTheDocument();
   });
 
-  it("'done' on both lines once the bucket's summed plan is dispensed", async () => {
-    server.use(planWith(45), RECIPES_HANDLER);
+  it("marks each ration and bucket complete only after every exact shift", async () => {
+    server.use(
+      planWith([
+        record(1, "LACTATING_60_40", "MORNING", 12),
+        record(2, "LACTATING_60_40", "AFTERNOON", 6),
+        record(3, "LACTATING_60_40", "NIGHT", 12),
+        record(4, "FLUSH_70_30", "MORNING", 6),
+        record(5, "FLUSH_70_30", "AFTERNOON", 3),
+        record(6, "FLUSH_70_30", "NIGHT", 6),
+      ]),
+      RECIPES_HANDLER,
+    );
     renderWithProviders(<FeedingPage />);
 
     await screen.findByText("Lactating 60/40");
-    const rowA = rowOf("Lactating 60/40");
-    const rowB = rowOf("Flush 70/30");
-    expect(within(rowA).getByText("done")).toBeInTheDocument();
-    expect(within(rowB).getByText("done")).toBeInTheDocument();
+    expect(within(rowOf("Lactating 60/40")).getByText("done")).toBeInTheDocument();
+    expect(within(rowOf("Flush 70/30")).getByText("done")).toBeInTheDocument();
+    expect(screen.getByText("complete")).toBeInTheDocument();
   });
 });

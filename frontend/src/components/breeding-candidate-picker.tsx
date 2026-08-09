@@ -1,7 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
-
 import { breedingCandidatesApiBreedingCandidatesGet } from "@/api/generated/endpoints";
 import type {
   BreedingCandidateOut,
@@ -19,7 +17,6 @@ interface BreedingCandidatePickerProps {
   kind: BreedingCandidatesApiBreedingCandidatesGetKind;
   value: string;
   onValueChange: (value: string) => void;
-  eligibleIds: readonly number[];
   placeholder: string;
   dialogTitle: string;
   disabled?: boolean;
@@ -49,15 +46,12 @@ export function BreedingCandidatePicker({
   kind,
   value,
   onValueChange,
-  eligibleIds,
   placeholder,
   dialogTitle,
   disabled,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: BreedingCandidatePickerProps) {
-  const eligibleSet = useMemo(() => new Set(eligibleIds), [eligibleIds]);
-
   async function loadPage({
     query,
     offset,
@@ -70,9 +64,7 @@ export function BreedingCandidatePicker({
     );
     if (response.status !== 200) throw new Error("Could not load breeding candidates.");
     return {
-      options: response.data.candidates
-        .filter((candidate) => eligibleSet.has(candidate.id))
-        .map((candidate) => candidateOption(candidate, kind)),
+      options: response.data.candidates.map((candidate) => candidateOption(candidate, kind)),
       total: response.data.total,
       nextOffset: offset + response.data.candidates.length,
     };
@@ -92,7 +84,7 @@ export function BreedingCandidatePicker({
       emptyMessage={`No eligible ${kind === "doe" ? "does" : "bucks"} match this search.`}
       noEligibleYetMessage="No listed eligible animals in the records checked yet. Load more to continue."
       sourcePath="/api/breeding/candidates"
-      cacheKey={["breeding-candidate-picker", kind, eligibleIds.join(",")]}
+      cacheKey={["breeding-candidate-picker", kind]}
       loadPage={loadPage}
       disabled={disabled}
       aria-invalid={ariaInvalid}

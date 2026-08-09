@@ -34,6 +34,7 @@ export interface AnimalOut {
   restriction_cleared_at: string | null;
   restriction_cleared_by_id: number | null;
   restriction_clearance_reference: string | null;
+  restriction_version: number;
   mortality_cause: string | null;
   mortality_reported_at: string | null;
   notes: string | null;

@@ -4,10 +4,10 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { AnimalOut } from './animalOut';
+import type { AnimalIdentityOut } from './animalIdentityOut';
 
 export interface MoveSuggestionOut {
-  animal: AnimalOut;
+  animal: AnimalIdentityOut;
   to: string;
   reason: string;
 }

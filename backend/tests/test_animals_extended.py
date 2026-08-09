@@ -12,19 +12,19 @@ Endpoints under test (backend/app/api/animals.py, backend/app/api/buckets.py):
                                         INCOME transaction, replay guarded)
 - GET  /api/buckets                     board: 10 seeded buckets with occupancy
 
-Note: the list endpoint supports OPTIONAL limit/offset pagination (added in
-the hardening phase); the default (no params) still returns the full filtered
-list, and filter coverage is exhaustive.
+Note: the list endpoint is always finite (100 rows by default, 200 maximum),
+returns the full filtered total, and supports limit/offset pagination.
 """
 
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 
 import httpx
+import pytest
 
 from app.utils import today
 
-from .conftest import owner_with_farm
+from .conftest import owner_with_farm, register
 
 WORKER_PW = "workerpass123"
 
@@ -68,6 +68,15 @@ async def make_animal(
         "source": "PURCHASED",
         "current_bucket": bucket,
     } | overrides
+    # BREEDING is a supported historical-import cohort, but importing directly
+    # into it must still satisfy the same maturity/weight safety floor as a
+    # live move.  Most tests using this helper exercise unrelated list/board
+    # behavior, so give those fixtures a valid history by default.
+    if payload["current_bucket"] == "BREEDING":
+        payload.setdefault("date_of_birth", iso(today() - timedelta(days=400)))
+        payload.setdefault("weight_kg", 25.0 if payload["sex"] == "M" else 22.0)
+    if payload["source"] in {"PURCHASED", "BORN"}:
+        payload.setdefault("historical_import_reason", "Existing-herd test fixture")
     resp = await post_animal(client, headers, payload)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -128,21 +137,66 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, emai
     }
 
 
+async def custom_worker_headers(
+    client: httpx.AsyncClient,
+    owner: dict,
+    *,
+    name: str,
+    email: str,
+    permissions: list[str],
+) -> dict:
+    role = await client.post(
+        "/api/team/roles",
+        json={"name": name, "permissions": permissions},
+        headers=owner,
+    )
+    assert role.status_code == 201, role.text
+    worker = await client.post(
+        "/api/team/workers",
+        json={
+            "name": name,
+            "email": email,
+            "password": WORKER_PW,
+            "role_id": role.json()["id"],
+        },
+        headers=owner,
+    )
+    assert worker.status_code == 201, worker.text
+    login = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
+    assert login.status_code == 200, login.text
+    return {
+        "Authorization": f"Bearer {login.json()['access_token']}",
+        "X-Farm-Id": owner["X-Farm-Id"],
+    }
+
+
 # Breeding-flow helpers (for profile kids / cull-flag tests).
 async def make_doe(client: httpx.AsyncClient, headers: dict, tag: str = "D-101") -> dict:
+    dob = today() - timedelta(days=800)
     return await make_animal(
         client,
         headers,
         tag=tag,
         sex="F",
         bucket="FOUNDATION",
-        date_of_birth=iso(today() - timedelta(days=400)),
+        date_of_birth=iso(dob),
         weight_kg=26.0,
+        weight_date=iso(dob),
     )
 
 
 async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-01") -> dict:
-    return await make_animal(client, headers, tag=tag, sex="M", bucket="BREEDING")
+    dob = today() - timedelta(days=800)
+    return await make_animal(
+        client,
+        headers,
+        tag=tag,
+        sex="M",
+        bucket="BREEDING",
+        date_of_birth=iso(dob),
+        weight_kg=30.0,
+        weight_date=iso(dob),
+    )
 
 
 async def make_breeding(
@@ -158,11 +212,21 @@ async def make_breeding(
 
 
 async def submit_ultrasound(
-    client: httpx.AsyncClient, headers: dict, breeding_id: int, pregnant: bool, kid_count: int = 2
+    client: httpx.AsyncClient,
+    headers: dict,
+    breeding_id: int,
+    pregnant: bool,
+    kid_count: int = 2,
+    result_date: date | None = None,
 ) -> dict:
+    payload: dict[str, object] = {"pregnant": pregnant}
+    if pregnant:
+        payload["kid_count"] = kid_count
+    if result_date is not None:
+        payload["date"] = iso(result_date)
     resp = await client.post(
         f"/api/breeding/{breeding_id}/ultrasound",
-        json={"pregnant": pregnant, "kid_count": kid_count},
+        json=payload,
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -337,7 +401,7 @@ async def test_create_records_initial_bucket_move(client: httpx.AsyncClient) -> 
     assert len(moves) == 1
     assert moves[0]["from_bucket"] is None
     assert moves[0]["to_bucket"] == "QUARANTINE"
-    assert moves[0]["reason"] == "Initial entry"
+    assert moves[0]["reason"] == "Historical import: Existing-herd test fixture"
     assert moves[0]["moved_at"] is not None
 
 
@@ -363,8 +427,25 @@ async def test_create_without_entry_weight_has_no_records(client: httpx.AsyncCli
 
 async def test_create_latest_weight_falls_back_to_birth_weight(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, source="BORN", birth_weight=2.4)
-    assert animal["latest_weight_kg"] == 2.4
+    payload = {
+        "tag_number": "BIRTH-WEIGHT-FALLBACK",
+        "sex": "F",
+        "source": "BORN",
+        "current_bucket": "FEMALE_KIDS",
+        "birth_weight": 2.4,
+        "historical_import_reason": "Existing-herd test fixture",
+    }
+    keyed = owner | {"Idempotency-Key": "birth-weight-fallback"}
+    created = await post_animal(client, keyed, payload)
+    assert created.status_code == 201, created.text
+    replay = await post_animal(client, keyed, payload)
+    assert replay.status_code == 201, replay.text
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    profile = await get_profile(client, owner, created.json()["id"])
+
+    assert created.json()["latest_weight_kg"] == 2.4
+    assert replay.json() == created.json()
+    assert profile["animal"] == created.json()
 
 
 async def test_create_strips_tag_whitespace(client: httpx.AsyncClient) -> None:
@@ -394,14 +475,79 @@ async def test_create_born_source_with_birth_fields(client: httpx.AsyncClient) -
         owner,
         tag="K-001",
         source="BORN",
-        bucket="RECOVERY",
-        date_of_birth=iso(today()),
+        bucket="FEMALE_KIDS",
+        date_of_birth=iso(today() - timedelta(days=90)),
         birth_type="TRIPLET",
         birth_weight=2.1,
     )
     assert animal["source"] == "BORN"
     assert animal["birth_type"] == "TRIPLET"
-    assert animal["age_months"] == 0
+    assert animal["age_months"] == 2
+
+
+async def test_direct_born_and_workflow_state_imports_are_owner_only_and_bounded(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    creator = await custom_worker_headers(
+        client,
+        owner,
+        name="Animal registrar",
+        email="animal-import-forger@farm.in",
+        permissions=["animals.view", "animals.create"],
+    )
+    base = {
+        "sex": "F",
+        "source": "BORN",
+        "historical_import_reason": "Claimed legacy row",
+        "date_of_birth": iso(today() - timedelta(days=500)),
+        "weight_kg": 30,
+    }
+    for index, bucket in enumerate(
+        ("BREEDING", "PREGNANCY_EARLY", "PREGNANCY_LATE", "DELIVERY", "RECOVERY")
+    ):
+        forged = await post_animal(
+            client,
+            creator,
+            base | {"tag_number": f"FORGED-{index}", "current_bucket": bucket},
+        )
+        assert forged.status_code == 403, forged.text
+        assert "Only the farm owner" in forged.json()["detail"]
+
+    missing_audit = await post_animal(
+        client,
+        owner,
+        {
+            "tag_number": "BORN-WITHOUT-AUDIT",
+            "sex": "F",
+            "source": "BORN",
+            "current_bucket": "FEMALE_KIDS",
+        },
+    )
+    assert missing_audit.status_code == 422
+
+    for index, bucket in enumerate(("PREGNANCY_EARLY", "PREGNANCY_LATE", "DELIVERY", "RECOVERY")):
+        impossible = await post_animal(
+            client,
+            owner,
+            base | {"tag_number": f"OWNER-WORKFLOW-{index}", "current_bucket": bucket},
+        )
+        assert impossible.status_code == 422, impossible.text
+
+    immature_buck = await post_animal(
+        client,
+        owner,
+        {
+            "tag_number": "IMMATURE-IMPORT-BUCK",
+            "sex": "M",
+            "source": "BORN",
+            "current_bucket": "BREEDING",
+            "historical_import_reason": "Legacy buck row",
+            "date_of_birth": iso(today() - timedelta(days=300)),
+            "weight_kg": 24.99,
+        },
+    )
+    assert immature_buck.status_code == 422
 
 
 async def test_create_rejects_mixed_birth_and_purchase_provenance(
@@ -449,6 +595,12 @@ async def test_create_rejects_sex_incompatible_lifecycle_bucket(client: httpx.As
             "source": "PURCHASED",
             "current_bucket": "DELIVERY",
         },
+        {
+            "tag_number": "M-IN-RESTING",
+            "sex": "M",
+            "source": "PURCHASED",
+            "current_bucket": "RESTING",
+        },
     ):
         response = await post_animal(client, owner, payload)
         assert response.status_code == 422, response.text
@@ -470,6 +622,47 @@ async def test_create_purchased_in_quarantine(client: httpx.AsyncClient) -> None
     assert resp.status_code == 200, resp.text
     quarantine = next(r for r in resp.json() if r["bucket"] == "QUARANTINE")
     assert [a["tag_number"] for a in quarantine["animals"]] == ["Q-001"]
+
+
+async def test_individual_purchase_is_forced_into_managed_quarantine(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    response = await post_animal(
+        client,
+        owner,
+        {
+            "tag_number": "Q-FORCED",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "purchase_date": iso(today()),
+        },
+    )
+    assert response.status_code == 201, response.text
+    animal = response.json()
+    assert animal["current_bucket"] == "QUARANTINE"
+    batches = (await client.get("/api/purchases", headers=owner)).json()
+    assert batches["total"] == 1
+    assert batches["batches"][0]["animals_created"] == 1
+    assert batches["batches"][0]["open_tasks"] == 8
+
+
+async def test_historical_purchase_import_requires_and_audits_a_reason(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(
+        client,
+        owner,
+        tag="HIST-1",
+        bucket="FOUNDATION",
+        historical_import_reason="Migrated from the 2024 paper register",
+    )
+    assert animal["current_bucket"] == "FOUNDATION"
+    moves = (await get_profile(client, owner, animal["id"]))["moves"]
+    assert moves[0]["reason"] == "Historical import: Migrated from the 2024 paper register"
+    assert (await client.get("/api/purchases", headers=owner)).json()["total"] == 0
 
 
 async def test_create_age_months_from_dob(client: httpx.AsyncClient) -> None:
@@ -529,14 +722,27 @@ async def test_create_sql_injection_tag_stored_literally(client: httpx.AsyncClie
     assert (await client.get("/api/animals", headers=owner)).json()["total"] == 1
 
 
-async def test_create_very_long_notes_accepted(client: httpx.AsyncClient) -> None:
+async def test_create_notes_are_bounded_to_common_free_text_limit(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
-    notes = "n" * 10000
-    animal = await make_animal(client, owner, notes=notes)
-    assert animal["notes"] == notes
+    rejected = await post_animal(
+        client,
+        owner,
+        {
+            "tag_number": "NOTE-LONG",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+            "notes": "n" * 4001,
+        },
+    )
+    assert rejected.status_code == 422, rejected.text
+    animal = await make_animal(client, owner, tag="NOTE-MAX", notes="n" * 4000)
+    assert animal["notes"] == "n" * 4000
 
 
-async def test_create_ignores_unknown_extra_fields(client: httpx.AsyncClient) -> None:
+async def test_create_rejects_unknown_extra_fields(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await post_animal(
         client,
@@ -552,12 +758,21 @@ async def test_create_ignores_unknown_extra_fields(client: httpx.AsyncClient) ->
             "id": 42,
         },
     )
-    assert resp.status_code == 201, resp.text
-    animal = resp.json()
-    assert animal["tag_number"] == "X-001"
-    assert animal["status"] == "ACTIVE"  # smuggled status ignored
-    assert animal["id"] != 42
-    assert "photo_path" not in animal
+    assert resp.status_code == 422, resp.text
+    assert (await client.get("/api/animals", headers=owner)).json()["total"] == 0
+
+
+async def test_animal_mutation_bodies_reject_unknown_fields(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner)
+    requests = [
+        (f"/api/animals/{animal['id']}/weight", {"weight_kg": 20, "weigt_kg": 20}),
+        (f"/api/animals/{animal['id']}/move", {"to_bucket": "FOUNDATION", "force": True}),
+        (f"/api/animals/{animal['id']}/status", {"new_status": "SOLD", "force": True}),
+    ]
+    for path, payload in requests:
+        response = await client.post(path, json=payload, headers=owner)
+        assert response.status_code == 422, (path, response.text)
 
 
 # ---------------------------------------------------------------------------
@@ -613,11 +828,36 @@ async def test_create_invalid_bucket_values_422(client: httpx.AsyncClient) -> No
 
 async def test_create_every_valid_bucket_accepted(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    for i, bucket in enumerate(ALL_BUCKETS):
+    importable_buckets = [
+        "QUARANTINE",
+        "FOUNDATION",
+        "BREEDING",
+        "RESTING",
+        "MALE_KIDS",
+        "FEMALE_KIDS",
+    ]
+    for i, bucket in enumerate(importable_buckets):
         sex = "M" if bucket == "MALE_KIDS" else "F"
         animal = await make_animal(client, owner, tag=f"B-{i}", sex=sex, bucket=bucket)
         assert animal["current_bucket"] == bucket
-    assert (await client.get("/api/animals", headers=owner)).json()["total"] == 10
+    # Pregnancy, delivery, and recovery are workflow-derived states rather
+    # than legal historical-import shortcuts.
+    for i, bucket in enumerate(["PREGNANCY_EARLY", "PREGNANCY_LATE", "DELIVERY", "RECOVERY"]):
+        resp = await post_animal(
+            client,
+            owner,
+            {
+                "tag_number": f"WF-{i}",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": bucket,
+                "historical_import_reason": "Existing-herd test fixture",
+            },
+        )
+        assert resp.status_code == 422, (bucket, resp.text)
+    assert (await client.get("/api/animals", headers=owner)).json()["total"] == len(
+        importable_buckets
+    )
 
 
 async def test_create_invalid_birth_type_422(client: httpx.AsyncClient) -> None:
@@ -636,7 +876,7 @@ async def test_create_valid_birth_types(client: httpx.AsyncClient) -> None:
             owner,
             tag=f"BT-{i}",
             source="BORN",
-            bucket="RECOVERY",
+            bucket="FEMALE_KIDS",
             birth_type=bt,
         )
         assert animal["birth_type"] == bt
@@ -758,9 +998,9 @@ async def test_create_seller_name_too_long_422(client: httpx.AsyncClient) -> Non
 async def test_create_future_dates_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     base = {"tag_number": "G-1", "sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"}
-    # +2 days: tomorrow itself is accepted (timezone headroom for clients
-    # east of UTC — see PastOrTodayDate), anything further out still 422s.
-    future = iso(today() + timedelta(days=2))
+    # The schema retains UTC/local parsing headroom; the endpoint applies the
+    # selected farm's exact business date.
+    future = iso(today() + timedelta(days=1))
     for field in ["date_of_birth", "estimated_dob", "purchase_date"]:
         resp = await post_animal(client, owner, base | {field: future})
         assert resp.status_code == 422, field
@@ -797,7 +1037,13 @@ async def test_create_malformed_dates_422(client: httpx.AsyncClient) -> None:
 
 async def test_create_birth_weight_boundaries(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    base = {"tag_number": "G-1", "sex": "F", "source": "BORN", "current_bucket": "RECOVERY"}
+    base = {
+        "tag_number": "G-1",
+        "sex": "F",
+        "source": "BORN",
+        "current_bucket": "FEMALE_KIDS",
+        "historical_import_reason": "Legacy birth-weight record",
+    }
     for bad in [-2, "-2", "nan", "inf", "1e999"]:
         resp = await post_animal(client, owner, base | {"birth_weight": bad})
         assert resp.status_code == 422, bad
@@ -852,7 +1098,13 @@ async def test_create_duplicate_tag_rejected_400(client: httpx.AsyncClient) -> N
     resp = await post_animal(
         client,
         owner,
-        {"tag_number": "A-001", "sex": "M", "source": "BORN", "current_bucket": "BREEDING"},
+        {
+            "tag_number": "A-001",
+            "sex": "F",
+            "source": "BORN",
+            "current_bucket": "FEMALE_KIDS",
+            "historical_import_reason": "Duplicate legacy row",
+        },
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Tag 'A-001' already exists on this farm."
@@ -921,6 +1173,13 @@ async def test_list_defaults_to_active_only(client: httpx.AsyncClient) -> None:
     tags = {a["tag_number"] for a in animals}
     assert tags == {"D-1", "D-2", "B-1", "K-1"}  # S-1 is SOLD → hidden by default
     assert herd["sold"]["tag_number"] not in tags
+
+
+async def test_list_include_all_statuses_is_explicit(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    await _seed_herd(client, owner)
+    animals = await list_animals(client, owner, include_all_statuses="true")
+    assert {a["tag_number"] for a in animals} == {"D-1", "D-2", "B-1", "K-1", "S-1"}
 
 
 async def test_list_total_matches_length(client: httpx.AsyncClient) -> None:
@@ -1103,14 +1362,14 @@ async def test_list_includes_computed_fields(client: httpx.AsyncClient) -> None:
 
 
 async def test_list_limit_offset_pagination(client: httpx.AsyncClient) -> None:
-    """Optional limit/offset page the (bucket, tag)-ordered list; `total`
-    stays the full filtered count. Omitting both keeps the all-rows default."""
+    """limit/offset page the (bucket, tag)-ordered list; `total` remains the
+    full filtered count and omission uses the finite 100-row default."""
     owner = await owner_with_farm(client)
     for i in range(5):
         await make_animal(client, owner, tag=f"P-{i}")
     resp = await client.get("/api/animals", headers=owner)
     full = resp.json()
-    assert full["total"] == len(full["animals"]) == 5  # default behavior unchanged
+    assert full["total"] == len(full["animals"]) == 5
 
     resp = await client.get("/api/animals", headers=owner, params={"limit": "2", "offset": "1"})
     assert resp.status_code == 200
@@ -1118,7 +1377,7 @@ async def test_list_limit_offset_pagination(client: httpx.AsyncClient) -> None:
     assert body["total"] == 5
     assert [a["tag_number"] for a in body["animals"]] == ["P-1", "P-2"]
 
-    resp = await client.get("/api/animals", headers=owner, params={"limit": "1000"})
+    resp = await client.get("/api/animals", headers=owner, params={"limit": "200"})
     assert resp.status_code == 200 and len(resp.json()["animals"]) == 5
     resp = await client.get("/api/animals", headers=owner, params={"offset": "4"})
     assert [a["tag_number"] for a in resp.json()["animals"]] == ["P-4"]
@@ -1128,9 +1387,40 @@ async def test_list_limit_offset_pagination(client: httpx.AsyncClient) -> None:
 
 async def test_list_pagination_params_validated(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    for params in ({"limit": "0"}, {"limit": "1001"}, {"limit": "-1"}, {"offset": "-1"}):
+    for params in ({"limit": "0"}, {"limit": "201"}, {"limit": "-1"}, {"offset": "-1"}):
         resp = await client.get("/api/animals", headers=owner, params=params)
         assert resp.status_code == 422, params
+
+
+async def test_list_omitted_limit_is_finite_and_reports_full_total(
+    client: httpx.AsyncClient,
+) -> None:
+    from app.db import get_sessionmaker
+    from app.models import Animal
+
+    owner = await owner_with_farm(client)
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            Animal(
+                farm_id=int(owner["X-Farm-Id"]),
+                tag_number=f"FINITE-{index:03d}",
+                sex="F",
+                source="BORN",
+                current_bucket="FOUNDATION",
+                status="ACTIVE",
+            )
+            for index in range(105)
+        )
+        await db.commit()
+
+    first = await client.get("/api/animals", headers=owner)
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 105
+    assert len(first.json()["animals"]) == 100
+    tail = await client.get("/api/animals", headers=owner, params={"offset": 100})
+    assert tail.status_code == 200, tail.text
+    assert tail.json()["total"] == 105
+    assert len(tail.json()["animals"]) == 5
 
 
 async def test_breeding_ready_flag_in_list(client: httpx.AsyncClient) -> None:
@@ -1176,13 +1466,37 @@ async def test_profile_happy_structure(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, weight_kg=20.0)
     profile = await get_profile(client, owner, animal["id"])
-    assert set(profile) == {"animal", "kids", "weights", "moves", "health_events", "breedings"}
+    assert set(profile) == {
+        "animal",
+        "kids",
+        "kids_total",
+        "kids_offset",
+        "weights",
+        "weights_total",
+        "weights_offset",
+        "moves",
+        "moves_total",
+        "moves_offset",
+        "health_events",
+        "health_events_total",
+        "health_events_offset",
+        "breedings",
+        "breedings_total",
+        "breedings_offset",
+        "history_limit",
+    }
     assert profile["animal"]["id"] == animal["id"]
     assert profile["kids"] == []
+    assert profile["kids_total"] == 0
     assert profile["health_events"] == []
+    assert profile["health_events_total"] == 0
     assert profile["breedings"] == []
+    assert profile["breedings_total"] == 0
     assert len(profile["weights"]) == 1
+    assert profile["weights_total"] == 1
     assert len(profile["moves"]) == 1
+    assert profile["moves_total"] == 1
+    assert profile["history_limit"] == 25
 
 
 async def test_profile_not_found_404(client: httpx.AsyncClient) -> None:
@@ -1224,7 +1538,15 @@ async def test_profile_weights_newest_first(client: httpx.AsyncClient) -> None:
 
 async def test_profile_moves_newest_first(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, bucket="FOUNDATION")
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client,
+        owner,
+        bucket="FOUNDATION",
+        date_of_birth=iso(dob),
+        weight_kg=26,
+        weight_date=iso(dob),
+    )
     for target in ["BREEDING", "RESTING"]:
         resp = await client.post(
             f"/api/animals/{animal['id']}/move", json={"to_bucket": target}, headers=owner
@@ -1263,12 +1585,32 @@ async def test_profile_kids_and_breedings(client: httpx.AsyncClient) -> None:
     assert profile["breedings"] == [br["id"]]
     kids = profile["kids"]
     assert [k["tag_number"] for k in kids] == ["K-201", "K-202"]  # sorted by tag
-    assert all(k["dam_id"] == doe["id"] and k["sire_id"] == buck["id"] for k in kids)
-    assert all(k["source"] == "BORN" and k["current_bucket"] == "RECOVERY" for k in kids)
-    # the kids themselves have no breedings and no kids
-    kid_profile = await get_profile(client, owner, kids[0]["id"])
-    assert kid_profile["breedings"] == []
-    assert kid_profile["kids"] == []
+    assert all(
+        set(k)
+        == {
+            "id",
+            "tag_number",
+            "name",
+            "sex",
+            "date_of_birth",
+            "estimated_dob",
+            "status",
+        }
+        for k in kids
+    )
+    assert profile["kids_total"] == 2
+    # Lineage and operational fields remain available on each kid's own
+    # profile; the parent page intentionally returns only bounded identity.
+    kid_profiles = [await get_profile(client, owner, kid["id"]) for kid in kids]
+    assert all(
+        kid_profile["animal"]["dam_id"] == doe["id"]
+        and kid_profile["animal"]["sire_id"] == buck["id"]
+        and kid_profile["animal"]["source"] == "BORN"
+        and kid_profile["animal"]["current_bucket"] == "RECOVERY"
+        for kid_profile in kid_profiles
+    )
+    assert all(kid_profile["breedings"] == [] for kid_profile in kid_profiles)
+    assert all(kid_profile["kids"] == [] for kid_profile in kid_profiles)
 
 
 async def test_profile_health_events_listed(client: httpx.AsyncClient) -> None:
@@ -1303,7 +1645,10 @@ async def test_profile_of_sold_animal_still_accessible(client: httpx.AsyncClient
 
 async def test_profile_reflects_move_and_weight(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner)
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client, owner, date_of_birth=iso(dob), weight_kg=26, weight_date=iso(dob)
+    )
     resp = await client.post(
         f"/api/animals/{animal['id']}/move", json={"to_bucket": "BREEDING"}, headers=owner
     )
@@ -1325,7 +1670,11 @@ async def test_move_happy_updates_bucket(client: httpx.AsyncClient) -> None:
     animal = await make_animal(client, owner, bucket="QUARANTINE")
     resp = await client.post(
         f"/api/animals/{animal['id']}/move",
-        json={"to_bucket": "FOUNDATION", "reason": "45-day protocol complete"},
+        json={
+            "to_bucket": "FOUNDATION",
+            "reason": "Imported completed quarantine history",
+            "history_override": True,
+        },
         headers=owner,
     )
     assert resp.status_code == 200, resp.text
@@ -1334,7 +1683,15 @@ async def test_move_happy_updates_bucket(client: httpx.AsyncClient) -> None:
 
 async def test_move_records_history_with_reason(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, bucket="FOUNDATION")
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client,
+        owner,
+        bucket="FOUNDATION",
+        date_of_birth=iso(dob),
+        weight_kg=26,
+        weight_date=iso(dob),
+    )
     resp = await client.post(
         f"/api/animals/{animal['id']}/move",
         json={"to_bucket": "BREEDING", "reason": "breeding-ready"},
@@ -1346,6 +1703,59 @@ async def test_move_records_history_with_reason(client: httpx.AsyncClient) -> No
     assert moves[0]["from_bucket"] == "FOUNDATION"
     assert moves[0]["to_bucket"] == "BREEDING"
     assert moves[0]["reason"] == "breeding-ready"
+
+
+async def test_mature_heavy_male_kid_can_graduate_to_breeding_only_at_buck_minimums(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    old_dob = today() - timedelta(days=800)
+    young_dob = today() - timedelta(days=200)
+    young = await make_animal(
+        client,
+        owner,
+        tag="BUCK-YOUNG",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(young_dob),
+        weight_kg=30,
+        weight_date=iso(young_dob),
+    )
+    light = await make_animal(
+        client,
+        owner,
+        tag="BUCK-LIGHT",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(old_dob),
+        weight_kg=24.99,
+        weight_date=iso(old_dob),
+    )
+    ready = await make_animal(
+        client,
+        owner,
+        tag="BUCK-READY",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(old_dob),
+        weight_kg=25,
+        weight_date=iso(old_dob),
+    )
+
+    for animal in (young, light):
+        response = await client.post(
+            f"/api/animals/{animal['id']}/move",
+            json={"to_bucket": "BREEDING"},
+            headers=owner,
+        )
+        assert response.status_code == 409, response.text
+    response = await client.post(
+        f"/api/animals/{ready['id']}/move",
+        json={"to_bucket": "BREEDING"},
+        headers=owner,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["current_bucket"] == "BREEDING"
 
 
 async def test_move_same_bucket_is_noop(client: httpx.AsyncClient) -> None:
@@ -1362,7 +1772,10 @@ async def test_move_same_bucket_is_noop(client: httpx.AsyncClient) -> None:
 
 async def test_move_blank_reason_stored_as_none(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner)
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client, owner, date_of_birth=iso(dob), weight_kg=26, weight_date=iso(dob)
+    )
     for reason in [None, "", "   "]:
         payload = {"to_bucket": "BREEDING", "reason": reason}
         resp = await client.post(f"/api/animals/{animal['id']}/move", json=payload, headers=owner)
@@ -1371,14 +1784,23 @@ async def test_move_blank_reason_stored_as_none(client: httpx.AsyncClient) -> No
         assert moves[0]["reason"] is None
         # move back so the next iteration has somewhere to move from
         resp = await client.post(
-            f"/api/animals/{animal['id']}/move", json={"to_bucket": "FOUNDATION"}, headers=owner
+            f"/api/animals/{animal['id']}/move",
+            json={
+                "to_bucket": "FOUNDATION",
+                "history_override": True,
+                "reason": "Reset test history",
+            },
+            headers=owner,
         )
         assert resp.status_code == 200, resp.text
 
 
 async def test_move_reason_whitespace_trimmed(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner)
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client, owner, date_of_birth=iso(dob), weight_kg=26, weight_date=iso(dob)
+    )
     resp = await client.post(
         f"/api/animals/{animal['id']}/move",
         json={"to_bucket": "BREEDING", "reason": "  vet advice  "},
@@ -1440,11 +1862,27 @@ async def test_move_rejected_for_every_non_active_status(client: httpx.AsyncClie
 
 async def test_move_chain_full_history(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, bucket="QUARANTINE")
-    for target in ["FOUNDATION", "BREEDING"]:
-        resp = await client.post(
-            f"/api/animals/{animal['id']}/move", json={"to_bucket": target}, headers=owner
-        )
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client,
+        owner,
+        bucket="QUARANTINE",
+        date_of_birth=iso(dob),
+        weight_kg=26,
+        weight_date=iso(dob),
+    )
+    for _target, body in [
+        (
+            "FOUNDATION",
+            {
+                "to_bucket": "FOUNDATION",
+                "history_override": True,
+                "reason": "Imported quarantine completion",
+            },
+        ),
+        ("BREEDING", {"to_bucket": "BREEDING"}),
+    ]:
+        resp = await client.post(f"/api/animals/{animal['id']}/move", json=body, headers=owner)
         assert resp.status_code == 200, resp.text
     moves = (await get_profile(client, owner, animal["id"]))["moves"]
     assert [(m["from_bucket"], m["to_bucket"]) for m in moves] == [
@@ -1456,7 +1894,10 @@ async def test_move_chain_full_history(client: httpx.AsyncClient) -> None:
 
 async def test_move_resets_days_in_bucket(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner)
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client, owner, date_of_birth=iso(dob), weight_kg=26, weight_date=iso(dob)
+    )
     resp = await client.post(
         f"/api/animals/{animal['id']}/move", json={"to_bucket": "BREEDING"}, headers=owner
     )
@@ -1464,20 +1905,87 @@ async def test_move_resets_days_in_bucket(client: httpx.AsyncClient) -> None:
     assert resp.json()["days_in_current_bucket"] == 0
 
 
-async def test_move_to_every_bucket_accepted(client: httpx.AsyncClient) -> None:
+async def test_owner_history_override_can_reconstruct_every_compatible_bucket(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, bucket="QUARANTINE")
     for target in ALL_BUCKETS:
         if target == "QUARANTINE":
             continue
         resp = await client.post(
-            f"/api/animals/{animal['id']}/move", json={"to_bucket": target}, headers=owner
+            f"/api/animals/{animal['id']}/move",
+            json={
+                "to_bucket": target,
+                "history_override": True,
+                "reason": "Imported lifecycle history",
+            },
+            headers=owner,
         )
         if target == "MALE_KIDS":
             assert resp.status_code == 409, (target, resp.text)
             continue
         assert resp.status_code == 200, (target, resp.text)
         assert resp.json()["current_bucket"] == target
+
+
+async def test_illegal_lifecycle_move_requires_owner_history_override(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="STATE-1", bucket="FOUNDATION")
+    rejected = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={"to_bucket": "DELIVERY", "reason": "skip lifecycle"},
+        headers=owner,
+    )
+    assert rejected.status_code == 409, rejected.text
+    overridden = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "DELIVERY",
+            "reason": "Correcting a historical paper record",
+            "history_override": True,
+        },
+        headers=owner,
+    )
+    assert overridden.status_code == 200, overridden.text
+    moves = (await get_profile(client, owner, animal["id"]))["moves"]
+    assert moves[0]["reason"].startswith("[HISTORY OVERRIDE]")
+
+
+async def test_farm_timezone_and_animal_chronology_guard_weight_dates(
+    client: httpx.AsyncClient,
+) -> None:
+    auth = await register(client, email="phoenix@farm.in")
+    farm_response = await client.post(
+        "/api/auth/farms",
+        json={"name": "Arizona Farm", "timezone": "America/Phoenix"},
+        headers=auth,
+    )
+    assert farm_response.status_code == 201, farm_response.text
+    owner = auth | {"X-Farm-Id": str(farm_response.json()["id"])}
+    phoenix_today = today("America/Phoenix")
+    dob = phoenix_today - timedelta(days=100)
+    animal = await make_animal(
+        client,
+        owner,
+        tag="PHX-1",
+        source="BORN",
+        date_of_birth=iso(dob),
+    )
+    future = await client.post(
+        f"/api/animals/{animal['id']}/weight",
+        json={"date": iso(phoenix_today + timedelta(days=1)), "weight_kg": 12},
+        headers=owner,
+    )
+    assert future.status_code == 422, future.text
+    before_birth = await client.post(
+        f"/api/animals/{animal['id']}/weight",
+        json={"date": iso(dob - timedelta(days=1)), "weight_kg": 12},
+        headers=owner,
+    )
+    assert before_birth.status_code == 422, before_birth.text
 
 
 # ---------------------------------------------------------------------------
@@ -1525,7 +2033,7 @@ async def test_weight_explicit_past_date_accepted(client: httpx.AsyncClient) -> 
 async def test_weight_future_date_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
-    future = iso(today() + timedelta(days=2))  # tomorrow is allowed (tz headroom)
+    future = iso(today() + timedelta(days=1))
     resp = await client.post(
         f"/api/animals/{animal['id']}/weight",
         json={"date": future, "weight_kg": 10},
@@ -1535,10 +2043,9 @@ async def test_weight_future_date_422(client: httpx.AsyncClient) -> None:
     assert (await get_profile(client, owner, animal["id"]))["weights"] == []
 
 
-async def test_weight_tomorrow_date_accepted(client: httpx.AsyncClient) -> None:
-    """UTC-tomorrow is a real "today" for clients east of UTC (IST is UTC+5:30,
-    so 00:00-05:30 IST is still tomorrow in UTC) — one day of headroom keeps
-    their same-day entries from 422ing."""
+async def test_weight_schema_headroom_cannot_bypass_farm_business_date(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
     tomorrow = iso(today() + timedelta(days=1))
@@ -1547,8 +2054,8 @@ async def test_weight_tomorrow_date_accepted(client: httpx.AsyncClient) -> None:
         json={"date": tomorrow, "weight_kg": 10},
         headers=owner,
     )
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["date"] == tomorrow
+    assert resp.status_code == 422, resp.text
+    assert (await get_profile(client, owner, animal["id"]))["weights"] == []
 
 
 async def test_weight_zero_and_negative_422(client: httpx.AsyncClient) -> None:
@@ -1738,13 +2245,69 @@ async def test_status_dead_and_culled_book_no_transaction(client: httpx.AsyncCli
     assert await transactions(client, owner) == []
 
 
-async def test_status_dead_ignores_smuggled_sale_price(client: httpx.AsyncClient) -> None:
+async def test_status_dead_rejects_smuggled_sale_price_without_mutation(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
     resp = await mark_status(client, owner, animal["id"], "DEAD", sale_price=9999)
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["sale_price"] is None  # price only applies to SOLD
+    assert resp.status_code == 422, resp.text
+    unchanged = await get_animal(client, owner, animal["id"])
+    assert unchanged["status"] == "ACTIVE"
+    assert unchanged["sale_price"] is None
     assert await transactions(client, owner) == []
+
+
+async def test_status_dead_rejects_whitespace_suspected_disease_without_mutation(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner)
+    response = await client.post(
+        f"/api/animals/{animal['id']}/status",
+        json={
+            "new_status": "DEAD",
+            "suspected_scheduled_disease": True,
+            "suspected_disease": "   ",
+        },
+        headers=owner,
+    )
+    assert response.status_code == 422, response.text
+    unchanged = await get_animal(client, owner, animal["id"])
+    assert unchanged["status"] == "ACTIVE"
+    assert unchanged["suspected_scheduled_disease"] is False
+
+
+@pytest.mark.parametrize(
+    "escalation_fields",
+    [
+        {"suspected_disease": "Anthrax"},
+        {"authority_notified_at": iso(today())},
+        {
+            "suspected_disease": "Anthrax",
+            "authority_notified_at": iso(today()),
+            "suspected_scheduled_disease": False,
+        },
+    ],
+)
+async def test_status_dead_rejects_disease_details_without_suspicion_flag(
+    client: httpx.AsyncClient,
+    escalation_fields: dict[str, object],
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner)
+    response = await mark_status(
+        client,
+        owner,
+        animal["id"],
+        "DEAD",
+        **escalation_fields,
+    )
+    assert response.status_code == 422, response.text
+    unchanged = await get_animal(client, owner, animal["id"])
+    assert unchanged["status"] == "ACTIVE"
+    assert unchanged["suspected_disease"] is None
+    assert unchanged["authority_notified_at"] is None
 
 
 async def test_status_defaults_date_to_today(client: httpx.AsyncClient) -> None:
@@ -1785,7 +2348,8 @@ async def test_status_transitions_between_terminal_states_rejected(
     resp = await mark_status(client, owner, animal["id"], "DEAD")
     assert resp.status_code == 200, resp.text
     for followup in ["SOLD", "CULLED", "DEAD"]:
-        resp = await mark_status(client, owner, animal["id"], followup, sale_price=100)
+        extra = {"sale_price": 100} if followup == "SOLD" else {}
+        resp = await mark_status(client, owner, animal["id"], followup, **extra)
         assert resp.status_code == 400, followup
     assert (await get_animal(client, owner, animal["id"]))["status"] == "DEAD"
     assert await transactions(client, owner) == []
@@ -1811,7 +2375,7 @@ async def test_status_future_date_422(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
     resp = await mark_status(
-        client, owner, animal["id"], "SOLD", date=iso(today() + timedelta(days=2))
+        client, owner, animal["id"], "SOLD", date=iso(today() + timedelta(days=1))
     )
     assert resp.status_code == 422
     assert (await get_animal(client, owner, animal["id"]))["status"] == "ACTIVE"
@@ -1869,7 +2433,13 @@ async def test_status_change_clears_cull_candidate(client: httpx.AsyncClient) ->
         br = await make_breeding(
             client, owner, doe["id"], buck["id"], today() - timedelta(days=days_ago)
         )
-        await submit_ultrasound(client, owner, br["id"], pregnant=False)
+        await submit_ultrasound(
+            client,
+            owner,
+            br["id"],
+            pregnant=False,
+            result_date=date.fromisoformat(br["ultrasound_date"]),
+        )
     assert (await get_animal(client, owner, doe["id"]))["cull_candidate"] is True
     resp = await mark_status(client, owner, doe["id"], "CULLED")
     assert resp.status_code == 200, resp.text
@@ -1886,7 +2456,19 @@ async def test_buckets_board_returns_all_ten_in_spec_order(client: httpx.AsyncCl
     rows = resp.json()
     assert [r["bucket"] for r in rows] == ALL_BUCKETS
     for row in rows:
-        assert set(row) == {"bucket", "name", "who", "exit_rule", "daily_kg_per_head", "animals"}
+        assert set(row) == {
+            "bucket",
+            "name",
+            "who",
+            "exit_rule",
+            "daily_kg_per_head",
+            "animals",
+            "animals_total",
+            "animals_limit",
+            "animals_page_path",
+        }
+        assert row["animals_limit"] == 100
+        assert row["animals_page_path"] == f"/animals?bucket={row['bucket']}"
 
 
 async def test_buckets_board_quarantine_metadata_matches_spec(client: httpx.AsyncClient) -> None:
@@ -1923,9 +2505,14 @@ async def test_buckets_board_occupancy(client: httpx.AsyncClient) -> None:
     await make_animal(client, owner, tag="Q-2", bucket="QUARANTINE")
     await make_animal(client, owner, tag="K-1", sex="M", bucket="MALE_KIDS")
     rows = (await client.get("/api/buckets", headers=owner)).json()
-    by_bucket = {r["bucket"]: [a["tag_number"] for a in r["animals"]] for r in rows}
+    by_row = {r["bucket"]: r for r in rows}
+    by_bucket = {
+        bucket: [a["tag_number"] for a in row["animals"]] for bucket, row in by_row.items()
+    }
     assert by_bucket["QUARANTINE"] == ["Q-1", "Q-2"]
     assert by_bucket["MALE_KIDS"] == ["K-1"]
+    assert by_row["QUARANTINE"]["animals_total"] == 2
+    assert by_row["MALE_KIDS"]["animals_total"] == 1
     for bucket in ALL_BUCKETS:
         if bucket not in ("QUARANTINE", "MALE_KIDS"):
             assert by_bucket[bucket] == [], bucket
@@ -1955,7 +2542,16 @@ async def test_buckets_board_excludes_non_active_animals(client: httpx.AsyncClie
 
 async def test_buckets_board_reflects_moves(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    animal = await make_animal(client, owner, tag="M-1", bucket="FOUNDATION")
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client,
+        owner,
+        tag="M-1",
+        bucket="FOUNDATION",
+        date_of_birth=iso(dob),
+        weight_kg=26,
+        weight_date=iso(dob),
+    )
     resp = await client.post(
         f"/api/animals/{animal['id']}/move", json={"to_bucket": "BREEDING"}, headers=owner
     )
@@ -1982,37 +2578,343 @@ async def test_buckets_board_empty_farm_all_buckets_empty(client: httpx.AsyncCli
     rows = (await client.get("/api/buckets", headers=owner)).json()
     assert len(rows) == 10
     assert all(r["animals"] == [] for r in rows)
+    assert all(r["animals_total"] == 0 for r in rows)
 
 
-async def test_buckets_board_animal_entries_have_full_shape(client: httpx.AsyncClient) -> None:
+async def test_buckets_board_animal_entries_have_purpose_specific_shape(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     await make_animal(client, owner, tag="S-1", bucket="BREEDING", weight_kg=22.0)
     rows = (await client.get("/api/buckets", headers=owner)).json()
     breeding = next(r for r in rows if r["bucket"] == "BREEDING")
     entry = breeding["animals"][0]
-    for field in [
+    assert set(entry) == {
         "id",
         "tag_number",
+        "name",
         "sex",
-        "status",
-        "current_bucket",
-        "age_months",
         "latest_weight_kg",
         "days_in_current_bucket",
-    ]:
-        assert field in entry, field
+    }
     assert entry["latest_weight_kg"] == 22.0
+
+
+async def test_feeder_bucket_board_exposes_only_operational_animal_fields(
+    client: httpx.AsyncClient,
+) -> None:
+    """buckets.view must not become a side door into the full animal profile."""
+    owner = await owner_with_farm(client)
+    created = await make_animal(
+        client,
+        owner,
+        tag="PRIVATE-1",
+        bucket="FOUNDATION",
+        purchase_date=iso(today()),
+        purchase_price=4321.0,
+        seller_name="Private Seller",
+        notes="Confidential owner note",
+        weight_kg=24.5,
+    )
+    feeder = await worker_headers(client, owner, "FEEDER", "feeder-private@farm.in")
+    mover = await worker_headers(client, owner, "MOVER", "mover-private@farm.in")
+
+    expected_fields = {
+        "id",
+        "tag_number",
+        "name",
+        "sex",
+        "latest_weight_kg",
+        "days_in_current_bucket",
+    }
+    # The board is an operational preview for every caller, including owners;
+    # profile data remains on the independently-authorized animals page.
+    owner_rows = (await client.get("/api/buckets", headers=owner)).json()
+    owner_entry = next(
+        animal for row in owner_rows for animal in row["animals"] if animal["id"] == created["id"]
+    )
+    assert set(owner_entry) == expected_fields
+
+    response = await client.get("/api/buckets", headers=feeder)
+    assert response.status_code == 200, response.text
+    feeder_entry = next(
+        animal
+        for row in response.json()
+        for animal in row["animals"]
+        if animal["id"] == created["id"]
+    )
+    assert set(feeder_entry) == expected_fields
+    assert feeder_entry["tag_number"] == "PRIVATE-1"
+    assert feeder_entry["latest_weight_kg"] == 24.5
+
+    # animals.view does not widen a purpose-specific aggregate response.
+    mover_rows = (await client.get("/api/buckets", headers=mover)).json()
+    mover_entry = next(
+        animal for row in mover_rows for animal in row["animals"] if animal["id"] == created["id"]
+    )
+    assert set(mover_entry) == expected_fields
 
 
 # ---------------------------------------------------------------------------
 # 10. RBAC on animals & buckets endpoints
 # ---------------------------------------------------------------------------
+async def test_animal_reads_redact_nested_fields_by_effective_permissions(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    dob = today() - timedelta(days=800)
+    purchase_date = today() - timedelta(days=700)
+    primary = await make_animal(
+        client,
+        owner,
+        tag="PRIVATE-DOE",
+        date_of_birth=iso(dob),
+        purchase_date=iso(purchase_date),
+        purchase_price=4321,
+        seller_name="Private Seller",
+        weight_kg=26,
+        weight_date=iso(purchase_date),
+        notes="Confidential owner note",
+    )
+    private_weight = await client.post(
+        f"/api/animals/{primary['id']}/weight",
+        json={"weight_kg": 27, "notes": "Private clinical weight narrative"},
+        headers=owner,
+    )
+    assert private_weight.status_code == 201, private_weight.text
+    buck = await make_buck(client, owner, "PRIVATE-BUCK")
+    breeding = await make_breeding(
+        client, owner, primary["id"], buck["id"], today() - timedelta(days=40)
+    )
+    first_event = await client.post(
+        "/api/health/events",
+        json={
+            "animal_id": primary["id"],
+            "date": iso(today()),
+            "type": "TREATMENT",
+            "product_name": "Private medicine",
+            "disease_target": "PPR concern",
+            "cost": 125,
+            "suspected_scheduled_disease": True,
+            "authority_notified_at": iso(today()),
+            "isolation_started_at": iso(today()),
+            "notes": "Private clinical note",
+        },
+        headers=owner,
+    )
+    assert first_event.status_code == 201, first_event.text
+    cleared = await client.post(
+        f"/api/health/restrictions/{primary['id']}/clear",
+        json={"clearance_reference": "AHD-SECRET-1", "expected_restriction_version": 1},
+        headers=owner,
+    )
+    assert cleared.status_code == 204, cleared.text
+    second_event = await client.post(
+        "/api/health/events",
+        json={
+            "animal_id": primary["id"],
+            "date": iso(today()),
+            "type": "TREATMENT",
+            "disease_target": "Anthrax concern",
+            "suspected_scheduled_disease": True,
+            "authority_notified_at": iso(today()),
+            "isolation_started_at": iso(today()),
+            "notes": "Private follow-up",
+        },
+        headers=owner,
+    )
+    assert second_event.status_code == 201, second_event.text
+
+    sold = await make_animal(client, owner, tag="PRIVATE-SOLD")
+    sold_response = await mark_status(
+        client, owner, sold["id"], "SOLD", sale_price=9876, buyer_name="Private Buyer"
+    )
+    assert sold_response.status_code == 200, sold_response.text
+    dead = await make_animal(client, owner, tag="PRIVATE-DEAD")
+    dead_response = await mark_status(
+        client,
+        owner,
+        dead["id"],
+        "DEAD",
+        mortality_cause="Private diagnosis",
+        mortality_reported_at=iso(today()),
+    )
+    assert dead_response.status_code == 200, dead_response.text
+    suggestion = await make_animal(
+        client,
+        owner,
+        tag="PRIVATE-SUGGESTION",
+        date_of_birth=iso(dob),
+        purchase_date=iso(purchase_date),
+        purchase_price=7777,
+        seller_name="Dashboard Seller",
+        weight_kg=26,
+        weight_date=iso(purchase_date),
+        notes="Dashboard secret",
+    )
+
+    mover = await worker_headers(client, owner, "MOVER", "field-mover@farm.in")
+    vet = await worker_headers(client, owner, "VET", "field-vet@farm.in")
+    animal_finance = await custom_worker_headers(
+        client,
+        owner,
+        name="Animal Finance Reader",
+        email="animal-finance@farm.in",
+        permissions=["animals.view", "finance.view"],
+    )
+    animal_purchases = await custom_worker_headers(
+        client,
+        owner,
+        name="Animal Purchase Reader",
+        email="animal-purchases@farm.in",
+        permissions=["animals.view", "purchases.view"],
+    )
+    finance_only = await custom_worker_headers(
+        client,
+        owner,
+        name="Finance Only Reader",
+        email="finance-only@farm.in",
+        permissions=["finance.view"],
+    )
+
+    mover_profile = await get_profile(client, mover, primary["id"])
+    mover_animal = mover_profile["animal"]
+    assert {
+        key: mover_animal[key]
+        for key in (
+            "purchase_date",
+            "purchase_price",
+            "seller_name",
+            "sale_price",
+            "restriction_reason",
+            "suspected_scheduled_disease",
+            "suspected_disease",
+            "authority_notified_at",
+            "restriction_cleared_at",
+            "restriction_cleared_by_id",
+            "restriction_clearance_reference",
+            "mortality_cause",
+            "mortality_reported_at",
+            "notes",
+        )
+    } == {
+        "purchase_date": None,
+        "purchase_price": None,
+        "seller_name": None,
+        "sale_price": None,
+        "restriction_reason": None,
+        "suspected_scheduled_disease": False,
+        "suspected_disease": None,
+        "authority_notified_at": None,
+        "restriction_cleared_at": None,
+        "restriction_cleared_by_id": None,
+        "restriction_clearance_reference": None,
+        "mortality_cause": None,
+        "mortality_reported_at": None,
+        "notes": None,
+    }
+    assert mover_animal["movement_restricted"] is True
+    assert mover_animal["is_breeding_ready"] is False
+    assert mover_animal["is_currently_pregnant"] is False
+    assert mover_profile["health_events"] == []
+    assert mover_profile["breedings"] == []
+    assert all(weight["notes"] is None for weight in mover_profile["weights"])
+    # Coordinates remain operationally visible, but arbitrary movement free
+    # text can contain clinical/commercial detail and requires health.view.
+    assert mover_profile["moves"]
+    assert all(move["reason"] is None for move in mover_profile["moves"])
+    assert any(move["to_bucket"] == "FOUNDATION" for move in mover_profile["moves"])
+
+    mover_list = await list_animals(client, mover, q="PRIVATE-DOE")
+    assert len(mover_list) == 1
+    assert mover_list[0]["purchase_price"] is None
+    assert mover_list[0]["notes"] is None
+    assert mover_list[0]["movement_restricted"] is True
+    mover_buckets = (await client.get("/api/buckets", headers=mover)).json()
+    mover_bucket_animal = next(
+        animal
+        for row in mover_buckets
+        for animal in row["animals"]
+        if animal["id"] == primary["id"]
+    )
+    assert "purchase_price" not in mover_bucket_animal
+    assert "notes" not in mover_bucket_animal
+    assert "movement_restricted" not in mover_bucket_animal
+    mover_dashboard = await client.get("/api/dashboard", headers=mover)
+    assert mover_dashboard.status_code == 200, mover_dashboard.text
+    mover_suggestion = next(
+        row["animal"]
+        for row in mover_dashboard.json()["suggestions"]
+        if row["animal"]["id"] == suggestion["id"]
+    )
+    assert "purchase_price" not in mover_suggestion
+    assert "seller_name" not in mover_suggestion
+    assert "notes" not in mover_suggestion
+
+    vet_profile = await get_profile(client, vet, primary["id"])
+    vet_animal = vet_profile["animal"]
+    assert vet_animal["purchase_date"] is None
+    assert vet_animal["purchase_price"] is None
+    assert vet_animal["seller_name"] is None
+    assert vet_animal["notes"] == "Confidential owner note"
+    assert vet_animal["movement_restricted"] is True
+    assert vet_animal["suspected_scheduled_disease"] is True
+    assert vet_animal["suspected_disease"] == "Anthrax concern"
+    assert vet_animal["restriction_clearance_reference"] == "AHD-SECRET-1"
+    assert vet_profile["breedings"] == [breeding["id"]]
+    assert [event["cost"] for event in vet_profile["health_events"]] == [None, 125.0]
+    assert vet_profile["health_events"][0]["notes"] == "Private follow-up"
+    assert vet_profile["weights"][0]["notes"] == "Private clinical weight narrative"
+    assert any(
+        move["reason"] == "Historical import: Existing-herd test fixture"
+        for move in vet_profile["moves"]
+    )
+
+    finance_profile = await get_profile(client, animal_finance, primary["id"])
+    assert finance_profile["animal"]["purchase_price"] == 4321.0
+    assert finance_profile["animal"]["purchase_date"] is None
+    assert finance_profile["animal"]["seller_name"] is None
+    assert finance_profile["animal"]["notes"] is None
+    assert finance_profile["health_events"] == []
+    assert finance_profile["breedings"] == []
+    assert all(weight["notes"] is None for weight in finance_profile["weights"])
+    assert (await get_animal(client, animal_finance, sold["id"]))["sale_price"] == 9876.0
+
+    purchases_profile = await get_profile(client, animal_purchases, primary["id"])
+    assert purchases_profile["animal"]["purchase_price"] == 4321.0
+    assert purchases_profile["animal"]["purchase_date"] == iso(purchase_date)
+    assert purchases_profile["animal"]["seller_name"] == "Private Seller"
+    assert purchases_profile["animal"]["sale_price"] is None
+    assert purchases_profile["animal"]["notes"] is None
+    assert all(weight["notes"] is None for weight in purchases_profile["weights"])
+
+    owner_profile = await get_profile(client, owner, primary["id"])
+    assert owner_profile["animal"]["purchase_price"] == 4321.0
+    assert owner_profile["animal"]["seller_name"] == "Private Seller"
+    assert owner_profile["animal"]["notes"] == "Confidential owner note"
+    assert owner_profile["animal"]["suspected_scheduled_disease"] is True
+    assert owner_profile["animal"]["restriction_clearance_reference"] == "AHD-SECRET-1"
+    assert owner_profile["breedings"] == [breeding["id"]]
+    assert [event["cost"] for event in owner_profile["health_events"]] == [None, 125.0]
+    assert owner_profile["weights"][0]["notes"] == "Private clinical weight narrative"
+    assert (await get_animal(client, owner, sold["id"]))["sale_price"] == 9876.0
+    assert (await get_animal(client, owner, dead["id"]))["mortality_cause"] == ("Private diagnosis")
+    assert (await get_animal(client, mover, dead["id"]))["mortality_cause"] is None
+
+    forbidden = await client.get(f"/api/animals/{primary['id']}", headers=finance_only)
+    assert forbidden.status_code == 403
+    assert forbidden.json()["detail"] == "Missing permission: animals.view"
+
+
 async def test_mover_can_view_and_move_but_not_create_weight_or_status(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client)
     mover = await worker_headers(client, owner, "MOVER", "mover@farm.in")
-    animal = await make_animal(client, owner)
+    dob = today() - timedelta(days=500)
+    animal = await make_animal(
+        client, owner, date_of_birth=iso(dob), weight_kg=26, weight_date=iso(dob)
+    )
 
     assert (await client.get("/api/animals", headers=mover)).status_code == 200
     assert (await client.get("/api/buckets", headers=mover)).status_code == 200
@@ -2102,8 +3004,9 @@ async def _make_kid(
             "tag_number": tag,
             "sex": sex,
             "source": "BORN",
-            "current_bucket": "RECOVERY",
+            "current_bucket": "MALE_KIDS" if sex == "M" else "FEMALE_KIDS",
             "date_of_birth": iso(today() - timedelta(days=15)),
+            "historical_import_reason": "Post-kidding lifecycle test fixture",
         },
         headers=headers,
     )
@@ -2117,7 +3020,11 @@ async def _make_kid(
     from app.models import Animal
 
     async with get_sessionmaker()() as db:
-        await db.execute(sa_update(Animal).where(Animal.id == kid["id"]).values(dam_id=dam_id))
+        await db.execute(
+            sa_update(Animal)
+            .where(Animal.id == kid["id"])
+            .values(dam_id=dam_id, current_bucket="RECOVERY")
+        )
         await db.commit()
     return kid
 
@@ -2199,7 +3106,11 @@ async def test_kids_not_in_recovery_are_untouched_when_dam_sold(client: httpx.As
     # Move the kid out of RECOVERY (as complete_task WEANING would).
     move = await client.post(
         f"/api/animals/{kid['id']}/move",
-        json={"to_bucket": "FEMALE_KIDS", "reason": "Weaned"},
+        json={
+            "to_bucket": "FEMALE_KIDS",
+            "reason": "Historical test fixture: already weaned",
+            "history_override": True,
+        },
         headers=headers,
     )
     assert move.status_code == 200, move.text
@@ -2216,3 +3127,55 @@ async def test_kids_not_in_recovery_are_untouched_when_dam_sold(client: httpx.As
     # And no phantom "Dam marked sold — early wean" BucketMove landed on her.
     reasons = [m["reason"] for m in after["moves"]]
     assert "Dam marked sold — early wean" not in reasons
+
+
+async def test_manual_orphan_wean_rejects_kid_without_kidding_provenance(
+    client: httpx.AsyncClient,
+) -> None:
+    """A terminal dam_id alone is not authority to forge RECOVERY → kids."""
+    headers = await owner_with_farm(client)
+    doe = (
+        await client.post(
+            "/api/animals",
+            json={
+                "tag_number": "DAM-NO-PROVENANCE",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": "RECOVERY",
+            },
+            headers=headers,
+        )
+    ).json()
+    kid = await _make_kid(client, headers, "K-NO-PROVENANCE", doe["id"], "M")
+    held = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": kid["id"],
+            "type": "TREATMENT",
+            "disease_target": "Reportable-condition concern",
+            "suspected_scheduled_disease": True,
+        },
+        headers=headers,
+    )
+    assert held.status_code == 201, held.text
+    dead = await mark_status(client, headers, doe["id"], "DEAD")
+    assert dead.status_code == 200, dead.text
+    cleared = await client.post(
+        f"/api/health/restrictions/{kid['id']}/clear",
+        json={
+            "clearance_reference": "District AHD fixture clearance",
+            "expected_restriction_version": 1,
+        },
+        headers=headers,
+    )
+    assert cleared.status_code == 204, cleared.text
+
+    forged = await client.post(
+        f"/api/animals/{kid['id']}/move",
+        json={"to_bucket": "MALE_KIDS"},
+        headers=headers,
+    )
+    assert forged.status_code == 409
+    assert "illegal lifecycle transition" in forged.json()["detail"].lower()
+    assert (await get_animal(client, headers, kid["id"]))["current_bucket"] == "RECOVERY"

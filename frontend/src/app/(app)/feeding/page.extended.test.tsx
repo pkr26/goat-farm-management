@@ -76,7 +76,29 @@ const RECIPES_PAYLOAD = {
 };
 
 function planHandler(payload: Record<string, unknown>) {
-  return http.get("/api/feeding/plan", () => HttpResponse.json(payload));
+  const records = Array.isArray(payload.records) ? payload.records : [];
+  const dispensedTotals = records.map((record) => {
+    const row = record as {
+      bucket: string;
+      recipe_code: string | null;
+      shift: string;
+      qty_kg: number;
+    };
+    return {
+      bucket: row.bucket,
+      recipe_code: row.recipe_code,
+      shift: row.shift,
+      qty_kg: row.qty_kg,
+    };
+  });
+  return http.get("/api/feeding/plan", () =>
+    HttpResponse.json({
+      ...payload,
+      records_total: payload.records_total ?? records.length,
+      records_limit: payload.records_limit ?? 200,
+      dispensed_totals: payload.dispensed_totals ?? dispensedTotals,
+    }),
+  );
 }
 
 function recipesHandler() {
@@ -107,7 +129,9 @@ describe("FeedingPage plan table", () => {
         lines: [LINE_BREEDING, LINE_MALE_KIDS],
         records: [
           { id: 1, date: localToday(), shift: "MORNING", bucket: "BREEDING", recipe_code: "LACTATING_60_40", qty_kg: 8 },
-          { id: 2, date: localToday(), shift: "NIGHT", bucket: "BREEDING", recipe_code: null, qty_kg: 12.05 },
+          { id: 2, date: localToday(), shift: "AFTERNOON", bucket: "BREEDING", recipe_code: "LACTATING_60_40", qty_kg: 4 },
+          { id: 4, date: localToday(), shift: "NIGHT", bucket: "BREEDING", recipe_code: "LACTATING_60_40", qty_kg: 8.05 },
+          { id: 5, date: localToday(), shift: "NIGHT", bucket: "BREEDING", recipe_code: null, qty_kg: 12.05 },
           { id: 3, date: localToday(), shift: "MORNING", bucket: "MALE_KIDS", recipe_code: "FATTENING_50_50", qty_kg: 6 },
         ],
       }),
@@ -164,27 +188,85 @@ describe("FeedingPage plan table", () => {
     expect(cells[7]).toHaveTextContent("0");
   });
 
-  it("sums dispensed quantities per bucket and marks full rations done", async () => {
+  it("tracks the exact recipe and shift before marking a ration done", async () => {
     await renderLoaded();
 
-    // 8 + 12.05 = 20.05 → displayed with toFixed(1).
+    // Exact LACTATING allocations: 8 + 4 + 8.05 = 20.05. The legacy null
+    // recipe record is visible in the bucket-volume summary but cannot satisfy
+    // a planned ration.
     const breeding = planRow();
-    expect(within(breeding).getByText(/^20\.\d kg$/)).toBeInTheDocument();
-    // 20.05 >= 20 daily → done badge.
+    expect(within(breeding).getByText("20.05 / 20.0 kg")).toBeInTheDocument();
     expect(within(breeding).getByText("done")).toBeInTheDocument();
+    expect(within(breeding).getByText("8.0 / 8.0 kg")).toBeInTheDocument();
+    expect(within(breeding).getByText("4.0 / 4.0 kg")).toBeInTheDocument();
 
     const kids = rowOf("Fattening 50/50");
-    expect(within(kids).getByText("6.0 kg")).toBeInTheDocument();
+    expect(within(kids).getByText("6.0 / 15.0 kg")).toBeInTheDocument();
     expect(within(kids).queryByText("done")).not.toBeInTheDocument();
+
+    expect(screen.getByText("32.1 / 20.0 kg recorded")).toBeInTheDocument();
   });
 
   it("renders the dispensing log with — for a missing recipe code", async () => {
     await renderLoaded();
 
-    const logRow = screen.getByText("12.1").closest("tr") as HTMLElement;
+    const logRow = screen.getByText("12.05").closest("tr") as HTMLElement;
     expect(within(logRow).getByText("NIGHT")).toBeInTheDocument();
     expect(within(logRow).getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("Nothing dispensed yet today.")).not.toBeInTheDocument();
+  });
+
+  it("labels a bounded today log with its exact full-day total", async () => {
+    server.use(
+      planHandler({
+        lines: [LINE_BREEDING],
+        records: [
+          {
+            id: 91,
+            date: localToday(),
+            shift: "MORNING",
+            bucket: "BREEDING",
+            recipe_code: "LACTATING_60_40",
+            qty_kg: 8,
+          },
+        ],
+        records_total: 225,
+        records_limit: 200,
+        dispensed_totals: [
+          {
+            bucket: "BREEDING",
+            recipe_code: "LACTATING_60_40",
+            shift: "MORNING",
+            qty_kg: 8,
+          },
+          {
+            bucket: "BREEDING",
+            recipe_code: "LACTATING_60_40",
+            shift: "AFTERNOON",
+            qty_kg: 4,
+          },
+          {
+            bucket: "BREEDING",
+            recipe_code: "LACTATING_60_40",
+            shift: "NIGHT",
+            qty_kg: 8,
+          },
+        ],
+      }),
+      recipesHandler(),
+    );
+    renderWithProviders(<FeedingPage />);
+
+    expect(await screen.findByText("Today's dispensing log (225)")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Showing the latest 1 of 225 entries/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Plan progress and completion remain exact because they use full-day totals computed by the server",
+    );
+    expect(screen.getByText("complete")).toBeInTheDocument();
+    expect(screen.getByText("done")).toBeInTheDocument();
+    expect(screen.getByText("20.0 / 20.0 kg recorded")).toBeInTheDocument();
   });
 
   it("shows the empty-plan message when no bucket lines come back", async () => {
@@ -227,13 +309,36 @@ describe("FeedingPage errors and RBAC", () => {
     expect(screen.queryByText("No active animals")).not.toBeInTheDocument();
   });
 
+  it("surfaces a recipe-catalog failure while retaining planned recipe options", async () => {
+    server.use(
+      planHandler({ lines: [LINE_BREEDING], records: [] }),
+      http.get("/api/feeding/recipes", () =>
+        HttpResponse.json({ detail: "recipe catalog unavailable" }, { status: 503 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FeedingPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load the recipe catalog",
+    );
+    await user.click(screen.getByRole("button", { name: "Record dispensing" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Lactating 60/40");
+  });
+
   it("denies access without feeding.view and never calls the plan endpoint", async () => {
     let planCalls = 0;
     server.use(
       permissionsHandler(["tasks.view"]),
       http.get("/api/feeding/plan", () => {
         planCalls += 1;
-        return HttpResponse.json({ lines: [], records: [] });
+        return HttpResponse.json({
+          lines: [],
+          records: [],
+          records_total: 0,
+          records_limit: 200,
+          dispensed_totals: [],
+        });
       }),
     );
     renderWithProviders(<FeedingPage />);
@@ -255,7 +360,7 @@ describe("FeedingPage errors and RBAC", () => {
       }),
     );
     renderWithProviders(<FeedingPage />);
-    expect(await screen.findByText("BREEDING")).toBeInTheDocument();
+    expect(await screen.findByText("Lactating 60/40")).toBeInTheDocument();
 
     expect(screen.queryByRole("button", { name: "Record dispensing" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
@@ -299,7 +404,7 @@ describe("FeedingPage dispensing history", () => {
     const card = screen.getByText("Dispensing history").closest('[data-slot="card"]') as HTMLElement;
 
     expect(within(card).getByText("1 Jan 2026")).toBeInTheDocument();
-    expect(within(card).getByText("7.3")).toBeInTheDocument();
+    expect(within(card).getByText("7.25")).toBeInTheDocument();
     expect(within(card).getByText("Showing 1–50 of 120 dispensing records")).toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Next" }));
     await waitFor(() => expect(historyParams.get("offset")).toBe("50"));
@@ -355,7 +460,13 @@ describe("FeedingPage dispense dialog", () => {
     server.use(
       http.get("/api/feeding/plan", () => {
         planCalls += 1;
-        return HttpResponse.json({ lines: [LINE_BREEDING, LINE_MALE_KIDS], records: [] });
+        return HttpResponse.json({
+          lines: [LINE_BREEDING, LINE_MALE_KIDS],
+          records: [],
+          records_total: 0,
+          records_limit: 200,
+          dispensed_totals: [],
+        });
       }),
       http.get("/api/feeding/recipes", () => HttpResponse.json(RECIPES_PAYLOAD)),
       http.post("/api/feeding/dispense", async ({ request }) => {
@@ -391,6 +502,16 @@ describe("FeedingPage dispense dialog", () => {
     expect(dispenseCalls).toBe(0);
   });
 
+  it("rejects a non-zero quantity below the persisted half-gram boundary", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "0.0004");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+    expect(await within(dialog).findByText("Quantity must be at least 0.0005 kg"))
+      .toBeInTheDocument();
+    expect(dispenseCalls).toBe(0);
+  });
+
   it("rejects a future date (typed input bypasses the max attribute)", async () => {
     const { user, dialog } = await openDialog();
 
@@ -418,7 +539,7 @@ describe("FeedingPage dispense dialog", () => {
     expect(dispenseBody).toMatchObject({ date: "2026-01-01", qty_kg: 4 });
   });
 
-  it("POSTs the mapped payload (no recipe → null) and invalidates the plan", async () => {
+  it("defaults to the planned recipe and invalidates the plan", async () => {
     const { user, dialog } = await openDialog();
     const callsBefore = planCalls;
 
@@ -429,7 +550,7 @@ describe("FeedingPage dispense dialog", () => {
     expect(dispenseBody).toEqual({
       bucket: "BREEDING", // default: first plan line's bucket
       shift: "MORNING",
-      recipe_code: null,
+      recipe_code: "LACTATING_60_40",
       qty_kg: 7.5,
       date: localToday(),
     });
@@ -467,6 +588,48 @@ describe("FeedingPage dispense dialog", () => {
       shift: "NIGHT",
       recipe_code: "FATTENING_50_50",
       qty_kg: 4,
+    });
+  });
+
+  it("never offers a null-recipe option", async () => {
+    const { dialog } = await openDialog();
+    const recipeTrigger = within(dialog).getAllByRole("combobox")[2];
+    await userEvent.setup().click(recipeTrigger);
+    expect(screen.queryByRole("option", { name: /none/i })).not.toBeInTheDocument();
+  });
+
+  it("records the explicit dry-roughage ration even when it is not in the recipe catalog", async () => {
+    server.use(
+      planHandler({
+        lines: [
+          {
+            ...LINE_BREEDING,
+            bucket: "QUARANTINE",
+            recipe_code: "DRY_ROUGHAGE_ONLY",
+            recipe_name: "Dry roughage only",
+          },
+        ],
+        records: [],
+      }),
+      http.get("/api/feeding/recipes", () =>
+        HttpResponse.json({ recipes: [], allocation: [] }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FeedingPage />);
+
+    expect(await screen.findByText("Dry roughage only")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Record dispensing" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByRole("combobox")[2]).toHaveTextContent("Dry roughage only");
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "3");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+
+    await waitFor(() => expect(dispenseCalls).toBe(1));
+    expect(dispenseBody).toMatchObject({
+      bucket: "QUARANTINE",
+      recipe_code: "DRY_ROUGHAGE_ONLY",
+      qty_kg: 3,
     });
   });
 
@@ -543,6 +706,9 @@ describe("FeedingPage kg/head override dialog", () => {
         HttpResponse.json({
           lines: [{ ...LINE_BREEDING, kg_per_head: currentKg, daily_kg: currentKg * 20 }],
           records: [],
+          records_total: 0,
+          records_limit: 200,
+          dispensed_totals: [],
         }),
       ),
       http.post("/api/feeding/settings", async ({ request }) => {

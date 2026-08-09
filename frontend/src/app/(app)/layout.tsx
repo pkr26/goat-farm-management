@@ -23,8 +23,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, type ReactNode } from "react";
 
 import { Logo } from "@/components/logo";
 import { AccountDialog } from "@/components/account-dialog";
@@ -111,10 +111,11 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   },
 ];
 
-export default function AppLayout({ children }: { children: ReactNode }) {
+function AppLayoutContent({ children }: { children: ReactNode }) {
   const { user, farms, farmId, loading, signOut } = useAuth();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
 
   useEffect(() => {
@@ -140,6 +141,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;
+  const search = searchParams.toString();
+  const returnTo = `${pathname}${search ? `?${search}` : ""}`;
+  const farmSelectHref = `/farm-select?returnTo=${encodeURIComponent(returnTo)}`;
 
   return (
     <SidebarProvider>
@@ -195,7 +199,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <span className="truncate text-sm font-medium">{farm.name}</span>
           )}
           <Link
-            href="/farm-select"
+            href={farmSelectHref}
             className="text-sm text-muted-foreground hover:text-primary"
           >
             switch farm
@@ -218,5 +222,21 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </SidebarInset>
     </SidebarProvider>
+  );
+}
+
+export default function AppLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center">
+          <p role="status" aria-live="polite" className="text-muted-foreground">
+            Loading…
+          </p>
+        </main>
+      }
+    >
+      <AppLayoutContent>{children}</AppLayoutContent>
+    </Suspense>
   );
 }

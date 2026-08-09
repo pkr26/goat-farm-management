@@ -58,6 +58,8 @@ interface ReportsPayload {
     kids_per_kidding: number | null;
     twin_rate: number | null;
     cull_candidates: unknown[];
+    cull_candidates_total: number;
+    cull_candidates_limit: number;
   };
   mortality: {
     total_deaths: number;
@@ -84,6 +86,8 @@ const PAYLOAD: ReportsPayload = {
     kids_per_kidding: 1.8,
     twin_rate: 33,
     cull_candidates: [CULL_ANIMAL],
+    cull_candidates_total: 1,
+    cull_candidates_limit: 20,
   },
   mortality: {
     total_deaths: 3,
@@ -162,11 +166,39 @@ describe("ReportsPage", () => {
   it("shows the cull count with no links when there are no candidates", async () => {
     const payload = structuredClone(PAYLOAD);
     payload.breeding.cull_candidates = [];
+    payload.breeding.cull_candidates_total = 0;
     await renderLoaded(payload);
 
     const row = screen.getByText("Cull candidates").closest("tr") as HTMLElement;
     expect(within(row).getByText("0")).toBeInTheDocument();
     expect(within(row).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes the exact cull count from the bounded identity preview", async () => {
+    const payload = structuredClone(PAYLOAD);
+    payload.breeding.cull_candidates_total = 37;
+    payload.breeding.cull_candidates_limit = 20;
+    await renderLoaded(payload);
+
+    const row = screen.getByText("Cull candidates").closest("tr") as HTMLElement;
+    expect(within(row).getByText("37")).toBeInTheDocument();
+    expect(within(row).getByText(/Showing 1 of 37/)).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "Review the full operational list" })).toHaveAttribute(
+      "href",
+      "/breeding",
+    );
+  });
+
+  it("discloses when the full cull list is outside the viewer's permissions", async () => {
+    const payload = structuredClone(PAYLOAD);
+    payload.breeding.cull_candidates_total = 37;
+    payload.breeding.cull_candidates_limit = 20;
+    server.use(permissionsHandler(["reports.view"]));
+    await renderLoaded(payload);
+
+    const row = screen.getByText("Cull candidates").closest("tr") as HTMLElement;
+    expect(within(row).queryByRole("link")).not.toBeInTheDocument();
+    expect(row).toHaveTextContent("The full list requires breeding access.");
   });
 
   it("renders — for null breeding percentages", async () => {

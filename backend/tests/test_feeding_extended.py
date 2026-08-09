@@ -21,6 +21,7 @@ Covers, against the live JSON API (httpx + real PostgreSQL):
 """
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -38,6 +39,8 @@ from app.models import (
     FeedingRecord,
     FeedingShift,
     FeedInventory,
+    FeedRecipe,
+    FeedRecipeLine,
     Sex,
     User,
 )
@@ -120,6 +123,168 @@ FATTENING_LINES = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+WORKFLOW_ONLY_BUCKETS = {
+    "PREGNANCY_EARLY",
+    "PREGNANCY_LATE",
+    "DELIVERY",
+    "RECOVERY",
+}
+
+
+async def _import_historical_animal(
+    client: httpx.AsyncClient,
+    headers: dict,
+    tag: str,
+    *,
+    sex: str = "F",
+    bucket: str = "BREEDING",
+    dob_days: int | None = None,
+    weight_kg: float | None = None,
+    weight_date: date | None = None,
+) -> dict:
+    """Create one audited existing-herd entry in a state legal for import."""
+    if bucket == "BREEDING":
+        # BREEDING is not a cosmetic fixture label: historical entries must
+        # carry the same mature age and current/as-of weight evidence used by
+        # the real candidate workflow.
+        dob_days = 800 if dob_days is None else dob_days
+        weight_kg = 30.0 if weight_kg is None else weight_kg
+        weight_date = weight_date or today()
+
+    payload: dict = {
+        "tag_number": tag,
+        "sex": sex,
+        "source": "PURCHASED",
+        "current_bucket": bucket,
+        "historical_import_reason": "Feeding fixture: audited existing-herd import",
+    }
+    if dob_days is not None:
+        payload["date_of_birth"] = (today() - timedelta(days=dob_days)).isoformat()
+    if weight_kg is not None:
+        payload["weight_kg"] = weight_kg
+        payload["weight_date"] = (weight_date or today()).isoformat()
+    resp = await client.post("/api/animals", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def _make_reproductive_state_animal(
+    client: httpx.AsyncClient,
+    headers: dict,
+    tag: str,
+    *,
+    bucket: str,
+    dob_days: int | None,
+    weight_kg: float | None,
+) -> dict:
+    """Reach a workflow-only reproductive bucket through linked facts.
+
+    Direct imports into pregnancy, delivery, and recovery would fabricate
+    reproductive state. These feeding fixtures instead import mature parents,
+    record a dated breeding and ultrasound, then use the legal movement and
+    kidding workflows. The support sire is culled only after his service has
+    been recorded so he does not inflate feeding headcounts.
+    """
+    gestation_days = {
+        "PREGNANCY_EARLY": 35,
+        "PREGNANCY_LATE": 130,
+        "DELIVERY": 145,
+        "RECOVERY": 150,
+    }[bucket]
+    breeding_date = today() - timedelta(days=gestation_days)
+    doe = await _import_historical_animal(
+        client,
+        headers,
+        tag,
+        bucket="BREEDING",
+        dob_days=800 if dob_days is None else dob_days,
+        weight_kg=30.0 if weight_kg is None else weight_kg,
+        weight_date=breeding_date,
+    )
+    sire = await _import_historical_animal(
+        client,
+        headers,
+        f"{tag[:44]}-SIRE",
+        sex="M",
+        bucket="BREEDING",
+        dob_days=1000,
+        weight_kg=35.0,
+        weight_date=breeding_date,
+    )
+    breeding = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe["id"],
+            "buck_id": sire["id"],
+            "breeding_date": breeding_date.isoformat(),
+        },
+        headers=headers,
+    )
+    assert breeding.status_code == 201, breeding.text
+    breeding_record = breeding.json()
+    ultrasound = await client.post(
+        f"/api/breeding/{breeding_record['id']}/ultrasound",
+        json={
+            "pregnant": True,
+            "kid_count": 1,
+            "date": (breeding_date + timedelta(days=32)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert ultrasound.status_code == 200, ultrasound.text
+
+    if bucket in {"PREGNANCY_LATE", "DELIVERY", "RECOVERY"}:
+        moved = await client.post(
+            f"/api/animals/{doe['id']}/move",
+            json={
+                "to_bucket": "PREGNANCY_LATE",
+                "reason": "Feeding fixture: documented late-gestation transition",
+            },
+            headers=headers,
+        )
+        assert moved.status_code == 200, moved.text
+    if bucket in {"DELIVERY", "RECOVERY"}:
+        moved = await client.post(
+            f"/api/animals/{doe['id']}/move",
+            json={
+                "to_bucket": "DELIVERY",
+                "reason": "Feeding fixture: documented delivery preparation",
+            },
+            headers=headers,
+        )
+        assert moved.status_code == 200, moved.text
+    if bucket == "RECOVERY":
+        kidding = await client.post(
+            "/api/kidding",
+            json={
+                "breeding_record_id": breeding_record["id"],
+                "date": today().isoformat(),
+                "ease": "NORMAL",
+                # A stillborn entry keeps the reproductive record truthful
+                # without adding a second RECOVERY animal to this ration test.
+                "kids": [{"sex": "F", "status": "STILLBORN"}],
+                "notes": "Feeding fixture: completed reproductive lifecycle",
+            },
+            headers=headers,
+        )
+        assert kidding.status_code == 201, kidding.text
+
+    retired = await client.post(
+        f"/api/animals/{sire['id']}/status",
+        json={
+            "new_status": "CULLED",
+            "notes": "Feeding fixture support sire retired after recorded service",
+        },
+        headers=headers,
+    )
+    assert retired.status_code == 200, retired.text
+    profile = await client.get(f"/api/animals/{doe['id']}", headers=headers)
+    assert profile.status_code == 200, profile.text
+    animal = profile.json()["animal"]
+    assert animal["current_bucket"] == bucket
+    return animal
+
+
 async def make_animal(
     client: httpx.AsyncClient,
     headers: dict,
@@ -130,19 +295,25 @@ async def make_animal(
     dob_days: int | None = None,
     weight_kg: float | None = None,
 ) -> dict:
-    payload: dict = {
-        "tag_number": tag,
-        "sex": sex,
-        "source": "PURCHASED",
-        "current_bucket": bucket,
-    }
-    if dob_days is not None:
-        payload["date_of_birth"] = (today() - timedelta(days=dob_days)).isoformat()
-    if weight_kg is not None:
-        payload["weight_kg"] = weight_kg
-    resp = await client.post("/api/animals", json=payload, headers=headers)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
+    if bucket in WORKFLOW_ONLY_BUCKETS:
+        assert sex == "F", f"Only does may enter {bucket}"
+        return await _make_reproductive_state_animal(
+            client,
+            headers,
+            tag,
+            bucket=bucket,
+            dob_days=dob_days,
+            weight_kg=weight_kg,
+        )
+    return await _import_historical_animal(
+        client,
+        headers,
+        tag,
+        sex=sex,
+        bucket=bucket,
+        dob_days=dob_days,
+        weight_kg=weight_kg,
+    )
 
 
 async def get_plan(client: httpx.AsyncClient, headers: dict) -> dict:
@@ -181,8 +352,19 @@ async def stock_all(client: httpx.AsyncClient, headers: dict, qty: float) -> Non
         assert resp.status_code == 200, resp.text
 
 
+async def stock_dry_roughage(client: httpx.AsyncClient, headers: dict, qty: float) -> None:
+    item = await inv_item(client, headers, STOVER)
+    response = await add_stock(client, headers, item["id"], qty)
+    assert response.status_code == 200, response.text
+
+
 async def dispense(client: httpx.AsyncClient, headers: dict, **overrides: object) -> httpx.Response:
-    payload: dict = {"bucket": "BREEDING", "shift": "MORNING", "qty_kg": 5.0} | overrides
+    payload: dict = {
+        "bucket": "BREEDING",
+        "shift": "MORNING",
+        "recipe_code": DRY_ROUGHAGE,
+        "qty_kg": 5.0,
+    } | overrides
     return await client.post("/api/feeding/dispense", json=payload, headers=headers)
 
 
@@ -259,13 +441,22 @@ async def test_plan_empty_farm_has_no_lines_or_records(client: httpx.AsyncClient
     plan = await get_plan(client, headers)
     assert plan["lines"] == []
     assert plan["records"] == []
+    assert plan["records_total"] == 0
+    assert plan["records_limit"] == 200
+    assert plan["dispensed_totals"] == []
 
 
 async def test_plan_response_shape(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_animal(client, headers, "D-1")
     plan = await get_plan(client, headers)
-    assert set(plan) == {"lines", "records"}
+    assert set(plan) == {
+        "lines",
+        "records",
+        "records_total",
+        "records_limit",
+        "dispensed_totals",
+    }
     line = plan["lines"][0]
     assert set(line) == {
         "bucket",
@@ -705,6 +896,8 @@ async def test_settings_tiny_positive_accepted(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 204, resp.text
     line = (await get_plan(client, headers))["lines"][0]
     assert line["kg_per_head"] == pytest.approx(0.001)
+    assert line["daily_kg"] == 0.001
+    assert [shift["kg"] for shift in line["shifts"]] == [0.001, 0.0, 0.0]
 
 
 async def test_settings_huge_finite_accepted(client: httpx.AsyncClient) -> None:
@@ -733,18 +926,51 @@ async def test_settings_shift_rounding_is_deterministic(client: httpx.AsyncClien
     line = (await get_plan(client, headers))["lines"][0]
     assert line["daily_kg"] == pytest.approx(1.13)
     by_shift = {s["shift"]: s["kg"] for s in line["shifts"]}
-    assert by_shift == {"MORNING": 0.45, "AFTERNOON": 0.23, "NIGHT": 0.45}
+    assert by_shift == {"MORNING": 0.452, "AFTERNOON": 0.226, "NIGHT": 0.452}
     assert sum(by_shift.values()) == pytest.approx(1.13)
 
 
-async def test_settings_unknown_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_settings_tiny_daily_total_is_not_lost_across_shifts(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "D-TINY")
+    resp = await client.post(
+        "/api/feeding/settings",
+        json={"bucket": "BREEDING", "daily_kg_per_head": 0.01},
+        headers=headers,
+    )
+    assert resp.status_code == 204, resp.text
+    line = (await get_plan(client, headers))["lines"][0]
+    assert [shift["kg"] for shift in line["shifts"]] == [0.004, 0.002, 0.004]
+    assert sum(shift["kg"] for shift in line["shifts"]) == line["daily_kg"] == 0.01
+
+
+async def test_settings_multihead_gram_total_is_neither_rounded_up_nor_lost(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    for index in range(5):
+        await make_animal(client, headers, f"D-GRAM-{index}")
+    resp = await client.post(
+        "/api/feeding/settings",
+        json={"bucket": "BREEDING", "daily_kg_per_head": 0.001},
+        headers=headers,
+    )
+    assert resp.status_code == 204, resp.text
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["daily_kg"] == 0.005
+    assert [shift["kg"] for shift in line["shifts"]] == [0.002, 0.001, 0.002]
+
+
+async def test_settings_unknown_extra_field_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await client.post(
         "/api/feeding/settings",
         json={"bucket": "BREEDING", "daily_kg_per_head": 2.0, "junk": "x" * 100},
         headers=headers,
     )
-    assert resp.status_code == 204, resp.text
+    assert resp.status_code == 422, resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -772,15 +998,18 @@ async def test_dispense_response_shape(client: httpx.AsyncClient) -> None:
     assert set(resp.json()) == {"id", "date", "shift", "bucket", "recipe_code", "qty_kg"}
 
 
-async def test_dispense_without_recipe_stores_null(client: httpx.AsyncClient) -> None:
+async def test_dispense_without_recipe_is_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    resp = await dispense(client, headers)
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["recipe_code"] is None
+    base = {"bucket": "BREEDING", "shift": "MORNING", "qty_kg": 5.0}
+    for payload in (base, base | {"recipe_code": None}):
+        resp = await client.post("/api/feeding/dispense", json=payload, headers=headers)
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["detail"].startswith("Recipe is required")
 
 
 async def test_dispense_explicit_today_and_past_dates(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 15.0)
     for d in (today(), today() - timedelta(days=1), date(2000, 1, 1)):
         resp = await dispense(client, headers, date=d.isoformat())
         assert resp.status_code == 201, d
@@ -854,11 +1083,11 @@ async def test_dispense_recipe_code_is_case_sensitive(client: httpx.AsyncClient)
     assert resp.status_code == 400
 
 
-async def test_dispense_whitespace_only_recipe_becomes_null(client: httpx.AsyncClient) -> None:
+async def test_dispense_whitespace_only_recipe_is_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await dispense(client, headers, recipe_code="   ")
-    assert resp.status_code == 201, resp.text
-    assert resp.json()["recipe_code"] is None
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"].startswith("Recipe is required")
 
 
 async def test_dispense_padded_recipe_is_trimmed(client: httpx.AsyncClient) -> None:
@@ -890,7 +1119,9 @@ async def test_dispense_appears_in_todays_plan_records(client: httpx.AsyncClient
     resp = await dispense(client, headers, recipe_code="MAINTENANCE_75_25", qty_kg=7.5)
     assert resp.status_code == 201, resp.text
     record_id = resp.json()["id"]
-    records = (await get_plan(client, headers))["records"]
+    plan = await get_plan(client, headers)
+    assert plan["records_total"] == 1
+    records = plan["records"]
     assert len(records) == 1
     rec = records[0]
     assert rec["id"] == record_id
@@ -902,10 +1133,13 @@ async def test_dispense_backdated_record_not_in_todays_log(client: httpx.AsyncCl
     """The plan's dispensing log is 'today's log': yesterday's record is stored
     but not listed."""
     headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 5.0)
     yesterday = (today() - timedelta(days=1)).isoformat()
     resp = await dispense(client, headers, date=yesterday)
     assert resp.status_code == 201, resp.text
-    assert (await get_plan(client, headers))["records"] == []
+    plan = await get_plan(client, headers)
+    assert plan["records"] == []
+    assert plan["records_total"] == 0
     history = await client.get("/api/feeding/records", headers=headers)
     assert history.status_code == 200, history.text
     assert history.json()["total"] == 1
@@ -914,12 +1148,15 @@ async def test_dispense_backdated_record_not_in_todays_log(client: httpx.AsyncCl
 
 async def test_dispense_multiple_records_logged_in_order(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 10.0)
     ids = []
     for shift, qty in [("MORNING", 4.0), ("AFTERNOON", 2.0), ("NIGHT", 4.0)]:
         resp = await dispense(client, headers, shift=shift, qty_kg=qty)
         assert resp.status_code == 201, resp.text
         ids.append(resp.json()["id"])
-    records = (await get_plan(client, headers))["records"]
+    plan = await get_plan(client, headers)
+    assert plan["records_total"] == 3
+    records = plan["records"]
     assert [r["id"] for r in records] == ids  # insertion order
     assert [r["shift"] for r in records] == ["MORNING", "AFTERNOON", "NIGHT"]
 
@@ -928,12 +1165,59 @@ async def test_dispense_duplicate_is_logged_twice(client: httpx.AsyncClient) -> 
     """The dispensing log is a log, not a state machine: a double-recorded
     shift creates two rows (no uniqueness guard in SPEC)."""
     headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 10.0)
     for _ in range(2):
         resp = await dispense(client, headers, qty_kg=5.0)
         assert resp.status_code == 201, resp.text
     records = (await get_plan(client, headers))["records"]
     assert len(records) == 2
     assert records[0]["id"] != records[1]["id"]
+
+
+async def test_plan_records_are_latest_200_with_truthful_total_and_history_escape_hatch(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        rows = [
+            FeedingRecord(
+                farm_id=farm_id,
+                date=today(),
+                shift=FeedingShift.MORNING.value,
+                bucket=Bucket.BREEDING.value,
+                recipe_code=DRY_ROUGHAGE,
+                qty_kg=0.001,
+            )
+            for _index in range(205)
+        ]
+        db.add_all(rows)
+        await db.flush()
+        all_ids = [row.id for row in rows]
+        await db.commit()
+
+    plan = await get_plan(client, headers)
+    assert plan["records_total"] == 205
+    assert plan["records_limit"] == 200
+    assert len(plan["records"]) == 200
+    assert [record["id"] for record in plan["records"]] == all_ids[-200:]
+    assert plan["dispensed_totals"] == [
+        {
+            "bucket": Bucket.BREEDING.value,
+            "recipe_code": DRY_ROUGHAGE,
+            "shift": FeedingShift.MORNING.value,
+            "qty_kg": 0.205,
+        }
+    ]
+
+    history = await client.get(
+        "/api/feeding/records",
+        params={"limit": 200, "offset": 200},
+        headers=headers,
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["total"] == 205
+    assert len(history.json()["records"]) == 5
 
 
 async def test_dispense_attributed_to_recording_user(client: httpx.AsyncClient) -> None:
@@ -951,6 +1235,7 @@ async def test_dispense_attributed_to_recording_user(client: httpx.AsyncClient) 
 async def test_dispense_records_are_farm_isolated(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Alpha Farm")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
+    await stock_dry_roughage(client, owner_a, 9.0)
     resp = await dispense(client, owner_a, qty_kg=9.0)
     assert resp.status_code == 201, resp.text
     assert len((await get_plan(client, owner_a))["records"]) == 1
@@ -992,11 +1277,73 @@ async def test_dispense_requires_finished_stock_and_consumes_it(
     assert remaining.json()[0]["qty_on_hand"] == pytest.approx(6.75)
 
 
+async def test_dispense_exact_fit_after_fractional_mix_accumulation(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await stock_all(client, headers, 1.0)
+    for _ in range(3):
+        mixed = await client.post(
+            "/api/feeding/mix",
+            json={"recipe_code": "FATTENING_50_50", "batch_kg": 0.100},
+            headers=headers,
+        )
+        assert mixed.status_code == 200, mixed.text
+    ready = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert ready.status_code == 200
+    assert ready.json()[0]["qty_on_hand"] == 0.3
+
+    dispensed = await dispense(
+        client,
+        headers,
+        recipe_code="FATTENING_50_50",
+        qty_kg=0.300,
+    )
+    assert dispensed.status_code == 201, dispensed.text
+    remaining = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert remaining.json()[0]["qty_on_hand"] == 0.0
+
+
 async def test_virtual_dry_roughage_can_be_recorded(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 2.5)
     resp = await dispense(client, headers, recipe_code=DRY_ROUGHAGE, qty_kg=2.0)
     assert resp.status_code == 201, resp.text
     assert resp.json()["recipe_code"] == DRY_ROUGHAGE
+    assert (await inv_item(client, headers, STOVER))["qty_on_hand"] == 0.5
+
+
+async def test_dry_roughage_dispense_is_atomic_on_insufficient_stock(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 1.999)
+    refused = await dispense(client, headers, recipe_code=DRY_ROUGHAGE, qty_kg=2.0)
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"] == ("Dry jowar stover: need 2.000 kg, have 1.999 kg")
+    assert (await inv_item(client, headers, STOVER))["qty_on_hand"] == 1.999
+    assert (await get_plan(client, headers))["records"] == []
+
+
+async def test_dry_roughage_idempotent_replay_debits_inventory_once(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 2.0)
+    keyed = headers | {"Idempotency-Key": "dry-roughage-dispense-once"}
+    payload = {
+        "bucket": "QUARANTINE",
+        "shift": "MORNING",
+        "recipe_code": DRY_ROUGHAGE,
+        "qty_kg": 0.75,
+    }
+    first = await client.post("/api/feeding/dispense", json=payload, headers=keyed)
+    replay = await client.post("/api/feeding/dispense", json=payload, headers=keyed)
+    assert first.status_code == replay.status_code == 201
+    assert replay.json() == first.json()
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert (await inv_item(client, headers, STOVER))["qty_on_hand"] == 1.25
+    assert (await get_plan(client, headers))["records_total"] == 1
 
 
 async def test_dispense_unicode_recipe_rejected_safely(client: httpx.AsyncClient) -> None:
@@ -1010,8 +1357,9 @@ async def test_dispense_sql_injection_recipe_rejected_safely(client: httpx.Async
     headers = await owner_with_farm(client)
     payload = "'; DROP TABLE feeding_records;--"
     resp = await dispense(client, headers, recipe_code=payload)
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == f"Unknown recipe {payload}"
+    assert resp.status_code == 422  # bounded by DispenseIn before any lookup
+    assert resp.json()["detail"][0]["type"] == "string_too_long"
+    assert payload not in resp.text  # validation responses do not reflect input
     # nothing recorded, tables intact
     assert (await get_plan(client, headers))["records"] == []
     assert len(await get_inventory(client, headers)) == 9
@@ -1020,12 +1368,14 @@ async def test_dispense_sql_injection_recipe_rejected_safely(client: httpx.Async
 async def test_dispense_very_long_recipe_code_rejected_safely(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await dispense(client, headers, recipe_code="X" * 10_000)
-    assert resp.status_code == 400
+    assert resp.status_code == 422
     assert (await get_plan(client, headers))["records"] == []
 
 
 async def test_dispense_tiny_and_huge_qty_boundaries(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
+    await stock_dry_roughage(client, headers, 1e6)
+    await stock_dry_roughage(client, headers, 0.001)
     resp = await dispense(client, headers, qty_kg=0.001)
     assert resp.status_code == 201, resp.text
     assert resp.json()["qty_kg"] == pytest.approx(0.001)
@@ -1036,11 +1386,11 @@ async def test_dispense_tiny_and_huge_qty_boundaries(client: httpx.AsyncClient) 
     assert resp.status_code == 422
 
 
-async def test_dispense_unknown_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_dispense_unknown_extra_field_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await dispense(client, headers, junk="x" * 10_000)
-    assert resp.status_code == 201, resp.text
-    assert "junk" not in resp.json()
+    assert resp.status_code == 422, resp.text
+    assert (await get_plan(client, headers))["records"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -1170,6 +1520,43 @@ async def test_mix_unknown_recipe_400(client: httpx.AsyncClient) -> None:
     assert resp.json()["detail"] == "Unknown recipe NO_SUCH"
 
 
+async def test_mix_rejects_recipe_that_does_not_conserve_batch_mass(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await stock_all(client, headers, 100.0)
+    before = {row["ingredient"]: row["qty_on_hand"] for row in await get_inventory(client, headers)}
+
+    session_maker = get_sessionmaker()
+    async with session_maker() as db:
+        recipe = (
+            await db.execute(select(FeedRecipe).where(FeedRecipe.code == "CREEP"))
+        ).scalar_one()
+        line = (
+            await db.execute(
+                select(FeedRecipeLine)
+                .where(FeedRecipeLine.recipe_id == recipe.id)
+                .order_by(FeedRecipeLine.id)
+                .limit(1)
+            )
+        ).scalar_one()
+        line.kg_per_100kg += 1.0
+        await db.commit()
+
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "CREEP", "batch_kg": 10.0},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "must total exactly 100" in resp.json()["detail"]
+    after = {row["ingredient"]: row["qty_on_hand"] for row in await get_inventory(client, headers)}
+    assert after == before
+    finished = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert finished.status_code == 200
+    assert finished.json() == []
+
+
 async def test_mix_recipe_code_case_and_whitespace_sensitive(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await stock_all(client, headers, 100.0)
@@ -1229,7 +1616,7 @@ async def test_mix_zero_stock_lists_every_shortage(client: httpx.AsyncClient) ->
     detail = resp.json()["detail"]
     for ingredient in FATTENING_LINES:
         assert ingredient in detail, ingredient
-    assert "need 30.0 kg, have 0.0 kg" in detail  # green fodder line
+    assert "need 30.000 kg, have 0.000 kg" in detail  # gram-ledger precision
 
 
 async def test_mix_refusal_is_all_or_nothing(client: httpx.AsyncClient) -> None:
@@ -1252,6 +1639,98 @@ async def test_mix_refusal_is_all_or_nothing(client: httpx.AsyncClient) -> None:
     by_ingredient = {i["ingredient"]: i["qty_on_hand"] for i in inventory}
     assert by_ingredient[MINERAL] == 1.0
     assert by_ingredient[GREEN] == 100.0  # untouched despite being sufficient
+
+
+async def test_mix_aggregates_duplicate_ingredient_lines_before_shortage_check(
+    client: httpx.AsyncClient,
+) -> None:
+    """Two individually sufficient lines must not overdraw one stock balance."""
+    headers = await owner_with_farm(client)
+    dorb = await inv_item(client, headers, "DORB")
+    stocked = await add_stock(client, headers, dorb["id"], 70.0)
+    assert stocked.status_code == 200, stocked.text
+    async with get_sessionmaker()() as db:
+        recipe = FeedRecipe(
+            code="DUPLICATE_DORB",
+            name="Duplicate ingredient regression",
+            description="Test-only recipe",
+        )
+        db.add(recipe)
+        await db.flush()
+        db.add_all(
+            [
+                FeedRecipeLine(
+                    recipe_id=recipe.id,
+                    ingredient="DORB",
+                    kg_per_100kg=60.0,
+                    category="CONCENTRATE",
+                ),
+                FeedRecipeLine(
+                    recipe_id=recipe.id,
+                    ingredient="DORB",
+                    kg_per_100kg=40.0,
+                    category="CONCENTRATE",
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "DUPLICATE_DORB", "batch_kg": 100.0},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "DORB: need 100.000 kg, have 70.000 kg"
+    assert (await inv_item(client, headers, "DORB"))["qty_on_hand"] == 70.0
+    finished = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert finished.status_code == 200
+    assert finished.json() == []
+
+
+async def test_mix_aggregates_duplicate_weights_before_minimum_gram_allocation(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    dorb = await inv_item(client, headers, "DORB")
+    stocked = await add_stock(client, headers, dorb["id"], 1.0)
+    assert stocked.status_code == 200, stocked.text
+    async with get_sessionmaker()() as db:
+        recipe = FeedRecipe(
+            code="DUPLICATE_TRACE",
+            name="Duplicate trace ingredient regression",
+            description="Test-only recipe",
+        )
+        db.add(recipe)
+        await db.flush()
+        db.add_all(
+            [
+                FeedRecipeLine(
+                    recipe_id=recipe.id,
+                    ingredient="DORB",
+                    kg_per_100kg=99.999,
+                    category="CONCENTRATE",
+                ),
+                FeedRecipeLine(
+                    recipe_id=recipe.id,
+                    ingredient="DORB",
+                    kg_per_100kg=0.001,
+                    category="CONCENTRATE",
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "DUPLICATE_TRACE", "batch_kg": 1.0},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await inv_item(client, headers, "DORB"))["qty_on_hand"] == 0.0
+    finished = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert finished.status_code == 200
+    assert finished.json()[0]["qty_on_hand"] == 1.0
 
 
 async def test_mix_exact_fit_leaves_zero_stock(client: httpx.AsyncClient) -> None:
@@ -1287,6 +1766,81 @@ async def test_mix_one_kg_batch_rounding(client: httpx.AsyncClient) -> None:
     assert soya["qty_on_hand"] == pytest.approx(99.97)  # 100 − 0.03
 
 
+async def test_mix_largest_remainder_conserves_exact_batch_grams(
+    client: httpx.AsyncClient,
+) -> None:
+    """Independent HALF_UP line rounding consumed 102 g for this 100 g mix."""
+    headers = await owner_with_farm(client)
+    await stock_all(client, headers, 1.0)
+    before = {
+        row["ingredient"]: Decimal(str(row["qty_on_hand"]))
+        for row in await get_inventory(client, headers)
+    }
+
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "FATTENING_50_50", "batch_kg": 0.100},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    after = {
+        row["ingredient"]: Decimal(str(row["qty_on_hand"]))
+        for row in await get_inventory(client, headers)
+    }
+    debits = {ingredient: before[ingredient] - after[ingredient] for ingredient in FATTENING_LINES}
+    assert debits == {
+        "Crushed maize": Decimal("0.018"),
+        "DORB": Decimal("0.006"),
+        STOVER: Decimal("0.020"),
+        GREEN: Decimal("0.030"),
+        "Maize DDGS": Decimal("0.010"),
+        MINERAL: Decimal("0.002"),
+        "Mustard DOC": Decimal("0.007"),
+        "Soya DOC": Decimal("0.007"),
+    }
+    assert sum(debits.values(), Decimal(0)) == Decimal("0.100")
+    finished = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert finished.status_code == 200, finished.text
+    assert Decimal(str(finished.json()[0]["qty_on_hand"])) == Decimal("0.1")
+
+
+async def test_mix_largest_remainder_tie_keeps_smallest_ingredient_positive(
+    client: httpx.AsyncClient,
+) -> None:
+    """At 50 g, CREEP's 0.5 g tie goes to zero-floor mineral, not 4.5 g DDGS."""
+    headers = await owner_with_farm(client)
+    await stock_all(client, headers, 1.0)
+    before = {
+        row["ingredient"]: Decimal(str(row["qty_on_hand"]))
+        for row in await get_inventory(client, headers)
+    }
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "CREEP", "batch_kg": 0.050},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    after = {
+        row["ingredient"]: Decimal(str(row["qty_on_hand"]))
+        for row in await get_inventory(client, headers)
+    }
+    assert {
+        ingredient: before[ingredient] - after[ingredient]
+        for ingredient in (
+            "Crushed maize",
+            "Maize DDGS",
+            MINERAL,
+            "Soya DOC",
+        )
+    } == {
+        "Crushed maize": Decimal("0.030"),
+        "Maize DDGS": Decimal("0.004"),
+        MINERAL: Decimal("0.001"),
+        "Soya DOC": Decimal("0.015"),
+    }
+
+
 async def test_mix_tiny_batch_rounds_need_to_zero(client: httpx.AsyncClient) -> None:
     """A batch that would consume zero-rounded ingredients is rejected."""
     headers = await owner_with_farm(client)
@@ -1298,6 +1852,25 @@ async def test_mix_tiny_batch_rounds_need_to_zero(client: httpx.AsyncClient) -> 
     assert resp.status_code == 400, resp.text
     assert "too small" in resp.json()["detail"].lower()
     assert all(i["qty_on_hand"] == 0.0 for i in await get_inventory(client, headers))
+
+
+async def test_mix_rejects_when_hamilton_would_leave_a_positive_line_at_zero(
+    client: httpx.AsyncClient,
+) -> None:
+    """Enough total grams for eight lines is not enough for this formulation."""
+    headers = await owner_with_farm(client)
+    await stock_all(client, headers, 1.0)
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "FATTENING_50_50", "batch_kg": 0.008},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "too small" in resp.json()["detail"].lower()
+    assert all(i["qty_on_hand"] == 1.0 for i in await get_inventory(client, headers))
+    finished = await client.get("/api/feeding/finished-stock", headers=headers)
+    assert finished.status_code == 200
+    assert finished.json() == []
 
 
 async def test_mix_creep_only_touches_its_four_ingredients(client: httpx.AsyncClient) -> None:
@@ -1384,7 +1957,7 @@ async def test_mix_does_not_book_a_finance_transaction(client: httpx.AsyncClient
     assert await finance_txns(client, headers) == []
 
 
-async def test_mix_unknown_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_mix_unknown_extra_field_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await stock_all(client, headers, 100.0)
     resp = await client.post(
@@ -1392,7 +1965,7 @@ async def test_mix_unknown_extra_field_ignored(client: httpx.AsyncClient) -> Non
         json={"recipe_code": "CREEP", "batch_kg": 10.0, "junk": 1},
         headers=headers,
     )
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 422, resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1545,6 +2118,53 @@ async def test_add_stock_expense_amount_rounded_to_paise(client: httpx.AsyncClie
     txns = await finance_txns(client, headers)
     assert len(txns) == 1
     assert txns[0]["amount"] == round(3.333 * 33.33, 2)  # 111.09
+    assert txns[0]["notes"] == ("Feed purchase: 3.333 kg Mineral mix @ ₹33.33/kg = ₹111.09")
+
+
+async def test_add_stock_positive_cost_uses_paise_threshold_before_mutation(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    item = await inv_item(client, headers, "DORB")
+
+    # ₹0.00499 rounds to no ledger cost and must not create free stock.
+    rejected = await add_stock(client, headers, item["id"], 0.499, price=0.01)
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"] == (
+        "A positive-price restock must total at least ₹0.01 after rounding"
+    )
+    untouched = await inv_item(client, headers, "DORB")
+    assert untouched["qty_on_hand"] == 0.0
+    assert untouched["last_purchase_price_per_kg"] is None
+    assert await finance_txns(client, headers) == []
+
+    # The exact HALF_UP threshold, ₹0.00500, becomes one paise.
+    accepted = await add_stock(client, headers, item["id"], 0.500, price=0.01)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["qty_on_hand"] == 0.5
+    txns = await finance_txns(client, headers)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == 0.01
+
+
+async def test_add_stock_cost_cap_is_inclusive_and_checked_before_mutation(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    dorb = await inv_item(client, headers, "DORB")
+    over = await add_stock(client, headers, dorb["id"], 1_000_000, price=1000.01)
+    assert over.status_code == 400, over.text
+    assert over.json()["detail"] == "Restock cost cannot exceed ₹1,000,000,000.00"
+    assert (await inv_item(client, headers, "DORB"))["qty_on_hand"] == 0.0
+    assert await finance_txns(client, headers) == []
+
+    mineral = await inv_item(client, headers, MINERAL)
+    boundary = await add_stock(client, headers, mineral["id"], 1_000_000, price=1000.00)
+    assert boundary.status_code == 200, boundary.text
+    assert boundary.json()["qty_on_hand"] == 1_000_000
+    txns = await finance_txns(client, headers)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == 1_000_000_000
 
 
 async def test_add_stock_zero_and_negative_qty_422(client: httpx.AsyncClient) -> None:
@@ -1657,7 +2277,17 @@ async def test_add_stock_qty_rounded_to_three_decimals(client: httpx.AsyncClient
     assert resp.json()["qty_on_hand"] == pytest.approx(10.123)
 
 
-async def test_add_stock_unknown_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_sub_half_gram_stock_movement_is_rejected_not_recorded(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    item = await inv_item(client, headers, "DORB")
+    resp = await add_stock(client, headers, item["id"], 0.0004)
+    assert resp.status_code == 422, resp.text
+    assert (await inv_item(client, headers, "DORB"))["qty_on_hand"] == 0.0
+
+
+async def test_add_stock_unknown_extra_field_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     item = await inv_item(client, headers, "DORB")
     resp = await client.post(
@@ -1665,8 +2295,8 @@ async def test_add_stock_unknown_extra_field_ignored(client: httpx.AsyncClient) 
         json={"qty_kg": 5.0, "junk": "x" * 10_000},
         headers=headers,
     )
-    assert resp.status_code == 200, resp.text
-    assert "junk" not in resp.json()
+    assert resp.status_code == 422, resp.text
+    assert (await inv_item(client, headers, "DORB"))["qty_on_hand"] == 0
 
 
 # ---------------------------------------------------------------------------

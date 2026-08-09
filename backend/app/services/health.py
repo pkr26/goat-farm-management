@@ -1,11 +1,11 @@
 """Health / vaccination schedule."""
 
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -13,12 +13,13 @@ from ..models import (
     Farm,
     HealthEvent,
     HealthEventType,
+    MovementRestrictionAction,
     Transaction,
     TransactionCategory,
     TransactionType,
     VaccineTemplate,
 )
-from ..utils import add_months, money, today
+from ..utils import add_months, allocate_money, money, today, utcnow
 
 # HealthEvent.type → TransactionCategory: what P&L bucket the spend belongs in.
 # TREATMENT/FOOTBATH/VITAMIN → VET (vet consultation, hoof care, tonics).
@@ -32,8 +33,25 @@ _HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
 }
 
 
+def _words(text: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"[a-z0-9]+", text.lower()))
+
+
 def _normalize(text: str) -> str:
     return " ".join(text.lower().replace("+", " + ").split())
+
+
+def _has_alias(words: tuple[str, ...], *aliases: str) -> bool:
+    """Match complete words/phrases, never substrings inside another word."""
+    for alias in aliases:
+        alias_words = _words(alias)
+        if not alias_words:
+            continue
+        width = len(alias_words)
+        windows = range(len(words) - width + 1)
+        if any(words[index : index + width] == alias_words for index in windows):
+            return True
+    return False
 
 
 def template_name_for_task(title: str, category: str) -> str | None:
@@ -42,18 +60,20 @@ def template_name_for_task(title: str, category: str) -> str | None:
     The task is the authoritative link; free text remains useful as a product
     note but cannot silently complete a different programme item.
     """
-    key = _normalize(title)
+    words = _words(title)
     if category == HealthEventType.DEWORMING.value:
         return "Deworming"
-    if "ppr" in key:
+    if _has_alias(words, "ppr", "peste des petits"):
         return "PPR"
-    if "goat pox" in key or "goatpox" in key:
+    if _has_alias(words, "goat pox", "goatpox"):
         return "Goat Pox"
-    if "fmd" in key:
+    if _has_alias(words, "fmd", "foot and mouth"):
         return "FMD"
-    if "pre-kidding" in key and "et" in key:
+    et_matches = _has_alias(words, "et", "enterotoxaemia", "enterotoxemia")
+    tt_matches = _has_alias(words, "tt", "tetanus", "tetanus toxoid")
+    if _has_alias(words, "pre kidding") and et_matches and tt_matches:
         return "ET + TT pre-kidding"
-    if "et" in key and "tetanus" in key:
+    if et_matches and tt_matches:
         return "Enterotoxaemia (ET)"
     return None
 
@@ -61,27 +81,73 @@ def template_name_for_task(title: str, category: str) -> str | None:
 def target_matches_template(target: str, template_name: str) -> bool:
     """Validate only an explicitly supplied target; a blank target is filled
     by the linked task's canonical template rather than guessed from a brand."""
-    target_key = _normalize(target)
-    if not target_key:
+    target_words = _words(target)
+    if not target_words:
         return True
-    required = {
-        "FMD": ("fmd", "foot and mouth"),
-        "PPR": ("ppr", "peste des petits"),
-        "Goat Pox": ("goat pox", "goatpox"),
-        "Enterotoxaemia (ET)": ("et", "enterotoxaemia", "enterotoxemia"),
-        "ET + TT pre-kidding": ("et", "tetanus"),
-        "Deworming": ("deworm",),
-    }.get(template_name, ())
-    if required:
-        return any(token in target_key for token in required)
-    canonical = _normalize(template_name.split("(")[0])
-    return bool(canonical) and canonical in target_key
+
+    et_matches = _has_alias(target_words, "et", "enterotoxaemia", "enterotoxemia")
+    tt_matches = _has_alias(target_words, "tt", "tetanus", "tetanus toxoid")
+    if template_name == "ET + TT pre-kidding":
+        # A combined duty is complete only when both vaccine components were
+        # explicitly recorded. "ET" alone must never close the TT half.
+        return et_matches and tt_matches
+    if template_name == "Enterotoxaemia (ET)":
+        return et_matches
+    if template_name == "FMD":
+        return _has_alias(target_words, "fmd", "foot and mouth")
+    if template_name == "PPR":
+        return _has_alias(target_words, "ppr", "peste des petits")
+    if template_name == "Goat Pox":
+        return _has_alias(target_words, "goat pox", "goatpox")
+    if template_name == "Deworming":
+        return any(word.startswith("deworm") for word in target_words)
+    return _has_alias(target_words, template_name.split("(")[0])
 
 
-async def validated_template_name(
+def place_movement_restriction(
+    db: AsyncSession,
+    animal: Animal,
+    *,
+    disease_target: str,
+    restriction_reason: str,
+    action_reference: str,
+    acted_by_id: int | None,
+    health_event_id: int | None = None,
+    acted_at: datetime | None = None,
+) -> MovementRestrictionAction:
+    """Start and audit a new scheduled-disease restriction episode.
+
+    A later placement supersedes an earlier still-open episode by advancing
+    the monotonic version; it does not fabricate a clearance for the older
+    concern. Only a referenced explicit clearance appends ``CLEARED``.
+    """
+    target = disease_target.strip()
+    if not target:
+        raise ValueError("A suspected scheduled disease requires a disease target")
+    animal.restriction_version = (animal.restriction_version or 0) + 1
+    animal.suspected_scheduled_disease = True
+    animal.suspected_disease = target
+    animal.movement_restricted = True
+    animal.restriction_reason = restriction_reason
+    action = MovementRestrictionAction(
+        farm_id=animal.farm_id,
+        animal_id=animal.id,
+        restriction_version=animal.restriction_version,
+        action="PLACED",
+        acted_at=acted_at or utcnow(),
+        acted_by_id=acted_by_id,
+        action_reference=action_reference,
+        disease_target=target,
+        health_event_id=health_event_id,
+    )
+    db.add(action)
+    return action
+
+
+async def validated_template(
     db: AsyncSession, template_name: str | None, event_type: str
-) -> str | None:
-    """Return an exact seeded template name or reject a free-form schedule override."""
+) -> VaccineTemplate | None:
+    """Return an exact seeded template or reject a free-form override."""
     if not template_name:
         return None
     if event_type not in {HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value}:
@@ -95,7 +161,15 @@ async def validated_template_name(
         raise ValueError("Deworming template requires a DEWORMING event")
     if template.name != "Deworming" and event_type != HealthEventType.VACCINE.value:
         raise ValueError("Vaccine template requires a VACCINE event")
-    return str(template.name)
+    return template
+
+
+async def validated_template_name(
+    db: AsyncSession, template_name: str | None, event_type: str
+) -> str | None:
+    """Compatibility wrapper for callers that only need the canonical name."""
+    template = await validated_template(db, template_name, event_type)
+    return str(template.name) if template is not None else None
 
 
 async def record_health_event(
@@ -112,6 +186,7 @@ async def record_health_event(
     total_cost: float | None,
     next_due_date: date | None,
     schedule_template_name: str | None,
+    schedule_template_id: int | None,
     next_due_authority: str | None,
     product_lot: str,
     product_manufactured_on: date | None,
@@ -128,18 +203,21 @@ async def record_health_event(
     purchase_batch_id: int | None = None,
     created_by_id: int | None = None,
 ) -> list[HealthEvent]:
-    """Create one HealthEvent row per animal; total cost divided evenly.
-    The first animal absorbs the rounding remainder so the split sums back
-    to the recorded total; an explicit ₹0 cost is stored as 0.00, not NULL."""
+    """Create one HealthEvent row per animal; total cost divided in paise.
+
+    Shares are exact and non-negative even when the total is smaller than the
+    animal count; an explicit ₹0 cost is stored as 0.00, not NULL.
+    """
     exact_total_cost = money(total_cost) if total_cost is not None else None
-    costs: list[Decimal | None]
+    if suspected_scheduled_disease and not disease_target.strip():
+        raise ValueError("A suspected scheduled disease requires a disease target")
+    costs: list[Decimal | None] = []
     if exact_total_cost is not None and animals:
-        per = money(exact_total_cost / len(animals))
-        costs = [per] * len(animals)
-        costs[0] = money(exact_total_cost - per * (len(animals) - 1))
+        costs.extend(allocate_money(exact_total_cost, len(animals)))
     else:
-        costs = [None] * len(animals)
+        costs.extend([None] * len(animals))
     events = []
+    placed_restrictions: list[tuple[Animal, HealthEvent]] = []
     for animal, per_animal_cost in zip(animals, costs, strict=True):
         event = HealthEvent(
             farm_id=farm.id,
@@ -155,6 +233,7 @@ async def record_health_event(
             cost=per_animal_cost,
             next_due_date=next_due_date,
             schedule_template_name=schedule_template_name or None,
+            schedule_template_id=schedule_template_id,
             next_due_authority=next_due_authority or None,
             product_lot=product_lot or None,
             product_manufactured_on=product_manufactured_on,
@@ -173,11 +252,7 @@ async def record_health_event(
         db.add(event)
         events.append(event)
         if suspected_scheduled_disease:
-            animal.suspected_scheduled_disease = True
-            animal.suspected_disease = disease_target or None
-            animal.authority_notified_at = authority_notified_at
-            animal.movement_restricted = True
-            animal.restriction_reason = "Scheduled-disease suspicion recorded in health log"
+            placed_restrictions.append((animal, event))
     # Book the health-event spend in the ledger. Without
     # this, monthly P&L reports ₹0 medicine/vet spend even when HealthEvent
     # rows carry a cost — a farmer's monthly loss would be understated for
@@ -186,6 +261,19 @@ async def record_health_event(
     # Allocate event ids before creating the source-linked aggregate ledger
     # row. The first event is the stable identity of this one submitted form.
     await db.flush()
+    placed_at = utcnow()
+    for animal, event in placed_restrictions:
+        place_movement_restriction(
+            db,
+            animal,
+            disease_target=disease_target,
+            restriction_reason="Scheduled-disease suspicion recorded in health log",
+            action_reference=f"Health event #{event.id}",
+            acted_by_id=created_by_id,
+            health_event_id=event.id,
+            acted_at=placed_at,
+        )
+        animal.authority_notified_at = authority_notified_at
     if exact_total_cost is not None and animals:
         db.add(
             Transaction(
@@ -233,50 +321,163 @@ _TEMPLATE_ALIASES: dict[str, tuple[str, ...]] = {
     "haemorrhagic septicaemia": ("hemorrhagic", "raksha-hs"),
 }
 
+LEGACY_SCHEDULE_SCAN_LIMIT = 500
+
+
+def _legacy_event_matches(
+    template_name: str,
+    *,
+    event_type: str,
+    schedule_template_name: str | None,
+    product_name: str | None,
+    disease_target: str | None,
+) -> bool:
+    """Compatibility match for a bounded set of pre-linkage event rows."""
+    if schedule_template_name:
+        return _normalize(schedule_template_name) == _normalize(template_name)
+    haystack = _normalize(f"{product_name or ''} {disease_target or ''}")
+    key = _normalize(template_name.split("(")[0])
+    if key.startswith("deworm"):
+        return event_type == HealthEventType.DEWORMING.value or "deworm" in haystack
+    if key and key in haystack:
+        return True
+    if any(alias in haystack for alias in _TEMPLATE_ALIASES.get(key, ())):
+        return True
+    abbrev_match = re.search(r"\(([^)]+)\)", template_name)
+    abbrev = abbrev_match.group(1).strip().lower() if abbrev_match else ""
+    return bool(abbrev) and re.search(rf"\b{re.escape(abbrev)}\b", haystack) is not None
+
+
+async def inferred_schedule_template(
+    db: AsyncSession,
+    event_type: str,
+    product_name: str,
+    disease_target: str,
+) -> VaccineTemplate | None:
+    """Canonicalize a new unlabelled event only when its legacy text is unique."""
+    if event_type == HealthEventType.DEWORMING.value:
+        return (
+            await db.execute(select(VaccineTemplate).where(VaccineTemplate.name == "Deworming"))
+        ).scalar_one_or_none()
+    if event_type != HealthEventType.VACCINE.value:
+        return None
+    templates = list(
+        (
+            await db.execute(
+                select(VaccineTemplate).where(
+                    VaccineTemplate.name != "Deworming",
+                    (VaccineTemplate.first_dose_age_months.is_not(None))
+                    | (VaccineTemplate.repeat_months.is_not(None)),
+                )
+            )
+        ).scalars()
+    )
+    matches = [
+        template
+        for template in templates
+        if _legacy_event_matches(
+            template.name,
+            event_type=event_type,
+            schedule_template_name=None,
+            product_name=product_name,
+            disease_target=disease_target,
+        )
+    ]
+    return matches[0] if len(matches) == 1 else None
+
 
 async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> list[dict[str, Any]]:
     """Per-animal vaccination schedule from seeded VaccineTemplates.
-    Status: DONE (event recorded) / OVERDUE (due date passed) / UPCOMING."""
+    Status: DONE (event recorded) / OVERDUE (due date passed) / UPCOMING.
+
+    Only the newest two matching facts per template are selected. Two rows are
+    sufficient to distinguish a lone first dose from a completed booster and
+    to derive the latest repeat/authority date; lifetime event volume therefore
+    cannot inflate ORM memory or Python scan time.
+    """
     farm = await db.get(Farm, animal.farm_id)
     reference_date = today(farm.timezone) if farm is not None else today()
     dob = animal.effective_dob
-    events_result = await db.execute(
-        select(HealthEvent)
-        .where(
-            HealthEvent.animal_id == animal.id,
-            HealthEvent.type.in_([HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value]),
-        )
-        .order_by(HealthEvent.date)
-    )
-    events = list(events_result.scalars().all())
+    templates_result = await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.id))
+    templates = [
+        template
+        for template in templates_result.scalars()
+        if template.first_dose_age_months is not None or template.repeat_months
+    ]
 
-    def _matches(template_name: str, event: HealthEvent) -> bool:
-        if event.schedule_template_name:
-            return _normalize(event.schedule_template_name) == _normalize(template_name)
-        haystack = _normalize(f"{event.product_name or ''} {event.disease_target or ''}")
-        # Conservative substring on the FULL normalized template name (sans
-        # parenthetical): "PPR" matches an event recorded as "PPR vaccine",
-        # but "Goat Pox" no longer matches a product merely containing "goat".
-        key = _normalize(template_name.split("(")[0])
-        if key.startswith("deworm"):
-            # Dewormers are recorded by drug name (Albendazole, ...) with the
-            # target left blank, so the haystack rarely contains "deworming" —
-            # the event TYPE is the reliable signal for this template.
-            return event.type == HealthEventType.DEWORMING.value or "deworm" in haystack
-        if key and key in haystack:
-            return True
-        if any(alias in haystack for alias in _TEMPLATE_ALIASES.get(key, ())):
-            return True
-        # "Enterotoxaemia (ET)" should also match an event recorded as "ET + TT".
-        abbrev_match = re.search(r"\(([^)]+)\)", template_name)
-        abbrev = abbrev_match.group(1).strip().lower() if abbrev_match else ""
-        return bool(abbrev) and re.search(rf"\b{re.escape(abbrev)}\b", haystack) is not None
+    limited_event_queries = []
+    for template in templates:
+        latest = (
+            select(
+                literal(template.id).label("template_id"),
+                HealthEvent.id.label("event_id"),
+                HealthEvent.date.label("event_date"),
+                HealthEvent.next_due_date,
+                HealthEvent.next_due_authority,
+            )
+            .where(
+                HealthEvent.animal_id == animal.id,
+                HealthEvent.schedule_template_id == template.id,
+                HealthEvent.type.in_(
+                    [HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value]
+                ),
+            )
+            .order_by(HealthEvent.date.desc(), HealthEvent.id.desc())
+            .limit(2)
+            .subquery()
+        )
+        limited_event_queries.append(select(latest))
+
+    events_by_template: dict[int, list[Any]] = {template.id: [] for template in templates}
+    if limited_event_queries:
+        event_rows = (await db.execute(union_all(*limited_event_queries))).all()
+        for event_row in event_rows:
+            events_by_template[int(event_row.template_id)].append(event_row)
+
+        # Rows written before the immutable template FK are scanned once, in a
+        # fixed newest-first window. D7 backfills every unambiguous historical
+        # match, so this path is only compatibility for ambiguous/manual legacy
+        # data or an out-of-process writer that still omits the canonical id.
+        legacy_rows = (
+            await db.execute(
+                select(
+                    HealthEvent.id.label("event_id"),
+                    HealthEvent.date.label("event_date"),
+                    HealthEvent.next_due_date,
+                    HealthEvent.next_due_authority,
+                    HealthEvent.type.label("event_type"),
+                    HealthEvent.schedule_template_name,
+                    HealthEvent.product_name,
+                    HealthEvent.disease_target,
+                )
+                .where(
+                    HealthEvent.animal_id == animal.id,
+                    HealthEvent.schedule_template_id.is_(None),
+                    HealthEvent.type.in_(
+                        [HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value]
+                    ),
+                )
+                .order_by(HealthEvent.date.desc(), HealthEvent.id.desc())
+                .limit(LEGACY_SCHEDULE_SCAN_LIMIT)
+            )
+        ).all()
+        for legacy_event in legacy_rows:
+            for template in templates:
+                if _legacy_event_matches(
+                    template.name,
+                    event_type=legacy_event.event_type,
+                    schedule_template_name=legacy_event.schedule_template_name,
+                    product_name=legacy_event.product_name,
+                    disease_target=legacy_event.disease_target,
+                ):
+                    events_by_template[template.id].append(legacy_event)
+
+        for matches in events_by_template.values():
+            matches.sort(key=lambda row: (row.event_date, row.event_id), reverse=True)
+            del matches[2:]
 
     rows: list[dict[str, Any]] = []
-    templates_result = await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.id))
-    for template in templates_result.scalars():
-        if template.first_dose_age_months is None and not template.repeat_months:
-            continue  # pregnancy-linked (ET+TT pre-kidding) handled via tasks
+    for template in templates:
         first_due = (
             add_months(dob, template.first_dose_age_months)
             if dob and template.first_dose_age_months is not None
@@ -287,9 +488,9 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
             if first_due and template.booster_weeks
             else None
         )
-        done = [e for e in events if _matches(template.name, e)]
-        last_done = done[-1].date if done else None
-        last_event = done[-1] if done else None
+        done = events_by_template[template.id]
+        last_event = done[0] if done else None
+        last_done = last_event.event_date if last_event is not None else None
         next_due = None
         if last_event and last_event.next_due_date and last_event.next_due_authority:
             next_due = last_event.next_due_date

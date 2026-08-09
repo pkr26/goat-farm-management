@@ -431,6 +431,17 @@ def test_sensitivity_tornado_sorted() -> None:
     assert meat.delta_npv_high > 0.0 > meat.delta_npv_low
 
 
+def test_sensitivity_high_conception_never_reduces_a_valid_one_hundred_percent_base() -> None:
+    assumptions = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
+    assumptions.reproduction.conception_rate = 1.0
+    item = next(
+        result for result in run_sensitivity(assumptions) if result.parameter == "conception_rate"
+    )
+    # The +20% case clamps at the schema/domain ceiling (1.0). The old 0.98
+    # clamp mislabeled a two-point reduction as the optimistic scenario.
+    assert item.delta_npv_high == pytest.approx(0.0)
+
+
 def test_run_simulation_optional_blocks() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     a.risk.monte_carlo_runs = 10

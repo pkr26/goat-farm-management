@@ -101,7 +101,9 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         method: "DELETE",
         body: JSON.stringify({ current_password: deletePassword }),
       });
-      toast.success("Your account was permanently deleted.");
+      toast.success(
+        "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",
+      );
       await signOut();
     } catch (error) {
       setDeleteError(
@@ -244,8 +246,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             Delete account
           </h3>
           <p className="text-xs text-muted-foreground">
-            This permanently deletes your account and memberships. If you own any farm, the
-            server blocks deletion so that its operational records cannot be orphaned.
+            Deletion removes your sign-in identity and profile and disables your farm access.
+            Inactive membership rows and operational records may retain a pseudonymous audit
+            reference.
+            If you own any farm, deletion is blocked so its records cannot be orphaned.
           </p>
           {!deleteMode ? (
             <Button
@@ -259,7 +263,8 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           ) : (
             <div className="space-y-3">
               <p className="text-sm font-medium">
-                Enter your current password to confirm permanent deletion.
+                Enter your current password to confirm deletion of your sign-in identity and farm
+                access.
               </p>
               {deleteError && (
                 <p role="alert" className="text-sm text-destructive">
@@ -283,7 +288,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   disabled={!deletePassword || deleting}
                   onClick={() => void deleteAccount()}
                 >
-                  {deleting ? "Deleting…" : "Permanently delete account"}
+                  {deleting ? "Deleting…" : "Delete account and access"}
                 </Button>
                 <Button
                   type="button"

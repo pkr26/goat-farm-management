@@ -8,7 +8,7 @@
 # is a PostgreSQL INTEGER (int32). A `related_animal_id` above 2**31 - 1
 # passed validation, then the `db.get(Animal, ...)` lookup in api/finance.py
 # crashed with asyncpg DataError → 500. Fixed: lookups treat ids above the
-# int4 ceiling as unknown (the documented strip → 201), never binding them.
+# int4 ceiling as an invalid explicit reference (400), never binding them.
 # Bug 3 — POST /api/finance/new with a non-finite amount (raw JSON `NaN` /
 # `Infinity`): pydantic's FiniteFloat validator correctly raised, but
 # FastAPI's default RequestValidationError handler failed to SERIALIZE the
@@ -66,9 +66,7 @@ async def test_related_animal_id_above_int32_should_not_500(client: httpx.AsyncC
         json=txn_payload(related_animal_id=3_000_000_000),  # passes BoundedId (<= 2**62)
         headers=owner,
     )
-    # Expected: 201 with the unknown link stripped (documented behavior), or a
-    # 422 from a bound that matches the int32 PK — never a 500 crash.
-    assert resp.status_code in (201, 422), resp.text
+    assert resp.status_code == 400, resp.text
 
 
 async def test_related_animal_id_bounded_max_should_not_500(client: httpx.AsyncClient) -> None:
@@ -76,7 +74,7 @@ async def test_related_animal_id_bounded_max_should_not_500(client: httpx.AsyncC
     resp = await client.post(
         "/api/finance/new", json=txn_payload(related_animal_id=2**62), headers=owner
     )
-    assert resp.status_code in (201, 422), resp.text
+    assert resp.status_code == 400, resp.text
 
 
 @pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity"])

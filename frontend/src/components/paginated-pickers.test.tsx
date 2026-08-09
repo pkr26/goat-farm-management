@@ -43,6 +43,7 @@ function animal(id: number): AnimalOut {
     restriction_cleared_at: null,
     restriction_cleared_by_id: null,
     restriction_clearance_reference: null,
+    restriction_version: 0,
     mortality_cause: null,
     mortality_reported_at: null,
     notes: null,
@@ -55,10 +56,7 @@ function animal(id: number): AnimalOut {
 function batch(id: number): HealthPurchaseBatchOptionOut {
   return {
     id,
-    date: "2026-08-01",
-    supplier: "Solapur Market",
-    count: 12,
-    active_animal_count: 12,
+    active_quarantine_animal_count: 12,
   };
 }
 
@@ -67,7 +65,7 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("paginated domain pickers", () => {
-  it("intersects breeding eligibility while continuing source pagination beyond 200", async () => {
+  it("loads only breeding-scoped identities in bounded pages beyond 200", async () => {
     const requests: Array<{ offset: number; limit: number; query: string | null }> = [];
     server.use(
       http.get("/api/breeding/candidates", ({ request }) => {
@@ -113,7 +111,6 @@ describe("paginated domain pickers", () => {
             kind="doe"
             value={value}
             onValueChange={setValue}
-            eligibleIds={[201]}
             placeholder="Select doe"
             dialogTitle="Choose a breeding-ready doe"
           />
@@ -125,9 +122,7 @@ describe("paginated domain pickers", () => {
     render(<Harness />);
     await user.click(screen.getByRole("combobox", { name: "Doe" }));
     const dialog = screen.getByRole("dialog", { name: "Choose a breeding-ready doe" });
-    expect(
-      await within(dialog).findByText(/No listed eligible animals in the records checked yet/),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByRole("option", { name: /G-0001/ })).toBeInTheDocument();
 
     for (let page = 0; page < 4; page += 1) {
       await user.click(within(dialog).getByRole("button", { name: "Load more" }));
@@ -185,9 +180,11 @@ describe("paginated domain pickers", () => {
 
     await user.click(screen.getByRole("combobox", { name: "Purchase batch" }));
     const purchaseSearch = screen.getByLabelText("Search health purchase batches");
-    expect(purchaseSearch).toHaveAttribute("maxlength", "120");
+    expect(purchaseSearch).toHaveAttribute("maxlength", "20");
     await user.type(purchaseSearch, "#201");
     await waitFor(() => expect(purchaseQueries).toContain("#201"));
-    expect(await screen.findByRole("option", { name: /#201.*Solapur Market/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("option", { name: "Batch #201 — 12 active in quarantine" }),
+    ).toBeInTheDocument();
   });
 });

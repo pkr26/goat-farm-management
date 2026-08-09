@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -57,12 +57,27 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import {
+  formatPersistedKg,
+  MIN_PERSISTED_KG,
+  MIN_PERSISTED_KG_MESSAGE,
+} from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 
-/** Sentinel for "no recipe" in the dispense select (empty string is not a valid item value). */
-const NONE = "none";
+/** Explicit virtual recipe used by quarantine animals on days 1–3. */
+const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
 
 type ShiftCell = { shift: string; pct: number; kg: number; time: string };
+
+function allocationShiftKey(bucket: string, recipe: string, shift: string): string {
+  return `${bucket}\u0000${recipe}\u0000${shift}`;
+}
+
+/** Quantities are stored to 3 decimals; tolerate floating-point addition at
+ * half of the smallest persisted unit when comparing actual with planned. */
+function meetsPlannedQuantity(actual: number, planned: number): boolean {
+  return actual + 0.0005 >= planned;
+}
 
 /** The generated PlanLineOutShiftsItem is schema-less ({[key: string]:
  *  unknown}), so validate the fields the plan table renders instead of
@@ -112,7 +127,10 @@ function FeedingNav({ active }: { active: string }) {
 }
 
 const settingSchema = z.object({
-  daily_kg_per_head: z.coerce.number().positive("kg/head must be greater than 0"),
+  daily_kg_per_head: z.coerce
+    .number()
+    .positive("kg/head must be greater than 0")
+    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE),
 });
 type SettingInput = z.input<typeof settingSchema>;
 type SettingValues = z.output<typeof settingSchema>;
@@ -211,8 +229,11 @@ const dispenseSchema = z.object({
     "FEMALE_KIDS",
   ]),
   shift: z.enum(["MORNING", "AFTERNOON", "NIGHT"]),
-  recipe_code: z.string().optional(),
-  qty_kg: z.coerce.number().positive("Quantity must be greater than 0"),
+  recipe_code: z.string().min(1, "Pick a recipe"),
+  qty_kg: z.coerce
+    .number()
+    .positive("Quantity must be greater than 0")
+    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE),
   date: z
     .string()
     .min(1, "Date is required")
@@ -250,12 +271,16 @@ export default function FeedingPage() {
 
   const recipesQuery = useListRecipesApiFeedingRecipesGet({ query: { enabled: canManage } });
   const recipes = recipesQuery.data?.status === 200 ? recipesQuery.data.data.recipes : [];
+  const recipeOptions = new Map(recipes.map((recipe) => [recipe.code, recipe.name]));
+  for (const line of payload?.lines ?? []) {
+    recipeOptions.set(line.recipe_code, line.recipe_name);
+  }
+  if ([...(payload?.lines ?? [])].some((line) => line.recipe_code === DRY_ROUGHAGE)) {
+    recipeOptions.set(DRY_ROUGHAGE, "Dry roughage only");
+  }
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
-  const recipeItems: Record<string, string> = {
-    [NONE]: "— none —",
-    ...Object.fromEntries(recipes.map((r) => [r.code, r.name])),
-  };
+  const recipeItems: Record<string, string> = Object.fromEntries(recipeOptions);
 
   const dispenseMutation = useDispenseApiFeedingDispensePost();
   const {
@@ -267,7 +292,7 @@ export default function FeedingPage() {
     formState: { errors, isSubmitting },
   } = useForm<DispenseInput, unknown, DispenseValues>({
     resolver: zodResolver(dispenseSchema),
-    defaultValues: { bucket: "QUARANTINE", shift: "MORNING", recipe_code: NONE, date: localToday() },
+    defaultValues: { bucket: "QUARANTINE", shift: "MORNING", recipe_code: "", date: localToday() },
   });
   const wBucket = useWatch({ control, name: "bucket" });
   const wRecipeCode = useWatch({ control, name: "recipe_code" });
@@ -279,7 +304,7 @@ export default function FeedingPage() {
         data: {
           bucket: values.bucket,
           shift: values.shift,
-          recipe_code: values.recipe_code && values.recipe_code !== NONE ? values.recipe_code : null,
+          recipe_code: values.recipe_code,
           qty_kg: values.qty_kg,
           date: values.date || null,
         },
@@ -317,17 +342,42 @@ export default function FeedingPage() {
   }
 
   const today = localToday();
+  const dispensedByAllocationShift = new Map<string, number>();
   const dispensedByBucket = new Map<string, number>();
-  for (const r of payload.records) {
-    dispensedByBucket.set(r.bucket, (dispensedByBucket.get(r.bucket) ?? 0) + r.qty_kg);
+  for (const total of payload.dispensed_totals) {
+    if (total.recipe_code) {
+      const key = allocationShiftKey(total.bucket, total.recipe_code, total.shift);
+      dispensedByAllocationShift.set(
+        key,
+        (dispensedByAllocationShift.get(key) ?? 0) + total.qty_kg,
+      );
+    }
+    dispensedByBucket.set(
+      total.bucket,
+      (dispensedByBucket.get(total.bucket) ?? 0) + total.qty_kg,
+    );
   }
-  // One bucket can be split across several plan lines (one per recipe), each
-  // with its own daily_kg — the "done" badge must compare the bucket-wide
-  // dispensed total against the SUM of that bucket's lines, never against a
-  // single line.
   const plannedByBucket = new Map<string, number>();
+  const bucketAllocationState = new Map<string, { complete: number; total: number }>();
   for (const l of payload.lines) {
     plannedByBucket.set(l.bucket, (plannedByBucket.get(l.bucket) ?? 0) + l.daily_kg);
+    const shifts = l.shifts.map(toShiftCell);
+    const lineComplete =
+      shifts.length > 0 &&
+      shifts.every(
+        (shift) =>
+          meetsPlannedQuantity(
+            dispensedByAllocationShift.get(
+              allocationShiftKey(l.bucket, l.recipe_code, shift.shift),
+            ) ?? 0,
+            shift.kg,
+          ),
+      );
+    const current = bucketAllocationState.get(l.bucket) ?? { complete: 0, total: 0 };
+    bucketAllocationState.set(l.bucket, {
+      complete: current.complete + (lineComplete ? 1 : 0),
+      total: current.total + 1,
+    });
   }
 
   return (
@@ -338,11 +388,14 @@ export default function FeedingPage() {
         actions={
           canManage && (
             <Button
+              disabled={recipeOptions.size === 0}
               onClick={() => {
+                const firstLine = payload.lines[0];
+                const firstRecipe = firstLine?.recipe_code ?? recipeOptions.keys().next().value ?? "";
                 reset({
-                  bucket: (payload.lines[0]?.bucket ?? "QUARANTINE") as DispenseValues["bucket"],
+                  bucket: (firstLine?.bucket ?? "QUARANTINE") as DispenseValues["bucket"],
                   shift: "MORNING",
-                  recipe_code: NONE,
+                  recipe_code: firstRecipe,
                   qty_kg: undefined,
                   date: today,
                 });
@@ -357,6 +410,21 @@ export default function FeedingPage() {
 
       <FeedingNav active="Today's plan" />
 
+      {canManage && recipesQuery.isError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm"
+        >
+          <span>
+            Could not load the recipe catalog. Recipes already present in today&apos;s plan remain
+            available; reload the catalog before recording any other ration.
+          </span>
+          <Button type="button" size="sm" variant="outline" onClick={() => void recipesQuery.refetch()}>
+            Retry recipes
+          </Button>
+        </div>
+      )}
+
       <DataTableCard
         title="Plan (headcount × kg/head, split 40 / 20 / 40)"
         description="Per-bucket rations split across the three daily shifts."
@@ -368,7 +436,51 @@ export default function FeedingPage() {
             description="Once animals are active, their ration plan will show up here."
           />
         ) : (
-          <Table>
+          <div className="space-y-4">
+            {payload.records.length < payload.records_total && (
+              <p
+                role="status"
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              >
+                Today&apos;s dispensing log contains {payload.records_total} entries; the log below
+                shows only the latest {payload.records.length} (response limit {payload.records_limit}).
+                Plan progress and completion remain exact because they use full-day totals computed
+                by the server.
+              </p>
+            )}
+            <div>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Bucket totals show volume. A bucket is complete only when every planned recipe and
+                shift is complete.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {[...plannedByBucket].map(([bucketName, planned]) => {
+                  const recorded = dispensedByBucket.get(bucketName) ?? 0;
+                  const allocation = bucketAllocationState.get(bucketName) ?? {
+                    complete: 0,
+                    total: 0,
+                  };
+                  const complete =
+                    allocation.total > 0 && allocation.complete === allocation.total;
+                  return (
+                    <div key={bucketName} className="rounded-lg border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{bucketName}</span>
+                        <Badge variant={complete ? "default" : "secondary"}>
+                          {complete
+                            ? "complete"
+                            : `${allocation.complete}/${allocation.total} rations`}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 tabular-nums">
+                        {formatPersistedKg(recorded)} / {formatPersistedKg(planned)} kg recorded
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Bucket</TableHead>
@@ -376,16 +488,28 @@ export default function FeedingPage() {
                 <TableHead className="text-right">Heads</TableHead>
                 <TableHead className="text-right">kg/head/day</TableHead>
                 <TableHead className="text-right">Daily kg</TableHead>
-                <TableHead className="text-right">Morning 40%</TableHead>
-                <TableHead className="text-right">Afternoon 20%</TableHead>
-                <TableHead className="text-right">Night 40%</TableHead>
-                <TableHead className="text-right">Dispensed</TableHead>
+                <TableHead className="text-right">Morning recorded / planned</TableHead>
+                <TableHead className="text-right">Afternoon recorded / planned</TableHead>
+                <TableHead className="text-right">Night recorded / planned</TableHead>
+                <TableHead className="text-right">Recipe total</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {payload.lines.map((line) => {
                 const shifts = line.shifts.map(toShiftCell);
-                const dispensed = dispensedByBucket.get(line.bucket) ?? 0;
+                const shiftProgress = shifts.map((shift) => ({
+                  ...shift,
+                  dispensed:
+                    dispensedByAllocationShift.get(
+                      allocationShiftKey(line.bucket, line.recipe_code, shift.shift),
+                    ) ?? 0,
+                }));
+                const dispensed = shiftProgress.reduce((sum, shift) => sum + shift.dispensed, 0);
+                const lineComplete =
+                  shiftProgress.length > 0 &&
+                  shiftProgress.every((shift) =>
+                    meetsPlannedQuantity(shift.dispensed, shift.kg),
+                  );
                 return (
                   // One bucket can appear on several lines (split by recipe).
                   <TableRow key={`${line.bucket}:${line.recipe_code}`}>
@@ -397,18 +521,18 @@ export default function FeedingPage() {
                       {canManage && <KgPerHeadDialog line={line} />}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{line.daily_kg}</TableCell>
-                    {shifts.map((s, index) => (
+                    {shiftProgress.map((s, index) => (
                       <TableCell
                         key={`${s.shift}:${index}`}
                         title={`${s.shift} ${s.time}`}
                         className="text-right tabular-nums"
                       >
-                        {s.kg}
+                        {formatPersistedKg(s.dispensed)} / {formatPersistedKg(s.kg)} kg
                       </TableCell>
                     ))}
                     <TableCell className="text-right tabular-nums">
-                      {dispensed.toFixed(1)} kg
-                      {dispensed >= (plannedByBucket.get(line.bucket) ?? line.daily_kg) && (
+                      {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
+                      {lineComplete && (
                         <Badge
                           variant="outline"
                           className="ml-2 border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
@@ -422,7 +546,8 @@ export default function FeedingPage() {
                 );
               })}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         )}
         <p className="mt-3 text-sm text-muted-foreground">
           Shifts: MORNING 6:30 AM (sweep bunks first) · AFTERNOON 1:30 PM · NIGHT 7:30 PM. RESTING
@@ -430,7 +555,7 @@ export default function FeedingPage() {
         </p>
       </DataTableCard>
 
-      <DataTableCard title="Today's dispensing log">
+      <DataTableCard title={`Today's dispensing log (${payload.records_total})`}>
         {payload.records.length === 0 ? (
           <EmptyState
             icon={Wheat}
@@ -453,11 +578,19 @@ export default function FeedingPage() {
                   <TableCell>{r.shift}</TableCell>
                   <TableCell>{r.bucket}</TableCell>
                   <TableCell>{r.recipe_code ?? "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{r.qty_kg.toFixed(1)}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatPersistedKg(r.qty_kg)}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+        )}
+        {payload.records.length < payload.records_total && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Showing the latest {payload.records.length} of {payload.records_total} entries. Use
+            dispensing history below to browse the full ledger.
+          </p>
         )}
       </DataTableCard>
 
@@ -552,7 +685,7 @@ export default function FeedingPage() {
                     <TableCell>{record.bucket}</TableCell>
                     <TableCell>{record.recipe_code ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {record.qty_kg.toFixed(1)}
+                      {formatPersistedKg(record.qty_kg)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -580,9 +713,13 @@ export default function FeedingPage() {
                 <Label htmlFor="dispense-bucket">Bucket</Label>
                 <Select
                   value={wBucket}
-                  onValueChange={(v) =>
-                    setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: true })
-                  }
+                  onValueChange={(v) => {
+                    setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: true });
+                    const plannedRecipe = payload.lines.find((line) => line.bucket === v)?.recipe_code;
+                    if (plannedRecipe) {
+                      setValue("recipe_code", plannedRecipe, { shouldValidate: true });
+                    }
+                  }}
                 >
                   <SelectTrigger id="dispense-bucket" className="w-full">
                     <SelectValue />
@@ -617,32 +754,36 @@ export default function FeedingPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="dispense-recipe">Recipe</Label>
+                <Label htmlFor="dispense-recipe">Recipe *</Label>
                 <Select
-                  value={wRecipeCode || NONE}
-                  onValueChange={(v) => setValue("recipe_code", v)}
+                  value={wRecipeCode}
+                  onValueChange={(v) => setValue("recipe_code", v, { shouldValidate: true })}
                   items={recipeItems}
                 >
                   <SelectTrigger id="dispense-recipe" className="w-full">
                     <SelectValue placeholder="recipe…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE}>— none —</SelectItem>
-                    {recipes.map((r) => (
-                      <SelectItem key={r.code} value={r.code}>
-                        {r.name}
+                    {[...recipeOptions].map(([code, name]) => (
+                      <SelectItem key={code} value={code}>
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {errors.recipe_code && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {errors.recipe_code.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="qty_kg">Quantity (kg) *</Label>
                 <Input
                   id="qty_kg"
                   type="number"
-                  step="0.1"
-                  min="0.1"
+                  step="0.001"
+                  min="0.0005"
                   placeholder="kg"
                   aria-invalid={Boolean(errors.qty_kg) || undefined}
                   aria-describedby={errors.qty_kg ? "qty-kg-error" : undefined}

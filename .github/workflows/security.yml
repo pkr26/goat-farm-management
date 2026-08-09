@@ -51,7 +51,7 @@ jobs:
   container:
     name: Container scan and SBOM
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -63,7 +63,15 @@ jobs:
           push: false
           load: true
           tags: goatfarm-backend:security
-      - name: Generate SPDX SBOM
+      - name: Build frontend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: false
+          load: true
+          tags: goatfarm-frontend:security
+      - name: Generate backend SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: goatfarm-backend:security
@@ -71,10 +79,26 @@ jobs:
           output-file: sbom.spdx.json
           artifact-name: goatfarm-backend-sbom
           upload-artifact-retention: 30
-      - name: Scan image for fixable high/critical vulnerabilities
+      - name: Generate frontend SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: goatfarm-frontend:security
+          format: spdx-json
+          output-file: frontend-sbom.spdx.json
+          artifact-name: goatfarm-frontend-sbom
+          upload-artifact-retention: 30
+      - name: Scan backend image for fixable high/critical vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: goatfarm-backend:security
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan frontend image for fixable high/critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: goatfarm-frontend:security
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true

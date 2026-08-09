@@ -5,7 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .common import BoundedId, MoneyFloat, NonNegativeMoneyFloat, PastOrTodayDate
+from .common import (
+    BoundedId,
+    MoneyFloat,
+    NonNegativeMoneyFloat,
+    PastOrTodayDate,
+    StrictInputModel,
+)
 
 TransactionTypeStr = Literal["INCOME", "EXPENSE"]
 # Mirrors models.TransactionCategory exactly (v1 validated against the enum).
@@ -23,13 +29,13 @@ TransactionCategoryStr = Literal[
 ]
 
 
-class TransactionIn(BaseModel):
+class TransactionIn(StrictInputModel):
     date: PastOrTodayDate
     type: TransactionTypeStr
     category: TransactionCategoryStr
     amount: MoneyFloat
     notes: str | None = Field(default=None, max_length=255)  # transactions.notes String(255)
-    related_animal_id: BoundedId | None = None  # cross-farm ids are stripped
+    related_animal_id: BoundedId | None = None  # API verifies same-farm existence
 
 
 class TransactionOut(BaseModel):
@@ -52,12 +58,14 @@ class TransactionOut(BaseModel):
     void_reason: str | None
 
 
-class TransactionCorrectionIn(BaseModel):
+class TransactionCorrectionIn(StrictInputModel):
     """Audited replacement for an existing ledger row.
 
     Zero is allowed here so an erroneous system-generated amount can be
     neutralized without deleting its provenance.
     """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
 
     date: PastOrTodayDate
     type: TransactionTypeStr

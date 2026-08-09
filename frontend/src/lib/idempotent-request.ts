@@ -1,0 +1,423 @@
+/**
+ * Client-side idempotency for the small set of mutations that can create
+ * duplicate financial or stock effects.
+ *
+ * Successful requests are never cached. Only an in-flight promise, or the key
+ * from an ambiguous/retryable failure, is retained. This deliberately avoids
+ * generic response caching and prevents separate completed user actions from
+ * being collapsed together.
+ */
+
+const RETRY_KEY_TTL_MS = 2 * 60 * 1000;
+const MAX_LOGICAL_REQUESTS = 128;
+const MAX_STORAGE_BYTES = 64 * 1024;
+const PERSISTENCE_VERSION = 1;
+export const IDEMPOTENCY_SESSION_STORAGE_KEY = "goatfarm:idempotency:v1";
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+type LogicalRequest<T> = {
+  key: string;
+  expiresAt: number;
+  promise: Promise<T> | null;
+  signal: AbortSignal | null;
+  persistedDigest: string | null;
+};
+
+type PersistedLogicalRequest = {
+  version: number;
+  digest: string;
+  key: string;
+  expiresAt: number;
+};
+
+const logicalRequests = new Map<string, LogicalRequest<unknown>>();
+
+function availableSessionStorage(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedRecords(
+  storage: Storage,
+  records: PersistedLogicalRequest[],
+): void {
+  try {
+    if (records.length === 0) storage.removeItem(IDEMPOTENCY_SESSION_STORAGE_KEY);
+    else storage.setItem(IDEMPOTENCY_SESSION_STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    // Storage can be disabled or over quota. Realm-only idempotency remains.
+  }
+}
+
+function readPersistedRecords(storage: Storage, now: number): PersistedLogicalRequest[] {
+  let raw: string | null;
+  try {
+    raw = storage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY);
+  } catch {
+    return [];
+  }
+  if (raw === null) return [];
+  if (raw.length > MAX_STORAGE_BYTES) {
+    writePersistedRecords(storage, []);
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    writePersistedRecords(storage, []);
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    writePersistedRecords(storage, []);
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const records: PersistedLogicalRequest[] = [];
+  for (const candidate of parsed) {
+    if (typeof candidate !== "object" || candidate === null) continue;
+    const record = candidate as Partial<PersistedLogicalRequest>;
+    if (
+      record.version !== PERSISTENCE_VERSION ||
+      typeof record.digest !== "string" ||
+      !SHA256_PATTERN.test(record.digest) ||
+      typeof record.key !== "string" ||
+      !UUID_V4_PATTERN.test(record.key) ||
+      typeof record.expiresAt !== "number" ||
+      !Number.isFinite(record.expiresAt) ||
+      record.expiresAt <= now ||
+      record.expiresAt > now + RETRY_KEY_TTL_MS ||
+      seen.has(record.digest)
+    ) {
+      continue;
+    }
+    seen.add(record.digest);
+    records.push({
+      version: PERSISTENCE_VERSION,
+      digest: record.digest,
+      key: record.key,
+      expiresAt: record.expiresAt,
+    });
+  }
+  records.sort((left, right) => right.expiresAt - left.expiresAt);
+  const bounded = records.slice(0, MAX_LOGICAL_REQUESTS);
+  if (JSON.stringify(bounded) !== raw) writePersistedRecords(storage, bounded);
+  return bounded;
+}
+
+function loadPersistedKey(digest: string, now: number): string | null {
+  const storage = availableSessionStorage();
+  if (!storage) return null;
+  return readPersistedRecords(storage, now).find((record) => record.digest === digest)?.key ?? null;
+}
+
+function persistKey(digest: string | null, key: string, now: number): void {
+  if (!digest) return;
+  const storage = availableSessionStorage();
+  if (!storage) return;
+  const records = readPersistedRecords(storage, now).filter(
+    (record) => record.digest !== digest,
+  );
+  records.unshift({
+    version: PERSISTENCE_VERSION,
+    digest,
+    key,
+    expiresAt: now + RETRY_KEY_TTL_MS,
+  });
+  writePersistedRecords(storage, records.slice(0, MAX_LOGICAL_REQUESTS));
+}
+
+function removePersistedKey(digest: string | null): void {
+  if (!digest) return;
+  const storage = availableSessionStorage();
+  if (!storage) return;
+  const records = readPersistedRecords(storage, Date.now()).filter(
+    (record) => record.digest !== digest,
+  );
+  writePersistedRecords(storage, records);
+}
+
+async function sha256(value: string): Promise<string | null> {
+  try {
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle || typeof TextEncoder === "undefined") return null;
+    const digest = await subtle.digest("SHA-256", new TextEncoder().encode(value));
+    return Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+  } catch {
+    // Never replace a cryptographic digest with a collision-prone weak hash.
+    return null;
+  }
+}
+
+function requestPath(url: string): string {
+  try {
+    return new URL(url, "https://goatfarm.invalid").pathname;
+  } catch {
+    return url.split(/[?#]/, 1)[0];
+  }
+}
+
+/** Exact allowlist of the generated mutation routes backed by idempotency. */
+export function isIdempotencyProtectedMutation(url: string, method?: string): boolean {
+  if ((method ?? "GET").toUpperCase() !== "POST") return false;
+  const path = requestPath(url);
+  return (
+    path === "/api/auth/farms" ||
+    path === "/api/finance/new" ||
+    /^\/api\/finance\/transactions\/\d+\/correct$/.test(path) ||
+    path === "/api/purchases/new" ||
+    path === "/api/animals" ||
+    /^\/api\/animals\/\d+\/weight$/.test(path) ||
+    path === "/api/tasks" ||
+    path === "/api/team/workers" ||
+    path === "/api/health/events" ||
+    path === "/api/simulation/scenarios" ||
+    path === "/api/feeding/dispense" ||
+    path === "/api/feeding/mix" ||
+    /^\/api\/feeding\/inventory\/\d+\/add$/.test(path)
+  );
+}
+
+function randomIdempotencyKey(): string {
+  const cryptography = globalThis.crypto;
+  if (!cryptography) {
+    throw new Error("Secure random generation is unavailable; mutation was not sent.");
+  }
+  if (typeof cryptography.randomUUID === "function") return cryptography.randomUUID();
+
+  const bytes = new Uint8Array(16);
+  cryptography.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function bodySignature(body: BodyInit | null | undefined): string {
+  if (body == null) return "";
+  if (typeof body === "string") return body;
+  if (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) {
+    return body.toString();
+  }
+  // Every protected generated endpoint currently sends JSON text. Refuse to
+  // guess equality for streams/blobs, where consuming or stringifying the
+  // body could corrupt the real request.
+  throw new Error("Protected mutations require a replayable string request body.");
+}
+
+function headerSignature(headers: Headers): string {
+  return Array.from(headers.entries())
+    .filter(([name]) => name.toLowerCase() !== "idempotency-key")
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name.toLowerCase()}:${value}`)
+    .join("\n");
+}
+
+function logicalSignature(
+  url: string,
+  init: RequestInit,
+  farmScope: string | null,
+  sessionScope: number,
+  callerKey: string | null,
+): string {
+  const headers = new Headers(init.headers);
+  return [
+    (init.method ?? "GET").toUpperCase(),
+    farmScope ?? "",
+    String(sessionScope),
+    url,
+    bodySignature(init.body),
+    headerSignature(headers),
+    callerKey ?? "",
+  ].join("\u0000");
+}
+
+function persistentSignature(
+  url: string,
+  init: RequestInit,
+  farmScope: string | null,
+  actorScope: string,
+): string {
+  const headers = new Headers(init.headers);
+  // Unlike the realm-only signature, this intentionally omits the ephemeral
+  // session epoch so the same authenticated actor can recover after reload.
+  // The stable JWT subject and farm scope prevent a different actor/farm from
+  // loading that key; the backend independently namespaces keys by actor too.
+  return [
+    `v${PERSISTENCE_VERSION}`,
+    (init.method ?? "GET").toUpperCase(),
+    actorScope,
+    farmScope ?? "",
+    url,
+    bodySignature(init.body),
+    headerSignature(headers),
+  ].join("\u0000");
+}
+
+function hasHttpStatus(error: unknown): error is { status: number } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "status" in error &&
+    typeof (error as { status?: unknown }).status === "number"
+  );
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
+function shouldRetainForExplicitRetry(error: unknown): boolean {
+  if (!hasHttpStatus(error)) return true;
+  return error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
+}
+
+function cleanup(now: number): void {
+  for (const [signature, entry] of logicalRequests) {
+    if (entry.promise === null && entry.expiresAt <= now) logicalRequests.delete(signature);
+  }
+}
+
+function makeRoom(now: number): void {
+  cleanup(now);
+  if (logicalRequests.size < MAX_LOGICAL_REQUESTS) return;
+  for (const [signature, entry] of logicalRequests) {
+    if (entry.promise === null) {
+      logicalRequests.delete(signature);
+      return;
+    }
+  }
+  throw new Error("Too many protected mutations are already in flight. Try again shortly.");
+}
+
+async function executeWithOneNetworkRetry<T>(
+  execute: (init: RequestInit) => Promise<T>,
+  init: RequestInit,
+): Promise<T> {
+  try {
+    return await execute(init);
+  } catch (error) {
+    if (hasHttpStatus(error) || isAbortError(error)) throw error;
+    return execute(init);
+  }
+}
+
+export async function runIdempotencyProtectedRequest<T>({
+  url,
+  init,
+  farmScope,
+  sessionScope,
+  actorScope,
+  execute,
+  cloneResult,
+}: {
+  url: string;
+  init: RequestInit;
+  farmScope: string | null;
+  sessionScope: number;
+  actorScope: string | null;
+  execute: (init: RequestInit) => Promise<T>;
+  cloneResult?: (result: T) => T;
+}): Promise<T> {
+  if (!isIdempotencyProtectedMutation(url, init.method)) return execute(init);
+
+  const headers = new Headers(init.headers);
+  const callerProvidedKey = headers.has("Idempotency-Key");
+  const callerKey = callerProvidedKey ? headers.get("Idempotency-Key") : null;
+  const signal = init.signal ?? null;
+  const signature = logicalSignature(url, init, farmScope, sessionScope, callerKey);
+  const persistedDigest =
+    // An opaque/non-JWT token has no stable actor identity. In that case we
+    // fail safely back to memory-only behavior instead of persisting a key
+    // that a later login could claim.
+    !callerProvidedKey && actorScope
+      ? await sha256(persistentSignature(url, init, farmScope, actorScope))
+      : null;
+  const now = Date.now();
+  cleanup(now);
+
+  let entry = logicalRequests.get(signature) as LogicalRequest<T> | undefined;
+  if (entry?.promise) {
+    // Sharing is safe only when cancellation ownership is also shared. A
+    // different signal must not be silently ignored or cancel another
+    // caller's canonical submission.
+    if (entry.signal !== signal) {
+      const error = new Error(
+        "An identical protected mutation is already running with a different cancellation signal.",
+      );
+      error.name = "ProtectedMutationSignalConflictError";
+      throw error;
+    }
+    const result = await entry.promise;
+    return cloneResult ? cloneResult(result) : result;
+  }
+
+  if (!entry) {
+    makeRoom(now);
+    entry = {
+      key: callerProvidedKey
+        ? (callerKey ?? "")
+        : (persistedDigest ? loadPersistedKey(persistedDigest, now) : null) ??
+          randomIdempotencyKey(),
+      expiresAt: now + RETRY_KEY_TTL_MS,
+      promise: null,
+      signal,
+      persistedDigest,
+    };
+    logicalRequests.set(signature, entry as LogicalRequest<unknown>);
+  }
+
+  // A settled ambiguous request may be explicitly retried with a fresh
+  // signal; it still reuses the retained logical key.
+  entry.signal = signal;
+  // The record is durable before fetch starts, so a reload after an
+  // ambiguous send can recover the exact same key.
+  persistKey(entry.persistedDigest, entry.key, now);
+  headers.set("Idempotency-Key", entry.key);
+  const preparedInit: RequestInit = { ...init, headers };
+  const currentEntry = entry;
+  const promise = executeWithOneNetworkRetry(execute, preparedInit);
+  currentEntry.promise = promise;
+
+  void promise.then(
+    () => {
+      if (logicalRequests.get(signature) === currentEntry) {
+        logicalRequests.delete(signature);
+        removePersistedKey(currentEntry.persistedDigest);
+      }
+    },
+    (error: unknown) => {
+      if (logicalRequests.get(signature) !== currentEntry) return;
+      if (shouldRetainForExplicitRetry(error)) {
+        currentEntry.promise = null;
+        currentEntry.expiresAt = Date.now() + RETRY_KEY_TTL_MS;
+        persistKey(currentEntry.persistedDigest, currentEntry.key, Date.now());
+      } else {
+        logicalRequests.delete(signature);
+        removePersistedKey(currentEntry.persistedDigest);
+      }
+    },
+  );
+
+  const result = await promise;
+  return cloneResult ? cloneResult(result) : result;
+}
+
+/** Clears realm memory only; session storage intentionally survives reloads. */
+export function clearIdempotencyRequestState(): void {
+  logicalRequests.clear();
+}

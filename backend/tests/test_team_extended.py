@@ -13,15 +13,17 @@ Expected preset bundles below are HARDCODED (not imported from
 """
 
 import asyncio
+from datetime import timedelta
 
 import httpx
 import pytest
-from sqlalchemy import event, select, text
+from sqlalchemy import event, func, insert, select, text
 
+import app.api.team as team_api
 from app.core.config import get_settings
 from app.db import get_engine, get_sessionmaker
-from app.models import FarmMembership, User
-from app.utils import today
+from app.models import FarmMembership, Role, Task, User
+from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, register
 
@@ -125,7 +127,7 @@ TEAM_ENDPOINTS: list[tuple[str, str]] = [
     ("GET", "/api/team"),
     ("POST", "/api/team/workers"),
     ("POST", "/api/team/workers/1/role"),
-    ("POST", "/api/team/workers/1/toggle"),
+    ("PUT", "/api/team/workers/1/status"),
     ("POST", "/api/team/workers/1/reset-password"),
     ("POST", "/api/team/roles"),
     ("PUT", "/api/team/roles/1"),
@@ -174,6 +176,19 @@ async def add_worker(
     return await client.post("/api/team/workers", json=payload, headers=owner)
 
 
+async def set_worker_active(
+    client: httpx.AsyncClient,
+    headers: dict,
+    membership_id: int,
+    is_active: bool,
+) -> httpx.Response:
+    return await client.put(
+        f"/api/team/workers/{membership_id}/status",
+        json={"is_active": is_active},
+        headers=headers,
+    )
+
+
 async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, email: str) -> dict:
     """Owner adds a worker with preset role `code`; returns farm headers."""
     rid = await role_id(client, owner, code)
@@ -184,6 +199,7 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, code: str, emai
 
 
 async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001") -> int:
+    dob = today() - timedelta(days=800)
     resp = await client.post(
         "/api/animals",
         json={
@@ -191,6 +207,10 @@ async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001"
             "sex": "F",
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
+            "date_of_birth": dob.isoformat(),
+            "weight_kg": 26.0,
+            "weight_date": dob.isoformat(),
+            "historical_import_reason": "Existing-herd RBAC fixture",
         },
         headers=owner,
     )
@@ -522,10 +542,25 @@ async def test_feeder_allowed_and_forbidden_writes(client: httpx.AsyncClient) ->
     feeder = await worker_headers(client, owner, "FEEDER", "feeder@farm.in")
     animal_id = await make_animal(client, owner)
 
+    inventory = await client.get("/api/feeding/inventory", headers=owner)
+    assert inventory.status_code == 200, inventory.text
+    dry_stover = next(row for row in inventory.json() if row["ingredient"] == "Dry jowar stover")
+    stocked = await client.post(
+        f"/api/feeding/inventory/{dry_stover['id']}/add",
+        json={"qty_kg": 5},
+        headers=owner,
+    )
+    assert stocked.status_code == 200, stocked.text
+
     # his job: record dispensing + ration settings
     resp = await client.post(
         "/api/feeding/dispense",
-        json={"bucket": "FOUNDATION", "shift": "MORNING", "qty_kg": 5},
+        json={
+            "bucket": "FOUNDATION",
+            "shift": "MORNING",
+            "recipe_code": "DRY_ROUGHAGE_ONLY",
+            "qty_kg": 5,
+        },
         headers=feeder,
     )
     assert resp.status_code == 201, resp.text
@@ -712,7 +747,7 @@ async def test_team_page_active_members_first_and_fields(client: httpx.AsyncClie
     assert r1.status_code == 201 and r2.status_code == 201
 
     mid_first = r1.json()["id"]
-    resp = await client.post(f"/api/team/workers/{mid_first}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid_first, False)
     assert resp.status_code == 200, resp.text
 
     page = await team_page(client, owner)
@@ -723,6 +758,69 @@ async def test_team_page_active_members_first_and_fields(client: httpx.AsyncClie
     assert m["role_id"] == mover_rid
     assert m["is_active"] is True
     assert page["memberships"][1]["is_active"] is False
+
+
+async def test_team_page_rejects_legacy_memberships_above_configured_cap(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    farm_id = int(owner["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        for index in range(2):
+            worker = User(
+                email=f"legacy-overflow-{index}@farm.in",
+                password_hash="non-login legacy fixture",
+            )
+            db.add(worker)
+            await db.flush()
+            db.add(
+                FarmMembership(
+                    farm_id=farm_id,
+                    user_id=worker.id,
+                    role_id=cleaner,
+                    is_active=True,
+                    account_provisioned_by_farm=True,
+                )
+            )
+        await db.commit()
+    monkeypatch.setattr(get_settings(), "max_team_members_per_farm", 1)
+
+    response = await client.get("/api/team", headers=owner)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "This farm exceeds the configured team response limit; "
+        "archive legacy memberships before retrying."
+    )
+
+
+async def test_team_page_rejects_legacy_roles_above_configured_cap(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    page = await team_page(client, owner)
+    configured_limit = len(page["roles"])
+    async with get_sessionmaker()() as db:
+        db.add(
+            Role(
+                farm_id=farm_id,
+                code=None,
+                name="Imported overflow role",
+                permissions="[]",
+            )
+        )
+        await db.commit()
+    monkeypatch.setattr(get_settings(), "max_roles_per_farm", configured_limit)
+
+    response = await client.get("/api/team", headers=owner)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "This farm exceeds the configured role response limit; "
+        "archive legacy roles before retrying."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -746,6 +844,169 @@ async def test_create_worker_happy_path(client: httpx.AsyncClient) -> None:
     resp = await client.get("/api/auth/farms", headers=worker)
     assert [f["name"] for f in resp.json()] == ["Alpha Farm"]
     assert resp.json()[0]["role"] == "Veterinarian"
+
+
+async def test_password_hashing_is_never_admitted_before_owner_authorization(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    target = await add_worker(client, owner, cleaner, "target@farm.in")
+    assert target.status_code == 201, target.text
+    manager, _ = await team_manager_headers(client, owner, email="manager@farm.in")
+    stranger = await register(client, email="stranger@farm.in", password="strangerpass1")
+    stranger_headers = stranger | {"X-Farm-Id": owner["X-Farm-Id"]}
+    invalid_farm_headers = owner | {"X-Farm-Id": "999999"}
+
+    hash_calls = 0
+
+    async def forbidden_hash(_password: str) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
+        return "must-not-run"
+
+    monkeypatch.setattr(team_api, "hash_password_async", forbidden_hash)
+    requests = [
+        (
+            "/api/team/workers",
+            {"email": "blocked@farm.in", "password": WORKER_PW, "role_id": cleaner},
+        ),
+        (
+            f"/api/team/workers/{target.json()['id']}/reset-password",
+            {"password": "replacementpass1"},
+        ),
+    ]
+    for path, payload in requests:
+        anonymous = await client.post(path, json=payload, headers={"X-Farm-Id": owner["X-Farm-Id"]})
+        assert anonymous.status_code == 401, anonymous.text
+        no_team = await client.post(path, json=payload, headers=stranger_headers)
+        assert no_team.status_code == 404, no_team.text
+        delegated = await client.post(path, json=payload, headers=manager)
+        assert delegated.status_code == 403, delegated.text
+        invalid_farm = await client.post(path, json=payload, headers=invalid_farm_headers)
+        assert invalid_farm.status_code == 404, invalid_farm.text
+    assert hash_calls == 0
+
+
+@pytest.mark.parametrize("operation", ["create", "reset"])
+async def test_owner_password_hashing_releases_database_and_caller_lock(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    target = await add_worker(client, owner, cleaner, "hash-target@farm.in")
+    assert target.status_code == 201, target.text
+    async with get_sessionmaker()() as db:
+        owner_id = (
+            await db.execute(select(User.id).where(User.email == "owner@farm.in"))
+        ).scalar_one()
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stalled_hash(_password: str) -> str:
+        started.set()
+        await release.wait()
+        return "valid-hash-created-after-authorization"
+
+    monkeypatch.setattr(team_api, "hash_password_async", stalled_hash)
+    if operation == "create":
+        path = "/api/team/workers"
+        payload = {
+            "email": "hash-created@farm.in",
+            "password": WORKER_PW,
+            "role_id": cleaner,
+        }
+        expected_status = 201
+    else:
+        path = f"/api/team/workers/{target.json()['id']}/reset-password"
+        payload = {"password": "replacementpass1"}
+        expected_status = 200
+    request = asyncio.create_task(client.post(path, json=payload, headers=owner))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        assert get_engine().sync_engine.pool.checkedout() == 0
+        # The caller SHARE pin from CurrentUser must also be gone. The route
+        # reacquires and revalidates it only after hashing finishes.
+        async with get_sessionmaker()() as probe:
+            locked_id = (
+                await probe.execute(
+                    select(User.id).where(User.id == owner_id).with_for_update(nowait=True)
+                )
+            ).scalar_one()
+            assert locked_id == owner_id
+            await probe.rollback()
+    finally:
+        release.set()
+    response = await request
+    assert response.status_code == expected_status, response.text
+
+
+async def test_team_member_limit_is_concurrency_safe(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    rid = await role_id(client, owner, "CLEANER")
+    monkeypatch.setattr(get_settings(), "max_team_members_per_farm", 1)
+
+    async def immediate_hash(password: str, *, actor_id: int) -> str:
+        return f"prepared:{password}"
+
+    # This test targets the DB capacity lock, not the earlier per-owner Argon
+    # admission guard. Make password preparation finish in one event-loop turn
+    # so both mutations contend at Farm.
+    monkeypatch.setattr(team_api, "_hash_team_password", immediate_hash)
+
+    first, second = await asyncio.gather(
+        add_worker(client, owner, rid, "capacity-a@farm.in"),
+        add_worker(client, owner, rid, "capacity-b@farm.in"),
+    )
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    rejected = first if first.status_code == 409 else second
+    assert rejected.json()["detail"] == "This farm has reached its team-member limit."
+    assert len((await team_page(client, owner))["memberships"]) == 1
+
+
+async def test_team_capacity_and_roster_keep_inactive_workers_but_exclude_tombstones(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    monkeypatch.setattr(get_settings(), "max_team_members_per_farm", 1)
+    first = await add_worker(client, owner, cleaner, "retained@farm.in")
+    assert first.status_code == 201, first.text
+
+    deactivated = await set_worker_active(client, owner, first.json()["id"], False)
+    assert deactivated.status_code == 200, deactivated.text
+    page = await team_page(client, owner)
+    assert [(row["email"], row["is_active"]) for row in page["memberships"]] == [
+        ("retained@farm.in", False)
+    ]
+    assert next(role for role in page["roles"] if role["id"] == cleaner)["member_count"] == 1
+    blocked = await add_worker(client, owner, cleaner, "blocked@farm.in")
+    assert blocked.status_code == 409, blocked.text
+
+    # Account deletion keeps the membership as an audit/FK anchor, but the
+    # pseudonymous User must consume neither roster space nor capacity.
+    async with get_sessionmaker()() as db:
+        user = await db.get(User, first.json()["user_id"])
+        membership = await db.get(FarmMembership, first.json()["id"])
+        assert user is not None and membership is not None
+        user.email = f"deleted-{user.id}@deleted.invalid"
+        user.name = None
+        user.deleted_at = utcnow()
+        user.token_version += 1
+        membership.is_active = False
+        await db.commit()
+
+    replacement = await add_worker(client, owner, cleaner, "replacement@farm.in")
+    assert replacement.status_code == 201, replacement.text
+    page = await team_page(client, owner)
+    assert [row["email"] for row in page["memberships"]] == ["replacement@farm.in"]
+    assert next(role for role in page["roles"] if role["id"] == cleaner)["member_count"] == 1
 
 
 async def test_create_worker_existing_account_requires_consent_flow(
@@ -851,7 +1112,7 @@ async def test_create_worker_readd_after_deactivation_rejected(client: httpx.Asy
     resp = await add_worker(client, owner, rid, "w@farm.in")
     assert resp.status_code == 201, resp.text
     mid = resp.json()["id"]
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid, False)
     assert resp.status_code == 200, resp.text
     resp = await add_worker(client, owner, rid, "w@farm.in")
     assert resp.status_code == 400
@@ -920,7 +1181,7 @@ async def test_create_worker_role_must_exist_on_this_farm(client: httpx.AsyncCli
         ("abc", 422),
         (1.5, 422),
         (None, 422),
-        (True, 201),  # pydantic lax mode coerces True → 1 (an existing role)
+        (True, 422),  # bool is not an integer id on the JSON wire
     ],
 )
 async def test_create_worker_role_id_boundaries(
@@ -971,7 +1232,7 @@ async def test_create_worker_name_too_long(client: httpx.AsyncClient, name: str)
     assert resp.status_code == 422, resp.status_code
 
 
-async def test_create_worker_unknown_extra_fields_ignored(client: httpx.AsyncClient) -> None:
+async def test_create_worker_unknown_extra_fields_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     rid = await role_id(client, owner, "CLEANER")
     resp = await client.post(
@@ -985,10 +1246,8 @@ async def test_create_worker_unknown_extra_fields_ignored(client: httpx.AsyncCli
         },
         headers=owner,
     )
-    assert resp.status_code == 201, resp.text
-    worker = await login_user(client, "w@farm.in", WORKER_PW)
-    body = await permissions_of(client, worker | {"X-Farm-Id": owner["X-Farm-Id"]})
-    assert set(body["permissions"]) == PRESET_PERMS["CLEANER"]
+    assert resp.status_code == 422, resp.text
+    assert (await team_page(client, owner))["memberships"] == []
 
 
 async def test_create_worker_email_sql_injection_is_inert(client: httpx.AsyncClient) -> None:
@@ -1075,34 +1334,39 @@ async def test_change_role_schema_validation(
 @pytest.mark.parametrize("mid", ["abc", "1.5"])
 async def test_membership_id_path_must_be_int(client: httpx.AsyncClient, mid: str) -> None:
     owner = await owner_with_farm(client)
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await client.put(
+        f"/api/team/workers/{mid}/status", json={"is_active": False}, headers=owner
+    )
     assert resp.status_code == 422, resp.status_code
 
 
 # ---------------------------------------------------------------------------
-# Worker toggle (deactivate / reactivate) & access revocation
+# Worker toggle (deactivate / reactivate) & farm-local access
 # ---------------------------------------------------------------------------
-async def test_deactivation_revokes_all_access(client: httpx.AsyncClient) -> None:
+async def test_deactivation_revokes_only_the_membership_farm(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     mover = await worker_headers(client, owner, "MOVER", "mover@farm.in")
     mid = await membership_id(client, owner, "mover@farm.in")
 
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid, False)
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
-    # Refresh sessions and already-issued bearer tokens both die immediately.
+    # Farm authorization dies immediately, while the global account/session
+    # remains valid for self-service and any independent tenant relationship.
     for url in [
         "/api/tasks",
         "/api/animals",
         "/api/dashboard",
         "/api/auth/permissions",
-        "/api/auth/farms",
-        "/api/auth/me",
     ]:
         resp = await client.get(url, headers=mover)
-        assert resp.status_code == 401, url
-        assert resp.json()["detail"] == "Session has been revoked"
+        assert resp.status_code == 404, url
+        assert resp.json()["detail"] == "Farm not found"
+    farms = await client.get("/api/auth/farms", headers=mover)
+    assert farms.status_code == 200
+    assert farms.json() == []
+    assert (await client.get("/api/auth/me", headers=mover)).status_code == 200
 
 
 async def test_reactivation_restores_access(client: httpx.AsyncClient) -> None:
@@ -1111,40 +1375,118 @@ async def test_reactivation_restores_access(client: httpx.AsyncClient) -> None:
     mid = await membership_id(client, owner, "mover@farm.in")
 
     for expected_active in (False, True):
-        resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["is_active"] is expected_active
+        for _retry in range(2):
+            resp = await set_worker_active(client, owner, mid, expected_active)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["is_active"] is expected_active
 
-    # Reactivation restores account eligibility, but never resurrects a token
-    # explicitly revoked by the deactivation security event.
-    assert (await client.get("/api/animals", headers=mover)).status_code == 401
-    fresh = await login_user(client, "mover@farm.in", WORKER_PW)
-    fresh["X-Farm-Id"] = owner["X-Farm-Id"]
-    assert (await client.get("/api/animals", headers=fresh)).status_code == 200
-    body = await permissions_of(client, fresh)
+    # The original account-level bearer was never revoked, so reactivation
+    # restores this farm without forcing an unrelated global login.
+    assert (await client.get("/api/animals", headers=mover)).status_code == 200
+    body = await permissions_of(client, mover)
     assert set(body["permissions"]) == PRESET_PERMS["MOVER"]
+
+
+async def test_legacy_toggle_is_refused_instead_of_inverting_on_retry(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    await worker_headers(client, owner, "MOVER", "mover@farm.in")
+    mid = await membership_id(client, owner, "mover@farm.in")
+    for _retry in range(2):
+        response = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+        assert response.status_code == 405, response.text
+        assert response.headers["allow"] == "PUT"
+    member = next(
+        row for row in (await team_page(client, owner))["memberships"] if row["id"] == mid
+    )
+    assert member["is_active"] is True
 
 
 async def test_worker_cannot_toggle_own_membership(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     tm, mid = await team_manager_headers(client, owner)
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=tm)
+    resp = await set_worker_active(client, tm, mid, False)
     assert resp.status_code == 400
     assert resp.json()["detail"] == "You cannot deactivate your own membership."
 
 
 async def test_team_manager_can_toggle_other_workers(client: httpx.AsyncClient) -> None:
-    """team.manage is delegable: a non-owner holder may deactivate other workers."""
+    """A delegated manager may toggle a worker within his permission ceiling."""
     owner = await owner_with_farm(client)
-    tm, _ = await team_manager_headers(client, owner)
+    tm, _ = await team_manager_headers(
+        client,
+        owner,
+        extra_perms=["dashboard.view", "tasks.view", "tasks.complete"],
+    )
     await worker_headers(client, owner, "CLEANER", "w@farm.in")
     mid = await membership_id(client, owner, "w@farm.in")
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=tm)
+    resp = await set_worker_active(client, tm, mid, False)
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
 
-async def test_deactivation_reassigns_pending_personal_duties_to_worker_role(
+async def test_manager_deactivation_cannot_revoke_another_farms_session(
+    client: httpx.AsyncClient,
+) -> None:
+    """One tenant controls its membership only, never the shared global identity."""
+    owner_a = await owner_with_farm(client, email="owner-a@farm.in", farm_name="Farm A")
+    owner_b = await owner_with_farm(client, email="owner-b@farm.in", farm_name="Farm B")
+    manager_a, _ = await team_manager_headers(
+        client,
+        owner_a,
+        email="manager-a@farm.in",
+        extra_perms=["dashboard.view", "tasks.view", "tasks.complete"],
+    )
+    cleaner_a = await role_id(client, owner_a, "CLEANER")
+    cleaner_b = await role_id(client, owner_b, "CLEANER")
+    created = await add_worker(client, owner_a, cleaner_a, "shared-worker@farm.in")
+    assert created.status_code == 201, created.text
+    membership_a = created.json()["id"]
+    worker_id = created.json()["user_id"]
+
+    # Invitation support does not exist yet, so construct the independently
+    # accepted Farm B relationship directly as a pre-existing affiliation.
+    async with get_sessionmaker()() as db:
+        db.add(
+            FarmMembership(
+                farm_id=int(owner_b["X-Farm-Id"]),
+                user_id=worker_id,
+                role_id=cleaner_b,
+                is_active=True,
+                account_provisioned_by_farm=False,
+            )
+        )
+        await db.commit()
+
+    bearer = await login_user(client, "shared-worker@farm.in", WORKER_PW)
+    farm_a_bearer = bearer | {"X-Farm-Id": owner_a["X-Farm-Id"]}
+    farm_b_bearer = bearer | {"X-Farm-Id": owner_b["X-Farm-Id"]}
+    assert (await client.get("/api/auth/permissions", headers=farm_a_bearer)).status_code == 200
+    assert (await client.get("/api/auth/permissions", headers=farm_b_bearer)).status_code == 200
+
+    deactivated = await set_worker_active(client, manager_a, membership_a, False)
+    assert deactivated.status_code == 200, deactivated.text
+    assert deactivated.json()["is_active"] is False
+
+    denied_a = await client.get("/api/auth/permissions", headers=farm_a_bearer)
+    assert denied_a.status_code == 404
+    assert denied_a.json()["detail"] == "Farm not found"
+    assert (await client.get("/api/auth/permissions", headers=farm_b_bearer)).status_code == 200
+    assert (await client.get("/api/auth/me", headers=bearer)).status_code == 200
+    farms = await client.get("/api/auth/farms", headers=bearer)
+    assert farms.status_code == 200
+    assert [farm["id"] for farm in farms.json()] == [int(owner_b["X-Farm-Id"])]
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+
+    reactivated = await set_worker_active(client, manager_a, membership_a, True)
+    assert reactivated.status_code == 200, reactivated.text
+    assert reactivated.json()["is_active"] is True
+    # Reactivation is farm-local too; the exact original bearer works again.
+    assert (await client.get("/api/auth/permissions", headers=farm_a_bearer)).status_code == 200
+
+
+async def test_deactivation_preserves_personal_assignments_and_role_visibility(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client)
@@ -1154,6 +1496,11 @@ async def test_deactivation_reassigns_pending_personal_duties_to_worker_role(
     assert added.status_code == 201, added.text
     worker_id = added.json()["user_id"]
     membership = added.json()["id"]
+    peer = await add_worker(client, owner, cleaner_role, "peer@farm.in")
+    assert peer.status_code == 201, peer.text
+    peer_headers = (await login_user(client, "peer@farm.in", WORKER_PW)) | {
+        "X-Farm-Id": owner["X-Farm-Id"]
+    }
 
     personal = await client.post(
         "/api/tasks",
@@ -1170,22 +1517,112 @@ async def test_deactivation_reassigns_pending_personal_duties_to_worker_role(
             "title": "Explicit role duty",
             "due_date": today().isoformat(),
             "assigned_user_id": worker_id,
-            "assigned_role_id": feeder_role,
+            "assigned_role_id": cleaner_role,
         },
         headers=owner,
     )
     assert personal.status_code == explicit.status_code == 201
+    assert personal.json()["assigned_role_id"] == cleaner_role
 
-    resp = await client.post(f"/api/team/workers/{membership}/toggle", headers=owner)
+    mismatched = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Mismatched role duty",
+            "due_date": today().isoformat(),
+            "assigned_user_id": worker_id,
+            "assigned_role_id": feeder_role,
+        },
+        headers=owner,
+    )
+    assert mismatched.status_code == 400, mismatched.text
+    assert mismatched.json()["detail"] == "Assigned worker does not hold the assigned role"
+
+    active_peer_page = (await client.get("/api/tasks", headers=peer_headers)).json()
+    active_peer_task_ids = {
+        row["id"] for value in active_peer_page.values() if isinstance(value, list) for row in value
+    }
+    assert {personal.json()["id"], explicit.json()["id"]}.isdisjoint(active_peer_task_ids)
+
+    resp = await set_worker_active(client, owner, membership, False)
     assert resp.status_code == 200, resp.text
     page = (await client.get("/api/tasks", headers=owner)).json()
     rows = [row for value in page.values() if isinstance(value, list) for row in value]
     personal_after = next(row for row in rows if row["id"] == personal.json()["id"])
     explicit_after = next(row for row in rows if row["id"] == explicit.json()["id"])
-    assert personal_after["assigned_user_id"] is None
+    assert personal_after["assigned_user_id"] == worker_id
     assert personal_after["assigned_role_id"] == cleaner_role
-    assert explicit_after["assigned_user_id"] is None
-    assert explicit_after["assigned_role_id"] == feeder_role
+    assert explicit_after["assigned_user_id"] == worker_id
+    assert explicit_after["assigned_role_id"] == cleaner_role
+
+    peer_page = (await client.get("/api/tasks", headers=peer_headers)).json()
+    peer_task_ids = {
+        row["id"] for value in peer_page.values() if isinstance(value, list) for row in value
+    }
+    assert {personal.json()["id"], explicit.json()["id"]} <= peer_task_ids
+
+
+async def test_worker_toggle_never_scans_or_rewrites_high_cardinality_task_history(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    added = await add_worker(client, owner, cleaner, "history@farm.in")
+    assert added.status_code == 201, added.text
+    farm_id = int(owner["X-Farm-Id"])
+    history_size = 2_000
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            insert(Task),
+            [
+                {
+                    "farm_id": farm_id,
+                    "title": f"Retained personal duty {index}",
+                    "due_date": today(),
+                    "status": "PENDING",
+                    "category": "OTHER",
+                    "auto_generated": False,
+                    "assigned_role_id": cleaner,
+                    "assigned_user_id": added.json()["user_id"],
+                }
+                for index in range(history_size)
+            ],
+        )
+        await db.commit()
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        toggled = await set_worker_active(client, owner, added.json()["id"], False)
+        assert toggled.status_code == 200, toggled.text
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert all("tasks" not in statement.lower() for statement in statements)
+    async with get_sessionmaker()() as db:
+        retained = (
+            await db.execute(
+                select(func.count())
+                .select_from(Task)
+                .where(
+                    Task.farm_id == farm_id,
+                    Task.assigned_user_id == added.json()["user_id"],
+                    Task.assigned_role_id == cleaner,
+                )
+            )
+        ).scalar_one()
+    assert retained == history_size
 
 
 async def test_toggle_membership_not_found(client: httpx.AsyncClient) -> None:
@@ -1194,7 +1631,11 @@ async def test_toggle_membership_not_found(client: httpx.AsyncClient) -> None:
     await worker_headers(client, owner_b, "CLEANER", "w@farm.in")
     mid_b = await membership_id(client, owner_b, "w@farm.in")
     for bad_mid in (999_999, mid_b, -1):
-        resp = await client.post(f"/api/team/workers/{bad_mid}/toggle", headers=owner_a)
+        resp = await client.put(
+            f"/api/team/workers/{bad_mid}/status",
+            json={"is_active": False},
+            headers=owner_a,
+        )
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Membership not found"
 
@@ -1224,7 +1665,7 @@ async def test_reset_capability_is_accurate_on_every_membership_response(
     assert changed.json()["can_reset_password"] is True
     assert changed.json()["reset_password_block_reason"] is None
 
-    deactivated = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
+    deactivated = await set_worker_active(client, owner, membership_id, False)
     assert deactivated.status_code == 200, deactivated.text
     assert deactivated.json()["can_reset_password"] is False
     assert (
@@ -1232,7 +1673,7 @@ async def test_reset_capability_is_accurate_on_every_membership_response(
         == "Reactivate this membership before resetting the password."
     )
 
-    reactivated = await client.post(f"/api/team/workers/{membership_id}/toggle", headers=owner)
+    reactivated = await set_worker_active(client, owner, membership_id, True)
     assert reactivated.status_code == 200, reactivated.text
     assert reactivated.json()["can_reset_password"] is True
     assert reactivated.json()["reset_password_block_reason"] is None
@@ -1262,9 +1703,7 @@ async def test_team_page_reset_capability_is_private_and_complete(
     for response in (eligible, inactive, owns_farm, cross_farm):
         assert response.status_code == 201, response.text
 
-    toggled = await client.post(
-        f"/api/team/workers/{inactive.json()['id']}/toggle", headers=owner_a
-    )
+    toggled = await set_worker_active(client, owner_a, inactive.json()["id"], False)
     assert toggled.status_code == 200, toggled.text
 
     owner_worker_auth = await login_user(client, "owner-worker@farm.in", WORKER_PW)
@@ -1334,18 +1773,14 @@ async def test_team_page_reset_capability_is_private_and_complete(
     assert changed.json()["can_reset_password"] is False
     assert changed.json()["reset_password_block_reason"] == generic_reason
 
-    cross_inactive = await client.post(
-        f"/api/team/workers/{cross_farm.json()['id']}/toggle", headers=owner_a
-    )
+    cross_inactive = await set_worker_active(client, owner_a, cross_farm.json()["id"], False)
     assert cross_inactive.status_code == 200, cross_inactive.text
     assert cross_inactive.json()["can_reset_password"] is False
     assert (
         cross_inactive.json()["reset_password_block_reason"]
         == "Reactivate this membership before resetting the password."
     )
-    cross_reactivated = await client.post(
-        f"/api/team/workers/{cross_farm.json()['id']}/toggle", headers=owner_a
-    )
+    cross_reactivated = await set_worker_active(client, owner_a, cross_farm.json()["id"], True)
     assert cross_reactivated.status_code == 200, cross_reactivated.text
     assert cross_reactivated.json()["can_reset_password"] is False
     assert cross_reactivated.json()["reset_password_block_reason"] == generic_reason
@@ -1430,7 +1865,7 @@ async def test_reset_password_requires_active_membership(client: httpx.AsyncClie
     owner = await owner_with_farm(client)
     await worker_headers(client, owner, "CLEANER", "w@farm.in")
     mid = await membership_id(client, owner, "w@farm.in")
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid, False)
     assert resp.status_code == 200, resp.text
 
     resp = await client.post(
@@ -1534,27 +1969,26 @@ async def test_reset_password_revokes_worker_sessions(client: httpx.AsyncClient)
     assert (await client.post("/api/auth/refresh")).status_code == 200
 
 
-async def test_toggle_deactivation_revokes_worker_sessions(client: httpx.AsyncClient) -> None:
-    """Deactivating a membership ends the worker's sessions too;
-    reactivation lets him sign in fresh."""
+async def test_toggle_deactivation_preserves_global_refresh_session(
+    client: httpx.AsyncClient,
+) -> None:
+    """Farm-local deactivation must not kill an account-level refresh family."""
     owner = await owner_with_farm(client)
     await worker_headers(client, owner, "CLEANER", "w@farm.in")
     mid = await membership_id(client, owner, "w@farm.in")
     worker_cookie = client.cookies.get(COOKIE)
     assert worker_cookie
 
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid, False)
     assert resp.status_code == 200, resp.text
     assert resp.json()["is_active"] is False
 
     client.cookies.clear()
     client.cookies.set(COOKIE, worker_cookie)
-    assert (await client.post("/api/auth/refresh")).status_code == 401
+    assert (await client.post("/api/auth/refresh")).status_code == 200
 
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)  # reactivate
+    resp = await set_worker_active(client, owner, mid, True)
     assert resp.status_code == 200, resp.text
-    client.cookies.clear()
-    await login_user(client, "w@farm.in", WORKER_PW)
     assert (await client.post("/api/auth/refresh")).status_code == 200
 
 
@@ -1582,6 +2016,48 @@ async def test_create_custom_role_happy_path(client: httpx.AsyncClient) -> None:
 
     page = await team_page(client, owner)
     assert any(r["name"] == "Night Watchman" and r["code"] is None for r in page["roles"])
+
+
+async def test_role_limit_is_concurrency_safe(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    existing = len((await team_page(client, owner))["roles"])
+    monkeypatch.setattr(get_settings(), "max_roles_per_farm", existing + 1)
+    first, second = await asyncio.gather(
+        client.post(
+            "/api/team/roles",
+            json={"name": "Capacity A", "permissions": []},
+            headers=owner,
+        ),
+        client.post(
+            "/api/team/roles",
+            json={"name": "Capacity B", "permissions": []},
+            headers=owner,
+        ),
+    )
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    rejected = first if first.status_code == 409 else second
+    assert rejected.json()["detail"] == "This farm has reached its role limit."
+    assert len((await team_page(client, owner))["roles"]) == existing + 1
+
+
+async def test_deleted_role_releases_capacity_without_reviving_identity(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    existing = len((await team_page(client, owner))["roles"])
+    monkeypatch.setattr(get_settings(), "max_roles_per_farm", existing + 1)
+    first = await create_custom_role(client, owner, "Reusable slot", [])
+    blocked = await client.post(
+        "/api/team/roles",
+        json={"name": "No slot", "permissions": []},
+        headers=owner,
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert (await client.delete(f"/api/team/roles/{first['id']}", headers=owner)).status_code == 204
+    replacement = await create_custom_role(client, owner, "Reusable slot", [])
+    assert replacement["id"] != first["id"]
 
 
 async def test_create_role_permissions_filtered_and_ordered(client: httpx.AsyncClient) -> None:
@@ -1827,9 +2303,50 @@ async def test_delete_custom_role(client: httpx.AsyncClient) -> None:
     assert resp.content == b""
     page = await team_page(client, owner)
     assert all(r["id"] != role["id"] for r in page["roles"])
+    async with get_sessionmaker()() as db:
+        tombstone = await db.get(Role, role["id"])
+        assert tombstone is not None and tombstone.deleted_at is not None
     # second delete → 404
     resp = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
     assert resp.status_code == 404
+    # Active-name uniqueness ignores tombstones, so a genuinely new role may
+    # reuse the farmer-facing name without reviving the historical identity.
+    replacement = await create_custom_role(client, owner, "Temp", [])
+    assert replacement["id"] != role["id"]
+    renamed = await client.put(
+        f"/api/team/roles/{role['id']}",
+        json={"name": "Revived", "permissions": []},
+        headers=owner,
+    )
+    assert renamed.status_code == 404
+
+
+async def test_delete_custom_role_rejects_pending_assigned_duties(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    role = await create_custom_role(client, owner, "Seasonal Helper", ["tasks.view"])
+    duty = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Close the seasonal pen",
+            "due_date": today().isoformat(),
+            "category": "OTHER",
+            "assigned_role_id": role["id"],
+        },
+        headers=owner,
+    )
+    assert duty.status_code == 201, duty.text
+
+    blocked = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"] == (
+        "Role still has pending duties — complete or skip them first."
+    )
+    skipped = await client.post(f"/api/tasks/{duty.json()['id']}/skip", headers=owner)
+    assert skipped.status_code == 200, skipped.text
+    removed = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
+    assert removed.status_code == 204, removed.text
 
 
 @pytest.mark.parametrize("code", sorted(PRESET_PERMS))
@@ -1855,7 +2372,7 @@ async def test_delete_role_with_members_rejected_then_allowed(client: httpx.Asyn
     assert resp.json()["detail"] == "Role still has workers assigned — reassign them first."
 
     # even an inactive member blocks deletion
-    resp = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid, False)
     assert resp.status_code == 200, resp.text
     resp = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
     assert resp.status_code == 400
@@ -1869,12 +2386,14 @@ async def test_delete_role_with_members_rejected_then_allowed(client: httpx.Asyn
     assert resp.status_code == 204, resp.text
 
 
-async def test_delete_role_unassigns_duties(client: httpx.AsyncClient) -> None:
-    """Historical task attribution stays readable: duties are unassigned, not dangled."""
+async def test_delete_role_preserves_historical_duty_attribution(client: httpx.AsyncClient) -> None:
+    """A role tombstone remains the immutable relationship target for duties."""
     owner = await owner_with_farm(client)
     role = await create_custom_role(client, owner, "Helper", ["tasks.view"])
     duty = await create_duty(client, owner, "Odd job", rid=role["id"])
     assert duty["assigned_role_id"] == role["id"]
+    skipped = await client.post(f"/api/tasks/{duty['id']}/skip", headers=owner)
+    assert skipped.status_code == 200, skipped.text
 
     resp = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
     assert resp.status_code == 204, resp.text
@@ -1883,8 +2402,79 @@ async def test_delete_role_unassigns_duties(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 200, resp.text
     tasks = [task for rows in resp.json().values() if isinstance(rows, list) for task in rows]
     task = next(t for t in tasks if t["id"] == duty["id"])
-    assert task["assigned_role_id"] is None
-    assert task["status"] == "PENDING"
+    assert task["assigned_role_id"] == role["id"]
+    assert task["assigned_role_name"] == "Helper"
+    assert task["status"] == "SKIPPED"
+
+
+async def test_role_delete_never_scans_or_rewrites_high_cardinality_task_history(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    role = await create_custom_role(client, owner, "Historical anchor", ["tasks.view"])
+    farm_id = int(owner["X-Farm-Id"])
+    history_size = 2_000
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            insert(Task),
+            [
+                {
+                    "farm_id": farm_id,
+                    "title": f"Role history {index}",
+                    "due_date": today(),
+                    "status": "SKIPPED",
+                    "category": "OTHER",
+                    "auto_generated": False,
+                    "assigned_role_id": role["id"],
+                    "skipped_at": utcnow(),
+                    "skip_reason": "Historical fixture",
+                }
+                for index in range(history_size)
+            ],
+        )
+        await db.commit()
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        deleted = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
+        assert deleted.status_code == 204, deleted.text
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    task_statements = [
+        statement.lower() for statement in statements if "tasks" in statement.lower()
+    ]
+    assert len(task_statements) == 1
+    assert task_statements[0].lstrip().startswith("select")
+    assert "limit" in task_statements[0]
+    assert all(
+        not statement.lstrip().startswith(("update tasks", "delete from tasks"))
+        for statement in task_statements
+    )
+    async with get_sessionmaker()() as db:
+        tombstone = await db.get(Role, role["id"])
+        retained = (
+            await db.execute(
+                select(func.count())
+                .select_from(Task)
+                .where(Task.farm_id == farm_id, Task.assigned_role_id == role["id"])
+            )
+        ).scalar_one()
+    assert tombstone is not None and tombstone.deleted_at is not None
+    assert retained == history_size
 
 
 async def test_delete_role_not_found(client: httpx.AsyncClient) -> None:
@@ -1961,8 +2551,7 @@ async def test_role_action_permission_requires_view_permission(
 
 
 async def test_team_manager_cannot_grant_perms_he_lacks(client: httpx.AsyncClient) -> None:
-    """Managers cannot delegate team.manage, and editing never strips
-    pre-existing permissions that the editor cannot control."""
+    """Managers cannot delegate or administer permissions they do not hold."""
     owner = await owner_with_farm(client)
     tm, _ = await team_manager_headers(client, owner)
 
@@ -1980,16 +2569,28 @@ async def test_team_manager_cannot_grant_perms_he_lacks(client: httpx.AsyncClien
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["permissions"] == []
+    ordinary = resp.json()
 
-    # same filter applies when EDITING a role that legitimately has more
+    # Roles fully inside the manager's scope remain editable.
+    resp = await client.put(
+        f"/api/team/roles/{ordinary['id']}",
+        json={"name": "Ordinary renamed", "permissions": []},
+        headers=tm,
+    )
+    assert resp.status_code == 200, resp.text
+
+    # A role outside the caller's permission ceiling is owner-managed.
     rich = await create_custom_role(client, owner, "Finance Role", ["finance.view"])
     resp = await client.put(
         f"/api/team/roles/{rich['id']}",
         json={"name": "Finance Role", "permissions": []},
         headers=tm,
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["permissions"] == ["finance.view"]
+    assert resp.status_code == 403, resp.text
+    assert (
+        resp.json()["detail"]
+        == "You can only manage workers and roles within your own permissions."
+    )
 
     resp = await client.put(
         f"/api/team/roles/{rich['id']}",
@@ -1999,15 +2600,30 @@ async def test_team_manager_cannot_grant_perms_he_lacks(client: httpx.AsyncClien
     assert resp.status_code == 403
 
 
-async def test_team_manager_can_manage_team_endpoints(client: httpx.AsyncClient) -> None:
-    """Sanity: the delegated holder can open the team page and add workers."""
+async def test_team_manager_cannot_provision_password_controlled_accounts(
+    client: httpx.AsyncClient,
+) -> None:
+    """Roster visibility is delegable; creation remains owner-only."""
     owner = await owner_with_farm(client)
-    tm, _ = await team_manager_headers(client, owner)
+    cleaner_permissions = ["dashboard.view", "tasks.view", "tasks.complete"]
+    tm, _ = await team_manager_headers(client, owner, extra_perms=cleaner_permissions)
     assert (await client.get("/api/team", headers=tm)).status_code == 200
     rid = await role_id(client, owner, "CLEANER")
     resp = await add_worker(client, tm, rid, "w@farm.in")
-    assert resp.status_code == 201, resp.text
-    # but his other modules stay closed
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "Only the farm owner can create worker accounts."
+    assert (
+        await client.post(
+            "/api/auth/login",
+            json={"email": "w@farm.in", "password": WORKER_PW},
+        )
+    ).status_code == 401
+
+    # The owner can still provision the same bounded role normally.
+    created = await add_worker(client, owner, rid, "w@farm.in")
+    assert created.status_code == 201, created.text
+
+    # The manager's unrelated modules stay closed too.
     assert (await client.get("/api/finance", headers=tm)).status_code == 403
     assert (await client.get("/api/animals", headers=tm)).status_code == 403
 
@@ -2034,7 +2650,7 @@ async def test_team_manager_cannot_act_on_peer_manager(client: httpx.AsyncClient
         role for role in (await team_page(client, owner))["roles"] if role["name"] == "Team Clerk 2"
     )
 
-    resp = await client.post(f"/api/team/workers/{mid2}/toggle", headers=tm1)
+    resp = await set_worker_active(client, tm1, mid2, False)
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Only the farm owner can manage other team managers."
 
@@ -2091,7 +2707,7 @@ async def test_owner_can_still_act_on_team_managers(client: httpx.AsyncClient) -
         headers=owner,
     )
     assert resp.status_code == 200, resp.text
-    resp = await client.post(f"/api/team/workers/{mid2}/toggle", headers=owner)
+    resp = await set_worker_active(client, owner, mid2, False)
     assert resp.status_code == 200, resp.text
     # and a manager acting on a NON-manager worker stays delegable (covered
     # by test_team_manager_can_toggle_other_workers)

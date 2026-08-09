@@ -18,22 +18,25 @@ test.describe("breeding flow", () => {
   }) => {
     test.setTimeout(120_000);
     const doeTag = uniqueTag("E2E-DOE");
+    const breedingDate = daysAgo(40);
     await signIn(page);
 
-    // Create a breeding-ready doe: female, born on farm, ~14 months old, 24 kg,
-    // living in a breeding-ready bucket (FOUNDATION).
+    // The breeding is backdated, so its eligibility facts must exist as of
+    // that date rather than only today.
     await createAnimal(page, {
       tag: doeTag,
+      historicalImportReason: "E2E breeding-flow doe fixture",
       sex: "F",
       bucket: "FOUNDATION",
-      dateOfBirth: monthsAgo(14),
+      dateOfBirth: monthsAgo(20),
       entryWeightKg: 24,
+      entryWeightDate: breedingDate,
     });
 
     // Breed her (creates an active buck first if the farm has none).
     // The ultrasound result is only recordable on/after its planned date
     // (breeding + 32 days), so use a historical but still pending breeding.
-    await createBreeding(page, doeTag, daysAgo(40));
+    await createBreeding(page, doeTag, breedingDate);
 
     // The record shows as PENDING on the breeding list.
     const row = page.getByRole("row", { name: new RegExp(doeTag) });

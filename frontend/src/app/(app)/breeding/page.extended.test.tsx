@@ -3,8 +3,8 @@
  * RBAC gating (breeding.view / breeding.manage), the Add-breeding dialog
  * (candidate doe / active buck lists, zod validation, no-bucks guard,
  * submit mapping + server errors), the ultrasound outcome flow (pregnant
- * checkbox toggling the kid-count field, payload mapping), and the abort
- * flow (window.confirm guard, POST, refetch).
+ * checkbox toggling the kid-count field, payload mapping), and the auditable
+ * pregnancy-loss flow (date/cause/notes validation, POST, retry, refetch).
  */
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -73,6 +73,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     restriction_cleared_at: null,
     restriction_cleared_by_id: null,
     restriction_clearance_reference: null,
+    restriction_version: 0,
     mortality_cause: null,
     mortality_reported_at: null,
     notes: null,
@@ -106,6 +107,11 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     kid_count_detected: null,
     expected_kidding_date: null,
     outcome: "PENDING",
+    loss_date: null,
+    loss_cause: null,
+    loss_notes: null,
+    loss_recorded_by_id: null,
+    loss_recorded_at: null,
     has_kidding: false,
     doe_tag: "G-010",
     buck_tag: "G-020",
@@ -142,6 +148,11 @@ const ABORTED_REC = makeRecord({
   ultrasound_done: true,
   pregnant: true,
   outcome: "ABORTED",
+  loss_date: "2026-08-04",
+  loss_cause: "INJURY",
+  loss_notes: "Fence accident",
+  loss_recorded_by_id: 7,
+  loss_recorded_at: "2026-08-04T12:00:00Z",
 });
 
 function rowOf(text: string): HTMLElement {
@@ -168,10 +179,13 @@ describe("BreedingPage", () => {
   let breedingPostBody: Record<string, unknown> | null;
   let ultrasoundBody: Record<string, unknown> | null;
   let abortCalls: number;
+  let abortBody: Record<string, unknown> | null;
   let listPayload: {
     records: BreedingRecordOut[];
-    candidate_doe_ids: number[];
-    active_buck_ids: number[];
+    candidate_availability: {
+      eligible_doe_count: number;
+      eligible_buck_count: number;
+    } | null;
     total: number;
     limit: number;
     offset: number;
@@ -183,10 +197,13 @@ describe("BreedingPage", () => {
     breedingPostBody = null;
     ultrasoundBody = null;
     abortCalls = 0;
+    abortBody = null;
     listPayload = {
       records: [PENDING_REC, PREGNANT_REC, KIDDED_REC, FAILED_REC, ABORTED_REC],
-      candidate_doe_ids: [10],
-      active_buck_ids: [20],
+      candidate_availability: {
+        eligible_doe_count: 1,
+        eligible_buck_count: 1,
+      },
       total: 5,
       limit: 50,
       offset: 0,
@@ -220,9 +237,18 @@ describe("BreedingPage", () => {
         ultrasoundBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeRecord({ id: 1, ultrasound_done: true }));
       }),
-      http.post("/api/breeding/:recordId/abort", () => {
+      http.post("/api/breeding/:recordId/abort", async ({ request }) => {
         abortCalls += 1;
-        return HttpResponse.json(makeRecord({ id: 2, outcome: "ABORTED" }));
+        abortBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          makeRecord({
+            id: 2,
+            outcome: "ABORTED",
+            loss_date: String(abortBody.loss_date),
+            loss_cause: String(abortBody.cause),
+            loss_notes: abortBody.notes as string | null,
+          }),
+        );
       }),
     );
   });
@@ -252,6 +278,13 @@ describe("BreedingPage", () => {
     expect(screen.getAllByText("CONFIRMED PREGNANT")).toHaveLength(2);
     expect(screen.getByText("FAILED")).toBeInTheDocument();
     expect(screen.getByText("ABORTED")).toBeInTheDocument();
+  });
+
+  it("renders the recorded pregnancy-loss facts", async () => {
+    await renderLoaded();
+    const row = rowOf("ABORTED");
+    expect(within(row).getByText("4 Aug 2026 · INJURY")).toBeInTheDocument();
+    expect(within(row).getByText("Fence accident")).toBeInTheDocument();
   });
 
   it("ultrasound cell shows done / due date / dash per record state", async () => {
@@ -298,6 +331,30 @@ describe("BreedingPage", () => {
     expect(await screen.findByText("breeding table exploded")).toBeInTheDocument();
   });
 
+  it("announces a list failure and retries it in place", async () => {
+    let fail = true;
+    let calls = 0;
+    server.use(
+      http.get("/api/breeding", () => {
+        calls += 1;
+        return fail
+          ? HttpResponse.json({ detail: "breeding temporarily unavailable" }, { status: 503 })
+          : HttpResponse.json(listPayload);
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<BreedingPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "breeding temporarily unavailable",
+    );
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Retry breeding records" }));
+
+    expect(await screen.findByText("Breeding records")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
   // ---------- RBAC ----------
 
   it("blocks the page without breeding.view", async () => {
@@ -318,7 +375,7 @@ describe("BreedingPage", () => {
     expect(
       screen.queryByRole("button", { name: "Ultrasound result" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Abort" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Record loss" })).not.toBeInTheDocument();
   });
 
   it("uses breeding-scoped candidates and plain tags for a module-only manager", async () => {
@@ -346,11 +403,11 @@ describe("BreedingPage", () => {
     expect(within(rowOf("PENDING")).getByRole("button", { name: "Ultrasound result" }))
       .toBeInTheDocument();
     const pregnantRow = screen.getAllByText("CONFIRMED PREGNANT")[0].closest("tr")!;
-    expect(within(pregnantRow).getByRole("button", { name: "Abort" })).toBeInTheDocument();
+    expect(within(pregnantRow).getByRole("button", { name: "Record loss" })).toBeInTheDocument();
     const kiddedRow = screen.getAllByText("CONFIRMED PREGNANT")[1].closest("tr")!;
     expect(within(kiddedRow).getByText("Kidded")).toBeInTheDocument();
     expect(
-      within(kiddedRow).queryByRole("button", { name: "Abort" }),
+      within(kiddedRow).queryByRole("button", { name: "Record loss" }),
     ).not.toBeInTheDocument();
     expect(
       within(rowOf("FAILED")).queryByRole("button"),
@@ -420,7 +477,10 @@ describe("BreedingPage", () => {
   });
 
   it("shows the no-candidates guidance when no does are breeding-ready", async () => {
-    listPayload.candidate_doe_ids = [];
+    listPayload.candidate_availability = {
+      eligible_doe_count: 0,
+      eligible_buck_count: 1,
+    };
     const { dialog } = await openNewDialog();
     expect(
       await within(dialog).findByText(/No breeding-ready does right now/),
@@ -431,7 +491,10 @@ describe("BreedingPage", () => {
   });
 
   it("shows the no-bucks warning and disables Save when there are no active bucks", async () => {
-    listPayload.active_buck_ids = [];
+    listPayload.candidate_availability = {
+      eligible_doe_count: 1,
+      eligible_buck_count: 0,
+    };
     const { dialog } = await openNewDialog();
     expect(
       await within(dialog).findByText(/No eligible bucks are available/),
@@ -440,6 +503,10 @@ describe("BreedingPage", () => {
   });
 
   it("does not treat a held active male as a selectable buck", async () => {
+    listPayload.candidate_availability = {
+      eligible_doe_count: 1,
+      eligible_buck_count: 0,
+    };
     server.use(
       http.get("/api/breeding/candidates", ({ request }) => {
         const url = new URL(request.url);
@@ -529,6 +596,50 @@ describe("BreedingPage", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("announces a failed breeding save and offers an in-dialog retry", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/breeding", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "Doe eligibility changed" }, { status: 409 })
+          : HttpResponse.json(makeRecord({ id: 99 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openNewDialog();
+    await within(dialog).findByText("Select doe");
+    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
+    await pickOption(user, buckTrigger, /G-020 — 24 mo/);
+    await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Doe eligibility changed",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Retry save breeding" }));
+
+    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("single-flights a double-click on Save breeding", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/breeding", () => {
+        calls += 1;
+        return HttpResponse.json(makeRecord({ id: 99 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openNewDialog();
+    await within(dialog).findByText("Select doe");
+    const [doeTrigger, buckTrigger] = within(dialog).getAllByRole("combobox");
+    await pickOption(user, doeTrigger, /G-010 · Lakshmi/);
+    await pickOption(user, buckTrigger, /G-020 — 24 mo/);
+
+    await user.dblClick(within(dialog).getByRole("button", { name: "Save breeding" }));
+    await waitFor(() => expect(calls).toBe(1));
+  });
+
   // ---------- Ultrasound dialog ----------
 
   async function openUltrasound() {
@@ -592,6 +703,16 @@ describe("BreedingPage", () => {
     expect(ultrasoundBody).toEqual({ pregnant: false, date: farmToday(), kid_count: null });
   });
 
+  it("clears a hidden kid count instead of restoring stale data", async () => {
+    const { user, dialog } = await openUltrasound();
+    await pickOption(user, within(dialog).getByRole("combobox"), "3");
+    await user.click(within(dialog).getByRole("checkbox"));
+    expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("checkbox"));
+    expect(within(dialog).getByRole("combobox")).toHaveTextContent("2");
+  });
+
   it("Cancel closes the dialog without posting", async () => {
     const { user, dialog } = await openUltrasound();
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -612,33 +733,75 @@ describe("BreedingPage", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  // ---------- Abort flow ----------
+  it("announces an ultrasound failure and retries without losing the form", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/breeding/:recordId/ultrasound", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "scanner result conflict" }, { status: 409 })
+          : HttpResponse.json(makeRecord({ id: 1, ultrasound_done: true }));
+      }),
+    );
+    const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("button", { name: "Save result" }));
 
-  it("confirms before aborting and refetches after the POST", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "scanner result conflict",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Retry save result" }));
+    await waitFor(() => expect(calls).toBe(2));
+  });
+
+  // ---------- Pregnancy-loss flow ----------
+
+  async function openPregnancyLossDialog() {
     const user = userEvent.setup();
     await renderLoaded();
     const pregnantRow = screen.getAllByText("CONFIRMED PREGNANT")[0].closest("tr")!;
-    await user.click(within(pregnantRow).getByRole("button", { name: "Abort" }));
+    await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
+    const dialog = await screen.findByRole("dialog", { name: "Record pregnancy loss" });
+    return { user, dialog };
+  }
 
-    expect(confirmSpy).toHaveBeenCalledWith("Mark this pregnancy as aborted?");
+  it("collects auditable loss facts and refetches after the POST", async () => {
+    const { user, dialog } = await openPregnancyLossDialog();
+    await pickOption(user, within(dialog).getByLabelText("Cause *"), "DISEASE");
+    await user.type(within(dialog).getByLabelText("Notes"), "Lab-confirmed infection");
+    await user.click(within(dialog).getByRole("button", { name: "Record pregnancy loss" }));
+
     await waitFor(() => expect(abortCalls).toBe(1));
+    expect(abortBody).toEqual({
+      loss_date: TODAY,
+      cause: "DISEASE",
+      notes: "Lab-confirmed infection",
+    });
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
-  it("does not abort when the confirm dialog is cancelled", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
-    const user = userEvent.setup();
-    await renderLoaded();
-    const pregnantRow = screen.getAllByText("CONFIRMED PREGNANT")[0].closest("tr")!;
-    await user.click(within(pregnantRow).getByRole("button", { name: "Abort" }));
+  it("does not record a loss when the dialog is cancelled", async () => {
+    const { user, dialog } = await openPregnancyLossDialog();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
-    await waitFor(() => expect(abortCalls).toBe(0));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(abortCalls).toBe(0);
     expect(listCalls).toBe(1);
   });
 
-  it("survives a server error on abort without crashing the list", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("rejects a loss date before the breeding chronology", async () => {
+    const { dialog } = await openPregnancyLossDialog();
+    fireEvent.change(within(dialog).getByLabelText("Loss date *"), {
+      target: { value: "2026-06-30" },
+    });
+
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Loss date cannot be before 1 Jul 2026",
+    );
+    expect(within(dialog).getByRole("button", { name: "Record pregnancy loss" })).toBeDisabled();
+    expect(abortCalls).toBe(0);
+  });
+
+  it("keeps the loss dialog and facts available after a server conflict", async () => {
     let failedAbortCalls = 0;
     server.use(
       http.post("/api/breeding/:recordId/abort", () => {
@@ -646,14 +809,33 @@ describe("BreedingPage", () => {
         return HttpResponse.json({ detail: "kidding already recorded" }, { status: 409 });
       }),
     );
-    const user = userEvent.setup();
-    await renderLoaded();
-    const pregnantRow = screen.getAllByText("CONFIRMED PREGNANT")[0].closest("tr")!;
-    await user.click(within(pregnantRow).getByRole("button", { name: "Abort" }));
+    const { user, dialog } = await openPregnancyLossDialog();
+    await user.type(within(dialog).getByLabelText("Notes"), "Observed loss");
+    await user.click(within(dialog).getByRole("button", { name: "Record pregnancy loss" }));
 
     await waitFor(() => expect(failedAbortCalls).toBe(1));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("kidding already recorded");
+    expect(within(dialog).getByLabelText("Notes")).toHaveValue("Observed loss");
     expect(listCalls).toBe(1); // no refresh on failure
     expect(screen.getAllByText("CONFIRMED PREGNANT")).toHaveLength(2);
+  });
+
+  it("announces a loss conflict and retries without losing the form", async () => {
+    let calls = 0;
+    server.use(
+      http.post("/api/breeding/:recordId/abort", () => {
+        calls += 1;
+        return calls === 1
+          ? HttpResponse.json({ detail: "pregnancy changed" }, { status: 409 })
+          : HttpResponse.json(makeRecord({ id: 2, outcome: "ABORTED" }));
+      }),
+    );
+    const { user, dialog } = await openPregnancyLossDialog();
+    await user.click(within(dialog).getByRole("button", { name: "Record pregnancy loss" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("pregnancy changed");
+    await user.click(within(dialog).getByRole("button", { name: "Retry record loss" }));
+    await waitFor(() => expect(calls).toBe(2));
   });
 
   // ---------- URL prefill (/breeding/{id}/ultrasound redirect) ----------

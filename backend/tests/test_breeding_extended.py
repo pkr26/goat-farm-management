@@ -2,7 +2,8 @@
 bucket system, BreedingRecord/KiddingRecord entities, task auto-generation).
 
 Covers, through the async JSON API only:
-- GET /api/breeding (records + breeding-ready candidate picker + active bucks)
+- GET /api/breeding (paged records + bounded candidate availability counts)
+- GET /api/breeding/candidates (SQL-filtered/paged eligible doe and buck identities)
 - POST /api/breeding (eligibility guards: female, >=10 months, >=22 kg, not
   pregnant, correct bucket; ultrasound task at breeding + 32d)
 - GET /api/breeding/{id}
@@ -23,10 +24,20 @@ etc. fall where the API guards require them.
 from datetime import date, timedelta
 
 import httpx
-from sqlalchemy import select
+import pytest
+from sqlalchemy import event, select
+from sqlalchemy.exc import IntegrityError
 
-from app.db import get_sessionmaker
-from app.models import BucketMove, User
+from app.db import get_engine, get_sessionmaker
+from app.models import (
+    Animal,
+    BreedingRecord,
+    BucketMove,
+    KiddingRecord,
+    KidEntry,
+    User,
+    WeightRecord,
+)
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, register
@@ -35,6 +46,7 @@ WORKER_PW = "workerpass123"
 GESTATION_DAYS = 150
 ULTRASOUND_AFTER_BREEDING_DAYS = 32
 WEANING_DAYS = 60
+POSTPARTUM_RECOVERY_DAYS = 14
 
 
 def iso(d: date) -> str:
@@ -58,6 +70,8 @@ async def make_animal(
         "source": "PURCHASED",
         "current_bucket": bucket,
     } | overrides
+    if payload["source"] == "PURCHASED":
+        payload.setdefault("historical_import_reason", "Existing-herd test fixture")
     resp = await client.post("/api/animals", json=payload, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -68,13 +82,15 @@ async def make_doe(
     headers: dict,
     tag: str = "D-1",
     bucket: str = "FOUNDATION",
-    age_days: int = 400,
+    age_days: int = 800,
     weight_kg: float | None = 26.0,
 ) -> dict:
-    """A breeding-ready doe (13 months old, 26 kg entry weight, FOUNDATION)."""
-    overrides: dict = {"date_of_birth": iso(today() - timedelta(days=age_days))}
+    """A mature doe with enough dated history for backdated flow tests."""
+    dob = today() - timedelta(days=age_days)
+    overrides: dict = {"date_of_birth": iso(dob)}
     if weight_kg is not None:
         overrides["weight_kg"] = weight_kg
+        overrides["weight_date"] = iso(dob)
     return await make_animal(client, headers, tag, sex="F", bucket=bucket, **overrides)
 
 
@@ -88,13 +104,36 @@ async def make_doe_aged_months(
     overrides: dict = {"date_of_birth": iso(add_months(today(), -months))}
     if weight_kg is not None:
         overrides["weight_kg"] = weight_kg
+        overrides["weight_date"] = overrides["date_of_birth"]
     return await make_animal(client, headers, tag, sex="F", **overrides)
 
 
 async def make_buck(
     client: httpx.AsyncClient, headers: dict, tag: str = "B-1", **overrides: object
 ) -> dict:
-    return await make_animal(client, headers, tag, sex="M", bucket="BREEDING", **overrides)
+    defaults: dict[str, object] = {
+        "date_of_birth": iso(today() - timedelta(days=800)),
+        "weight_kg": 30.0,
+        "weight_date": iso(today() - timedelta(days=800)),
+    }
+    return await make_animal(
+        client, headers, tag, sex="M", bucket="BREEDING", **(defaults | overrides)
+    )
+
+
+async def place_legacy_animal_in_breeding(animal_id: int) -> None:
+    """Model a pre-hardening row that bypassed today's import/move guards.
+
+    The public API correctly refuses immature, underweight, or unweighed
+    animals in BREEDING.  Candidate and service guards still need coverage
+    for legacy data that predates that invariant, so only those tests use a
+    direct fixture mutation.
+    """
+    async with get_sessionmaker()() as db:
+        animal = await db.get(Animal, animal_id)
+        assert animal is not None
+        animal.current_bucket = "BREEDING"
+        await db.commit()
 
 
 async def post_breeding(
@@ -147,6 +186,21 @@ async def ultrasound(
     return await client.post(f"/api/breeding/{br_id}/ultrasound", json=body, headers=headers)
 
 
+async def place_health_hold(client: httpx.AsyncClient, headers: dict, animal_id: int) -> None:
+    response = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": animal_id,
+            "type": "TREATMENT",
+            "disease_target": "Reportable-condition concern",
+            "suspected_scheduled_disease": True,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+
+
 async def confirm(
     client: httpx.AsyncClient, headers: dict, br_id: int, kid_count: int | None = 2
 ) -> dict:
@@ -156,9 +210,31 @@ async def confirm(
 
 
 async def fail_cycle(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict:
-    resp = await ultrasound(client, headers, br_id, pregnant=False, kid_count=None)
+    # Outcome-flow fixtures represent a result observed on the scheduled
+    # check, not "today". This preserves an honest boundary when later tests
+    # record a subsequent historical service between that check and today.
+    breeding = await get_breeding(client, headers, br_id)
+    resp = await ultrasound(
+        client,
+        headers,
+        br_id,
+        pregnant=False,
+        kid_count=None,
+        date=breeding["ultrasound_date"],
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+async def post_abort(
+    client: httpx.AsyncClient, headers: dict, br_id: int, **overrides: object
+) -> httpx.Response:
+    payload = {
+        "loss_date": iso(today()),
+        "cause": "UNKNOWN",
+        "notes": "Pregnancy loss recorded in test",
+    } | overrides
+    return await client.post(f"/api/breeding/{br_id}/abort", json=payload, headers=headers)
 
 
 async def pregnant_doe(
@@ -227,16 +303,52 @@ async def breeding_list(client: httpx.AsyncClient, headers: dict) -> dict:
     return resp.json()
 
 
+async def candidate_list(
+    client: httpx.AsyncClient,
+    headers: dict,
+    kind: str = "doe",
+    **params: object,
+) -> dict:
+    resp = await client.get(
+        "/api/breeding/candidates",
+        params={"kind": kind} | params,
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def candidate_ids(
+    client: httpx.AsyncClient,
+    headers: dict,
+    kind: str = "doe",
+    **params: object,
+) -> list[int]:
+    page = await candidate_list(client, headers, kind, **params)
+    return [row["id"] for row in page["candidates"]]
+
+
 async def kidding_list(client: httpx.AsyncClient, headers: dict) -> dict:
     resp = await client.get("/api/kidding", headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-async def move_to(client: httpx.AsyncClient, headers: dict, animal_id: int, bucket: str) -> dict:
-    resp = await client.post(
-        f"/api/animals/{animal_id}/move", json={"to_bucket": bucket}, headers=headers
-    )
+async def move_to(
+    client: httpx.AsyncClient,
+    headers: dict,
+    animal_id: int,
+    bucket: str,
+    *,
+    history_override: bool = False,
+) -> dict:
+    body: dict[str, object] = {"to_bucket": bucket}
+    if history_override:
+        body |= {
+            "history_override": True,
+            "reason": "Test fixture: imported lifecycle completion",
+        }
+    resp = await client.post(f"/api/animals/{animal_id}/move", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -282,86 +394,196 @@ async def worker_headers(
     }
 
 
+async def custom_breeding_viewer_headers(
+    client: httpx.AsyncClient, owner: dict, email: str
+) -> dict:
+    role = await client.post(
+        "/api/team/roles",
+        json={"name": "Breeding Records Reader", "permissions": ["breeding.view"]},
+        headers=owner,
+    )
+    assert role.status_code == 201, role.text
+    worker = await client.post(
+        "/api/team/workers",
+        json={
+            "name": "Breeding Reader",
+            "email": email,
+            "password": WORKER_PW,
+            "role_id": role.json()["id"],
+        },
+        headers=owner,
+    )
+    assert worker.status_code == 201, worker.text
+    login = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
+    assert login.status_code == 200, login.text
+    return {
+        "Authorization": f"Bearer {login.json()['access_token']}",
+        "X-Farm-Id": owner["X-Farm-Id"],
+    }
+
+
 # ---------------------------------------------------------------------------
-# GET /api/breeding — list, candidate does, active bucks
+# GET /api/breeding history and the independently paginated candidate picker
 # ---------------------------------------------------------------------------
 async def test_breeding_list_empty_farm(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     body = await breeding_list(client, headers)
     assert body["records"] == []
-    assert body["candidate_doe_ids"] == []
-    assert body["active_buck_ids"] == []
+    assert body["candidate_availability"] == {
+        "eligible_doe_count": 0,
+        "eligible_buck_count": 0,
+    }
 
 
 async def test_candidate_doe_in_foundation_is_listed(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == [doe["id"]]
+    assert await candidate_ids(client, headers) == [doe["id"]]
+
+
+async def test_candidate_search_treats_backslash_as_literal(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    literal = await make_doe(client, headers, "D-\\MATCH")
+    await make_doe(client, headers, "D-PLAIN")
+    page = await candidate_list(client, headers, q="\\MATCH")
+    assert page["total"] == 1
+    assert [row["id"] for row in page["candidates"]] == [literal["id"]]
 
 
 async def test_candidate_excludes_males(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_buck(client, headers)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_excludes_young_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_doe_aged_months(client, headers, "D-YOUNG", months=9)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_age_boundary_ten_months(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe_aged_months(client, headers, "D-10MO", months=10)
     assert doe["age_months"] == 10
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == [doe["id"]]
+    assert await candidate_ids(client, headers) == [doe["id"]]
+
+
+async def test_candidate_age_uses_exact_whole_month_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    cutoff = add_months(today(), -10)
+    ready = await make_animal(
+        client,
+        headers,
+        "D-AGE-EXACT",
+        date_of_birth=iso(cutoff),
+        weight_kg=26.0,
+        weight_date=iso(cutoff),
+    )
+    too_young = await make_animal(
+        client,
+        headers,
+        "D-AGE-DAY-YOUNG",
+        date_of_birth=iso(cutoff + timedelta(days=1)),
+        weight_kg=26.0,
+        weight_date=iso(cutoff + timedelta(days=1)),
+    )
+    ids = await candidate_ids(client, headers, q="D-AGE")
+    assert ready["id"] in ids
+    assert too_young["id"] not in ids
 
 
 async def test_candidate_excludes_light_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_doe(client, headers, weight_kg=21.99)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_weight_boundary_22kg(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers, weight_kg=22.0)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == [doe["id"]]
+    assert await candidate_ids(client, headers) == [doe["id"]]
+
+
+async def test_candidate_uses_latest_weight_as_of_farm_today(
+    client: httpx.AsyncClient,
+) -> None:
+    """Future measurements neither qualify a light doe nor hide today's valid weight."""
+    headers = await owner_with_farm(client)
+    eligible = await make_doe(client, headers, "D-FUTURE-LOW", weight_kg=22.0)
+    light = await make_doe(client, headers, "D-FUTURE-HIGH", weight_kg=21.0)
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                WeightRecord(
+                    animal_id=eligible["id"],
+                    date=today() + timedelta(days=1),
+                    weight_kg=10.0,
+                ),
+                WeightRecord(
+                    animal_id=light["id"],
+                    date=today() + timedelta(days=1),
+                    weight_kg=30.0,
+                ),
+            ]
+        )
+        await db.commit()
+
+    page = await candidate_list(client, headers, q="D-FUTURE")
+    assert page["total"] == 1
+    assert [(row["id"], row["latest_weight_kg"]) for row in page["candidates"]] == [
+        (eligible["id"], 22.0)
+    ]
 
 
 async def test_candidate_excludes_doe_without_weight(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_doe(client, headers, weight_kg=None)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_excludes_quarantine_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_doe(client, headers, bucket="QUARANTINE")
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
+
+
+async def test_candidate_excludes_both_operational_health_holds(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    ready = await make_doe(client, headers, "D-HOLD-READY")
+    restricted = await make_doe(client, headers, "D-HOLD-RESTRICTED")
+    suspected = await make_doe(client, headers, "D-HOLD-SUSPECTED")
+    async with get_sessionmaker()() as db:
+        restricted_row = await db.get(Animal, restricted["id"])
+        suspected_row = await db.get(Animal, suspected["id"])
+        assert restricted_row is not None and suspected_row is not None
+        restricted_row.movement_restricted = True
+        restricted_row.restriction_reason = "Regulatory movement hold"
+        suspected_row.movement_restricted = True
+        suspected_row.restriction_reason = "Suspected scheduled disease"
+        suspected_row.suspected_scheduled_disease = True
+        suspected_row.suspected_disease = "PPR"
+        await db.commit()
+
+    assert await candidate_ids(client, headers, q="D-HOLD") == [ready["id"]]
 
 
 async def test_candidate_includes_female_kids_bucket(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers, bucket="FEMALE_KIDS")
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == [doe["id"]]
+    assert await candidate_ids(client, headers) == [doe["id"]]
 
 
 async def test_candidate_includes_resting_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers, bucket="RESTING")
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == [doe["id"]]
+    assert await candidate_ids(client, headers) == [doe["id"]]
 
 
 async def test_candidate_excludes_breeding_bucket_doe_without_current_weight(
@@ -369,9 +591,9 @@ async def test_candidate_excludes_breeding_bucket_doe_without_current_weight(
 ) -> None:
     """A re-service keeps the same current-weight guard as first service."""
     headers = await owner_with_farm(client)
-    await make_doe(client, headers, bucket="BREEDING", weight_kg=None)
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    doe = await make_doe(client, headers, bucket="FOUNDATION", weight_kg=None)
+    await place_legacy_animal_in_breeding(doe["id"])
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_excludes_young_doe_in_breeding_bucket(
@@ -379,74 +601,148 @@ async def test_candidate_excludes_young_doe_in_breeding_bucket(
 ) -> None:
     headers = await owner_with_farm(client)
     await make_doe_aged_months(client, headers, "D-YB", months=9)
-    await move_to(
-        client,
-        headers,
-        (await list_animals(client, headers, q="D-YB"))[0]["id"],
-        "BREEDING",
+    doe_id = (await list_animals(client, headers, q="D-YB"))[0]["id"]
+    response = await client.post(
+        f"/api/animals/{doe_id}/move",
+        json={"to_bucket": "BREEDING"},
+        headers=headers,
     )
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert response.status_code == 409, response.text
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_excludes_pregnant_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, _br = await pregnant_doe(client, headers)
-    body = await breeding_list(client, headers)
-    assert doe["id"] not in body["candidate_doe_ids"]
+    assert doe["id"] not in await candidate_ids(client, headers)
 
 
 async def test_candidate_excludes_doe_with_pending_breeding(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, _br = await bred_doe(client, headers)
-    body = await breeding_list(client, headers)
-    assert doe["id"] not in body["candidate_doe_ids"]
+    assert doe["id"] not in await candidate_ids(client, headers)
 
 
 async def test_candidate_excludes_sold_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     await set_status(client, headers, doe["id"], "SOLD")
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_excludes_dead_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     await set_status(client, headers, doe["id"], "DEAD")
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
 async def test_candidate_excludes_culled_doe(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     await set_status(client, headers, doe["id"], "CULLED")
-    body = await breeding_list(client, headers)
-    assert body["candidate_doe_ids"] == []
+    assert await candidate_ids(client, headers) == []
 
 
-async def test_active_buck_ids_include_active_males(client: httpx.AsyncClient) -> None:
+async def test_buck_candidates_include_ready_active_male(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     buck = await make_buck(client, headers)
-    body = await breeding_list(client, headers)
-    assert body["active_buck_ids"] == [buck["id"]]
+    assert await candidate_ids(client, headers, "buck") == [buck["id"]]
 
 
-async def test_active_buck_ids_exclude_sold_male(client: httpx.AsyncClient) -> None:
+async def test_buck_candidates_exclude_sold_male(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     buck = await make_buck(client, headers)
     await set_status(client, headers, buck["id"], "SOLD")
-    body = await breeding_list(client, headers)
-    assert body["active_buck_ids"] == []
+    assert await candidate_ids(client, headers, "buck") == []
 
 
-async def test_active_buck_ids_exclude_females(client: httpx.AsyncClient) -> None:
+async def test_buck_candidates_exclude_females(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_doe(client, headers)
-    body = await breeding_list(client, headers)
-    assert body["active_buck_ids"] == []
+    assert await candidate_ids(client, headers, "buck") == []
+
+
+async def test_buck_minimums_and_candidate_contract_are_consistent(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    age_cutoff = add_months(today(), -12)
+    young_dob = age_cutoff + timedelta(days=1)
+    young = await make_animal(
+        client,
+        headers,
+        "B-YOUNG",
+        sex="M",
+        bucket="FOUNDATION",
+        date_of_birth=iso(young_dob),
+        weight_kg=30.0,
+        weight_date=iso(young_dob),
+    )
+    old_dob = today() - timedelta(days=800)
+    light = await make_animal(
+        client,
+        headers,
+        "B-LIGHT",
+        sex="M",
+        bucket="FOUNDATION",
+        date_of_birth=iso(old_dob),
+        weight_kg=24.99,
+        weight_date=iso(old_dob),
+    )
+    await place_legacy_animal_in_breeding(young["id"])
+    await place_legacy_animal_in_breeding(light["id"])
+    eligible = await make_buck(
+        client,
+        headers,
+        "B-READY",
+        date_of_birth=iso(age_cutoff),
+        weight_kg=25.0,
+        weight_date=iso(age_cutoff),
+    )
+
+    ids = await candidate_ids(client, headers, "buck")
+    assert ids == [eligible["id"]]
+    assert young["id"] not in ids
+    assert light["id"] not in ids
+    assert (await breeding_list(client, headers))["candidate_availability"] == {
+        "eligible_doe_count": 0,
+        "eligible_buck_count": 1,
+    }
+
+
+async def test_create_breeding_rejects_immature_or_light_buck(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe = await make_doe(client, headers)
+    young_dob = today() - timedelta(days=200)
+    young = await make_animal(
+        client,
+        headers,
+        "B-YOUNG",
+        sex="M",
+        bucket="FOUNDATION",
+        date_of_birth=iso(young_dob),
+        weight_kg=30.0,
+        weight_date=iso(young_dob),
+    )
+    old_dob = today() - timedelta(days=800)
+    light = await make_animal(
+        client,
+        headers,
+        "B-LIGHT",
+        sex="M",
+        bucket="FOUNDATION",
+        date_of_birth=iso(old_dob),
+        weight_kg=24.99,
+        weight_date=iso(old_dob),
+    )
+    await place_legacy_animal_in_breeding(young["id"])
+    await place_legacy_animal_in_breeding(light["id"])
+    for buck in (young, light):
+        response = await post_breeding(client, headers, doe["id"], buck["id"])
+        assert response.status_code == 400, response.text
 
 
 async def test_breeding_list_records_newest_date_first(client: httpx.AsyncClient) -> None:
@@ -456,7 +752,7 @@ async def test_breeding_list_records_newest_date_first(client: httpx.AsyncClient
     body = await breeding_list(client, headers)
     assert [r["id"] for r in body["records"]] == [br2["id"], _br["id"]]
     assert {r["doe_id"] for r in body["records"]} == {doe1["id"], _doe2["id"]}
-    assert buck1["id"] in body["active_buck_ids"]
+    assert buck1["id"] in await candidate_ids(client, headers, "buck")
 
 
 async def test_breeding_history_pagination_reports_full_count(client: httpx.AsyncClient) -> None:
@@ -616,7 +912,11 @@ async def test_create_breeding_date_cannot_predate_recorded_doe_birth(
     response = await post_breeding(
         client, headers, doe["id"], buck["id"], breeding_date="1990-01-01"
     )
-    assert response.status_code == 409
+    # The canonical eligibility predicate is the earliest deterministic
+    # guard: at this date neither animal is old enough to breed. The deeper
+    # chronology guard remains defence-in-depth for service/import callers.
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Doe or buck is not eligible for breeding"
 
 
 async def test_create_breeding_rejects_male_as_doe(client: httpx.AsyncClient) -> None:
@@ -697,7 +997,7 @@ async def test_create_breeding_rebreed_after_failed_cycle(client: httpx.AsyncCli
     """Heat-cycle re-breeding: after a FAILED cycle the doe (still in BREEDING)
     is eligible again — heat_cycle_number 2."""
     headers = await owner_with_farm(client)
-    doe, buck, br1 = await bred_doe(client, headers, breeding_date=today() - timedelta(days=42))
+    doe, buck, br1 = await bred_doe(client, headers, breeding_date=today() - timedelta(days=60))
     await fail_cycle(client, headers, br1["id"])
     br2 = await make_breeding(
         client,
@@ -711,15 +1011,55 @@ async def test_create_breeding_rebreed_after_failed_cycle(client: httpx.AsyncCli
     assert br2["outcome"] == "PENDING"
 
 
-async def test_rebreed_after_failure_rechecks_current_weight_threshold(
+async def test_open_breeding_cannot_be_bypassed_by_manual_resting_move(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client)
-    doe, buck, first = await bred_doe(client, headers, breeding_date=today() - timedelta(days=42))
+    doe, _buck, _br = await bred_doe(client, headers)
+    response = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={"to_bucket": "RESTING", "reason": "skip outcome"},
+        headers=headers,
+    )
+    assert response.status_code == 409, response.text
+    assert "open breeding" in response.json()["detail"]
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "BREEDING"
+
+
+async def test_backdated_rebreed_uses_weight_known_on_breeding_date(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, buck, first = await bred_doe(client, headers, breeding_date=today() - timedelta(days=60))
     await fail_cycle(client, headers, first["id"])
     low_weight = await client.post(
         f"/api/animals/{doe['id']}/weight",
         json={"weight_kg": 21.9},
+        headers=headers,
+    )
+    assert low_weight.status_code == 201, low_weight.text
+    retry = await post_breeding(
+        client,
+        headers,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=21)),
+        heat_cycle_number=2,
+    )
+    # A later measurement must not rewrite eligibility for an event recorded
+    # 21 days earlier; latest_weight_kg_on deliberately ignores future facts.
+    assert retry.status_code == 201, retry.text
+
+
+async def test_backdated_rebreed_blocks_low_weight_on_or_before_breeding_date(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, buck, first = await bred_doe(client, headers, breeding_date=today() - timedelta(days=60))
+    await fail_cycle(client, headers, first["id"])
+    low_weight = await client.post(
+        f"/api/animals/{doe['id']}/weight",
+        json={"date": iso(today() - timedelta(days=22)), "weight_kg": 21.9},
         headers=headers,
     )
     assert low_weight.status_code == 201, low_weight.text
@@ -737,7 +1077,17 @@ async def test_rebreed_after_failure_rechecks_current_weight_threshold(
 async def test_create_breeding_rebreed_after_kidding_full_cycle(client: httpx.AsyncClient) -> None:
     """Full reproductive cycle: kid, rest, breed again."""
     headers = await owner_with_farm(client)
-    doe, buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    doe, buck, br = await bred_doe(client, headers, breeding_date=today() - timedelta(days=160))
+    confirmation = await ultrasound(
+        client,
+        headers,
+        br["id"],
+        pregnant=True,
+        kid_count=2,
+        date=br["ultrasound_date"],
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    br = confirmation.json()
     await kid_on_ekd(client, headers, br)
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["current_bucket"] == "RECOVERY"
@@ -745,7 +1095,7 @@ async def test_create_breeding_rebreed_after_kidding_full_cycle(client: httpx.As
     resp = await post_breeding(client, headers, doe["id"], buck["id"])
     assert resp.status_code == 400
     # After the move to RESTING she is a breeding candidate again
-    await move_to(client, headers, doe["id"], "RESTING")
+    await move_to(client, headers, doe["id"], "RESTING", history_override=True)
     resp = await post_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
     assert resp.status_code == 201, resp.text
 
@@ -853,7 +1203,9 @@ async def test_create_breeding_future_date(client: httpx.AsyncClient) -> None:
         headers,
         doe["id"],
         buck["id"],
-        breeding_date=iso(today() + timedelta(days=2)),  # tomorrow is allowed (tz headroom)
+        # The schema permits UTC/local-date headroom; the endpoint enforces
+        # the selected farm's exact business date.
+        breeding_date=iso(today() + timedelta(days=1)),
     )
     assert resp.status_code == 422
 
@@ -883,20 +1235,25 @@ async def test_create_breeding_heat_cycle_100(client: httpx.AsyncClient) -> None
     assert resp.status_code == 422
 
 
-async def test_create_breeding_heat_cycle_string(client: httpx.AsyncClient) -> None:
+async def test_create_breeding_heat_cycle_rejects_coercible_wire_types(
+    client: httpx.AsyncClient,
+) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     buck = await make_buck(client, headers)
-    resp = await post_breeding(client, headers, doe["id"], buck["id"], heat_cycle_number="two")
-    assert resp.status_code == 422
+    for value in ("2", True):
+        resp = await post_breeding(client, headers, doe["id"], buck["id"], heat_cycle_number=value)
+        assert resp.status_code == 422
+    assert (await breeding_list(client, headers))["records"] == []
 
 
-async def test_create_breeding_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_create_breeding_extra_field_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     buck = await make_buck(client, headers)
     resp = await post_breeding(client, headers, doe["id"], buck["id"], bogus_field="x")
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 422, resp.text
+    assert (await breeding_list(client, headers))["records"] == []
 
 
 async def test_create_breeding_requires_auth(client: httpx.AsyncClient) -> None:
@@ -1043,6 +1400,21 @@ async def test_ultrasound_pregnant_moves_doe_to_pregnancy_early(
     assert doe_after["is_currently_pregnant"] is True
 
 
+async def test_held_doe_pregnancy_confirmation_reclassifies_atomically(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, breeding = await bred_doe(client, headers, "HELD-CONFIRM")
+    await place_health_hold(client, headers, doe["id"])
+
+    confirmed = await confirm(client, headers, breeding["id"])
+    assert confirmed["outcome"] == "CONFIRMED_PREGNANT"
+    after = await get_animal(client, headers, doe["id"])
+    assert after["current_bucket"] == "PREGNANCY_EARLY"
+    assert after["movement_restricted"] is True
+    assert after["suspected_scheduled_disease"] is True
+
+
 async def test_ultrasound_pregnant_creates_three_followup_tasks(
     client: httpx.AsyncClient,
 ) -> None:
@@ -1111,12 +1483,18 @@ async def test_ultrasound_failed_keeps_doe_in_breeding_bucket(client: httpx.Asyn
     assert doe_after["is_currently_pregnant"] is False
 
 
-async def test_ultrasound_failed_ignores_kid_count(client: httpx.AsyncClient) -> None:
+async def test_ultrasound_failed_rejects_kid_count_without_mutation(
+    client: httpx.AsyncClient,
+) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await bred_doe(client, headers)
     resp = await ultrasound(client, headers, br["id"], pregnant=False, kid_count=3)
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["kid_count_detected"] is None
+    assert resp.status_code == 422, resp.text
+    unchanged = await get_breeding(client, headers, br["id"])
+    assert unchanged["outcome"] == "PENDING"
+    assert unchanged["ultrasound_done"] is False
+    assert unchanged["pregnant"] is None
+    assert unchanged["kid_count_detected"] is None
 
 
 async def test_ultrasound_failed_marks_ultrasound_task_done(client: httpx.AsyncClient) -> None:
@@ -1131,16 +1509,14 @@ async def test_ultrasound_failed_makes_doe_candidate_again(client: httpx.AsyncCl
     headers = await owner_with_farm(client)
     doe, _buck, br = await bred_doe(client, headers)
     await fail_cycle(client, headers, br["id"])
-    body = await breeding_list(client, headers)
-    assert doe["id"] in body["candidate_doe_ids"]
+    assert doe["id"] in await candidate_ids(client, headers)
 
 
 async def test_ultrasound_pregnant_removes_doe_from_candidates(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await bred_doe(client, headers)
     await confirm(client, headers, br["id"])
-    body = await breeding_list(client, headers)
-    assert doe["id"] not in body["candidate_doe_ids"]
+    assert doe["id"] not in await candidate_ids(client, headers)
 
 
 async def test_ultrasound_replay_conflict(client: httpx.AsyncClient) -> None:
@@ -1162,7 +1538,7 @@ async def test_ultrasound_replay_after_failure(client: httpx.AsyncClient) -> Non
 async def test_ultrasound_on_aborted_record(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
     resp = await ultrasound(client, headers, br["id"], pregnant=True)
     assert resp.status_code == 409
@@ -1196,6 +1572,23 @@ async def test_ultrasound_pregnant_wrong_type(client: httpx.AsyncClient) -> None
     _doe, _buck, br = await bred_doe(client, headers)
     resp = await ultrasound(client, headers, br["id"], pregnant="maybe")
     assert resp.status_code == 422
+
+
+async def test_ultrasound_rejects_coercible_boolean_and_integer_types(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await bred_doe(client, headers)
+    for payload in (
+        {"pregnant": 1, "kid_count": 2},
+        {"pregnant": "false", "kid_count": 2},
+        {"pregnant": True, "kid_count": "2"},
+    ):
+        resp = await client.post(
+            f"/api/breeding/{br['id']}/ultrasound", json=payload, headers=headers
+        )
+        assert resp.status_code == 422
+    assert (await get_breeding(client, headers, br["id"]))["outcome"] == "PENDING"
 
 
 async def test_ultrasound_nonexistent_record(client: httpx.AsyncClient) -> None:
@@ -1276,11 +1669,20 @@ async def test_successful_kidding_resets_cull_streak_before_a_new_cycle(
     br2 = await make_breeding(
         client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=160))
     )
-    br2 = await confirm(client, headers, br2["id"])
+    confirmation = await ultrasound(
+        client,
+        headers,
+        br2["id"],
+        pregnant=True,
+        kid_count=2,
+        date=br2["ultrasound_date"],
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    br2 = confirmation.json()
     doe_mid = await get_animal(client, headers, doe["id"])
     assert doe_mid["cull_candidate"] is False
     await kid_on_ekd(client, headers, br2)
-    await move_to(client, headers, doe["id"], "RESTING")
+    await move_to(client, headers, doe["id"], "RESTING", history_override=True)
     br3 = await make_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
     early_result = await ultrasound(client, headers, br3["id"], pregnant=False, kid_count=None)
     assert early_result.status_code == 409
@@ -1312,8 +1714,21 @@ async def test_abort_between_failures_breaks_the_streak(client: httpx.AsyncClien
     br2 = await make_breeding(
         client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=120))
     )
-    await confirm(client, headers, br2["id"])
-    resp = await client.post(f"/api/breeding/{br2['id']}/abort", headers=headers)
+    confirmation = await ultrasound(
+        client,
+        headers,
+        br2["id"],
+        pregnant=True,
+        kid_count=2,
+        date=br2["ultrasound_date"],
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    resp = await post_abort(
+        client,
+        headers,
+        br2["id"],
+        loss_date=iso(today() - timedelta(days=70)),
+    )
     assert resp.status_code == 200, resp.text
     br3 = await make_breeding(
         client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=60))
@@ -1343,20 +1758,109 @@ async def test_cull_flag_cleared_when_doe_marked_culled(client: httpx.AsyncClien
 async def test_abort_happy_path(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"], cause="DISEASE", notes="Confirmed loss")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["outcome"] == "ABORTED"
     assert body["pregnant"] is False
+    assert body["loss_date"] == iso(today())
+    assert body["loss_cause"] == "DISEASE"
+    assert body["loss_notes"] == "Confirmed loss"
+    assert body["loss_recorded_at"] is not None
+    async with get_sessionmaker()() as db:
+        owner_id = (
+            (await db.execute(select(User).where(User.email == "owner@farm.in"))).scalar_one().id
+        )
+    assert body["loss_recorded_by_id"] == owner_id
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["current_bucket"] == "RESTING"
     assert doe_after["is_currently_pregnant"] is False
 
 
+async def test_abort_requires_explicit_loss_payload(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers)
+    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    assert resp.status_code == 422
+    assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+
+
+async def test_held_doe_pregnancy_loss_reclassifies_atomically(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, breeding = await pregnant_doe(client, headers, "HELD-LOSS")
+    await place_health_hold(client, headers, doe["id"])
+
+    aborted = await post_abort(client, headers, breeding["id"])
+    assert aborted.status_code == 200, aborted.text
+    assert aborted.json()["outcome"] == "ABORTED"
+    after = await get_animal(client, headers, doe["id"])
+    assert after["current_bucket"] == "RESTING"
+    assert after["movement_restricted"] is True
+    assert after["suspected_scheduled_disease"] is True
+
+
+async def test_abort_rejects_future_and_pre_confirmation_dates(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers)
+    future = await post_abort(client, headers, br["id"], loss_date=iso(today() + timedelta(days=1)))
+    assert future.status_code == 422
+    before_confirmation = await post_abort(
+        client, headers, br["id"], loss_date=iso(today() - timedelta(days=1))
+    )
+    assert before_confirmation.status_code == 422
+    assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+
+
+async def test_abort_payload_cause_and_notes_are_bounded(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers)
+    bad_cause = await post_abort(client, headers, br["id"], cause="FREE_FORM")
+    assert bad_cause.status_code == 422
+    long_notes = await post_abort(client, headers, br["id"], notes="x" * 4_001)
+    assert long_notes.status_code == 422
+
+
+async def test_status_change_auto_loss_uses_same_audit_contract(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers)
+    sold = await client.post(
+        f"/api/animals/{doe['id']}/status",
+        json={"new_status": "SOLD", "date": iso(today())},
+        headers=headers,
+    )
+    assert sold.status_code == 200, sold.text
+    closed = await get_breeding(client, headers, br["id"])
+    assert closed["outcome"] == "ABORTED"
+    assert closed["loss_date"] == iso(today())
+    assert closed["loss_cause"] == "ANIMAL_STATUS_CHANGE"
+    assert closed["loss_notes"] == "Pregnancy auto-resolved when doe was marked SOLD"
+    assert closed["loss_recorded_by_id"] is not None
+    assert closed["loss_recorded_at"] is not None
+
+
+async def test_status_change_cannot_auto_resolve_before_confirmation_date(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers)
+    resp = await client.post(
+        f"/api/animals/{doe['id']}/status",
+        json={"new_status": "SOLD", "date": iso(today() - timedelta(days=1))},
+        headers=headers,
+    )
+    assert resp.status_code == 422
+    assert (await get_animal(client, headers, doe["id"]))["status"] == "ACTIVE"
+    assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+
+
 async def test_abort_skips_open_pregnancy_tasks(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=35)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
     tasks = await all_tasks(client, headers)
     for category in ("VACCINE", "BUCKET_MOVE", "KIDDING_DUE"):
@@ -1367,16 +1871,15 @@ async def test_abort_skips_open_pregnancy_tasks(client: httpx.AsyncClient) -> No
 async def test_abort_makes_doe_candidate_again(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
-    body = await breeding_list(client, headers)
-    assert doe["id"] in body["candidate_doe_ids"]
+    assert doe["id"] in await candidate_ids(client, headers)
 
 
 async def test_abort_on_pending_breeding(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await bred_doe(client, headers)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 409
 
 
@@ -1384,7 +1887,7 @@ async def test_abort_on_failed_breeding(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await bred_doe(client, headers)
     await fail_cycle(client, headers, br["id"])
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 409
 
 
@@ -1392,28 +1895,64 @@ async def test_abort_after_kidding_recorded(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     await kid_on_ekd(client, headers, br)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 409
 
 
 async def test_abort_replay_conflict(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 409
+
+
+async def test_aborted_metadata_is_immutable_at_database_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers)
+    assert (await post_abort(client, headers, br["id"])).status_code == 200
+    async with get_sessionmaker()() as db:
+        record = await db.get(BreedingRecord, br["id"])
+        assert record is not None
+        record.loss_notes = "Attempted rewrite"
+        with pytest.raises(IntegrityError):
+            await db.flush()
+        await db.rollback()
+
+
+async def test_aborted_pregnancy_cannot_gain_kidding_record_at_database_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers)
+    assert (await post_abort(client, headers, br["id"])).status_code == 200
+    async with get_sessionmaker()() as db:
+        db.add(
+            KiddingRecord(
+                farm_id=int(headers["X-Farm-Id"]),
+                doe_id=doe["id"],
+                date=today(),
+                breeding_record_id=br["id"],
+                ease="NORMAL",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await db.flush()
+        await db.rollback()
 
 
 async def test_abort_nonexistent_record(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    resp = await client.post("/api/breeding/999999/abort", headers=headers)
+    resp = await post_abort(client, headers, 999999)
     assert resp.status_code == 404
 
 
 async def test_abort_huge_id_no_500(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
-    resp = await client.post(f"/api/breeding/{2**63}/abort", headers=headers)
+    resp = await post_abort(client, headers, 2**63)
     assert resp.status_code == 404
 
 
@@ -1421,12 +1960,12 @@ async def test_abort_cross_farm_record(client: httpx.AsyncClient) -> None:
     headers_a = await owner_with_farm(client)
     headers_b = await owner_with_farm(client, email="b@farm.in", farm_name="Beta Farm")
     _doe, _buck, br_b = await pregnant_doe(client, headers_b, "D-B")
-    resp = await client.post(f"/api/breeding/{br_b['id']}/abort", headers=headers_a)
+    resp = await post_abort(client, headers_a, br_b["id"])
     assert resp.status_code == 404
 
 
 async def test_abort_requires_auth(client: httpx.AsyncClient) -> None:
-    resp = await client.post("/api/breeding/1/abort")
+    resp = await post_abort(client, {}, 1)
     assert resp.status_code == 401
 
 
@@ -1677,7 +2216,13 @@ async def test_kidding_stillborn_creates_no_animal(client: httpx.AsyncClient) ->
     assert statuses["F"] == ("STILLBORN", None)
     born = [a for a in await list_animals(client, headers) if a["source"] == "BORN"]
     assert len(born) == 1
-    assert born[0]["birth_type"] == "SINGLE"  # only one alive kid
+    assert born[0]["birth_type"] == "TWIN"  # birth type counts the full delivered litter
+    pending_moves = [
+        task
+        for task in tasks_by_category(await all_tasks(client, headers), "BUCKET_MOVE")
+        if task["status"] == "PENDING"
+    ]
+    assert pending_moves == []  # the surviving kid retains the normal weaning workflow
 
 
 async def test_kidding_died_creates_dead_animal_for_mortality_traceability(
@@ -1701,6 +2246,65 @@ async def test_kidding_died_creates_dead_animal_for_mortality_traceability(
     assert len(born) == 1  # the default herd list intentionally excludes DEAD animals
     dead_animal = await get_animal(client, headers, died["animal_id"])
     assert dead_animal["status"] == "DEAD"
+    assert dead_animal["status_date"] == iso(today())
+
+
+async def test_kidding_died_kid_requires_explicit_mortality_date(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    resp = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "M", "status": "DIED"}])
+    assert resp.status_code == 422
+    assert (await get_breeding(client, headers, br["id"]))["has_kidding"] is False
+
+
+async def test_died_kid_date_is_required_at_database_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    record = await kid_on_ekd(client, headers, br, kids=[{"sex": "F"}])
+    async with get_sessionmaker()() as db:
+        db.add(
+            KidEntry(
+                farm_id=int(headers["X-Farm-Id"]),
+                kidding_record_id=record["id"],
+                sex="M",
+                status="DIED",
+                mortality_reported_at=None,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            await db.flush()
+        await db.rollback()
+
+
+async def test_kidding_date_cannot_be_moved_after_recorded_kid_mortality(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    mortality_date = today() - timedelta(days=5)
+    record = await kid_on_ekd(
+        client,
+        headers,
+        br,
+        kids=[
+            {
+                "sex": "M",
+                "status": "DIED",
+                "mortality_reported_at": iso(mortality_date),
+            }
+        ],
+    )
+    async with get_sessionmaker()() as db:
+        kidding = await db.get(KiddingRecord, record["id"])
+        assert kidding is not None
+        kidding.date = mortality_date + timedelta(days=1)
+        with pytest.raises(IntegrityError):
+            await db.flush()
+        await db.rollback()
 
 
 async def test_kidding_all_died_creates_no_weaning_task(client: httpx.AsyncClient) -> None:
@@ -1714,7 +2318,14 @@ async def test_kidding_all_died_creates_no_weaning_task(client: httpx.AsyncClien
     )
     died = record["kids"][0]
     assert died["animal_id"] is not None
-    assert not any(task["category"] == "WEANING" for task in await all_tasks(client, headers))
+    tasks = await all_tasks(client, headers)
+    assert not any(task["category"] == "WEANING" for task in tasks)
+    postpartum = [
+        task for task in tasks_by_category(tasks, "BUCKET_MOVE") if task["status"] == "PENDING"
+    ]
+    assert len(postpartum) == 1
+    assert postpartum[0]["due_date"] == iso(today() + timedelta(days=POSTPARTUM_RECOVERY_DAYS))
+    assert postpartum[0]["breeding_record_id"] == breeding["id"]
 
 
 async def test_kidding_all_stillborn_no_animals_doe_recovers(client: httpx.AsyncClient) -> None:
@@ -1728,6 +2339,43 @@ async def test_kidding_all_stillborn_no_animals_doe_recovers(client: httpx.Async
     assert doe_after["current_bucket"] == "RECOVERY"
     tasks = await all_tasks(client, headers)
     assert not any(task["category"] == "WEANING" for task in tasks)
+    postpartum = [
+        task for task in tasks_by_category(tasks, "BUCKET_MOVE") if task["status"] == "PENDING"
+    ]
+    assert len(postpartum) == 1
+    assert postpartum[0]["due_date"] == iso(
+        date.fromisoformat(record["date"]) + timedelta(days=POSTPARTUM_RECOVERY_DAYS)
+    )
+
+
+async def test_no_survivor_postpartum_task_completes_once_and_rests_doe(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=220)
+    await kid_on_ekd(client, headers, br, kids=[{"sex": "F", "status": "STILLBORN"}])
+    postpartum = next(
+        task
+        for task in tasks_by_category(await all_tasks(client, headers), "BUCKET_MOVE")
+        if task["status"] == "PENDING"
+    )
+    completed = await client.post(f"/api/tasks/{postpartum['id']}/complete", headers=headers)
+    assert completed.status_code == 200, completed.text
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RESTING"
+    replay = await client.post(f"/api/tasks/{postpartum['id']}/complete", headers=headers)
+    assert replay.status_code == 400
+    async with get_sessionmaker()() as db:
+        moves = list(
+            (
+                await db.execute(
+                    select(BucketMove).where(
+                        BucketMove.animal_id == doe["id"],
+                        BucketMove.reason == "Postpartum recovery complete; no surviving kids",
+                    )
+                )
+            ).scalars()
+        )
+    assert len(moves) == 1
 
 
 async def test_kidding_auto_tags(client: httpx.AsyncClient) -> None:
@@ -1740,26 +2388,128 @@ async def test_kidding_auto_tags(client: httpx.AsyncClient) -> None:
     assert born == {"D-1-K1", "D-1-K2"}
 
 
-async def test_kidding_auto_tags_uniquified_on_second_kidding(client: httpx.AsyncClient) -> None:
-    """A doe's second kidding must not crash on the '<doe>-K1' tag collision —
-    the service uniquifies ('-2' suffix)."""
+async def test_kidding_auto_tags_and_collision_suffixes_fit_database_limit(
+    client: httpx.AsyncClient,
+) -> None:
     headers = await owner_with_farm(client)
-    doe, buck, br1 = await pregnant_doe(client, headers, "D-2ND", gestation_days=310)
-    record1 = await kid_on_ekd(client, headers, br1, kids=[{"sex": "M"}, {"sex": "F"}])
-    assert [k["tag"] for k in record1["kids"]] == ["D-2ND-K1", "D-2ND-K2"]
-    await move_to(client, headers, doe["id"], "RESTING")
-    br2 = await make_breeding(
+    doe = await make_doe(client, headers, "D" * 50)
+    buck = await make_buck(client, headers, "B-LONG-TAG")
+    br = await make_breeding(
         client,
         headers,
         doe["id"],
         buck["id"],
         breeding_date=iso(today() - timedelta(days=160)),
     )
-    br2 = await confirm(client, headers, br2["id"])
+    br = await confirm(client, headers, br["id"])
+    record = await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}, {"sex": "F"}])
+    tags = [kid["tag"] for kid in record["kids"]]
+    assert len(set(tags)) == 2
+    assert all(len(tag) <= 50 for tag in tags)
+    assert doe["tag_number"] not in tags
+
+
+async def test_kidding_explicit_tag_is_trimmed_before_length_limit(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    tag = "K" * 50
+    record = await kid_on_ekd(client, headers, br, kids=[{"tag": f"  {tag}  ", "sex": "M"}])
+    assert record["kids"][0]["tag"] == tag
+
+
+async def test_kidding_explicit_tag_over_database_limit_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    resp = await kid_on_ekd_raw(client, headers, br, kids=[{"tag": "K" * 51, "sex": "M"}])
+    assert resp.status_code == 422
+    assert (await get_breeding(client, headers, br["id"]))["has_kidding"] is False
+
+
+async def test_kidding_auto_tags_uniquified_on_second_kidding(client: httpx.AsyncClient) -> None:
+    """A doe's second kidding must not crash on the '<doe>-K1' tag collision —
+    the service uses a bounded unpredictable fallback."""
+    headers = await owner_with_farm(client)
+    doe, buck, br1 = await bred_doe(
+        client, headers, "D-2ND", breeding_date=today() - timedelta(days=310)
+    )
+    first_ultrasound = await ultrasound(client, headers, br1["id"], date=br1["ultrasound_date"])
+    assert first_ultrasound.status_code == 200, first_ultrasound.text
+    br1 = first_ultrasound.json()
+    record1 = await kid_on_ekd(client, headers, br1, kids=[{"sex": "M"}, {"sex": "F"}])
+    assert [k["tag"] for k in record1["kids"]] == ["D-2ND-K1", "D-2ND-K2"]
+    await move_to(client, headers, doe["id"], "RESTING", history_override=True)
+    br2 = await make_breeding(
+        client,
+        headers,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=159)),
+    )
+    second_ultrasound = await ultrasound(client, headers, br2["id"], date=br2["ultrasound_date"])
+    assert second_ultrasound.status_code == 200, second_ultrasound.text
+    br2 = second_ultrasound.json()
     record2 = await kid_on_ekd(client, headers, br2, kids=[{"sex": "M"}, {"sex": "F"}])
-    assert [k["tag"] for k in record2["kids"]] == ["D-2ND-K1-2", "D-2ND-K2-2"]
+    second_tags = [k["tag"] for k in record2["kids"]]
+    assert second_tags[0].startswith("D-2ND-K1-A")
+    assert second_tags[1].startswith("D-2ND-K2-A")
+    assert all(len(tag) <= 50 for tag in second_tags)
     tags = {a["tag_number"] for a in await list_animals(client, headers)}
-    assert {"D-2ND-K1", "D-2ND-K2", "D-2ND-K1-2", "D-2ND-K2-2"} <= tags
+    assert {"D-2ND-K1", "D-2ND-K2", *second_tags} <= tags
+
+
+async def test_kidding_auto_tag_collision_work_is_strictly_bounded(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, "D-PROBE", gestation_days=160)
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        occupied = ["D-PROBE-K1", *[f"D-PROBE-K1-{n}" for n in range(2, 502)]]
+        db.add_all(
+            [
+                Animal(
+                    farm_id=farm_id,
+                    tag_number=tag,
+                    breed="Osmanabadi",
+                    sex="F",
+                    source="PURCHASED",
+                    current_bucket="FOUNDATION",
+                )
+                for tag in occupied
+            ]
+        )
+        await db.commit()
+
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "M"}])
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert response.status_code == 201, response.text
+    assert response.json()["kids"][0]["tag"].startswith(f"{doe['tag_number']}-K1-A")
+    tag_probes = [
+        statement
+        for statement in statements
+        if "FROM animals" in statement and "animals.tag_number =" in statement
+    ]
+    assert len(tag_probes) <= 4
 
 
 async def test_kidding_explicit_duplicate_tags(client: httpx.AsyncClient) -> None:
@@ -1818,6 +2568,82 @@ async def test_kidding_moves_doe_to_recovery(client: httpx.AsyncClient) -> None:
     assert doe_after["is_currently_pregnant"] is False
 
 
+async def test_held_doe_kidding_reclassifies_atomically(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, breeding = await pregnant_doe(client, headers, "HELD-KIDDING", gestation_days=160)
+    await place_health_hold(client, headers, doe["id"])
+
+    recorded = await make_kidding(client, headers, breeding["id"], date=iso(today()))
+    assert recorded["breeding_record_id"] == breeding["id"]
+    after = await get_animal(client, headers, doe["id"])
+    assert after["current_bucket"] == "RECOVERY"
+    assert after["movement_restricted"] is True
+    assert after["suspected_scheduled_disease"] is True
+
+
+async def test_held_orphan_kid_can_be_weaned_after_clearance_with_real_provenance(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, breeding = await pregnant_doe(client, headers, "ORPHAN-DAM", gestation_days=160)
+    recorded = await make_kidding(
+        client,
+        headers,
+        breeding["id"],
+        date=iso(today()),
+        kids=[{"tag": "ORPHAN-KID", "sex": "M", "status": "ALIVE"}],
+    )
+    kid_id = recorded["kids"][0]["animal_id"]
+    assert kid_id is not None
+    await place_health_hold(client, headers, kid_id)
+
+    removed = await client.post(
+        f"/api/animals/{doe['id']}/status",
+        json={"new_status": "DEAD", "date": iso(today())},
+        headers=headers,
+    )
+    assert removed.status_code == 200, removed.text
+    assert (await get_animal(client, headers, kid_id))["current_bucket"] == "RECOVERY"
+
+    still_held = await client.post(
+        f"/api/animals/{kid_id}/move",
+        json={"to_bucket": "MALE_KIDS"},
+        headers=headers,
+    )
+    assert still_held.status_code == 409
+    assert "restriction" in still_held.json()["detail"].lower()
+
+    cleared = await client.post(
+        f"/api/health/restrictions/{kid_id}/clear",
+        json={
+            "clearance_reference": "District AHD orphan clearance",
+            "expected_restriction_version": 1,
+        },
+        headers=headers,
+    )
+    assert cleared.status_code == 204, cleared.text
+
+    wrong_sex = await client.post(
+        f"/api/animals/{kid_id}/move",
+        json={"to_bucket": "FEMALE_KIDS"},
+        headers=headers,
+    )
+    assert wrong_sex.status_code == 409
+
+    moved = await client.post(
+        f"/api/animals/{kid_id}/move",
+        json={"to_bucket": "MALE_KIDS"},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["current_bucket"] == "MALE_KIDS"
+    profile = await client.get(f"/api/animals/{kid_id}", headers=headers)
+    assert profile.status_code == 200
+    assert profile.json()["moves"][0]["reason"] == (
+        "Dam no longer active — deferred early wean after hold clearance"
+    )
+
+
 async def test_kidding_creates_weaning_task_at_plus_60(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
@@ -1870,7 +2696,7 @@ async def test_kidding_on_failed_breeding(client: httpx.AsyncClient) -> None:
 async def test_kidding_on_aborted_breeding(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers)
-    resp = await client.post(f"/api/breeding/{br['id']}/abort", headers=headers)
+    resp = await post_abort(client, headers, br["id"])
     assert resp.status_code == 200, resp.text
     resp = await post_kidding(client, headers, br["id"])
     assert resp.status_code == 400
@@ -1911,10 +2737,10 @@ async def test_kidding_cross_farm_breeding_record(client: httpx.AsyncClient) -> 
 async def test_kidding_future_date(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    # One day of timezone headroom is allowed (clients east of UTC); genuinely
-    # future dates are still rejected.
-    resp = await post_kidding(client, headers, br["id"], date=iso(today() + timedelta(days=2)))
-    assert resp.status_code == 422  # PastOrTodayDate schema guard
+    # Pydantic keeps one day of UTC/local-date parsing headroom, but the
+    # endpoint rejects a date beyond the selected farm's exact local date.
+    resp = await post_kidding(client, headers, br["id"], date=iso(today() + timedelta(days=1)))
+    assert resp.status_code == 422
 
 
 async def test_kidding_date_before_breeding_date(client: httpx.AsyncClient) -> None:
@@ -2048,12 +2874,17 @@ async def test_kidding_sql_injection_tag_stored_verbatim(client: httpx.AsyncClie
     assert evil in born
 
 
-async def test_kidding_long_notes_accepted(client: httpx.AsyncClient) -> None:
+async def test_kidding_notes_length_boundary(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    notes = "x" * 10_000
-    record = await kid_on_ekd(client, headers, br, notes=notes)
-    assert record["notes"] == notes
+    accepted = "x" * 4_000
+    record = await kid_on_ekd(client, headers, br, notes=accepted)
+    assert record["notes"] == accepted
+
+    _doe, _buck, br = await pregnant_doe(client, headers, "D-NOTES", gestation_days=160)
+    rejected = await kid_on_ekd_raw(client, headers, br, notes="x" * 4_001)
+    assert rejected.status_code == 422
+    assert (await get_breeding(client, headers, br["id"]))["has_kidding"] is False
 
 
 async def test_kidding_notes_null_when_omitted(client: httpx.AsyncClient) -> None:
@@ -2114,11 +2945,12 @@ async def test_kidding_breeding_id_string(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422
 
 
-async def test_kidding_extra_field_ignored(client: httpx.AsyncClient) -> None:
+async def test_kidding_extra_field_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     resp = await kid_on_ekd_raw(client, headers, br, bogus_field="x")
-    assert resp.status_code == 201, resp.text
+    assert resp.status_code == 422, resp.text
+    assert (await get_breeding(client, headers, br["id"]))["has_kidding"] is False
 
 
 async def test_kidding_requires_auth(client: httpx.AsyncClient) -> None:
@@ -2215,13 +3047,33 @@ async def test_after_weaning_doe_is_breeding_candidate(client: httpx.AsyncClient
     weaning = tasks_by_category(await all_tasks(client, headers), "WEANING")[0]
     resp = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
     assert resp.status_code == 200, resp.text
-    body = await breeding_list(client, headers)
-    assert doe["id"] in body["candidate_doe_ids"]
+    assert doe["id"] in await candidate_ids(client, headers)
 
 
 # ---------------------------------------------------------------------------
 # RBAC: breeding perms (VET) vs kidding perms (owner-only among presets)
 # ---------------------------------------------------------------------------
+async def test_breeding_view_only_does_not_receive_mutation_candidates(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    await make_doe(client, owner)
+    await make_buck(client, owner)
+    viewer = await custom_breeding_viewer_headers(client, owner, "breeding-reader@farm.in")
+
+    response = await client.get("/api/breeding", headers=viewer)
+    assert response.status_code == 200, response.text
+    assert response.json()["candidate_availability"] is None
+    assert "candidate_doe_ids" not in response.json()
+    assert "active_buck_ids" not in response.json()
+
+    candidates = await client.get(
+        "/api/breeding/candidates", params={"kind": "doe"}, headers=viewer
+    )
+    assert candidates.status_code == 403
+    assert candidates.json()["detail"] == "Missing permission: breeding.manage"
+
+
 async def test_vet_worker_can_view_and_manage_breeding(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     doe = await make_doe(client, owner)
@@ -2263,5 +3115,5 @@ async def test_mover_worker_cannot_access_breeding(client: httpx.AsyncClient) ->
     assert resp.status_code == 403
     resp = await ultrasound(client, mover, 1, pregnant=True)
     assert resp.status_code == 403
-    resp = await client.post("/api/breeding/1/abort", headers=mover)
+    resp = await post_abort(client, mover, 1)
     assert resp.status_code == 403

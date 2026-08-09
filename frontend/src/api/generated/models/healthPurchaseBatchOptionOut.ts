@@ -6,12 +6,9 @@
  */
 
 /**
- * Targetable purchase batch summary; no purchase ledger detail is exposed.
+ * Opaque health-workflow selector; purchase-ledger facts stay private.
  */
 export interface HealthPurchaseBatchOptionOut {
   id: number;
-  date: string;
-  supplier: string | null;
-  count: number;
-  active_animal_count: number;
+  active_quarantine_animal_count: number;
 }

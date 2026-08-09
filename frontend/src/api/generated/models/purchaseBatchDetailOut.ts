@@ -6,10 +6,12 @@
  */
 import type { AnimalOut } from './animalOut';
 import type { PurchaseBatchOut } from './purchaseBatchOut';
+import type { PurchaseQuarantineAnimalOut } from './purchaseQuarantineAnimalOut';
+import type { QuarantineScheduleTaskOut } from './quarantineScheduleTaskOut';
 import type { TaskOut } from './taskOut';
 
 export interface PurchaseBatchDetailOut {
   batch: PurchaseBatchOut;
-  animals: AnimalOut[];
-  tasks: TaskOut[];
+  animals: (AnimalOut | PurchaseQuarantineAnimalOut)[];
+  tasks: (TaskOut | QuarantineScheduleTaskOut)[];
 }

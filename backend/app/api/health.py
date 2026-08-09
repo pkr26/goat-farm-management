@@ -5,8 +5,8 @@ Port of v1 app/routers/health.py."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Select, false, func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -14,33 +14,48 @@ from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, requi
 from ..models import (
     Animal,
     AnimalStatus,
+    Bucket,
+    Farm,
     HealthEvent,
+    MovementRestrictionAction,
     PurchaseBatch,
     Task,
     TaskCategory,
     TaskStatus,
-    User,
 )
-from ..schemas.common import MAX_INT32_ID
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.health import (
+    MAX_BULK_BUCKET_TARGETS,
+    MAX_BULK_HEALTH_TARGETS,
     HealthAnimalOptionListOut,
     HealthAnimalOptionOut,
+    HealthBulkTargetIn,
+    HealthBulkTargetPreviewOut,
     HealthEventIn,
     HealthEventListOut,
+    HealthEventMutationOut,
     HealthEventOut,
     HealthPurchaseBatchOptionListOut,
     HealthPurchaseBatchOptionOut,
+    MovementRestrictionActionOut,
     MovementRestrictionClearIn,
+    MovementRestrictionHistoryOut,
     ScheduleOut,
     ScheduleRowOut,
 )
+from ..schemas.summaries import AnimalIdentityOut
 from ..services import (
+    IdempotencyKey,
     complete_task,
+    execute_idempotent,
+    inferred_schedule_template,
     record_health_event,
+    require_animal_event_chronology,
+    require_farm_not_future,
     target_matches_template,
     template_name_for_task,
     vaccination_schedule_for_animal,
-    validated_template_name,
+    validated_template,
 )
 from ..utils import today, utcnow
 from ._shared import visible_to
@@ -75,7 +90,7 @@ async def health_animal_options(
     _perms: VIEW,
     q: Annotated[str | None, Query(max_length=60)] = None,
     limit: Annotated[int, Query(ge=1, le=HEALTH_LOOKUP_MAX_LIMIT)] = (HEALTH_LOOKUP_DEFAULT_LIMIT),
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> HealthAnimalOptionListOut:
     """Farm-local active-animal summaries for health schedules and events.
 
@@ -117,6 +132,10 @@ async def health_animal_options(
                 tag_number=animal.tag_number,
                 name=animal.name,
                 current_bucket=animal.current_bucket,
+                movement_restricted=bool(
+                    animal.movement_restricted or animal.suspected_scheduled_disease
+                ),
+                restriction_version=animal.restriction_version,
             )
             for animal in result.scalars()
         ],
@@ -131,62 +150,120 @@ async def health_purchase_batch_options(
     db: DbSession,
     farm: CurrentFarm,
     _perms: MANAGE,
-    q: Annotated[str | None, Query(max_length=120)] = None,
+    q: Annotated[str | None, Query(max_length=20)] = None,
     limit: Annotated[int, Query(ge=1, le=HEALTH_LOOKUP_MAX_LIMIT)] = (HEALTH_LOOKUP_DEFAULT_LIMIT),
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> HealthPurchaseBatchOptionListOut:
-    """Targetable batch summaries without exposing the purchase ledger.
+    """Opaque targetable batch ids without exposing the purchase ledger.
 
-    Batches with no active animals are omitted because the health write path
-    cannot apply an event to them.
+    Only the id needed by the health write and the current quarantine target
+    count are returned. Supplier, purchase date, original count and price are
+    procurement data and require ``purchases.view``. Search is deliberately
+    exact-id-only so a health-only role cannot probe supplier names.
     """
-    active_count = (
-        select(func.count(Animal.id))
-        .where(
-            Animal.farm_id == farm.id,
-            Animal.purchase_batch_id == PurchaseBatch.id,
-            Animal.status == AnimalStatus.ACTIVE.value,
-        )
-        .correlate(PurchaseBatch)
-        .scalar_subquery()
-    )
-    filters = [PurchaseBatch.farm_id == farm.id, active_count > 0]
+    filters = [
+        Animal.farm_id == farm.id,
+        Animal.purchase_batch_id.is_not(None),
+        Animal.status == AnimalStatus.ACTIVE.value,
+        Animal.current_bucket == Bucket.QUARANTINE.value,
+    ]
     if q and q.strip():
         raw = q.strip()
         numeric = raw.removeprefix("#")
-        explicit_id = raw.startswith("#") and numeric.isascii() and numeric.isdigit()
-        if explicit_id:
-            filters.append(
-                PurchaseBatch.id == int(numeric) if int(numeric) <= MAX_INT32_ID else false()
-            )
+        if numeric.isascii() and numeric.isdigit() and int(numeric) <= MAX_INT32_ID:
+            filters.append(Animal.purchase_batch_id == int(numeric))
         else:
-            supplier_match = PurchaseBatch.supplier.ilike(_escaped_contains(raw), escape="\\")
-            if numeric.isascii() and numeric.isdigit() and int(numeric) <= MAX_INT32_ID:
-                filters.append(or_(supplier_match, PurchaseBatch.id == int(numeric)))
-            else:
-                filters.append(supplier_match)
+            filters.append(false())
 
-    total = (
-        await db.execute(select(func.count()).select_from(PurchaseBatch).where(*filters))
-    ).scalar_one()
-    result = await db.execute(
-        select(PurchaseBatch, active_count.label("active_animal_count"))
+    # Start at the small, live target set rather than scanning every historical
+    # purchase and evaluating a correlated animal count for each.  The parent
+    # join is retained as tenant-defense-in-depth even though composite FKs
+    # also enforce the same farm ownership at the database boundary.
+    targetable_batches = (
+        select(
+            Animal.purchase_batch_id.label("id"),
+            func.count(Animal.id).label("active_quarantine_animal_count"),
+        )
+        .join(
+            PurchaseBatch,
+            (PurchaseBatch.id == Animal.purchase_batch_id) & (PurchaseBatch.farm_id == farm.id),
+        )
         .where(*filters)
-        .order_by(PurchaseBatch.date.desc(), PurchaseBatch.id.desc())
+        .group_by(Animal.purchase_batch_id)
+        .subquery()
+    )
+    total = (await db.execute(select(func.count()).select_from(targetable_batches))).scalar_one()
+    result = await db.execute(
+        select(
+            targetable_batches.c.id,
+            targetable_batches.c.active_quarantine_animal_count,
+        )
+        .order_by(targetable_batches.c.id.desc())
         .offset(offset)
         .limit(limit)
     )
     return HealthPurchaseBatchOptionListOut(
         batches=[
             HealthPurchaseBatchOptionOut(
-                id=batch.id,
-                date=batch.date,
-                supplier=batch.supplier,
-                count=batch.count,
-                active_animal_count=active_animal_count,
+                id=batch_id,
+                active_quarantine_animal_count=active_quarantine_animal_count,
             )
-            for batch, active_animal_count in result.all()
+            for batch_id, active_quarantine_animal_count in result.all()
         ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/restrictions/{animal_id}")
+async def movement_restriction_history(
+    animal_id: int,
+    db: DbSession,
+    farm: CurrentFarm,
+    _perms: VIEW,
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
+) -> MovementRestrictionHistoryOut:
+    animal = (
+        (
+            await db.execute(
+                select(Animal).where(Animal.id == animal_id, Animal.farm_id == farm.id)
+            )
+        ).scalar_one_or_none()
+        if 1 <= animal_id <= MAX_INT32_ID
+        else None
+    )
+    if animal is None:
+        raise HTTPException(status_code=404, detail="Animal not found")
+    action_filter = (
+        MovementRestrictionAction.farm_id == farm.id,
+        MovementRestrictionAction.animal_id == animal.id,
+    )
+    total = (
+        await db.execute(
+            select(func.count()).select_from(MovementRestrictionAction).where(*action_filter)
+        )
+    ).scalar_one()
+    actions = list(
+        (
+            await db.execute(
+                select(MovementRestrictionAction)
+                .where(*action_filter)
+                .order_by(
+                    MovementRestrictionAction.acted_at.desc(),
+                    MovementRestrictionAction.id.desc(),
+                )
+                .offset(offset)
+                .limit(limit)
+            )
+        ).scalars()
+    )
+    return MovementRestrictionHistoryOut(
+        animal_id=animal.id,
+        restriction_version=animal.restriction_version,
+        active=bool(animal.movement_restricted or animal.suspected_scheduled_disease),
+        actions=[MovementRestrictionActionOut.model_validate(action) for action in actions],
         total=total,
         limit=limit,
         offset=offset,
@@ -208,22 +285,43 @@ async def clear_movement_restriction(
     recorded operational restriction reversible through an attributed,
     referenced action instead of a database edit.
     """
-    # Account deletion takes the same User -> domain-row order before it
-    # anonymizes audit references, so a concurrent self-delete cannot race
-    # this new foreign-key attribution into an IntegrityError.
-    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    # User deletion is a tombstone: the attributed actor row persists, so no
+    # cross-domain User lock is needed before the animal episode lock.
     animal = (
         (
-            await db.execute(select(Animal).where(Animal.id == animal_id).with_for_update())
+            await db.execute(
+                select(Animal)
+                .where(Animal.id == animal_id, Animal.farm_id == farm.id)
+                .with_for_update()
+            )
         ).scalar_one_or_none()
         if 1 <= animal_id <= MAX_INT32_ID
         else None
     )
     if animal is None or animal.farm_id != farm.id:
         raise HTTPException(status_code=404, detail="Animal not found")
+    if animal.restriction_version != payload.expected_restriction_version:
+        raise HTTPException(
+            status_code=409,
+            detail="Movement restriction was superseded; refresh the current episode",
+        )
     if not animal.movement_restricted and not animal.suspected_scheduled_disease:
         raise HTTPException(status_code=409, detail="Animal has no active movement restriction")
-    animal.restriction_cleared_at = utcnow()
+    cleared_at = utcnow()
+    db.add(
+        MovementRestrictionAction(
+            farm_id=farm.id,
+            animal_id=animal.id,
+            restriction_version=animal.restriction_version,
+            action="CLEARED",
+            acted_at=cleared_at,
+            acted_by_id=user.id,
+            action_reference=payload.clearance_reference,
+            disease_target=animal.suspected_disease,
+            health_event_id=None,
+        )
+    )
+    animal.restriction_cleared_at = cleared_at
     animal.restriction_cleared_by_id = user.id
     animal.restriction_clearance_reference = payload.clearance_reference
     animal.movement_restricted = False
@@ -238,7 +336,7 @@ async def list_events(
     farm: CurrentFarm,
     perms: VIEW,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> HealthEventListOut:
     """A requested page of health events, newest first, with its full count."""
     where = HealthEvent.farm_id == farm.id
@@ -261,57 +359,277 @@ async def list_events(
     )
 
 
-@router.post("/events", status_code=201)
-async def record_event(
+async def _bulk_target_snapshot(
+    db: DbSession,
+    farm_id: int,
+    target: HealthBulkTargetIn,
+) -> tuple[list[int], list[AnimalIdentityOut]]:
+    target_limit = MAX_BULK_BUCKET_TARGETS if target.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
+    filters: list[ColumnElement[bool]] = [
+        Animal.farm_id == farm_id,
+        Animal.status == AnimalStatus.ACTIVE.value,
+    ]
+    if target.scope == "bucket":
+        filters.append(Animal.current_bucket == target.bucket)
+    else:
+        filters.append(Animal.purchase_batch_id == target.purchase_batch_id)
+    rows = list(
+        (
+            await db.execute(
+                select(Animal.id, Animal.tag_number, Animal.name)
+                .where(*filters)
+                .order_by(Animal.id)
+                .limit(target_limit + 1)
+            )
+        ).all()
+    )
+    if not rows:
+        raise HTTPException(status_code=400, detail="No active animals match the given scope")
+    if len(rows) > target_limit:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Bulk health scope exceeds {target_limit} animals; "
+                "split it into smaller reviewed sets"
+            ),
+        )
+    ids = [int(row.id) for row in rows]
+    return ids, [
+        AnimalIdentityOut(id=row.id, tag_number=row.tag_number, name=row.name) for row in rows
+    ]
+
+
+@router.post("/events/preview")
+async def preview_bulk_event_targets(
+    payload: HealthBulkTargetIn,
+    db: DbSession,
+    farm: CurrentFarm,
+    _perms: MANAGE,
+) -> HealthBulkTargetPreviewOut:
+    """Return the exact, bounded active-animal snapshot a bulk write must present."""
+    ids, identities = await _bulk_target_snapshot(db, farm.id, payload)
+    return HealthBulkTargetPreviewOut(
+        scope=payload.scope,
+        bucket=payload.bucket,
+        purchase_batch_id=payload.purchase_batch_id,
+        target_animal_ids=ids,
+        target_animals=identities,
+        target_count=len(ids),
+        max_targets=(
+            MAX_BULK_BUCKET_TARGETS if payload.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
+        ),
+    )
+
+
+async def _lock_event_targets(
+    db: DbSession,
+    farm: Farm,
+    payload: HealthEventIn,
+    *,
+    linked_batch_id: int | None = None,
+) -> tuple[list[Animal], PurchaseBatch | None, int | None]:
+    if payload.scope == "animal":
+        animal = (
+            (
+                await db.execute(
+                    select(Animal)
+                    .where(Animal.id == payload.animal_id, Animal.farm_id == farm.id)
+                    .with_for_update()
+                )
+            ).scalar_one_or_none()
+            if payload.animal_id is not None and payload.animal_id <= MAX_INT32_ID
+            else None
+        )
+        if animal is None or animal.status != AnimalStatus.ACTIVE.value:
+            raise HTTPException(status_code=400, detail="No active animals match the given scope")
+        return [animal], None, None
+
+    expected = payload.expected_animal_ids
+    if not expected:
+        raise HTTPException(
+            status_code=409,
+            detail="Bulk health events require a non-empty reviewed target snapshot",
+        )
+    target_limit = MAX_BULK_BUCKET_TARGETS if payload.scope == "bucket" else MAX_BULK_HEALTH_TARGETS
+    if len(expected) > target_limit:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Bulk health events are limited to {target_limit} animals",
+        )
+    if len(set(expected)) != len(expected):
+        raise HTTPException(
+            status_code=409,
+            detail="Reviewed target snapshot contains duplicate animal ids",
+        )
+    if any(animal_id > MAX_INT32_ID for animal_id in expected):
+        raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+
+    expected_ids = sorted(expected)
+    # A linked quarantine protocol duty covers the whole authoritative batch,
+    # not an arbitrary reviewed subset. Lock that full ACTIVE+QUARANTINE set
+    # in canonical id order before the linked Task and compare exact ids. A
+    # normal unlinked bulk ledger entry intentionally keeps snapshot semantics
+    # (late entrants are not silently added), so this stronger rule is scoped
+    # only to a compatible task's purchase batch.
+    if linked_batch_id is not None:
+        if payload.scope != "batch" or payload.purchase_batch_id != linked_batch_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Health event scope must match the linked batch",
+            )
+        animals = list(
+            (
+                await db.execute(
+                    select(Animal)
+                    .where(
+                        Animal.farm_id == farm.id,
+                        Animal.purchase_batch_id == linked_batch_id,
+                        Animal.status == AnimalStatus.ACTIVE.value,
+                        Animal.current_bucket == Bucket.QUARANTINE.value,
+                    )
+                    .order_by(Animal.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        if not animals or [animal.id for animal in animals] != expected_ids:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Reviewed target snapshot does not match the linked batch's "
+                    "active quarantine animals"
+                ),
+            )
+        linked_batch = (
+            await db.execute(
+                select(PurchaseBatch).where(
+                    PurchaseBatch.id == linked_batch_id,
+                    PurchaseBatch.farm_id == farm.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if linked_batch is None:
+            raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+        return animals, linked_batch, linked_batch.id
+
+    animals = list(
+        (
+            await db.execute(
+                select(Animal)
+                .where(Animal.farm_id == farm.id, Animal.id.in_(expected_ids))
+                .order_by(Animal.id)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    if [animal.id for animal in animals] != expected_ids:
+        raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+
+    batch: PurchaseBatch | None = None
+    batch_id: int | None = None
+    if payload.scope == "bucket":
+        stable = all(
+            animal.status == AnimalStatus.ACTIVE.value and animal.current_bucket == payload.bucket
+            for animal in animals
+        )
+    else:
+        batch = (
+            (
+                await db.execute(
+                    select(PurchaseBatch).where(
+                        PurchaseBatch.id == payload.purchase_batch_id,
+                        PurchaseBatch.farm_id == farm.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if payload.purchase_batch_id is not None and payload.purchase_batch_id <= MAX_INT32_ID
+            else None
+        )
+        batch_id = batch.id if batch is not None else None
+        stable = batch_id is not None and all(
+            animal.status == AnimalStatus.ACTIVE.value and animal.purchase_batch_id == batch_id
+            for animal in animals
+        )
+    if not stable:
+        raise HTTPException(status_code=409, detail="Reviewed target snapshot is stale")
+    return animals, batch, batch_id
+
+
+async def _record_event_mutation(
     payload: HealthEventIn,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     membership: CurrentMembership,
-    perms: MANAGE,
-) -> list[HealthEventOut]:
+) -> HealthEventMutationOut:
     """One HealthEvent row per targeted ACTIVE animal.
 
     A task-linked event must match the task's exact scope, health type and
     seeded schedule template. This prevents a generic health note from
     completing an unrelated quarantine vaccine duty.
     """
-    # Lock a linked task before animals. Quarantine release locks its release
-    # task then prerequisite tasks then animals; keeping that order avoids a
-    # release-vs-vaccine completion deadlock.
+    # Canonical mutation order is ANIMAL(S, ascending id) -> TASK. Animal
+    # status changes take the same order before skipping linked duties. Taking
+    # the task first here let a status change hold the animal while waiting on
+    # this task, as this request held the task while waiting on that animal --
+    # a genuine PostgreSQL deadlock rather than a harmless serialization.
+    linked_batch_id: int | None = None
+    if payload.task_id is not None and payload.task_id <= MAX_INT32_ID:
+        linked_batch_id = (
+            await db.execute(
+                select(Task.purchase_batch_id).where(
+                    Task.id == payload.task_id,
+                    Task.farm_id == farm.id,
+                    Task.category.in_((TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)),
+                )
+            )
+        ).scalar_one_or_none()
+    animals, batch, batch_id = await _lock_event_targets(
+        db,
+        farm,
+        payload,
+        linked_batch_id=linked_batch_id,
+    )
     task: Task | None = None
     if payload.task_id is not None and payload.task_id <= MAX_INT32_ID:
         task = (
-            await db.execute(select(Task).where(Task.id == payload.task_id).with_for_update())
+            await db.execute(
+                select(Task)
+                .where(Task.id == payload.task_id, Task.farm_id == farm.id)
+                .with_for_update()
+            )
         ).scalar_one_or_none()
-    base = select(Animal).where(
-        Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value
-    )
-    batch_id = None
-    stmt: Select[tuple[Animal]] | None = None
-    # Ids above the int4 PK ceiling cannot exist — they simply match nothing
-    # (→ the 400 below), never an asyncpg int32 DataError (500).
-    if payload.scope == "animal":
-        if payload.animal_id is not None and payload.animal_id <= MAX_INT32_ID:
-            stmt = base.where(Animal.id == payload.animal_id)
-    elif payload.scope == "bucket":
-        stmt = base.where(Animal.current_bucket == payload.bucket)
-    elif payload.purchase_batch_id is not None:  # scope == "batch"
-        batch = (
-            await db.get(PurchaseBatch, payload.purchase_batch_id)
-            if payload.purchase_batch_id <= MAX_INT32_ID
-            else None
-        )
-        if batch is not None and batch.farm_id == farm.id:
-            batch_id = batch.id
-            stmt = base.where(Animal.purchase_batch_id == batch_id)
-    animals: list[Animal] = []
-    if stmt is not None:
-        animals = list((await db.execute(stmt.with_for_update())).scalars().all())
-    if not animals:
-        raise HTTPException(status_code=400, detail="No active animals match the given scope")
 
     event_date = payload.date or today(farm.timezone)
+    try:
+        require_farm_not_future(event_date, farm, "health event date")
+        for animal in animals:
+            require_animal_event_chronology(animal, event_date, "Health event")
+        if batch is not None and event_date < batch.date:
+            raise ValueError("Health event cannot predate the purchase batch")
+        if payload.product_manufactured_on is not None:
+            # Product provenance naturally predates some animals and even
+            # their acquisition; only the product/event timeline applies.
+            require_farm_not_future(
+                payload.product_manufactured_on, farm, "product_manufactured_on"
+            )
+        for field_name, value in (
+            ("authority_notified_at", payload.authority_notified_at),
+            ("isolation_started_at", payload.isolation_started_at),
+        ):
+            if value is not None:
+                require_farm_not_future(value, farm, field_name)
+                for animal in animals:
+                    require_animal_event_chronology(animal, value, field_name)
+        if (
+            payload.product_manufactured_on is not None
+            and payload.product_manufactured_on > event_date
+        ):
+            raise ValueError("product manufacture date cannot follow the health event")
+        if payload.vaccine_valid_until is not None and payload.vaccine_valid_until < event_date:
+            raise ValueError("vaccine validity cannot predate the health event")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     if payload.next_due_date is not None and payload.next_due_date <= event_date:
         raise HTTPException(
             status_code=422, detail="next_due_date must be after the health event date"
@@ -328,11 +646,12 @@ async def record_event(
 
     template_name: str | None
     try:
-        template_name = await validated_template_name(
+        template = await validated_template(
             db, (payload.schedule_template_name or "").strip() or None, payload.type
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    template_name = str(template.name) if template is not None else None
     if template_name is not None and not target_matches_template(
         payload.disease_target or "", template_name
     ):
@@ -353,12 +672,14 @@ async def record_event(
             )
         # Same assignment rule as the duties page — the record form is not a
         # backdoor around task RBAC. The 403 aborts before the event is saved.
-        if not visible_to(task, user, farm, membership):
+        if not await visible_to(db, task, user, farm, membership, lock_assignee=True):
             raise HTTPException(status_code=403, detail="This duty is not assigned to you")
         if task.category != payload.type:
             raise HTTPException(
                 status_code=422, detail="Health event type must match the linked task"
             )
+        if event_date < task.due_date:
+            raise HTTPException(status_code=409, detail="This linked health duty is not due yet")
         if task.purchase_batch_id is not None:
             if payload.scope != "batch" or batch_id != task.purchase_batch_id:
                 raise HTTPException(
@@ -383,8 +704,21 @@ async def record_event(
                 raise HTTPException(
                     status_code=422, detail="Disease target does not match the linked task"
                 )
+            try:
+                template = await validated_template(db, expected_template, payload.type)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
             template_name = expected_template
         await complete_task(db, task, user)
+
+    if template is None:
+        template = await inferred_schedule_template(
+            db,
+            payload.type,
+            (payload.product_name or "").strip(),
+            (payload.disease_target or "").strip(),
+        )
+    template_id = template.id if template is not None else None
 
     tags = {animal.id: animal.tag_number for animal in animals}
     events = await record_health_event(
@@ -401,6 +735,7 @@ async def record_event(
         payload.cost,
         payload.next_due_date,
         template_name,
+        template_id,
         (payload.next_due_authority or "").strip(),
         (payload.product_lot or "").strip(),
         payload.product_manufactured_on,
@@ -417,13 +752,47 @@ async def record_event(
         purchase_batch_id=batch_id,
         created_by_id=user.id,
     )
-    await db.commit()
     outs = []
     for event in events:
         out = HealthEventOut.model_validate(event)
         out.animal_tag = tags.get(event.animal_id) if event.animal_id is not None else None
         outs.append(out)
-    return outs
+    return HealthEventMutationOut(root=outs)
+
+
+@router.post("/events", status_code=201)
+async def record_event(
+    payload: HealthEventIn,
+    response: Response,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    membership: CurrentMembership,
+    _perms: MANAGE,
+    idempotency_key: IdempotencyKey = None,
+) -> HealthEventMutationOut:
+    """Record an individual event or an exact reviewed bulk target snapshot.
+
+    A durable idempotency key makes retries return the first committed event
+    set without re-evaluating mutable bucket/batch membership.
+    """
+
+    async def mutate() -> HealthEventMutationOut:
+        return await _record_event_mutation(payload, db, user, farm, membership)
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/health/events",
+        payload=payload,
+        path_identity={},
+        success_status=201,
+        response_type=HealthEventMutationOut,
+        mutate=mutate,
+    )
 
 
 @router.get("/schedule/{animal_id}")

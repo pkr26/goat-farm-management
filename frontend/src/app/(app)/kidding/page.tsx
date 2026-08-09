@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import {
   useCreateKiddingApiKiddingPost,
+  useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet,
   useKiddingListApiKiddingGet,
 } from "@/api/generated/endpoints";
 import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models";
@@ -52,6 +53,7 @@ import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 function localToday(): string {
   return farmToday();
@@ -74,6 +76,8 @@ const KID_STATUSES = ["ALIVE", "STILLBORN", "DIED"] as const;
  * Select.Value renders the raw value in the closed trigger. */
 const KID_SEX_ITEMS: Record<string, string> = { F: "Female", M: "Male" };
 const MAX_KIDS = 10;
+const KIDDING_HISTORY_LIMIT = 50;
+const DUE_LIST_LIMIT = 25;
 
 const kidSchema = z.object({
   tag: z.string().max(50, "Max 50 characters").optional(),
@@ -106,6 +110,8 @@ function RecordKiddingDialog({
   onSaved: () => void;
 }) {
   const mutation = useCreateKiddingApiKiddingPost();
+  const createFlight = useSingleFlight();
+  const [formError, setFormError] = useState<string | null>(null);
   const {
     control,
     register,
@@ -123,31 +129,39 @@ function RecordKiddingDialog({
   const { fields, append, remove } = useFieldArray({ control, name: "kids" });
 
   async function onSubmit(values: KiddingValues) {
-    try {
-      await mutation.mutateAsync({
-        data: {
-          breeding_record_id: breeding.id,
-          date: values.date,
-          ease: values.ease,
-          notes: values.notes?.trim() ? values.notes.trim() : null,
-          kids: values.kids.map((k) => ({
-            tag: k.tag?.trim() ? k.tag.trim() : null,
-            sex: k.sex,
-            birth_weight: k.birth_weight ?? null,
-            status: k.status,
-          })),
-        },
-      });
-      toast.success("Kidding recorded.");
-      onClose();
-      onSaved();
-    } catch (err) {
-      toast.error(errorText(err));
-    }
+    await createFlight.run(async () => {
+      setFormError(null);
+      try {
+        await mutation.mutateAsync({
+          data: {
+            breeding_record_id: breeding.id,
+            date: values.date,
+            ease: values.ease,
+            notes: values.notes?.trim() ? values.notes.trim() : null,
+            kids: values.kids.map((k) => ({
+              tag: k.tag?.trim() ? k.tag.trim() : null,
+              sex: k.sex,
+              birth_weight: k.birth_weight ?? null,
+              status: k.status,
+            })),
+          },
+        });
+        toast.success("Kidding recorded.");
+        onClose();
+        onSaved();
+      } catch (err) {
+        const message = errorText(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !isSubmitting && !createFlight.pending && onClose()}
+    >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Record kidding</DialogTitle>
@@ -160,6 +174,11 @@ function RecordKiddingDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="kidding_date">Kidding date *</Label>
@@ -167,20 +186,24 @@ function RecordKiddingDialog({
                 id="kidding_date"
                 type="date"
                 max={localToday()}
+                aria-invalid={Boolean(errors.date) || undefined}
+                aria-describedby={errors.date ? "kidding-date-error" : undefined}
                 {...register("date")}
               />
               {errors.date && (
-                <p className="text-sm text-destructive">{errors.date.message}</p>
+                <p id="kidding-date-error" role="alert" className="text-sm text-destructive">
+                  {errors.date.message}
+                </p>
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Ease</Label>
+              <Label htmlFor="kidding-ease">Ease</Label>
               <Controller
                 control={control}
                 name="ease"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger id="kidding-ease" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -200,9 +223,11 @@ function RecordKiddingDialog({
             <Textarea id="kidding_notes" rows={2} {...register("notes")} />
           </div>
 
-          <div className="space-y-2">
+          <fieldset className="space-y-2" aria-labelledby="kidding-kids-label">
             <div className="flex items-center justify-between">
-              <Label>Kids</Label>
+              <span id="kidding-kids-label" className="text-sm font-medium">
+                Kids
+              </span>
               <Button
                 type="button"
                 variant="outline"
@@ -220,17 +245,38 @@ function RecordKiddingDialog({
                 className="grid grid-cols-2 gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_90px_110px_120px_auto] sm:items-end sm:border-0 sm:p-0"
               >
                 <div className="col-span-2 space-y-1 sm:col-span-1">
-                  <Label className="text-xs">Tag (auto if blank)</Label>
-                  <Input {...register(`kids.${index}.tag`)} placeholder="auto" />
+                  <Label htmlFor={`kid-${field.id}-tag`} className="text-xs">
+                    Kid {index + 1} tag (auto if blank)
+                  </Label>
+                  <Input
+                    id={`kid-${field.id}-tag`}
+                    aria-invalid={Boolean(errors.kids?.[index]?.tag) || undefined}
+                    aria-describedby={
+                      errors.kids?.[index]?.tag ? `kid-${field.id}-tag-error` : undefined
+                    }
+                    {...register(`kids.${index}.tag`)}
+                    placeholder="auto"
+                  />
+                  {errors.kids?.[index]?.tag && (
+                    <p
+                      id={`kid-${field.id}-tag-error`}
+                      role="alert"
+                      className="text-sm text-destructive"
+                    >
+                      {errors.kids[index]?.tag?.message}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Sex</Label>
+                  <Label htmlFor={`kid-${field.id}-sex`} className="text-xs">
+                    Kid {index + 1} sex
+                  </Label>
                   <Controller
                     control={control}
                     name={`kids.${index}.sex`}
                     render={({ field: f }) => (
                       <Select value={f.value} onValueChange={f.onChange} items={KID_SEX_ITEMS}>
-                        <SelectTrigger size="sm">
+                        <SelectTrigger id={`kid-${field.id}-sex`} size="sm">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -242,24 +288,44 @@ function RecordKiddingDialog({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Weight (kg)</Label>
+                  <Label htmlFor={`kid-${field.id}-weight`} className="text-xs">
+                    Kid {index + 1} weight (kg)
+                  </Label>
                   <Input
+                    id={`kid-${field.id}-weight`}
                     type="number"
                     step="0.1"
                     min="0"
+                    aria-invalid={Boolean(errors.kids?.[index]?.birth_weight) || undefined}
+                    aria-describedby={
+                      errors.kids?.[index]?.birth_weight
+                        ? `kid-${field.id}-weight-error`
+                        : undefined
+                    }
                     {...register(`kids.${index}.birth_weight`, {
                       setValueAs: (v) => (v === "" || v == null ? null : Number(v)),
                     })}
                   />
+                  {errors.kids?.[index]?.birth_weight && (
+                    <p
+                      id={`kid-${field.id}-weight-error`}
+                      role="alert"
+                      className="text-sm text-destructive"
+                    >
+                      {errors.kids[index]?.birth_weight?.message}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Status</Label>
+                  <Label htmlFor={`kid-${field.id}-status`} className="text-xs">
+                    Kid {index + 1} status
+                  </Label>
                   <Controller
                     control={control}
                     name={`kids.${index}.status`}
                     render={({ field: f }) => (
                       <Select value={f.value} onValueChange={f.onChange}>
-                        <SelectTrigger size="sm">
+                        <SelectTrigger id={`kid-${field.id}-status`} size="sm">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -277,36 +343,44 @@ function RecordKiddingDialog({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  aria-label="Remove kid"
+                  aria-label={`Remove kid ${index + 1}`}
                   disabled={fields.length <= 1}
                   onClick={() => remove(index)}
                   className="justify-self-end"
                 >
                   <X />
                 </Button>
-                {(errors.kids?.[index]?.tag || errors.kids?.[index]?.birth_weight) && (
-                  <p className="col-span-full text-sm text-destructive">
-                    {errors.kids[index]?.tag?.message ??
-                      errors.kids[index]?.birth_weight?.message}
-                  </p>
-                )}
               </div>
             ))}
             {errors.kids?.root && (
-              <p className="text-sm text-destructive">{errors.kids.root.message}</p>
+              <p role="alert" className="text-sm text-destructive">
+                {errors.kids.root.message}
+              </p>
             )}
-          </div>
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              {fields.length} kid{fields.length === 1 ? "" : "s"} listed
+            </p>
+          </fieldset>
 
           <p className="text-sm text-muted-foreground">
             Alive kids are auto-created as animals (source BORN, dam/sire linked,
             RECOVERY bucket). A weaning task is auto-created for kidding date + 60 days.
           </p>
           <DialogFooter>
-            <Button variant="outline" type="button" onClick={onClose} disabled={isSubmitting}>
+            <Button
+              variant="outline"
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting || createFlight.pending}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : "Save kidding"}
+            <Button type="submit" disabled={isSubmitting || createFlight.pending}>
+              {isSubmitting || createFlight.pending
+                ? "Saving…"
+                : formError
+                  ? "Retry save kidding"
+                  : "Save kidding"}
             </Button>
           </DialogFooter>
         </form>
@@ -351,29 +425,77 @@ export default function KiddingPage() {
   const canManage = can("kidding.manage");
   const canViewAnimals = can("animals.view");
   const [recordFor, setRecordFor] = useState<BreedingRecordOut | null>(null);
-  const [prefillDone, setPrefillDone] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const limit = 50;
+  const [prefillDismissed, setPrefillDismissed] = useState(false);
+  const [requestedBreedingId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("breeding_id");
+    const parsed = raw === null ? Number.NaN : Number(raw);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  });
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [upcomingOffset, setUpcomingOffset] = useState(0);
+  const [overdueOffset, setOverdueOffset] = useState(0);
   const query = useKiddingListApiKiddingGet(
-    { limit, offset },
-    { query: { enabled: allowed } },
+    {
+      limit: KIDDING_HISTORY_LIMIT,
+      offset: historyOffset,
+      upcoming_limit: DUE_LIST_LIMIT,
+      upcoming_offset: upcomingOffset,
+      overdue_limit: DUE_LIST_LIMIT,
+      overdue_offset: overdueOffset,
+    },
+    { query: { enabled: allowed, placeholderData: (previous) => previous } },
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const pagedPrefillRecord = payload
+    ? [...payload.overdue, ...payload.upcoming].find(
+        (record) => record.id === requestedBreedingId,
+      )
+    : undefined;
+  const prefillRecordQuery = useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet(
+    requestedBreedingId ?? 0,
+    {
+      query: {
+        enabled:
+          canManage &&
+          requestedBreedingId !== null &&
+          payload !== undefined &&
+          pagedPrefillRecord === undefined,
+      },
+    },
+  );
+  const fetchedPrefillRecord =
+    prefillRecordQuery.data?.status === 200 ? prefillRecordQuery.data.data : undefined;
+  const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;
+  const deepLinkedRecord =
+    canManage &&
+    !prefillDismissed &&
+    requestedRecord?.outcome === "CONFIRMED_PREGNANT" &&
+    !requestedRecord.has_kidding
+      ? requestedRecord
+      : null;
+  const activeRecord = recordFor ?? deepLinkedRecord;
 
-  // /kidding/new?breeding_id=… redirects here: auto-open the record dialog
-  // for that breeding record once the list has loaded.
   useEffect(() => {
-    if (!canManage || !payload || prefillDone) return;
-    const breedingId = new URLSearchParams(window.location.search).get("breeding_id");
-    if (!breedingId) return;
-    // One-time initialization from URL params — runs once, not reactive.
+    if (!payload) return;
+    const lastHistoryOffset =
+      payload.total === 0 ? 0 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;
+    const lastUpcomingOffset =
+      payload.upcoming_total === 0
+        ? 0
+        : Math.floor((payload.upcoming_total - 1) / payload.upcoming_limit) *
+          payload.upcoming_limit;
+    const lastOverdueOffset =
+      payload.overdue_total === 0
+        ? 0
+        : Math.floor((payload.overdue_total - 1) / payload.overdue_limit) * payload.overdue_limit;
+    // Recording a kidding can remove the last pregnancy from a due page.
+    // Re-home only the queue whose exact total no longer contains its offset.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPrefillDone(true);
-    const record = [...payload.overdue, ...payload.upcoming].find(
-      (r) => String(r.id) === breedingId,
-    );
-    if (record) setRecordFor(record);
-  }, [canManage, payload, prefillDone]);
+    if (historyOffset > lastHistoryOffset) setHistoryOffset(lastHistoryOffset);
+    if (upcomingOffset > lastUpcomingOffset) setUpcomingOffset(lastUpcomingOffset);
+    if (overdueOffset > lastOverdueOffset) setOverdueOffset(lastOverdueOffset);
+  }, [historyOffset, overdueOffset, payload, upcomingOffset]);
 
   function refresh() {
     invalidateFarmData(queryClient);
@@ -395,11 +517,16 @@ export default function KiddingPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError
-            ? query.error.detail
-            : "Could not load kidding data."}
-        </p>
+        <div className="space-y-3" role="alert">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError
+              ? query.error.detail
+              : "Could not load kidding data."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry kidding data
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -424,7 +551,24 @@ export default function KiddingPage() {
         description="Confirmed pregnancies due soon and recent kidding history."
       />
 
-      {payload.overdue.length > 0 && (
+      {prefillRecordQuery.isError && (
+        <div className="flex flex-wrap items-center gap-2" role="alert">
+          <span className="text-sm text-destructive">
+            {prefillRecordQuery.error instanceof ApiError
+              ? prefillRecordQuery.error.detail
+              : "Could not load the linked pregnancy."}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void prefillRecordQuery.refetch()}
+          >
+            Retry linked pregnancy
+          </Button>
+        </div>
+      )}
+      {payload.overdue_total > 0 && (
         <DataTableCard
           className="border-red-200 bg-red-50/60 dark:border-red-900 dark:bg-red-950/30"
           title={
@@ -433,8 +577,9 @@ export default function KiddingPage() {
               Overdue (past expected date, no kidding recorded)
             </span>
           }
+          description={`${payload.overdue_total} overdue pregnancies in the full queue.`}
         >
-          <Table>
+          <Table className="min-w-[560px]">
             <TableBody>
               {payload.overdue.map((r) => (
                 <TableRow key={r.id}>
@@ -463,12 +608,19 @@ export default function KiddingPage() {
               ))}
             </TableBody>
           </Table>
+          <PaginationControls
+            total={payload.overdue_total}
+            limit={payload.overdue_limit}
+            offset={payload.overdue_offset}
+            onOffsetChange={setOverdueOffset}
+            label="overdue pregnancies"
+          />
         </DataTableCard>
       )}
 
       <DataTableCard
         title="Upcoming (next 30 days)"
-        description="Confirmed pregnancies with an expected kidding date in the next 30 days."
+        description={`${payload.upcoming_total} confirmed pregnancies in the full 30-day queue.`}
       >
         {payload.upcoming.length === 0 ? (
           <EmptyState
@@ -476,7 +628,7 @@ export default function KiddingPage() {
             title="No confirmed pregnancies due in the next 30 days."
           />
         ) : (
-          <Table>
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Doe</TableHead>
@@ -518,6 +670,13 @@ export default function KiddingPage() {
             </TableBody>
           </Table>
         )}
+        <PaginationControls
+          total={payload.upcoming_total}
+          limit={payload.upcoming_limit}
+          offset={payload.upcoming_offset}
+          onOffsetChange={setUpcomingOffset}
+          label="upcoming pregnancies"
+        />
       </DataTableCard>
 
       <DataTableCard
@@ -531,7 +690,7 @@ export default function KiddingPage() {
             description="Record a kidding from the upcoming list once a doe delivers."
           />
         ) : (
-          <Table>
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
@@ -573,16 +732,19 @@ export default function KiddingPage() {
           total={payload.total}
           limit={payload.limit}
           offset={payload.offset}
-          onOffsetChange={setOffset}
+          onOffsetChange={setHistoryOffset}
           label="kidding records"
         />
       </DataTableCard>
 
-      {recordFor && (
+      {activeRecord && (
         <RecordKiddingDialog
-          key={recordFor.id}
-          breeding={recordFor}
-          onClose={() => setRecordFor(null)}
+          key={activeRecord.id}
+          breeding={activeRecord}
+          onClose={() => {
+            setRecordFor(null);
+            setPrefillDismissed(true);
+          }}
           onSaved={refresh}
         />
       )}

@@ -149,6 +149,15 @@ type TabsPayload = {
   upcoming: TaskOut[];
   awaiting: TaskOut[];
   completed: TaskOut[];
+  today_total: number;
+  today_offset: number;
+  overdue_total: number;
+  overdue_offset: number;
+  upcoming_total: number;
+  upcoming_offset: number;
+  awaiting_total: number;
+  awaiting_offset: number;
+  active_limit: number;
   completed_total: number;
   completed_limit: number;
   completed_offset: number;
@@ -161,6 +170,15 @@ function fullPayload(): TabsPayload {
     upcoming: [UPCOMING_TASK],
     awaiting: [AWAITING_TASK],
     completed: [AWAITING_TASK, VERIFIED_TASK],
+    today_total: 2,
+    today_offset: 0,
+    overdue_total: 1,
+    overdue_offset: 0,
+    upcoming_total: 1,
+    upcoming_offset: 0,
+    awaiting_total: 1,
+    awaiting_offset: 0,
+    active_limit: 50,
     completed_total: 2,
     completed_limit: 50,
     completed_offset: 0,
@@ -267,6 +285,7 @@ describe("TasksPage (extended)", () => {
 
   it("shows the per-tab empty message", async () => {
     payload.today = [];
+    payload.today_total = 0;
     renderWithProviders(<TasksPage />);
     await screen.findByRole("tab", { name: "Today (0)" });
     expect(screen.getByText("No today tasks.")).toBeInTheDocument();
@@ -297,7 +316,7 @@ describe("TasksPage (extended)", () => {
     expect(within(row).getByText("Mover")).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "G-003" })).toHaveAttribute(
       "href",
-      "/animals/3",
+      "/animals/3?returnTo=%2Ftasks%3Ftab%3Doverdue",
     );
   });
 
@@ -362,13 +381,21 @@ describe("TasksPage (extended)", () => {
   });
 
   it("shows the server error detail when tasks fail to load", async () => {
+    let attempts = 0;
     server.use(
-      http.get("/api/tasks", () =>
-        HttpResponse.json({ detail: "tasks engine down" }, { status: 500 }),
-      ),
+      http.get("/api/tasks", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ detail: "tasks engine down" }, { status: 500 })
+          : HttpResponse.json(payload);
+      }),
     );
+    const user = userEvent.setup();
     renderWithProviders(<TasksPage />);
-    expect(await screen.findByText("tasks engine down")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("tasks engine down");
+    await user.click(screen.getByRole("button", { name: "Retry tasks" }));
+    expect(await screen.findByRole("tab", { name: "Today (2)" })).toBeInTheDocument();
+    expect(attempts).toBe(2);
   });
 
   it("blocks the page without tasks.view", async () => {
@@ -421,6 +448,10 @@ describe("TasksPage (extended)", () => {
 
     await waitFor(() => expect(failed).toBe(1));
     expect(listCalls).toBe(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "duty is locked until its due date",
+    );
+    expect(screen.getByRole("button", { name: "Retry complete" })).toBeInTheDocument();
   });
 
   it("skips a pending task and refetches", async () => {
@@ -467,6 +498,8 @@ describe("TasksPage (extended)", () => {
 
     await waitFor(() => expect(failed).toBe(1));
     expect(listCalls).toBe(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("only assignees can skip");
+    expect(screen.getByRole("button", { name: "Retry skip" })).toBeInTheDocument();
   });
 
   it("hides Complete and Skip without tasks.complete", async () => {
@@ -545,6 +578,8 @@ describe("TasksPage (extended)", () => {
 
     await waitFor(() => expect(failed).toBe(1));
     expect(listCalls).toBe(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("already sent back");
+    expect(screen.getByRole("button", { name: "Retry verify" })).toBeInTheDocument();
   });
 
   it("shows no Verify/Reject controls without tasks.verify", async () => {
@@ -568,6 +603,10 @@ describe("TasksPage (extended)", () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
     expect(await within(dialog).findByText("Title is required")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/title/i)).toHaveFocus();
+    expect(within(dialog).getByLabelText(/title/i)).toHaveAccessibleDescription(
+      "Title is required",
+    );
     expect(createBody).toBeNull();
   });
 
@@ -695,6 +734,31 @@ describe("TasksPage (extended)", () => {
 
     await waitFor(() => expect(listCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("role not on this farm");
+    expect(within(dialog).getByRole("button", { name: "Retry create" })).toBeInTheDocument();
+  });
+
+  it("announces assignment lookup failures and retries before allowing creation", async () => {
+    let attempts = 0;
+    server.use(
+      http.get("/api/team", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ detail: "team directory unavailable" }, { status: 503 })
+          : HttpResponse.json(TEAM_PAYLOAD);
+      }),
+    );
+    const { user, dialog } = await openDialog();
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "team directory unavailable",
+    );
+    expect(within(dialog).getByRole("button", { name: "Create duty" })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Retry assignments" }));
+
+    await waitFor(() => expect(attempts).toBe(2));
+    expect(await within(dialog).findByLabelText("Assign to role")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Create duty" })).toBeEnabled();
   });
 
   it("shows the unassigned note and skips the team fetch without team.manage", async () => {

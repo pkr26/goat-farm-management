@@ -2,7 +2,7 @@
 //
 // Closed Base UI Select triggers used to render the raw option VALUE instead
 // of the option's label. Every Select in the animals pages passes nice
-// display labels as SelectItem children ("Female", "Born on farm", "FEMALE
+// display labels as SelectItem children ("Female", "Purchased", "FEMALE
 // KIDS"), but Base UI's Select.Value only resolves labels from the root
 // `items` prop or a children render function (see
 // @base-ui/react/internals/resolveValueLabel: `resolveSelectedLabel` falls
@@ -97,7 +97,7 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
     expect(trigger).toHaveTextContent("Female");
   });
 
-  it("create dialog defaults show 'Female' and 'Born on farm', not 'F' and 'BORN'", async () => {
+  it("create dialog defaults show 'Female' and 'Purchased', not raw enum values", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
     await screen.findByText("1 animal(s)");
@@ -105,6 +105,6 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
     const dialog = await screen.findByRole("dialog");
     const combos = within(dialog).getAllByRole("combobox");
     expect(combos[0]).toHaveTextContent("Female");
-    expect(combos[1]).toHaveTextContent("Born on farm");
+    expect(combos[1]).toHaveTextContent("Purchased");
   });
 });

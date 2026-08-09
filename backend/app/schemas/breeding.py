@@ -1,26 +1,61 @@
 """Pydantic schemas for the breeding module."""
 
-from datetime import date
+from datetime import date, datetime
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .common import BoundedId, PastOrTodayDate
+from .common import (
+    MAX_FREE_TEXT_LENGTH,
+    BoundedId,
+    PastOrTodayDate,
+    StrictBool,
+    StrictInputModel,
+    StrictInt,
+)
 
 
-class BreedingCreateIn(BaseModel):
+class BreedingCreateIn(StrictInputModel):
     doe_id: BoundedId
     buck_id: BoundedId
     breeding_date: PastOrTodayDate
-    heat_cycle_number: int = Field(default=1, ge=1, le=99)
+    heat_cycle_number: Annotated[StrictInt, Field(ge=1, le=99)] = 1
 
 
-class UltrasoundIn(BaseModel):
-    pregnant: bool
+class UltrasoundIn(StrictInputModel):
+    pregnant: StrictBool
     # Optional for backwards compatibility with existing records. When
     # supplied, chronology is enforced against the planned check date.
     date: PastOrTodayDate | None = None
     # SPEC §BreedingRecord: kid_count_detected is 1/2/3 nullable (SINGLE/TWIN/TRIPLET).
-    kid_count: int | None = Field(default=None, ge=1, le=3)
+    kid_count: Annotated[StrictInt, Field(ge=1, le=3)] | None = None
+
+    @model_validator(mode="after")
+    def _kid_count_requires_pregnancy(self) -> "UltrasoundIn":
+        if not self.pregnant and self.kid_count is not None:
+            raise ValueError("kid_count is only valid when pregnant is true")
+        return self
+
+
+PregnancyLossCause = Literal[
+    "UNKNOWN",
+    "DISEASE",
+    "INJURY",
+    "NUTRITIONAL",
+    "TRAUMA",
+    "ANIMAL_STATUS_CHANGE",
+    "OTHER",
+]
+
+
+class PregnancyLossIn(StrictInputModel):
+    """Auditable facts required to close a confirmed pregnancy as lost."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    loss_date: PastOrTodayDate
+    cause: PregnancyLossCause
+    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
 
 
 class BreedingRecordOut(BaseModel):
@@ -39,15 +74,28 @@ class BreedingRecordOut(BaseModel):
     kid_count_detected: int | None
     expected_kidding_date: date | None
     outcome: str  # PENDING | CONFIRMED_PREGNANT | FAILED | ABORTED
+    loss_date: date | None
+    loss_cause: str | None
+    loss_notes: str | None
+    loss_recorded_by_id: int | None
+    loss_recorded_at: datetime | None
     has_kidding: bool = False
     doe_tag: str | None = None
     buck_tag: str | None = None
 
 
+class BreedingCandidateAvailabilityOut(BaseModel):
+    """Bounded aggregate readiness context for the breeding history page."""
+
+    eligible_doe_count: int
+    eligible_buck_count: int
+
+
 class BreedingListOut(BaseModel):
     records: list[BreedingRecordOut]
-    candidate_doe_ids: list[int]  # does eligible for a new breeding
-    active_buck_ids: list[int]
+    # Eligibility is mutation-sensitive. A view-only caller receives null;
+    # managers receive counts and fetch identities through the paged picker.
+    candidate_availability: BreedingCandidateAvailabilityOut | None
     total: int
     limit: int
     offset: int

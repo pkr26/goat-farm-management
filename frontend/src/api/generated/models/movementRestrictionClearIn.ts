@@ -11,4 +11,9 @@ export interface MovementRestrictionClearIn {
      * @maxLength 255
      */
   clearance_reference: string;
+  /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+  expected_restriction_version: number;
 }

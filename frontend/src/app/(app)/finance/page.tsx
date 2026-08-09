@@ -25,9 +25,11 @@ import {
 import { AnimalPicker } from "@/components/animal-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -57,7 +59,13 @@ import { StatCard } from "@/components/stat-card";
 import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import {
+  isPersistableNonnegativeMoney,
+  MIN_PERSISTED_MONEY,
+  MIN_PERSISTED_MONEY_MESSAGE,
+} from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TransactionInCategory);
@@ -92,7 +100,10 @@ const txnSchema = z.object({
     "MANURE",
     "OTHER",
   ]),
-  amount: z.coerce.number().positive("Amount must be greater than 0"),
+  amount: z.coerce
+    .number()
+    .positive("Amount must be greater than 0")
+    .min(MIN_PERSISTED_MONEY, "Amount must be at least ₹0.005"),
   notes: z.string().max(255).optional(),
   related_animal_id: z.string().optional(),
 });
@@ -109,8 +120,24 @@ const AMOUNT_TINTS: Record<string, string> = {
   EXPENSE: "text-red-600 dark:text-red-400",
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  ANIMAL_PURCHASE: "Animal purchase",
+  ANIMAL_SALE: "Animal sale",
+  HEALTH_EVENT: "Health event",
+  PURCHASE_BATCH: "Purchase batch",
+};
+
+function sourceLabel(transaction: TransactionOut): string | null {
+  if (!transaction.source_type || transaction.source_id === null) return null;
+  const label = SOURCE_LABELS[transaction.source_type] ?? transaction.source_type.replaceAll("_", " ");
+  return `${label} #${transaction.source_id}`;
+}
+
 const correctionSchema = txnSchema.extend({
-  amount: z.coerce.number().nonnegative("Amount can't be negative"),
+  amount: z.coerce
+    .number()
+    .nonnegative("Amount can't be negative")
+    .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
   reason: z.string().trim().min(3, "Reason must be at least 3 characters").max(255),
 });
 type CorrectionInput = z.input<typeof correctionSchema>;
@@ -128,7 +155,9 @@ function CorrectionDialog({
   onSaved: () => void;
 }) {
   const mutation = useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost();
+  const correctionFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
+  const [consequenceConfirmed, setConsequenceConfirmed] = useState(false);
   const {
     register,
     handleSubmit,
@@ -152,43 +181,51 @@ function CorrectionDialog({
   const category = useWatch({ control, name: "category" });
   const animalId = useWatch({ control, name: "related_animal_id" });
   async function submit(values: CorrectionValues) {
-    setFormError(null);
-    try {
-      await mutation.mutateAsync({
-        transactionId: transaction.id,
-        data: {
-          date: values.date,
-          type: values.type,
-          category: values.category,
-          amount: values.amount,
-          notes: values.notes?.trim() || null,
-          related_animal_id:
-            values.related_animal_id && values.related_animal_id !== NONE
-              ? Number(values.related_animal_id)
-              : null,
-          reason: values.reason,
-        },
-      });
-      toast.success("Correction recorded. The original entry remains in the audit trail.");
-      onSaved();
-      onClose();
-    } catch (error) {
-      const message = mutationError(error);
-      setFormError(message);
-      toast.error(message);
-    }
+    if (!consequenceConfirmed) return;
+    await correctionFlight.run(async () => {
+      setFormError(null);
+      try {
+        await mutation.mutateAsync({
+          transactionId: transaction.id,
+          data: {
+            date: values.date,
+            type: values.type,
+            category: values.category,
+            amount: values.amount,
+            notes: values.notes?.trim() || null,
+            related_animal_id:
+              values.related_animal_id && values.related_animal_id !== NONE
+                ? Number(values.related_animal_id)
+                : null,
+            reason: values.reason,
+          },
+        });
+        toast.success("Correction recorded. The original entry remains in the audit trail.");
+        onSaved();
+        onClose();
+      } catch (error) {
+        const message = mutationError(error);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
   }
 
   return (
-    <Dialog open onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+    <Dialog
+      open
+      onOpenChange={(nextOpen) =>
+        !nextOpen && !isSubmitting && !correctionFlight.pending && onClose()
+      }
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Correct transaction #{transaction.id}</DialogTitle>
+          <DialogDescription id={`correction-consequence-${transaction.id}`}>
+            The original row will be marked void and retained. This creates an audited
+            replacement; it does not rewrite financial history.
+          </DialogDescription>
         </DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          The original row will be marked void and retained. This creates an audited replacement;
-          it does not rewrite financial history.
-        </p>
         <form onSubmit={handleSubmit(submit)} className="space-y-4" noValidate>
           {formError && (
             <p role="alert" className="text-sm text-destructive">
@@ -323,10 +360,35 @@ function CorrectionDialog({
               )}
             </div>
           </div>
+          <div className="flex items-start gap-2 rounded-md border p-3">
+            <Checkbox
+              id={`confirm-correction-${transaction.id}`}
+              checked={consequenceConfirmed}
+              aria-describedby={`correction-consequence-${transaction.id}`}
+              onCheckedChange={(checked) => setConsequenceConfirmed(checked === true)}
+            />
+            <Label htmlFor={`confirm-correction-${transaction.id}`} className="font-normal">
+              I understand the original transaction will be voided and replaced.
+            </Label>
+          </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving correction…" : "Record correction"}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isSubmitting || correctionFlight.pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isSubmitting || correctionFlight.pending || !consequenceConfirmed}
+            >
+              {isSubmitting || correctionFlight.pending
+                ? "Saving correction…"
+                : formError
+                  ? "Retry correction"
+                  : "Record correction"}
             </Button>
           </DialogFooter>
         </form>
@@ -365,6 +427,7 @@ export default function FinancePage() {
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const addMutation = useAddTransactionApiFinanceNewPost();
+  const addFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -387,30 +450,32 @@ export default function FinancePage() {
   const wType = useWatch({ control, name: "type" });
 
   async function onSubmit(values: TxnValues) {
-    setFormError(null);
-    try {
-      await addMutation.mutateAsync({
-        data: {
-          date: values.date,
-          type: values.type,
-          category: values.category,
-          amount: values.amount,
-          notes: values.notes?.trim() || null,
-          related_animal_id:
-            values.related_animal_id && values.related_animal_id !== NONE
-              ? Number(values.related_animal_id)
-              : null,
-        },
-      });
-      toast.success("Transaction saved.");
-      invalidateFarmData(queryClient);
-      setOpen(false);
-      reset();
-    } catch (err) {
-      const message = mutationError(err);
-      setFormError(message);
-      toast.error(message);
-    }
+    await addFlight.run(async () => {
+      setFormError(null);
+      try {
+        await addMutation.mutateAsync({
+          data: {
+            date: values.date,
+            type: values.type,
+            category: values.category,
+            amount: values.amount,
+            notes: values.notes?.trim() || null,
+            related_animal_id:
+              values.related_animal_id && values.related_animal_id !== NONE
+                ? Number(values.related_animal_id)
+                : null,
+          },
+        });
+        toast.success("Transaction saved.");
+        invalidateFarmData(queryClient);
+        setOpen(false);
+        reset();
+      } catch (err) {
+        const message = mutationError(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
   }
 
   if (permsLoading) {
@@ -429,9 +494,14 @@ export default function FinancePage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load finance."}
-        </p>
+        <div className="space-y-3" role="alert">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load finance."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry finance
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -484,7 +554,7 @@ export default function FinancePage() {
         {payload.pnl.length === 0 ? (
           <p className="text-muted-foreground">No transactions yet.</p>
         ) : (
-          <Table>
+          <Table className="min-w-[560px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Month</TableHead>
@@ -608,7 +678,7 @@ export default function FinancePage() {
             description="Try clearing the filters or add a new transaction."
           />
         ) : (
-          <Table>
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
@@ -617,6 +687,7 @@ export default function FinancePage() {
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>Animal</TableHead>
                 <TableHead>Notes</TableHead>
+                <TableHead>Source / audit</TableHead>
                 {canManage && <TableHead><span className="sr-only">Actions</span></TableHead>}
               </TableRow>
             </TableHeader>
@@ -658,11 +729,20 @@ export default function FinancePage() {
                   </TableCell>
                   <TableCell>
                     {t.notes ?? ""}
+                  </TableCell>
+                  <TableCell className="max-w-64 whitespace-normal">
                     {t.correction_of_id !== null && (
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        Correction of #{t.correction_of_id}
+                      <span className="block text-xs font-medium">
+                        Correction of transaction #{t.correction_of_id}
                       </span>
                     )}
+                    {sourceLabel(t) ? (
+                      <span className="block text-xs text-muted-foreground">
+                        Source: {sourceLabel(t)}
+                      </span>
+                    ) : t.correction_of_id === null ? (
+                      <span className="block text-xs text-muted-foreground">Manual entry</span>
+                    ) : null}
                     {t.void_reason && (
                       <span className="mt-1 block text-xs text-destructive">
                         Void reason: {t.void_reason}
@@ -701,7 +781,14 @@ export default function FinancePage() {
         />
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && (isSubmitting || addFlight.pending)) return;
+          if (!nextOpen) setFormError(null);
+          setOpen(nextOpen);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>New transaction</DialogTitle>
@@ -769,7 +856,7 @@ export default function FinancePage() {
                   id="amount"
                   type="number"
                   step="0.01"
-                  min="0.01"
+                  min="0.005"
                   inputMode="decimal"
                   placeholder="0.00"
                   aria-invalid={Boolean(errors.amount) || undefined}
@@ -819,8 +906,12 @@ export default function FinancePage() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving…" : "Add transaction"}
+              <Button type="submit" disabled={isSubmitting || addFlight.pending}>
+                {isSubmitting || addFlight.pending
+                  ? "Saving…"
+                  : formError
+                    ? "Retry add transaction"
+                    : "Add transaction"}
               </Button>
             </DialogFooter>
           </form>

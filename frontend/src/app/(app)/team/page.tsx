@@ -5,8 +5,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Users } from "lucide-react";
-import { useState } from "react";
-import { useForm , useWatch} from "react-hook-form";
+import { useRef, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -17,8 +17,8 @@ import {
   useCreateWorkerApiTeamWorkersPost,
   useDeleteRoleApiTeamRolesRoleIdDelete,
   useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost,
+  useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut,
   useTeamPageApiTeamGet,
-  useToggleWorkerApiTeamWorkersMembershipIdTogglePost,
   useUpdateRoleApiTeamRolesRoleIdPut,
 } from "@/api/generated/endpoints";
 import type { MembershipOut, RoleOut, TeamOut } from "@/api/generated/models";
@@ -57,6 +57,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 /** Sentinel for "no role" (empty string is not a valid item value). */
 const NONE = "none";
@@ -113,10 +114,22 @@ const PERMISSION_DEPENDENCIES: Record<string, string> = {
   "simulation.manage": "simulation.view",
 };
 
+function roleWithinCeiling(
+  role: RoleOut,
+  can: (code: string) => boolean,
+  isOwner: boolean,
+): boolean {
+  return (
+    isOwner ||
+    (!role.permissions.includes("team.manage") && role.permissions.every((code) => can(code)))
+  );
+}
+
 /** Per-row worker controls: role reassign, activate/deactivate (never for self), reset password. */
 function WorkerRow({
   m,
   roles,
+  can,
   isSelf,
   protectedTarget,
   isOwner,
@@ -124,6 +137,7 @@ function WorkerRow({
 }: {
   m: MembershipOut;
   roles: RoleOut[];
+  can: (code: string) => boolean;
   isSelf: boolean;
   protectedTarget: boolean;
   isOwner: boolean;
@@ -131,16 +145,66 @@ function WorkerRow({
 }) {
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
-  const toggleMutation = useToggleWorkerApiTeamWorkersMembershipIdTogglePost();
+  const statusMutation = useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut();
+  const actionLock = useRef<"role" | "status" | null>(null);
+  const [actionError, setActionError] = useState<{
+    action: "role" | "status";
+    message: string;
+    roleId?: number;
+    desiredActive?: boolean;
+  } | null>(null);
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
-  const assignableRoles = roles.filter(
-    (role) => isOwner || !role.permissions.includes("team.manage"),
-  );
+  const assignableRoles = roles.filter((role) => roleWithinCeiling(role, can, isOwner));
   const roleItems: Record<string, string> = {
     [NONE]: "No role",
     ...Object.fromEntries(roles.map((r) => [String(r.id), r.name])),
   };
+
+  async function changeRole(roleId: number) {
+    if (actionLock.current !== null) return;
+    actionLock.current = "role";
+    setActionError(null);
+    try {
+      await roleMutation.mutateAsync({ membershipId: m.id, data: { role_id: roleId } });
+      toast.success("Role updated.");
+      invalidate();
+    } catch (err) {
+      const message = mutationError(err);
+      setActionError({ action: "role", message, roleId });
+      toast.error(message);
+    } finally {
+      actionLock.current = null;
+    }
+  }
+
+  async function setWorkerActive(desiredActive: boolean, confirmDeactivation = true) {
+    if (actionLock.current !== null) return;
+    if (
+      !desiredActive &&
+      m.is_active &&
+      confirmDeactivation &&
+      !window.confirm(`Deactivate ${m.name ?? m.email}? They will immediately lose farm access.`)
+    ) {
+      return;
+    }
+    actionLock.current = "status";
+    setActionError(null);
+    try {
+      await statusMutation.mutateAsync({
+        membershipId: m.id,
+        data: { is_active: desiredActive },
+      });
+      toast.success(desiredActive ? "Worker activated." : "Worker deactivated.");
+      invalidate();
+    } catch (err) {
+      const message = mutationError(err);
+      setActionError({ action: "status", message, desiredActive });
+      toast.error(message);
+    } finally {
+      actionLock.current = null;
+    }
+  }
 
   return (
     <TableRow>
@@ -158,18 +222,16 @@ function WorkerRow({
           value={m.role_id !== null ? String(m.role_id) : NONE}
           onValueChange={(v) => {
             if (v === NONE) return;
-            roleMutation
-              .mutateAsync({ membershipId: m.id, data: { role_id: Number(v) } })
-              .then(() => {
-                toast.success("Role updated.");
-                invalidate();
-              })
-              .catch((err) => toast.error(mutationError(err)));
+            void changeRole(Number(v));
           }}
           disabled={roleMutation.isPending || isSelf || protectedTarget}
           items={roleItems}
         >
-          <SelectTrigger size="sm" className="w-full">
+          <SelectTrigger
+            size="sm"
+            className="w-full"
+            aria-label={`Role for ${m.name ?? m.email}`}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -185,6 +247,24 @@ function WorkerRow({
             ))}
           </SelectContent>
         </Select>
+        {actionError?.action === "role" && (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span role="alert" className="text-xs text-destructive">
+              {actionError.message}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={roleMutation.isPending}
+              onClick={() => {
+                if (actionError.roleId !== undefined) void changeRole(actionError.roleId);
+              }}
+            >
+              Retry role change
+            </Button>
+          </div>
+        )}
       </TableCell>
       <TableCell>
         <StatusBadge status={m.is_active ? "ACTIVE" : "INACTIVE"} />
@@ -197,27 +277,19 @@ function WorkerRow({
             </span>
           ) : protectedTarget ? (
             <span className="text-xs text-muted-foreground">
-              Only the farm owner can manage another team manager.
+              You can only manage workers whose current role stays within your own permissions.
             </span>
           ) : (
             <Button
               size="sm"
               variant="outline"
-              disabled={toggleMutation.isPending}
-              onClick={() =>
-                toggleMutation
-                  .mutateAsync({ membershipId: m.id })
-                  .then(() => {
-                    toast.success(m.is_active ? "Worker deactivated." : "Worker activated.");
-                    invalidate();
-                  })
-                  .catch((err) => toast.error(mutationError(err)))
-              }
+              disabled={statusMutation.isPending}
+              onClick={() => void setWorkerActive(!m.is_active)}
             >
               {m.is_active ? "Deactivate" : "Activate"}
             </Button>
           )}
-          {!isSelf && !protectedTarget && (
+          {isOwner && !isSelf && !protectedTarget && (
             <div className="space-y-1">
               <Button
                 size="sm"
@@ -241,6 +313,24 @@ function WorkerRow({
             </div>
           )}
         </div>
+        {actionError?.action === "status" && (
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span role="alert" className="text-xs text-destructive">
+              {actionError.message}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={statusMutation.isPending}
+              onClick={() =>
+                void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)
+              }
+            >
+              Retry {m.is_active ? "deactivate" : "activate"}
+            </Button>
+          </div>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -257,6 +347,7 @@ function AddWorkerDialog({
 }) {
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateWorkerApiTeamWorkersPost();
+  const createFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
@@ -277,29 +368,38 @@ function AddWorkerDialog({
   );
 
   async function onSubmit(values: WorkerValues) {
-    setFormError(null);
-    try {
-      await createMutation.mutateAsync({
-        data: {
-          email: values.email.trim(),
-          name: values.name?.trim() || null,
-          role_id: Number(values.role_id),
-          password: values.password,
-        },
-      });
-      toast.success("Worker added.");
-      invalidate();
-      onOpenChange(false);
-      reset();
-    } catch (err) {
-      const message = mutationError(err);
-      setFormError(message);
-      toast.error(message);
-    }
+    await createFlight.run(async () => {
+      setFormError(null);
+      try {
+        await createMutation.mutateAsync({
+          data: {
+            email: values.email.trim(),
+            name: values.name?.trim() || null,
+            role_id: Number(values.role_id),
+            password: values.password,
+          },
+        });
+        toast.success("Worker added.");
+        invalidate();
+        onOpenChange(false);
+        reset();
+      } catch (err) {
+        const message = mutationError(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && (isSubmitting || createFlight.pending)) return;
+        if (!nextOpen) setFormError(null);
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add worker</DialogTitle>
@@ -310,16 +410,49 @@ function AddWorkerDialog({
           cannot be enrolled here.
         </p>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
+          {roles.length === 0 && (
+            <p role="alert" className="text-sm text-destructive">
+              You have no roles you are allowed to assign. Ask the farm owner to create or grant
+              an assignable role first.
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="worker-name">Name</Label>
-            <Input id="worker-name" maxLength={120} placeholder="e.g. Ravi Kumar" {...register("name")} />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            <Input
+              id="worker-name"
+              maxLength={120}
+              placeholder="e.g. Ravi Kumar"
+              aria-invalid={Boolean(errors.name) || undefined}
+              aria-describedby={errors.name ? "worker-name-error" : undefined}
+              {...register("name")}
+            />
+            {errors.name && (
+              <p id="worker-name-error" role="alert" className="text-sm text-destructive">
+                {errors.name.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="worker-email">Email *</Label>
-            <Input id="worker-email" type="email" placeholder="worker@example.com" {...register("email")} />
-            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+            <Input
+              id="worker-email"
+              type="email"
+              placeholder="worker@example.com"
+              autoFocus
+              aria-invalid={Boolean(errors.email) || undefined}
+              aria-describedby={errors.email ? "worker-email-error" : undefined}
+              {...register("email")}
+            />
+            {errors.email && (
+              <p id="worker-email-error" role="alert" className="text-sm text-destructive">
+                {errors.email.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="worker-password">Password (min 12 chars) *</Label>
@@ -327,16 +460,25 @@ function AddWorkerDialog({
               id="worker-password"
               type="password"
               autoComplete="new-password"
+              aria-invalid={Boolean(errors.password) || undefined}
+              aria-describedby={errors.password ? "worker-password-error" : undefined}
               {...register("password")}
             />
             {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
+              <p id="worker-password-error" role="alert" className="text-sm text-destructive">
+                {errors.password.message}
+              </p>
             )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="worker-role">Role *</Label>
             <Select value={wRoleId} onValueChange={(v) => setValue("role_id", v, { shouldValidate: true })} items={roleItems}>
-              <SelectTrigger id="worker-role" className="w-full">
+              <SelectTrigger
+                id="worker-role"
+                className="w-full"
+                aria-invalid={Boolean(errors.role_id) || undefined}
+                aria-describedby={errors.role_id ? "worker-role-error" : undefined}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -348,11 +490,22 @@ function AddWorkerDialog({
                 ))}
               </SelectContent>
             </Select>
-            {errors.role_id && <p className="text-sm text-destructive">{errors.role_id.message}</p>}
+            {errors.role_id && (
+              <p id="worker-role-error" role="alert" className="text-sm text-destructive">
+                {errors.role_id.message}
+              </p>
+            )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Adding…" : "Add worker"}
+            <Button
+              type="submit"
+              disabled={isSubmitting || createFlight.pending || roles.length === 0}
+            >
+              {isSubmitting || createFlight.pending
+                ? "Adding…"
+                : formError
+                  ? "Retry add worker"
+                  : "Add worker"}
             </Button>
           </DialogFooter>
         </form>
@@ -369,6 +522,7 @@ function ResetPasswordDialog({
   onClose: () => void;
 }) {
   const resetMutation = useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost();
+  const resetFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
   const {
     register,
@@ -380,39 +534,62 @@ function ResetPasswordDialog({
   });
 
   async function onSubmit(values: ResetValues) {
-    setFormError(null);
-    try {
-      await resetMutation.mutateAsync({
-        membershipId: membership.id,
-        data: { password: values.password },
-      });
-      toast.success("Password reset.");
-      onClose();
-    } catch (err) {
-      const message = mutationError(err);
-      setFormError(message);
-      toast.error(message);
-    }
+    await resetFlight.run(async () => {
+      setFormError(null);
+      try {
+        await resetMutation.mutateAsync({
+          membershipId: membership.id,
+          data: { password: values.password },
+        });
+        toast.success("Password reset.");
+        onClose();
+      } catch (err) {
+        const message = mutationError(err);
+        setFormError(message);
+        toast.error(message);
+      }
+    });
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !isSubmitting && !resetFlight.pending && onClose()}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reset password — {membership.name ?? membership.email}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="reset-password">New password (min 12 chars) *</Label>
-            <Input id="reset-password" type="password" {...register("password")} />
+            <Input
+              id="reset-password"
+              type="password"
+              autoComplete="new-password"
+              autoFocus
+              aria-invalid={Boolean(errors.password) || undefined}
+              aria-describedby={errors.password ? "reset-password-error" : undefined}
+              {...register("password")}
+            />
             {errors.password && (
-              <p className="text-sm text-destructive">{errors.password.message}</p>
+              <p id="reset-password-error" role="alert" className="text-sm text-destructive">
+                {errors.password.message}
+              </p>
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Resetting…" : "Reset password"}
+            <Button type="submit" disabled={isSubmitting || resetFlight.pending}>
+              {isSubmitting || resetFlight.pending
+                ? "Resetting…"
+                : formError
+                  ? "Retry password reset"
+                  : "Reset password"}
             </Button>
           </DialogFooter>
         </form>
@@ -439,6 +616,7 @@ function RoleDialog({
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateRoleApiTeamRolesPost();
   const updateMutation = useUpdateRoleApiTeamRolesRoleIdPut();
+  const saveFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
   const canGrant = (code: string) => can(code) && (isOwner || code !== "team.manage");
   const [selected, setSelected] = useState<Set<string>>(
@@ -478,41 +656,62 @@ function RoleDialog({
   }
 
   async function onSubmit(values: RoleValues) {
-    setFormError(null);
-    const data = {
-      name: values.name.trim(),
-      description: values.description?.trim() || null,
-      permissions: [...selected],
-    };
-    try {
-      if (role) {
-        await updateMutation.mutateAsync({ roleId: role.id, data });
-        toast.success("Role saved.");
-      } else {
-        await createMutation.mutateAsync({ data });
-        toast.success("Role created.");
+    await saveFlight.run(async () => {
+      setFormError(null);
+      const data = {
+        name: values.name.trim(),
+        description: values.description?.trim() || null,
+        permissions: [...selected],
+      };
+      try {
+        if (role) {
+          await updateMutation.mutateAsync({ roleId: role.id, data });
+          toast.success("Role saved.");
+        } else {
+          await createMutation.mutateAsync({ data });
+          toast.success("Role created.");
+        }
+        invalidate();
+        onClose();
+      } catch (err) {
+        const message = mutationError(err);
+        setFormError(message);
+        toast.error(message);
       }
-      invalidate();
-      onClose();
-    } catch (err) {
-      const message = mutationError(err);
-      setFormError(message);
-      toast.error(message);
-    }
+    });
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open
+      onOpenChange={(open) => !open && !isSubmitting && !saveFlight.pending && onClose()}
+    >
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{role ? `Edit role: ${role.name}` : "New role"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          {formError && <p className="text-sm text-destructive">{formError}</p>}
+          {formError && (
+            <p role="alert" className="text-sm text-destructive">
+              {formError}
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="role-name">Role name *</Label>
-            <Input id="role-name" maxLength={80} placeholder="e.g. Night Watchman" {...register("name")} />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            <Input
+              id="role-name"
+              maxLength={80}
+              placeholder="e.g. Night Watchman"
+              autoFocus
+              aria-invalid={Boolean(errors.name) || undefined}
+              aria-describedby={errors.name ? "role-name-error" : undefined}
+              {...register("name")}
+            />
+            {errors.name && (
+              <p id="role-name-error" role="alert" className="text-sm text-destructive">
+                {errors.name.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="role-description">Description</Label>
@@ -520,10 +719,18 @@ function RoleDialog({
               id="role-description"
               maxLength={255}
               placeholder="what this role is responsible for"
+              aria-invalid={Boolean(errors.description) || undefined}
+              aria-describedby={errors.description ? "role-description-error" : undefined}
               {...register("description")}
             />
             {errors.description && (
-              <p className="text-sm text-destructive">{errors.description.message}</p>
+              <p
+                id="role-description-error"
+                role="alert"
+                className="text-sm text-destructive"
+              >
+                {errors.description.message}
+              </p>
             )}
           </div>
           <div className="space-y-2">
@@ -597,8 +804,16 @@ function RoleDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : role ? "Save role" : "Create role"}
+            <Button type="submit" disabled={isSubmitting || saveFlight.pending}>
+              {isSubmitting || saveFlight.pending
+                ? "Saving…"
+                : formError
+                  ? role
+                    ? "Retry save role"
+                    : "Retry create role"
+                  : role
+                    ? "Save role"
+                    : "Create role"}
             </Button>
           </DialogFooter>
         </form>
@@ -610,30 +825,52 @@ function RoleDialog({
 function RoleCard({
   role,
   team,
-  isOwner,
+  canManageRole,
   onEdit,
 }: {
   role: RoleOut;
   team: TeamOut;
-  isOwner: boolean;
+  canManageRole: boolean;
   onEdit: (role: RoleOut) => void;
 }) {
   const invalidate = useInvalidateTeam();
   const deleteMutation = useDeleteRoleApiTeamRolesRoleIdDelete();
+  const deleteLock = useRef(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const memberCount = role.member_count ?? 0;
   const managerRole = role.permissions.includes("team.manage");
-  const ownerOnlyHint = !isOwner && managerRole
-    ? "Only the farm owner can edit or delete a team-manager role."
+  const scopeHint = !canManageRole
+    ? managerRole
+      ? "Only the farm owner can edit or delete a team-manager role."
+      : "You can only edit or delete roles whose permissions you also hold."
     : undefined;
-  const deleteHint = ownerOnlyHint ?? (role.code
+  const deleteHint = scopeHint ?? (role.code
     ? "Preset roles can't be deleted."
     : memberCount > 0
       ? "Role still has workers assigned — reassign them first."
       : undefined);
 
+  async function deleteRole() {
+    if (deleteLock.current || deleteHint !== undefined) return;
+    if (!window.confirm(`Delete role "${role.name}"?`)) return;
+    deleteLock.current = true;
+    setDeleteError(null);
+    try {
+      await deleteMutation.mutateAsync({ roleId: role.id });
+      toast.success("Role deleted.");
+      invalidate();
+    } catch (err) {
+      const message = mutationError(err);
+      setDeleteError(message);
+      toast.error(message);
+    } finally {
+      deleteLock.current = false;
+    }
+  }
+
   return (
     <Card className="gap-3 p-4">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
         <div>
           <span className="font-medium">{role.name}</span>{" "}
           {role.code && (
@@ -649,12 +886,12 @@ function RoleCard({
             {memberCount} member{memberCount === 1 ? "" : "s"}
           </div>
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
           <Button
             size="sm"
             variant="outline"
-            disabled={ownerOnlyHint !== undefined}
-            title={ownerOnlyHint}
+            disabled={scopeHint !== undefined}
+            title={scopeHint}
             onClick={() => onEdit(role)}
           >
             Edit
@@ -664,21 +901,28 @@ function RoleCard({
             variant="destructive"
             disabled={deleteHint !== undefined || deleteMutation.isPending}
             title={deleteHint}
-            onClick={() => {
-              if (!window.confirm(`Delete role "${role.name}"?`)) return;
-              deleteMutation
-                .mutateAsync({ roleId: role.id })
-                .then(() => {
-                  toast.success("Role deleted.");
-                  invalidate();
-                })
-                .catch((err) => toast.error(mutationError(err)));
-            }}
+            onClick={() => void deleteRole()}
           >
             Delete
           </Button>
         </div>
       </div>
+      {deleteError && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span role="alert" className="text-xs text-destructive">
+            {deleteError}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={deleteMutation.isPending}
+            onClick={() => void deleteRole()}
+          >
+            Retry delete role
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap gap-1">
         {role.permissions.length === 0 ? (
           <span className="text-xs text-muted-foreground">No permissions.</span>
@@ -722,17 +966,27 @@ export default function TeamPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load the team."}
-        </p>
+        <div className="space-y-3" role="alert">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load the team."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry team
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const assignableRoles = payload.roles.filter(
-    (role) => isOwner || !role.permissions.includes("team.manage"),
+    (role) => roleWithinCeiling(role, can, isOwner),
   );
+  function isProtectedTarget(membership: MembershipOut): boolean {
+    if (isOwner) return false;
+    const role = payload!.roles.find((candidate) => candidate.id === membership.role_id);
+    return role ? !roleWithinCeiling(role, can, isOwner) : false;
+  }
 
   return (
     <div className="space-y-6">
@@ -761,14 +1015,14 @@ export default function TeamPage() {
             description="Add your first worker — they'll see only what their role allows."
           />
         ) : (
-          <Table>
+          <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead />
+                <TableHead><span className="sr-only">Actions</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -777,16 +1031,10 @@ export default function TeamPage() {
                   key={m.id}
                   m={m}
                   roles={payload.roles}
+                  can={can}
                   isSelf={m.email === user?.email}
                   isOwner={isOwner}
-                  protectedTarget={
-                    !isOwner &&
-                    Boolean(
-                      payload.roles
-                        .find((role) => role.id === m.role_id)
-                        ?.permissions.includes("team.manage"),
-                    )
-                  }
+                  protectedTarget={isProtectedTarget(m)}
                   onReset={setResetTarget}
                 />
               ))}
@@ -813,7 +1061,7 @@ export default function TeamPage() {
                 key={r.id}
                 role={r}
                 team={payload}
-                isOwner={isOwner}
+                canManageRole={roleWithinCeiling(r, can, isOwner)}
                 onEdit={(role) => setRoleDialog({ role })}
               />
             ))}

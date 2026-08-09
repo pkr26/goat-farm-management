@@ -34,6 +34,12 @@ class SlidingWindowRateLimiter:
         self._sweep_interval_seconds = sweep_interval_seconds
         self._hits: dict[tuple[str, str], deque[float]] = {}
         self._windows: dict[tuple[str, str], int] = {}
+        # Short-lived admission reservations close the check-then-work gap:
+        # without them a same-identity burst can have every request observe an
+        # empty failure bucket before any expensive password verification has
+        # completed and recorded its result.  Reservations never wait; excess
+        # callers fail fast and the route releases its slot in ``finally``.
+        self._reservations: dict[tuple[str, str], int] = {}
         self._next_sweep = self._clock() + sweep_interval_seconds
 
     def is_blocked(self, scope: str, key: str, max_attempts: int, window_seconds: int) -> bool:
@@ -58,10 +64,47 @@ class SlidingWindowRateLimiter:
         """Forget all recorded attempts (e.g. after a successful login)."""
         self._drop((scope, key))
 
+    def try_reserve(
+        self,
+        scope: str,
+        key: str,
+        *,
+        max_in_flight: int = 1,
+    ) -> bool:
+        """Atomically reserve one bounded in-flight admission slot.
+
+        The API process runs these synchronous calls on one asyncio event-loop
+        thread, so the read/increment pair cannot interleave with another
+        request.  A hard cardinality ceiling also keeps a unique-key spray
+        from turning the reservation map itself into an availability issue.
+        """
+        if max_in_flight < 1:
+            raise ValueError("max_in_flight must be positive")
+        bucket = (scope, key)
+        in_flight = self._reservations.get(bucket, 0)
+        if in_flight >= max_in_flight:
+            return False
+        if bucket not in self._reservations and len(self._reservations) >= self._max_keys:
+            return False
+        self._reservations[bucket] = in_flight + 1
+        return True
+
+    def release(self, scope: str, key: str) -> None:
+        """Release a prior admission reservation; missing releases are safe."""
+        bucket = (scope, key)
+        in_flight = self._reservations.get(bucket)
+        if in_flight is None:
+            return
+        if in_flight <= 1:
+            self._reservations.pop(bucket, None)
+        else:
+            self._reservations[bucket] = in_flight - 1
+
     def clear(self) -> None:
         """Test hook: drop all state."""
         self._hits.clear()
         self._windows.clear()
+        self._reservations.clear()
         self._next_sweep = self._clock() + self._sweep_interval_seconds
 
     def _drop(self, bucket: tuple[str, str]) -> None:

@@ -24,7 +24,7 @@ import HealthPage from "./page";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/health",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(window.location.search),
   useParams: () => ({}),
 }));
 
@@ -73,6 +73,7 @@ const ANIMAL: AnimalOut = {
   restriction_cleared_at: null,
   restriction_cleared_by_id: null,
   restriction_clearance_reference: null,
+  restriction_version: 0,
   mortality_cause: null,
   mortality_reported_at: null,
   notes: null,

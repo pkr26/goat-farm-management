@@ -30,20 +30,25 @@ test.describe("farm switching", () => {
       timeout: 20_000,
     });
     const tagA = uniqueTag("E2E-A");
-    await createAnimal(page, { tag: tagA });
+    await createAnimal(page, {
+      tag: tagA,
+      historicalImportReason: "E2E farm-isolation fixture",
+    });
 
     // Create farm B through the picker; creating selects it immediately.
     const farmB = uniqueTag("E2E Farm B");
     await page.getByRole("link", { name: "switch farm" }).click();
-    await expect(page).toHaveURL(/\/farm-select$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/farm-select\?returnTo=%2Fanimals$/, {
+      timeout: 15_000,
+    });
     await page.getByLabel("Farm name").fill(farmB);
     await page.getByRole("button", { name: "Create farm" }).click();
 
-    // Farm B's dashboard: its own name, nothing from farm A anywhere.
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
-    await expect(
-      page.getByRole("heading", { name: `${farmB} — Dashboard` }),
-    ).toBeVisible({ timeout: 20_000 });
+    // Farm creation honors the safe return target captured by the picker.
+    await expect(page).toHaveURL(/\/animals$/, { timeout: 20_000 });
+    await expect(page.getByText(farmB, { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
     await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toHaveCount(0);
 
     // Nav reflects farm B's freshly loaded permissions (owner → full nav).
@@ -53,8 +58,6 @@ test.describe("farm switching", () => {
     }
 
     // Farm B's herd is empty; farm A's animal must not leak from the cache.
-    await nav.getByRole("link", { name: "Animals", exact: true }).click();
-    await expect(page).toHaveURL(/\/animals$/, { timeout: 15_000 });
     await expect(page.getByText("No animals match these filters.")).toBeVisible({
       timeout: 15_000,
     });
@@ -62,13 +65,14 @@ test.describe("farm switching", () => {
 
     // Switching back refetches farm A's data — the animal is still there.
     await page.getByRole("link", { name: "switch farm" }).click();
-    await expect(page).toHaveURL(/\/farm-select$/, { timeout: 15_000 });
+    await expect(page).toHaveURL(/\/farm-select\?returnTo=%2Fanimals$/, {
+      timeout: 15_000,
+    });
     await page.getByRole("button", { name: E2E_FARM_NAME }).click();
-    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
-    await expect(
-      page.getByRole("heading", { name: `${E2E_FARM_NAME} — Dashboard` }),
-    ).toBeVisible({ timeout: 20_000 });
-    await nav.getByRole("link", { name: "Animals", exact: true }).click();
+    await expect(page).toHaveURL(/\/animals$/, { timeout: 20_000 });
+    await expect(page.getByText(E2E_FARM_NAME, { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
     await page.getByPlaceholder("Search by tag…").fill(tagA);
     await expect(page.getByRole("link", { name: tagA, exact: true })).toBeVisible({
       timeout: 15_000,
