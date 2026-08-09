@@ -10,7 +10,7 @@
 # GOATFARM_MIN_PASSWORD_LENGTH>=12 for real deployments. Production also
 # requires a stable RS256 keypair mounted at /app/keys (or configured paths).
 
-FROM python:3.13-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
