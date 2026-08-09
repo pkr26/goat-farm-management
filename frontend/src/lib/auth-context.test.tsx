@@ -8,11 +8,12 @@
 
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, delay, http } from "msw";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
-import { useAuth } from "@/lib/auth-context";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { TEST_ACCESS_TOKEN, TEST_USER, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -72,6 +73,18 @@ function rejectRefresh() {
   server.use(
     http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
   );
+}
+
+/** Counts logout POSTs; the handler resolves like the real 204. */
+function countLogouts(): () => number {
+  let calls = 0;
+  server.use(
+    http.post("/api/auth/logout", () => {
+      calls += 1;
+      return new HttpResponse(null, { status: 204 });
+    }),
+  );
+  return () => calls;
 }
 
 describe("AuthProvider bootstrap — valid session", () => {
@@ -294,6 +307,26 @@ describe("AuthProvider actions", () => {
     expect(laterAuthorization).toBeNull();
   });
 
+  it("signIn revokes the session it just minted when farm discovery fails", async () => {
+    // The user is watching an error message here, so the half-established
+    // login must not survive as a reloadable server session.
+    rejectRefresh();
+    const logouts = countLogouts();
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json({ detail: "farms unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    await user.click(screen.getByRole("button", { name: "sign-in" }));
+
+    await waitFor(() => expect(logouts()).toBe(1));
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+  });
+
   it("signOut posts to /api/auth/logout, clears state and navigates to /login", async () => {
     let logoutCalled = false;
     server.use(
@@ -313,7 +346,9 @@ describe("AuthProvider actions", () => {
     await waitFor(() =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
-    expect(logoutCalled).toBe(true);
+    // The teardown no longer waits on the network, so the revocation may still
+    // be in flight when local state is already gone.
+    await waitFor(() => expect(logoutCalled).toBe(true));
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
     expect(pushMock).toHaveBeenCalledWith("/login");
@@ -336,6 +371,33 @@ describe("AuthProvider actions", () => {
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    expect(pushMock).toHaveBeenCalledWith("/login");
+  });
+
+  it("signOut clears the session even when the logout request never settles", async () => {
+    // A black-holed connection (server accepts the TCP connection, never
+    // answers) used to leave a shared terminal fully signed in: the token,
+    // farm and whole query cache stayed live behind the await.
+    server.use(
+      http.post("/api/auth/logout", async () => {
+        await delay("infinite");
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(<Probe />);
+    await expectLoaded();
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
     expect(pushMock).toHaveBeenCalledWith("/login");
   });
 
@@ -432,6 +494,100 @@ describe("AuthProvider actions", () => {
     } finally {
       navState.pathname = previousPath;
     }
+  });
+});
+
+describe("AuthProvider — silent bootstrap must not destroy a valid session", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    navState.pathname = "/dashboard";
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("leaves the just-rotated refresh session alone when farms fails on load", async () => {
+    // /api/auth/refresh succeeded and rotated the cookie; a transient 500 on
+    // the following read used to POST /api/auth/logout, which revokes the
+    // whole refresh family server-side — forcing a password re-entry where a
+    // plain reload would have recovered.
+    const logouts = countLogouts();
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json({ detail: "temporarily unavailable" }, { status: 500 }),
+      ),
+    );
+
+    renderWithProviders(<Probe />);
+
+    await expectLoaded();
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    expect(logouts()).toBe(0);
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+  });
+
+  it("establishes the session with site storage blocked, without revoking it", async () => {
+    // Chrome/Safari "block all site data" makes even reading
+    // window.localStorage throw SecurityError. That used to escape into
+    // establishSession's catch, revoke the server session, and then throw
+    // again from clearSession, leaving the provider half torn down.
+    const blockedStorage = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      });
+    const logouts = countLogouts();
+
+    try {
+      const user = userEvent.setup();
+      renderWithProviders(<Probe />);
+
+      await expectLoaded();
+      expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
+      expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+      expect(logouts()).toBe(0);
+
+      // Teardown must complete too, even though it cannot clear the store.
+      await user.click(screen.getByRole("button", { name: "sign-out" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("user")).toHaveTextContent("none"),
+      );
+      expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    } finally {
+      blockedStorage.mockRestore();
+    }
+  });
+
+  it("deregisters the auth-failure handler on unmount, Strict Mode included", async () => {
+    // Strict Mode invokes the mount effect twice. The registration used to
+    // share an effect with the once-only bootstrap and sat above its early
+    // return, so the second registration got no cleanup and the module-level
+    // handler outlived the provider.
+    const queryClient = createTestQueryClient();
+    const { unmount } = render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <Probe />
+          </AuthProvider>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+    await expectLoaded();
+
+    unmount();
+
+    server.use(
+      http.get("/api/animals", () =>
+        HttpResponse.json({ detail: "Expired" }, { status: 401 }),
+      ),
+    );
+    rejectRefresh();
+    pushMock.mockClear();
+    await act(async () => {
+      await apiFetch("/api/animals").catch(() => undefined);
+    });
+
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });
 

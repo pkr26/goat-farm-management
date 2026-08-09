@@ -1,26 +1,61 @@
 """Pydantic schemas for the feeding module."""
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
+from ..services.feeding import DRY_ROUGHAGE  # single source of truth for the sentinel
 from .animals import BucketStr
 from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat, StrictInputModel
 
 ShiftStr = Literal["MORNING", "AFTERNOON", "NIGHT"]
+# A dispensing record without a recipe cannot be reconciled with the ration
+# plan and bypasses finished-feed stock deduction, so the router always
+# refused it.  Saying so in the schema keeps the published contract (and every
+# generated client) honest instead of advertising an optional field.
+RECIPE_REQUIRED_MESSAGE = f"Recipe is required; use {DRY_ROUGHAGE} for the dry-roughage ration"
+
+
+def _printable(value: str) -> str:
+    # A recipe code is bound straight into a PostgreSQL comparison, and a text
+    # column cannot hold a NUL byte: asyncpg raises
+    # CharacterNotInRepertoireError, which no handler maps to a 4xx, so a code
+    # carrying an escaped NUL answered an opaque 500. Recipe codes are short
+    # identifiers — no control character is ever part of one.
+    if any(char < " " or char == "\x7f" for char in value):
+        raise ValueError("cannot contain control characters")
+    return value
+
+
+def _dispensed_recipe(value: str) -> str:
+    # min_length=1 still admits "   ", which the router used to reject by hand
+    # after trimming. Trim here so the rejection — and the trimmed code that is
+    # stored, matched against a recipe and fingerprinted for idempotency — comes
+    # from the one declared type.
+    code = value.strip()
+    if not code:
+        raise ValueError(RECIPE_REQUIRED_MESSAGE)
+    return code
+
+
+RecipeCodeStr = Annotated[str, Field(min_length=1, max_length=30), AfterValidator(_printable)]
+DispensedRecipeCodeStr = Annotated[RecipeCodeStr, AfterValidator(_dispensed_recipe)]
 
 
 class DispenseIn(StrictInputModel):
     bucket: BucketStr
     shift: ShiftStr
-    recipe_code: str | None = Field(default=None, min_length=1, max_length=30)
+    recipe_code: Annotated[
+        DispensedRecipeCodeStr,
+        Field(description=f"Ration dispensed; use {DRY_ROUGHAGE} for a grain-free ration"),
+    ]
     qty_kg: QuantityKgFloat
     date: PastOrTodayDate | None = None  # defaults to today
 
 
 class MixIn(StrictInputModel):
-    recipe_code: str = Field(min_length=1, max_length=30)
+    recipe_code: RecipeCodeStr
     batch_kg: QuantityKgFloat
 
 

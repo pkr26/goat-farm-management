@@ -120,7 +120,6 @@ from .health import (
     template_name_for_task,
     vaccination_schedule_for_animal,
     validated_template,
-    validated_template_name,
 )
 from .idempotency import IdempotencyKey, execute_idempotent
 from .kidding import KidSpec, record_kidding
@@ -236,6 +235,5 @@ __all__ = [
     "template_name_for_task",
     "vaccination_schedule_for_animal",
     "validated_template",
-    "validated_template_name",
     "verify_task",
 ]

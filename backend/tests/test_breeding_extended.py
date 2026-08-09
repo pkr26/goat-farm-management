@@ -38,6 +38,7 @@ from app.models import (
     User,
     WeightRecord,
 )
+from app.services.breeding import mark_unassessed
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, register
@@ -204,7 +205,19 @@ async def place_health_hold(client: httpx.AsyncClient, headers: dict, animal_id:
 async def confirm(
     client: httpx.AsyncClient, headers: dict, br_id: int, kid_count: int | None = 2
 ) -> dict:
-    resp = await ultrasound(client, headers, br_id, pregnant=True, kid_count=kid_count)
+    # Same rationale as fail_cycle: the result is observed on the scheduled
+    # check, not "today". Confirming today and then recording the kidding on
+    # the (earlier) expected kidding date would be a delivery predating its own
+    # confirmation, which record_kidding rejects.
+    breeding = await get_breeding(client, headers, br_id)
+    resp = await ultrasound(
+        client,
+        headers,
+        br_id,
+        pregnant=True,
+        kid_count=kid_count,
+        date=breeding["ultrasound_date"],
+    )
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -887,12 +900,16 @@ async def test_create_breeding_creates_ultrasound_task_at_plus_32(
     assert us_tasks[0]["auto_generated"] is True
 
 
-async def test_create_breeding_explicit_heat_cycle_number(client: httpx.AsyncClient) -> None:
+async def test_create_breeding_ignores_client_supplied_heat_cycle_number(
+    client: httpx.AsyncClient,
+) -> None:
+    """The field stays on the wire for compatibility but is never stored: the
+    cycle index is derived from the doe's own consecutive failed cycles."""
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers)
     buck = await make_buck(client, headers)
     br = await make_breeding(client, headers, doe["id"], buck["id"], heat_cycle_number=3)
-    assert br["heat_cycle_number"] == 3
+    assert br["heat_cycle_number"] == 1
 
 
 async def test_create_breeding_date_today(client: httpx.AsyncClient) -> None:
@@ -1341,7 +1358,19 @@ async def test_ultrasound_pregnant_happy_path(client: httpx.AsyncClient) -> None
     assert br["pregnant"] is True
     assert br["kid_count_detected"] == 2
     assert br["expected_kidding_date"] == iso(breeding_date + timedelta(days=GESTATION_DAYS))
-    assert br["ultrasound_result_date"] == iso(today())
+    assert br["ultrasound_result_date"] == iso(
+        breeding_date + timedelta(days=ULTRASOUND_AFTER_BREEDING_DAYS)
+    )
+
+
+async def test_ultrasound_result_date_defaults_to_the_farms_today(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await bred_doe(client, headers, breeding_date=today() - timedelta(days=40))
+    response = await ultrasound(client, headers, br["id"], pregnant=True, kid_count=2)
+    assert response.status_code == 200, response.text
+    assert response.json()["ultrasound_result_date"] == iso(today())
 
 
 async def test_ultrasound_explicit_result_date_cannot_predate_planned_check(
@@ -1660,8 +1689,8 @@ async def test_successful_kidding_resets_cull_streak_before_a_new_cycle(
 ) -> None:
     """A completed pregnancy clears the failed-cycle worklist before rebreeding.
 
-    A new, same-day service cannot truthfully have a completed ultrasound yet:
-    recording that outcome is gated until its planned +32-day check.
+    A confirmation still needs its planned +32-day check, so the fresh service
+    below can only be closed as a not-held (return-to-heat) cycle.
     """
     headers = await owner_with_farm(client)
     doe, buck, br1 = await bred_doe(client, headers, breeding_date=today() - timedelta(days=400))
@@ -1684,8 +1713,11 @@ async def test_successful_kidding_resets_cull_streak_before_a_new_cycle(
     await kid_on_ekd(client, headers, br2)
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
     br3 = await make_breeding(client, headers, doe["id"], buck["id"], breeding_date=iso(today()))
+    early_confirmation = await ultrasound(client, headers, br3["id"], pregnant=True, kid_count=2)
+    assert early_confirmation.status_code == 409
     early_result = await ultrasound(client, headers, br3["id"], pregnant=False, kid_count=None)
-    assert early_result.status_code == 409
+    assert early_result.status_code == 200, early_result.text
+    # One failure after a delivered pregnancy is not a two-cycle streak.
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["cull_candidate"] is False
 
@@ -1806,8 +1838,9 @@ async def test_abort_rejects_future_and_pre_confirmation_dates(client: httpx.Asy
     _doe, _buck, br = await pregnant_doe(client, headers)
     future = await post_abort(client, headers, br["id"], loss_date=iso(today() + timedelta(days=1)))
     assert future.status_code == 422
+    confirmed_on = date.fromisoformat(br["ultrasound_result_date"])
     before_confirmation = await post_abort(
-        client, headers, br["id"], loss_date=iso(today() - timedelta(days=1))
+        client, headers, br["id"], loss_date=iso(confirmed_on - timedelta(days=1))
     )
     assert before_confirmation.status_code == 422
     assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
@@ -1847,14 +1880,98 @@ async def test_status_change_cannot_auto_resolve_before_confirmation_date(
 ) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await pregnant_doe(client, headers)
+    confirmed_on = date.fromisoformat(br["ultrasound_result_date"])
     resp = await client.post(
         f"/api/animals/{doe['id']}/status",
-        json={"new_status": "SOLD", "date": iso(today() - timedelta(days=1))},
+        json={"new_status": "SOLD", "date": iso(confirmed_on - timedelta(days=1))},
         headers=headers,
     )
     assert resp.status_code == 422
     assert (await get_animal(client, headers, doe["id"]))["status"] == "ACTIVE"
     assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+
+
+# ---------------------------------------------------------------------------
+# A never-scanned service is closed when its doe leaves the herd
+# ---------------------------------------------------------------------------
+# Selling/culling/killing a doe auto-resolved a CONFIRMED_PREGNANT service as
+# ABORTED, but a PENDING one was left open forever: the only exit from PENDING
+# is an ultrasound result, and record_ultrasound_result refuses a non-ACTIVE
+# doe. The row sat in her history for good while the UI kept offering an
+# "Ultrasound result" action that could only ever 409.
+@pytest.mark.parametrize("new_status", ["SOLD", "DEAD", "CULLED"])
+async def test_herd_exit_closes_a_never_scanned_service_as_unassessed(
+    client: httpx.AsyncClient, new_status: str
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await bred_doe(client, headers)
+    assert br["outcome"] == "PENDING"
+    await set_status(client, headers, doe["id"], new_status)
+
+    closed = await get_breeding(client, headers, br["id"])
+    assert closed["outcome"] == "UNASSESSED"
+    # Nothing is invented about the pregnancy: no scan ever happened, so the
+    # record is neither a conception nor a recorded failure to conceive, and
+    # it carries no pregnancy-loss audit (there was no pregnancy to lose).
+    assert closed["ultrasound_done"] is False
+    assert closed["pregnant"] is None
+    assert closed["kid_count_detected"] is None
+    assert closed["ultrasound_result_date"] is None
+    assert closed["expected_kidding_date"] is None
+    assert closed["loss_date"] is None
+    assert closed["loss_cause"] is None
+    assert closed["loss_recorded_at"] is None
+
+
+async def test_unassessed_service_refuses_the_dead_end_ultrasound_action(
+    client: httpx.AsyncClient,
+) -> None:
+    """The 409 the UI used to hit forever now names the real reason, and the
+    terminal state is what stops the action being offered at all."""
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await bred_doe(client, headers)
+    await set_status(client, headers, doe["id"], "SOLD")
+
+    resp = await ultrasound(client, headers, br["id"], pregnant=True, kid_count=2)
+    assert resp.status_code == 409, resp.text
+    assert "sold" in resp.json()["detail"]
+    unchanged = await get_breeding(client, headers, br["id"])
+    assert unchanged["outcome"] == "UNASSESSED"
+    assert unchanged["ultrasound_done"] is False
+    # Its ultrasound duty is closed too — no work left pointing at the record.
+    related = [t for t in await all_tasks(client, headers) if t["breeding_record_id"] == br["id"]]
+    assert {t["category"] for t in related} == {"ULTRASOUND"}
+    assert {t["status"] for t in related} == {"SKIPPED"}
+
+
+async def test_herd_exit_leaves_other_does_services_pending(client: httpx.AsyncClient) -> None:
+    """The sweep is scoped to the departing doe: a herd-mate's open service is
+    still an open question and must keep its ultrasound action."""
+    headers = await owner_with_farm(client)
+    sold_doe, _buck, sold_br = await bred_doe(client, headers, "D-SOLD")
+    kept_doe, _buck2, kept_br = await bred_doe(client, headers, "D-KEPT")
+    await set_status(client, headers, sold_doe["id"], "SOLD")
+
+    assert (await get_breeding(client, headers, sold_br["id"]))["outcome"] == "UNASSESSED"
+    assert (await get_breeding(client, headers, kept_br["id"]))["outcome"] == "PENDING"
+    assert kept_doe["id"] not in await candidate_ids(client, headers)
+    resp = await ultrasound(client, headers, kept_br["id"], pregnant=False, kid_count=None)
+    assert resp.status_code == 200, resp.text
+    assert (await get_breeding(client, headers, kept_br["id"]))["outcome"] == "FAILED"
+
+
+async def test_mark_unassessed_refuses_a_doe_still_in_the_herd(
+    client: httpx.AsyncClient,
+) -> None:
+    """UNASSESSED means "she left before the check". It must never become a
+    shortcut for closing a live service without scanning her."""
+    headers = await owner_with_farm(client)
+    _doe, _buck, br = await bred_doe(client, headers)
+    async with get_sessionmaker()() as db:
+        record = await db.get(BreedingRecord, br["id"])
+        assert record is not None
+        with pytest.raises(ValueError, match="still in the herd"):
+            await mark_unassessed(db, record, closed_by_id=1)
 
 
 async def test_abort_skips_open_pregnancy_tasks(client: httpx.AsyncClient) -> None:
@@ -3051,7 +3168,7 @@ async def test_after_weaning_doe_is_breeding_candidate(client: httpx.AsyncClient
 
 
 # ---------------------------------------------------------------------------
-# RBAC: breeding perms (VET) vs kidding perms (owner-only among presets)
+# RBAC: breeding and kidding perms (VET) vs the roles that hold neither
 # ---------------------------------------------------------------------------
 async def test_breeding_view_only_does_not_receive_mutation_candidates(
     client: httpx.AsyncClient,
@@ -3093,15 +3210,32 @@ async def test_vet_worker_can_view_and_manage_breeding(client: httpx.AsyncClient
     assert resp.status_code == 200, resp.text
 
 
-async def test_vet_worker_cannot_record_kidding(client: httpx.AsyncClient) -> None:
-    """No preset role holds kidding.view/kidding.manage — owner-only."""
+async def test_vet_worker_can_record_kidding(client: httpx.AsyncClient) -> None:
+    """The vet attends the difficult deliveries, and KIDDING_DUE duties are
+    auto-assigned to her role (permissions.TASK_CATEGORY_ROLE_MAP), so the
+    preset carries kidding.view/kidding.manage. It previously carried neither,
+    which left those duties on a role that could not open the kidding form."""
     owner = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, owner, gestation_days=160)
     vet = await worker_headers(client, owner, "VET", "vet@farm.in")
     resp = await client.get("/api/kidding", headers=vet)
-    assert resp.status_code == 403
+    assert resp.status_code == 200, resp.text
     resp = await kid_on_ekd_raw(client, vet, br)
+    assert resp.status_code == 201, resp.text
+
+
+async def test_mover_worker_cannot_record_kidding(client: httpx.AsyncClient) -> None:
+    """Kidding stays behind its own permission: a role that only moves animals
+    between buckets holds neither kidding.view nor kidding.manage."""
+    owner = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, owner, gestation_days=160)
+    mover = await worker_headers(client, owner, "MOVER", "mover@farm.in")
+    resp = await client.get("/api/kidding", headers=mover)
     assert resp.status_code == 403
+    assert resp.json()["detail"] == "Missing permission: kidding.view"
+    resp = await kid_on_ekd_raw(client, mover, br)
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Missing permission: kidding.manage"
 
 
 async def test_mover_worker_cannot_access_breeding(client: httpx.AsyncClient) -> None:
@@ -3117,3 +3251,187 @@ async def test_mover_worker_cannot_access_breeding(client: httpx.AsyncClient) ->
     assert resp.status_code == 403
     resp = await post_abort(client, mover, 1)
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-08-09 regressions
+# ---------------------------------------------------------------------------
+async def test_return_to_heat_closes_the_cycle_on_the_day_it_was_observed(
+    client: httpx.AsyncClient,
+) -> None:
+    """The heat cycle is ~21 days: a doe seen back in standing heat is factual
+    evidence the service did not hold, so a NEGATIVE result may predate the
+    planned day-32 scan and brings the cycle's check forward with it."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=30)
+    doe = await make_doe(client, headers, "HEAT-1")
+    buck = await make_buck(client, headers, "HEAT-1-BUCK")
+    br = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(breeding_date)
+    )
+    observed = breeding_date + timedelta(days=21)
+    response = await ultrasound(
+        client, headers, br["id"], pregnant=False, kid_count=None, date=iso(observed)
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == "FAILED"
+    assert body["ultrasound_result_date"] == iso(observed)
+    # The planned check never happened; the record must not keep claiming a
+    # later check date than its own result (ck_breeding_records_result_after_plan).
+    assert body["ultrasound_date"] == iso(observed)
+
+
+async def test_doe_returning_to_heat_can_be_reserved_without_falsifying_dates(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=30)
+    doe = await make_doe(client, headers, "HEAT-2")
+    buck = await make_buck(client, headers, "HEAT-2-BUCK")
+    first = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(breeding_date)
+    )
+    closed = await ultrasound(
+        client,
+        headers,
+        first["id"],
+        pregnant=False,
+        kid_count=None,
+        date=iso(breeding_date + timedelta(days=20)),
+    )
+    assert closed.status_code == 200, closed.text
+    second = await post_breeding(
+        client,
+        headers,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(breeding_date + timedelta(days=21)),
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["breeding_date"] == iso(breeding_date + timedelta(days=21))
+    assert second.json()["heat_cycle_number"] == 2
+
+
+async def test_early_pregnancy_confirmation_still_requires_the_planned_check(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=21)
+    doe = await make_doe(client, headers, "HEAT-3")
+    buck = await make_buck(client, headers, "HEAT-3-BUCK")
+    br = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(breeding_date)
+    )
+    response = await ultrasound(
+        client, headers, br["id"], pregnant=True, kid_count=2, date=iso(today())
+    )
+    assert response.status_code == 409, response.text
+    assert "planned check date" in response.json()["detail"]
+
+
+async def test_pregnancy_check_result_cannot_predate_the_breeding_date(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=30)
+    doe = await make_doe(client, headers, "HEAT-4")
+    buck = await make_buck(client, headers, "HEAT-4-BUCK")
+    br = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(breeding_date)
+    )
+    response = await ultrasound(
+        client,
+        headers,
+        br["id"],
+        pregnant=False,
+        kid_count=None,
+        date=iso(breeding_date - timedelta(days=1)),
+    )
+    assert response.status_code == 409, response.text
+    assert "predate the breeding date" in response.json()["detail"]
+
+
+async def test_heat_cycle_number_is_derived_from_the_does_failed_cycles(
+    client: httpx.AsyncClient,
+) -> None:
+    """No client ever sent the field, so every record claimed cycle 1 and the
+    reports' first-cycle metric degenerated into the conception rate."""
+    headers = await owner_with_farm(client)
+    doe = await make_doe(client, headers, "CYCLE-1")
+    buck = await make_buck(client, headers, "CYCLE-1-BUCK")
+    first = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=120))
+    )
+    assert first["heat_cycle_number"] == 1
+    await fail_cycle(client, headers, first["id"])
+    second = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=80))
+    )
+    assert second["heat_cycle_number"] == 2
+    await fail_cycle(client, headers, second["id"])
+    # A forged/stale client value is ignored: the doe's own history decides.
+    third = await make_breeding(
+        client,
+        headers,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=40)),
+        heat_cycle_number=1,
+    )
+    assert third["heat_cycle_number"] == 3
+
+
+async def test_heat_cycle_number_restarts_after_a_resolved_pregnancy(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe = await make_doe(client, headers, "CYCLE-2")
+    buck = await make_buck(client, headers, "CYCLE-2-BUCK")
+    first = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=120))
+    )
+    await fail_cycle(client, headers, first["id"])
+    second = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=80))
+    )
+    assert second["heat_cycle_number"] == 2
+    await confirm(client, headers, second["id"])
+    aborted = await post_abort(
+        client, headers, second["id"], loss_date=iso(today() - timedelta(days=40))
+    )
+    assert aborted.status_code == 200, aborted.text
+    third = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=30))
+    )
+    assert third["heat_cycle_number"] == 1
+
+
+async def test_kidding_cannot_predate_the_pregnancy_confirmation(
+    client: httpx.AsyncClient,
+) -> None:
+    """A late-entered scan date used to let a delivery be recorded months
+    before the pregnancy it belongs to was confirmed."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=160)
+    doe = await make_doe(client, headers, "CONFIRM-ORDER")
+    buck = await make_buck(client, headers, "CONFIRM-ORDER-BUCK")
+    br = await make_breeding(
+        client, headers, doe["id"], buck["id"], breeding_date=iso(breeding_date)
+    )
+    # The vet's report is entered late, dated today rather than the scan day.
+    late = await ultrasound(
+        client, headers, br["id"], pregnant=True, kid_count=1, date=iso(today())
+    )
+    assert late.status_code == 200, late.text
+    assert late.json()["ultrasound_result_date"] == iso(today())
+
+    response = await post_kidding(
+        client,
+        headers,
+        br["id"],
+        date=late.json()["expected_kidding_date"],
+        kids=[{"sex": "F"}],
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Kidding date cannot predate the pregnancy confirmation"

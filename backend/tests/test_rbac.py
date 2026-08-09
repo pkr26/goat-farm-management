@@ -14,7 +14,7 @@ import httpx
 from sqlalchemy import func, select
 
 from app.db import get_sessionmaker
-from app.models import BucketMove, HealthEvent, Role, Task, User
+from app.models import Animal, BreedingRecord, BucketMove, HealthEvent, Role, Task, User
 from app.security import password_policy_error
 from app.seed import seed_default_roles
 from app.services import complete_task
@@ -90,13 +90,15 @@ async def worker_headers(
     return headers | {"X-Farm-Id": owner["X-Farm-Id"]}, user_id
 
 
-async def make_animal(client: httpx.AsyncClient, owner: dict, tag: str = "A-001") -> int:
+async def make_animal(
+    client: httpx.AsyncClient, owner: dict, tag: str = "A-001", sex: str = "F"
+) -> int:
     """An ACTIVE purchased doe in FOUNDATION (v1 used a direct DB insert)."""
     resp = await client.post(
         "/api/animals",
         json={
             "tag_number": tag,
-            "sex": "F",
+            "sex": sex,
             "source": "PURCHASED",
             "current_bucket": "FOUNDATION",
             "historical_import_reason": "Existing-herd RBAC fixture",
@@ -261,6 +263,50 @@ async def test_cleaner_sees_only_tasks(client: httpx.AsyncClient) -> None:
     ]:
         resp = await client.get(url, headers=cleaner)
         assert resp.status_code == 403, url
+
+
+async def test_cleaner_dashboard_hides_the_breeding_programme(client: httpx.AsyncClient) -> None:
+    """dashboard.view opens the page, not the herd's breeding programme.
+
+    `api._shared.animal_out` blanks cull_candidate and is_currently_pregnant
+    for anyone without breeding.view; the aggregate page must apply the same
+    rule instead of handing a cleaner every pregnant doe's tag and due date.
+    """
+    owner = await owner_with_farm(client)
+    cleaner, _ = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
+    doe_id = await make_animal(client, owner, "RBAC-DOE")
+    buck_id = await make_animal(client, owner, "RBAC-BUCK", sex="M")
+    async with get_sessionmaker()() as db:
+        db.add(
+            BreedingRecord(
+                farm_id=int(owner["X-Farm-Id"]),
+                doe_id=doe_id,
+                buck_id=buck_id,
+                breeding_date=today() - timedelta(days=140),
+                ultrasound_date=today() - timedelta(days=108),
+                ultrasound_done=True,
+                pregnant=True,
+                expected_kidding_date=today() + timedelta(days=10),
+                outcome="CONFIRMED_PREGNANT",
+            )
+        )
+        doe = (await db.execute(select(Animal).where(Animal.id == doe_id))).scalar_one()
+        doe.cull_candidate = True
+        await db.commit()
+
+    owner_dash = (await client.get("/api/dashboard", headers=owner)).json()
+    assert [row["doe_tag"] for row in owner_dash["kiddings_due"]] == ["RBAC-DOE"]
+    assert [row["tag_number"] for row in owner_dash["cull_candidates"]] == ["RBAC-DOE"]
+
+    resp = await client.get("/api/dashboard", headers=cleaner)
+    assert resp.status_code == 200, resp.text
+    cleaner_dash = resp.json()
+    assert cleaner_dash["kiddings_due"] == []
+    assert cleaner_dash["kiddings_due_total"] == 0
+    assert cleaner_dash["cull_candidates"] == []
+    assert cleaner_dash["cull_candidates_total"] == 0
+    # Withheld sections, not a 403 — the cleaner's own page still works.
+    assert cleaner_dash["total_active"] == owner_dash["total_active"]
 
 
 # ---------------------------------------------------------------------------

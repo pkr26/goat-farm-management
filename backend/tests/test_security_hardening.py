@@ -25,9 +25,11 @@ from pathlib import Path
 
 import httpx
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 
-from app.core.config import get_settings
+import app.api.auth as auth_api
+from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import FarmMembership, Role, User
 from app.ratelimit import SlidingWindowRateLimiter, auth_limiter
@@ -35,6 +37,8 @@ from app.security import decode_token, issue_access_token
 
 from .conftest import login, owner_with_farm, register
 from .test_auth_extended import insert_user, make_pbkdf2_hash
+
+PRODUCTION_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 
 
 async def _role_id(client: httpx.AsyncClient, owner: dict, code: str) -> int:
@@ -687,3 +691,178 @@ def test_first_boot_generation_takes_a_process_lock(
     priv, _pub = tmp_jwt_keys
     issue_access_token(1)
     assert (priv.parent / ".jwt_keygen.lock").exists()
+
+
+# --- config-level proxy / host / origin contracts ----------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["*", "0.0.0.0/0", "::/0", "proxy.internal", "10.0.0.0\\8", "127.0.0.1,not-an-ip"],
+)
+def test_trusted_proxy_hosts_rejects_wildcards_and_hostnames(value: str) -> None:
+    """uvicorn treats "*" (and any /0 network) as always-trust, so the leftmost
+    attacker-supplied X-Forwarded-For entry becomes the limiter key; anything
+    that is not an IP/CIDR lands in a literal set that can never match a peer
+    address and silently trusts nothing. Both must fail at boot."""
+    with pytest.raises(ValidationError, match="trusted_proxy_hosts"):
+        Settings(trusted_proxy_hosts=value)
+
+
+def test_trusted_proxy_hosts_accepts_and_normalizes_addresses() -> None:
+    settings = Settings(trusted_proxy_hosts=" 127.0.0.1 , 10.0.0.0/8 ")
+    assert settings.trusted_proxy_hosts == "127.0.0.1,10.0.0.0/8"
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("API.Example.com", "api.example.com"),
+        (" api.example.com ", "api.example.com"),
+        ("api.example.com.", "api.example.com"),
+        ("*.Example.com", "*.example.com"),
+    ],
+)
+def test_allowed_hosts_are_stored_the_way_trustedhost_compares_them(
+    configured: str, expected: str
+) -> None:
+    """TrustedHostMiddleware compares the Host header byte-exactly. Validating
+    a normalized copy while installing the raw string let a production config
+    boot green and then 400 every browser request."""
+    settings = Settings(
+        environment="production",
+        cookie_secure=True,
+        cors_origins=["https://app.example.com"],
+        allowed_hosts=[configured],
+        db_sslmode="require",
+        min_password_length=12,
+        idempotency_request_hmac_secret=PRODUCTION_IDEMPOTENCY_HMAC_SECRET,
+    )
+    assert settings.allowed_hosts == [expected]
+
+
+async def test_uppercase_allowed_host_still_serves_browser_traffic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end proof of the same defect: the container probe used to be the
+    only request that matched, so readiness stayed green during a total
+    outage."""
+    from app.main import create_app
+
+    monkeypatch.setenv("GOATFARM_ALLOWED_HOSTS", '["API.Example.com"]')
+    get_settings.cache_clear()
+    try:
+        transport = httpx.ASGITransport(app=create_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as hosted:
+            response = await hosted.get("/healthz", headers={"Host": "api.example.com"})
+        assert response.status_code == 200
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("https://App.Example.com", "https://app.example.com"),
+        ("https://app.example.com:443", "https://app.example.com"),
+        ("http://localhost:3000", "http://localhost:3000"),
+    ],
+)
+def test_cors_origins_are_stored_the_way_a_browser_sends_them(
+    configured: str, expected: str
+) -> None:
+    """CORSMiddleware matches `origin in allow_origins` exactly, so a value the
+    production gate accepts must also be the value a browser presents."""
+    assert Settings(cors_origins=[configured]).cors_origins == [expected]
+
+
+# --- account password workflows: budget and pool admission -------------------
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_change_password_per_account_ceiling_across_rotating_ips(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Current-password confirmation is the control that stops a stolen access
+    token from becoming a permanent takeover, and it was keyed on
+    (IP, account) alone — a caller varying their source address got a fresh
+    10-attempt budget on every request. The IP-agnostic per-account ceiling
+    caps the total, exactly as login's per-email counter does."""
+    from app.main import create_app
+
+    monkeypatch.setenv("GOATFARM_TRUSTED_PROXY_HOSTS", "127.0.0.1")
+    get_settings.cache_clear()
+    app = create_app()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as proxied:
+        created = await proxied.post(
+            "/api/auth/register",
+            json={"email": "rotate-change@farm.in", "password": "ownerpass123"},
+            headers={"X-Forwarded-For": "9.9.9.9"},
+        )
+        assert created.status_code == 201, created.text
+        headers = {"Authorization": f"Bearer {created.json()['access_token']}"}
+        payload = {"current_password": "wrong-password", "new_password": "newpass1234"}
+        for ip in ("1.1.1.1", "2.2.2.2", "3.3.3.3"):
+            resp = await proxied.post(
+                "/api/auth/change-password",
+                json=payload,
+                headers=headers | {"X-Forwarded-For": ip},
+            )
+            assert resp.status_code == 400, resp.text  # fresh composite key each time
+        resp = await proxied.post(
+            "/api/auth/change-password",
+            json=payload,
+            headers=headers | {"X-Forwarded-For": "4.4.4.4"},
+        )
+        assert resp.status_code == 429  # the per-account ceiling tripped
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_rejected_replacement_still_charges_the_change_password_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    """A correct current password with an identical new password performs a
+    full 64 MiB Argon2id verify and returns 400. Clearing the budget before
+    that check let one authenticated account loop the endpoint forever,
+    occupying a slot in the deliberately non-queuing global password pool."""
+    headers = await register(client, "noop-change@farm.in")
+    payload = {"current_password": "ownerpass123", "new_password": "ownerpass123"}
+    first = await client.post("/api/auth/change-password", json=payload, headers=headers)
+    assert first.status_code == 400
+    assert first.json()["detail"].startswith("New password must be different")
+    second = await client.post("/api/auth/change-password", json=payload, headers=headers)
+    assert second.status_code == 429
+
+
+async def test_account_password_workflows_share_one_argon_reservation(
+    client: httpx.AsyncClient,
+) -> None:
+    """change-password and account-delete used separate reservation scopes, so
+    one account could hold two of the global Argon slots at once and 429 every
+    other user's login. They now share one per-account admission."""
+    headers = await register(client, "shared-reservation@farm.in")
+    async with get_sessionmaker()() as db:
+        user_id = (
+            await db.execute(select(User.id).where(User.email == "shared-reservation@farm.in"))
+        ).scalar_one()
+
+    scope = auth_api.ACCOUNT_PASSWORD_RESERVATION_SCOPE
+    assert auth_limiter.try_reserve(scope, str(user_id))
+    try:
+        change = await client.post(
+            "/api/auth/change-password",
+            json={"current_password": "ownerpass123", "new_password": "newpass1234"},
+            headers=headers,
+        )
+        assert change.status_code == 429
+        delete_account = await client.request(
+            "DELETE",
+            "/api/auth/account",
+            json={"current_password": "ownerpass123"},
+            headers=headers,
+        )
+        assert delete_account.status_code == 429
+    finally:
+        auth_limiter.release(scope, str(user_id))

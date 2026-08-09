@@ -997,15 +997,23 @@ export default function TeamPage() {
 
       <DataTableCard
         title="Workers"
-        description="People who can sign in to this farm."
+        description={
+          isOwner
+            ? "People who can sign in to this farm."
+            : "People who can sign in to this farm. Only the farm owner can create worker accounts."
+        }
         actions={
-          <Button
-            onClick={() => {
-              setWorkerOpen(true);
-            }}
-          >
-            Add worker
-          </Button>
+          // POST /api/team/workers is owner-only, so offering the dialog to a
+          // delegated team.manage holder can only ever end in a 403.
+          isOwner ? (
+            <Button
+              onClick={() => {
+                setWorkerOpen(true);
+              }}
+            >
+              Add worker
+            </Button>
+          ) : undefined
         }
       >
         {payload.memberships.length === 0 ? (
@@ -1069,11 +1077,13 @@ export default function TeamPage() {
         )}
       </DataTableCard>
 
-      <AddWorkerDialog
-        open={workerOpen}
-        onOpenChange={setWorkerOpen}
-        roles={assignableRoles}
-      />
+      {isOwner && (
+        <AddWorkerDialog
+          open={workerOpen}
+          onOpenChange={setWorkerOpen}
+          roles={assignableRoles}
+        />
+      )}
       {resetTarget && (
         <ResetPasswordDialog
           key={resetTarget.id}

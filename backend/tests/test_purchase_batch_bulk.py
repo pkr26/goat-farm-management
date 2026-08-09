@@ -162,6 +162,48 @@ async def test_thousand_head_purchase_is_constant_statement_and_exact(
     assert over_limit.status_code == 422, over_limit.text
 
 
+async def test_thousand_head_batch_detail_is_a_bounded_page(client: httpx.AsyncClient) -> None:
+    """A batch may legitimately hold 1,000 animals; its detail response must be
+    a bounded page like every other list, not a ~900 KB document of full animal
+    records that the field tablet re-fetches on every refresh."""
+    owner = await owner_with_farm(client)
+    created = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "supplier": "Bulk detail supplier",
+            "count": MAX_BATCH_COUNT,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    batch_id = created.json()["id"]
+
+    first = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert len(body["animals"]) == 100  # default page, not all 1,000
+    assert body["batch"]["animals_created"] == MAX_BATCH_COUNT  # exact total stays available
+    assert len(body["tasks"]) == 8  # the protocol itself is bounded
+
+    page = await client.get(
+        f"/api/purchases/{batch_id}",
+        params={"animals_limit": 50, "animals_offset": 100},
+        headers=owner,
+    )
+    assert page.status_code == 200, page.text
+    tags = [animal["tag_number"] for animal in body["animals"]]
+    next_tags = [animal["tag_number"] for animal in page.json()["animals"]]
+    assert len(next_tags) == 50
+    assert not set(tags) & set(next_tags)  # deterministic, non-overlapping pages
+    assert tags + next_tags == sorted(tags + next_tags)
+
+    for params in ({"animals_limit": 0}, {"animals_limit": 201}, {"animals_offset": -1}):
+        rejected = await client.get(f"/api/purchases/{batch_id}", params=params, headers=owner)
+        assert rejected.status_code == 422, (params, rejected.text)
+
+
 async def test_concurrent_bulk_batches_keep_generated_tags_disjoint(
     client: httpx.AsyncClient,
 ) -> None:

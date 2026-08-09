@@ -127,12 +127,18 @@ class Role(Base):
         import json
 
         try:
-            return {p for p in json.loads(self.permissions or "[]") if isinstance(p, str)}
+            decoded = json.loads(self.permissions or "[]")
         except ValueError:
+            decoded = None
+        # The shape matters as much as the syntax: valid JSON that is not a
+        # list ("null", "5") would raise TypeError past this guard, and a bare
+        # string would silently decompose into its characters.
+        if not isinstance(decoded, list):
             # Fail-closed is right, but not silently: a corrupt
             # row locks the role's workers out of everything.
             logger.warning("Role id=%s has corrupt permissions JSON — treating as empty", self.id)
             return set()
+        return {p for p in decoded if isinstance(p, str)}
 
 
 class FarmMembership(Base):

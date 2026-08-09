@@ -2540,3 +2540,371 @@ async def test_health_event_without_cost_creates_no_transaction(
     )
     fin = (await client.get("/api/finance", headers=headers)).json()
     assert not any(t["category"] in {"MEDICINE", "VET"} for t in fin["transactions"])
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-08-09 regressions
+# ---------------------------------------------------------------------------
+async def test_supplier_name_cannot_hijack_the_quarantine_vaccine_template(
+    client: httpx.AsyncClient,
+) -> None:
+    """Auto-generated titles embed the operator-supplied supplier, so a
+    supplier named after a disease used to decide which programme item a
+    quarantine duty belonged to."""
+    headers = await owner_with_farm(client)
+    batch = await make_batch(
+        client,
+        headers,
+        count=1,
+        supplier="PPR Traders",
+        date=iso(today() - timedelta(days=50)),
+    )
+    detail = await get_batch(client, headers, batch["id"])
+    et_task = next(t for t in detail["tasks"] if "ET + Tetanus" in t["title"])
+    pox_task = next(t for t in detail["tasks"] if "Goat Pox" in t["title"])
+    fmd_task = next(t for t in detail["tasks"] if "FMD" in t["title"])
+    assert et_task["title"].startswith("[PPR Traders #")
+
+    # The correct entry is accepted and filed under the real programme item.
+    events = await record_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=batch["id"],
+        type="VACCINE",
+        product_name="Raksha-ET",
+        disease_target="ET + TT",
+        task_id=et_task["id"],
+    )
+    assert events[0]["schedule_template_name"] == "Enterotoxaemia (ET)"
+
+    # Claiming the supplier's disease against another duty is rejected.
+    hijack = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=batch["id"],
+        type="VACCINE",
+        disease_target="PPR",
+        task_id=pox_task["id"],
+    )
+    assert hijack.status_code == 422, hijack.text
+    assert hijack.json()["detail"] == "Disease target does not match the linked task"
+
+    # The silent variant: a blank target must still resolve the real template.
+    blank = await record_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=batch["id"],
+        type="VACCINE",
+        product_name="Raksha-Triovac",
+        task_id=fmd_task["id"],
+    )
+    assert blank[0]["schedule_template_name"] == "FMD"
+    refreshed = await get_batch(client, headers, batch["id"])
+    assert next(t for t in refreshed["tasks"] if t["id"] == pox_task["id"])["status"] == "PENDING"
+
+
+async def test_tag_number_cannot_hijack_the_pre_kidding_vaccine_template(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe = await make_animal(
+        client,
+        headers,
+        tag="PPR-01",
+        date_of_birth=iso(today() - timedelta(days=800)),
+        weight_kg=26.0,
+        weight_date=iso(today() - timedelta(days=800)),
+        current_bucket="BREEDING",
+    )
+    buck = await make_animal(
+        client,
+        headers,
+        tag="PPR-01-BUCK",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=800)),
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=800)),
+        current_bucket="BREEDING",
+    )
+    breeding_date = today() - timedelta(days=120)
+    created = await client.post(
+        "/api/breeding",
+        json={"doe_id": doe["id"], "buck_id": buck["id"], "breeding_date": iso(breeding_date)},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    confirmed = await client.post(
+        f"/api/breeding/{created.json()['id']}/ultrasound",
+        json={"pregnant": True, "kid_count": 1, "date": created.json()["ultrasound_date"]},
+        headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    tabs = await client.get("/api/tasks", headers=headers)
+    duties = tabs.json()["today"] + tabs.json()["overdue"] + tabs.json()["upcoming"]
+    pre_kidding = next(t for t in duties if t["category"] == "VACCINE")
+    assert pre_kidding["title"] == "Pre-kidding ET+TT vaccine: PPR-01"
+
+    hijack = await post_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=doe["id"],
+        type="VACCINE",
+        disease_target="PPR",
+        task_id=pre_kidding["id"],
+    )
+    assert hijack.status_code == 422, hijack.text
+    assert hijack.json()["detail"] == "Disease target does not match the linked task"
+
+    # The combined duty is closed only when BOTH components were recorded.
+    half = await post_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=doe["id"],
+        type="VACCINE",
+        disease_target="ET",
+        task_id=pre_kidding["id"],
+    )
+    assert half.status_code == 422, half.text
+    assert half.json()["detail"] == "Disease target does not match the linked task"
+
+    recorded = await record_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=doe["id"],
+        type="VACCINE",
+        disease_target="ET + TT",
+        task_id=pre_kidding["id"],
+    )
+    assert recorded[0]["schedule_template_name"] == "ET + TT pre-kidding"
+
+
+async def test_event_type_must_match_the_linked_task(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
+    ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
+    response = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="DEWORMING",
+        product_name="Albendazole",
+        task_id=ppr_task["id"],
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Health event type must match the linked task"
+    refreshed = await get_batch(client, headers, detail["batch"]["id"])
+    assert next(t for t in refreshed["tasks"] if t["id"] == ppr_task["id"])["status"] == "PENDING"
+
+
+async def test_animal_scoped_event_cannot_close_a_batch_linked_duty(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
+    ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
+    response = await post_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=detail["animals"][0]["id"],
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=ppr_task["id"],
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Health event scope must match the linked batch"
+
+
+async def test_batch_scoped_event_cannot_close_an_animal_linked_duty(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
+    doe = await make_animal(
+        client,
+        headers,
+        tag="SCOPE-DOE",
+        date_of_birth=iso(today() - timedelta(days=800)),
+        weight_kg=26.0,
+        weight_date=iso(today() - timedelta(days=800)),
+        current_bucket="BREEDING",
+    )
+    buck = await make_animal(
+        client,
+        headers,
+        tag="SCOPE-BUCK",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=800)),
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=800)),
+        current_bucket="BREEDING",
+    )
+    created = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe["id"],
+            "buck_id": buck["id"],
+            "breeding_date": iso(today() - timedelta(days=120)),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    confirmed = await client.post(
+        f"/api/breeding/{created.json()['id']}/ultrasound",
+        json={"pregnant": True, "kid_count": 1, "date": created.json()["ultrasound_date"]},
+        headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    tabs = await client.get("/api/tasks", headers=headers)
+    duties = tabs.json()["today"] + tabs.json()["overdue"] + tabs.json()["upcoming"]
+    pre_kidding = next(
+        t for t in duties if t["category"] == "VACCINE" and t["animal_id"] == doe["id"]
+    )
+    response = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="VACCINE",
+        disease_target="ET + TT",
+        task_id=pre_kidding["id"],
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Health event scope must match the linked animal"
+
+
+async def test_linked_template_must_match_the_duty(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
+    et_task = next(t for t in detail["tasks"] if "ET + Tetanus" in t["title"])
+    response = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="VACCINE",
+        schedule_template_name="PPR",
+        task_id=et_task["id"],
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Health template does not match the linked task"
+
+    unknown = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="VACCINE",
+        schedule_template_name="Made-up programme",
+        task_id=et_task["id"],
+    )
+    assert unknown.status_code == 422, unknown.text
+    assert unknown.json()["detail"] == "Unknown schedule template"
+
+
+async def test_clear_restriction_version_mismatch_and_no_active_hold_are_distinct(
+    client: httpx.AsyncClient,
+) -> None:
+    """The stale-version guard shadows the no-active-hold guard for an animal
+    that never carried a hold, so both need their own case."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="HOLD-CLEAR")
+    await record_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=animal["id"],
+        type="TREATMENT",
+        disease_target="Reportable-condition concern",
+        suspected_scheduled_disease=True,
+    )
+    first = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={"clearance_reference": "AHD-2026-1", "expected_restriction_version": 1},
+        headers=headers,
+    )
+    assert first.status_code == 204, first.text
+
+    again = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={"clearance_reference": "AHD-2026-2", "expected_restriction_version": 1},
+        headers=headers,
+    )
+    assert again.status_code == 409, again.text
+    assert again.json()["detail"] == "Animal has no active movement restriction"
+
+    history = await client.get(f"/api/health/restrictions/{animal['id']}", headers=headers)
+    assert history.status_code == 200, history.text
+    assert [row["action"] for row in history.json()["actions"]].count("CLEARED") == 1
+    after = await get_animal(client, headers, animal["id"])
+    assert after["restriction_clearance_reference"] == "AHD-2026-1"
+
+
+async def test_treatment_follow_up_date_is_recordable(client: httpx.AsyncClient) -> None:
+    """next_due_date requires stated provenance, but a treatment/footbath/
+    vitamin follow-up has no seeded programme item to bind it to."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="FOLLOWUP-1")
+    events = await record_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=animal["id"],
+        type="TREATMENT",
+        product_name="Oxytetracycline",
+        next_due_date=iso(today() + timedelta(days=14)),
+        schedule_template_name="Recheck course",
+        next_due_authority="Dr. Rao",
+    )
+    assert events[0]["next_due_date"] == iso(today() + timedelta(days=14))
+    assert events[0]["schedule_template_name"] == "Recheck course"
+    # Free-text provenance must never bind a real vaccine template, so it
+    # cannot leak into the vaccination programme.
+    schedule = await get_schedule(client, headers, animal["id"])
+    assert all(row["last_done"] is None for row in schedule["rows"])
+
+
+async def test_vaccine_event_still_requires_a_seeded_template(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="FOLLOWUP-2")
+    response = await post_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=animal["id"],
+        type="VACCINE",
+        next_due_date=iso(today() + timedelta(days=14)),
+        schedule_template_name="Recheck course",
+        next_due_authority="Dr. Rao",
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Unknown schedule template"
+
+
+async def test_template_abbreviation_is_an_accepted_disease_target(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="HS-1")
+    events = await record_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="Raksha-HS",
+        disease_target="HS",
+        schedule_template_name="Haemorrhagic Septicaemia (HS)",
+    )
+    assert events[0]["schedule_template_name"] == "Haemorrhagic Septicaemia (HS)"
+    assert row_by_name(
+        await get_schedule(client, headers, animal["id"]), "Haemorrhagic Septicaemia (HS)"
+    )["last_done"] == iso(today())

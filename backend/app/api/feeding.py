@@ -147,16 +147,12 @@ async def dispense(
             require_farm_not_future(record_date, farm, "dispensing date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        # A dispensing record without a recipe cannot be reconciled with the
-        # ration plan and, more importantly, bypasses finished-feed stock
-        # deduction. Dry roughage remains an explicit direct-fed recipe below
-        # and is debited from seeded dry-stover inventory by the service.
-        code = (payload.recipe_code or "").strip()
-        if not code:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Recipe is required; use {DRY_ROUGHAGE} for the dry-roughage ration",
-            )
+        # DispenseIn declares the recipe required and trims it: a record
+        # without one cannot be reconciled with the ration plan and, more
+        # importantly, bypasses finished-feed stock deduction. Dry roughage
+        # remains an explicit direct-fed recipe below and is debited from
+        # seeded dry-stover inventory by the service.
+        code = payload.recipe_code
         # Keep state-dependent validation behind the idempotency claim so a
         # replay does not re-evaluate a recipe changed after the first success.
         if code != DRY_ROUGHAGE:

@@ -1,7 +1,7 @@
 "use client";
 
-import { type KeyboardEvent, useDeferredValue, useMemo, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,9 @@ interface RemotePickerProps {
 
 const MIN_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 100;
+/** Matches the animals list page, so every search box in the app settles at
+ * the same pace. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * Accessible remote-data picker. Results are fetched only while its dialog is
@@ -99,14 +102,23 @@ export function RemotePicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [chosenOption, setChosenOption] = useState<RemotePickerOption | null>(null);
-  const deferredSearch = useDeferredValue(search.trim());
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const boundedPageSize = Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, pageSize));
 
+  // The query key is the search term, so an undebounced term would mint a new
+  // key — and a new request — on every keystroke. The input itself stays
+  // instant.
+  useEffect(() => {
+    const trimmed = search.trim();
+    const handle = setTimeout(() => setDebouncedSearch(trimmed), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [search]);
+
   const results = useInfiniteQuery({
-    queryKey: [sourcePath, "remote-picker", ...cacheKey, deferredSearch, boundedPageSize],
+    queryKey: [sourcePath, "remote-picker", ...cacheKey, debouncedSearch, boundedPageSize],
     queryFn: ({ pageParam, signal }) =>
       loadPage({
-        query: deferredSearch,
+        query: debouncedSearch,
         offset: pageParam,
         limit: boundedPageSize,
         signal,
@@ -117,6 +129,10 @@ export function RemotePicker({
         ? lastPage.nextOffset
         : undefined,
     enabled: open && !disabled,
+    // A new search term is a new key with no cached data, which would unmount
+    // the whole listbox mid-typing. Keep the previous result set rendered
+    // (marked busy) until the next one arrives.
+    placeholderData: keepPreviousData,
     retry: false,
   });
 
@@ -157,7 +173,12 @@ export function RemotePicker({
 
   function changeOpen(nextOpen: boolean) {
     setOpen(nextOpen);
-    if (!nextOpen) setSearch("");
+    if (!nextOpen) {
+      // Clear both halves together so reopening within the debounce window
+      // does not query the previous term behind an empty input.
+      setSearch("");
+      setDebouncedSearch("");
+    }
   }
 
   function choose(option: RemotePickerOption) {
@@ -259,7 +280,11 @@ export function RemotePicker({
             id={listboxId}
             role="listbox"
             aria-label={`${dialogTitle} results`}
-            className="max-h-72 overflow-y-auto rounded-lg border p-1"
+            aria-busy={results.isPlaceholderData || undefined}
+            className={cn(
+              "max-h-72 overflow-y-auto rounded-lg border p-1",
+              results.isPlaceholderData && "opacity-60",
+            )}
             onKeyDown={moveOptionFocus}
           >
             {displayedOptions.map((option, index) => (

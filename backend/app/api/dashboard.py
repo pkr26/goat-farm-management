@@ -1,13 +1,18 @@
-"""Dashboard: herd counts by bucket, today's + overdue tasks, kiddings due in
-14 days, ultrasounds due in 7 days, cull candidates, ready-to-move suggestions,
-recent weight records — plus the reports page (herd summary, breeding
-performance, mortality). Read-only aggregates per farm."""
+"""Dashboard: herd counts by bucket, today's + overdue tasks, kiddings overdue
+or due within 14 days, ultrasounds due in 7 days, cull candidates,
+ready-to-move suggestions, recent weight records — plus the reports page (herd
+summary, breeding performance, mortality). Read-only aggregates per farm.
 
-from datetime import timedelta
+Every section is filtered by the caller's effective permissions exactly as
+``_shared.animal_out`` filters an animal profile: an aggregate view is not a
+side door around field-level authorization.
+"""
+
+from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import Select, func, select
+from sqlalchemy import ScalarSelect, Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.elements import ColumnElement
@@ -26,6 +31,7 @@ from ..models import (
     TaskCategory,
     WeightRecord,
 )
+from ..models.helpers import CONCEIVED_OUTCOMES
 from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
@@ -50,6 +56,7 @@ DASHBOARD_PERM = Annotated[set[str], Depends(require_perm("dashboard.view"))]
 REPORTS_PERM = Annotated[set[str], Depends(require_perm("reports.view"))]
 DASHBOARD_PREVIEW_LIMIT = 100
 RECENT_WEIGHTS_LIMIT = 10
+KIDDING_DUE_WINDOW_DAYS = 14
 
 DASHBOARD_TASK_LOADS = (
     joinedload(Task.assigned_role),
@@ -60,6 +67,19 @@ DASHBOARD_TASK_LOADS = (
 
 def _animal_identity_out(animal: Animal) -> AnimalIdentityOut:
     return AnimalIdentityOut.model_validate(animal)
+
+
+def _exact_total(base: Select[Any]) -> ScalarSelect[int]:
+    """The preview's full-result count, computed inside the preview statement.
+
+    ``func.count().over()`` yields the same number, but an unpartitioned window
+    aggregate must drain its whole input before the LIMIT can emit anything: a
+    10-row weight preview pushed every weight record the farm ever wrote
+    through the WindowAgg and spilled to temp files. An uncorrelated scalar
+    subquery is evaluated once, keeps the total exact and in the same round
+    trip, and leaves the preview itself bounded by its own LIMIT.
+    """
+    return select(func.count()).select_from(base.order_by(None).subquery()).scalar_subquery()
 
 
 async def _task_preview(
@@ -73,7 +93,7 @@ async def _task_preview(
     stmt = base.where(*predicates)
     rows = (
         await db.execute(
-            stmt.add_columns(func.count().over().label("preview_total"))
+            stmt.add_columns(_exact_total(stmt).label("preview_total"))
             .options(*DASHBOARD_TASK_LOADS)
             .order_by(*order_by)
             .limit(DASHBOARD_PREVIEW_LIMIT)
@@ -83,15 +103,101 @@ async def _task_preview(
 
 
 async def _cull_preview(db: AsyncSession, farm_id: int) -> tuple[list[Animal], int]:
-    stmt = select(Animal, func.count().over().label("preview_total")).where(
+    base = select(Animal).where(
         Animal.farm_id == farm_id,
         Animal.cull_candidate.is_(True),
         Animal.status == AnimalStatus.ACTIVE.value,
     )
     rows = (
-        await db.execute(stmt.order_by(Animal.tag_number, Animal.id).limit(DASHBOARD_PREVIEW_LIMIT))
+        await db.execute(
+            base.add_columns(_exact_total(base).label("preview_total"))
+            .order_by(Animal.tag_number, Animal.id)
+            .limit(DASHBOARD_PREVIEW_LIMIT)
+        )
     ).all()
     return [row[0] for row in rows], int(rows[0].preview_total) if rows else 0
+
+
+async def _kidding_due_preview(
+    db: AsyncSession, farm_id: int, reference_date: date
+) -> tuple[list[DashboardKiddingDueOut], int]:
+    """Kiddings already overdue plus those falling due inside the window.
+
+    An overdue pregnancy is the more urgent of the two — nobody has recorded a
+    kidding for a doe who was due — so it stays on the panel. But a single
+    ``expected_kidding_date <= today + 14`` query ordered ascending gave the
+    whole preview to the oldest overdue rows: a farm carrying a backlog of more
+    than ``DASHBOARD_PREVIEW_LIMIT`` of them could not see a single upcoming
+    kidding, which is what the panel exists for. Each side is therefore fetched
+    nearest-to-today first and capped at half the preview, with whatever
+    capacity one side leaves unused handed to the other; the rows themselves
+    are returned in due-date order, most overdue first.
+    """
+    no_kidding = ~(
+        select(KiddingRecord.id)
+        .where(KiddingRecord.breeding_record_id == BreedingRecord.id)
+        .correlate(BreedingRecord)
+        .exists()
+    )
+    base = (
+        select(
+            BreedingRecord.id,
+            BreedingRecord.doe_id,
+            Animal.tag_number.label("doe_tag"),
+            BreedingRecord.expected_kidding_date,
+        )
+        .join(Animal, BreedingRecord.doe_id == Animal.id)
+        .where(
+            BreedingRecord.farm_id == farm_id,
+            BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+            # Defensive: pregnancies of sold/dead does are auto-resolved on
+            # the status change, but legacy phantom rows must never list here.
+            Animal.status == AnimalStatus.ACTIVE.value,
+            no_kidding,
+        )
+    )
+
+    async def _side(stmt: Select[Any], *order_by: Any) -> tuple[list[Any], int]:
+        rows = (
+            await db.execute(
+                stmt.add_columns(_exact_total(stmt).label("preview_total"))
+                .order_by(*order_by)
+                .limit(DASHBOARD_PREVIEW_LIMIT)
+            )
+        ).all()
+        return list(rows), int(rows[0].preview_total) if rows else 0
+
+    overdue_rows, overdue_total = await _side(
+        base.where(BreedingRecord.expected_kidding_date < reference_date),
+        BreedingRecord.expected_kidding_date.desc(),
+        BreedingRecord.id.desc(),
+    )
+    upcoming_rows, upcoming_total = await _side(
+        base.where(
+            BreedingRecord.expected_kidding_date >= reference_date,
+            BreedingRecord.expected_kidding_date
+            <= reference_date + timedelta(days=KIDDING_DUE_WINDOW_DAYS),
+        ),
+        BreedingRecord.expected_kidding_date,
+        BreedingRecord.id,
+    )
+    overdue_take = min(
+        len(overdue_rows),
+        max(DASHBOARD_PREVIEW_LIMIT // 2, DASHBOARD_PREVIEW_LIMIT - len(upcoming_rows)),
+    )
+    upcoming_take = min(len(upcoming_rows), DASHBOARD_PREVIEW_LIMIT - overdue_take)
+    # The overdue side was fetched newest-first to keep the freshest misses;
+    # reversing restores the ascending due-date order the panel renders.
+    rows = [*reversed(overdue_rows[:overdue_take]), *upcoming_rows[:upcoming_take]]
+    return [
+        DashboardKiddingDueOut(
+            id=row.id,
+            doe_id=row.doe_id,
+            doe_tag=row.doe_tag,
+            expected_kidding_date=row.expected_kidding_date,
+        )
+        for row in rows
+    ], overdue_total + upcoming_total
 
 
 @router.get("")
@@ -104,6 +210,13 @@ async def dashboard(
     Operational lists contain at most ``preview_limit`` rows; recent weights
     use ``recent_weights_limit``. The dedicated tasks, breeding and animals
     pages remain the full paginated/history views.
+
+    Sections carrying a breeding-programme judgement — kiddings due, cull
+    candidates and the suggestions derived from breeding readiness or an open
+    pregnancy — need ``breeding.view``, the same permission that governs
+    ``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in
+    ``animal_out``. A caller without it gets empty lists and zero totals rather
+    than a 403, so the page still renders for e.g. the cleaner preset.
     """
     defs = list(
         (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
@@ -153,50 +266,16 @@ async def dashboard(
             order_by=(Task.due_date, Task.id),
         )
 
-    no_kidding = ~(
-        select(KiddingRecord.id)
-        .where(KiddingRecord.breeding_record_id == BreedingRecord.id)
-        .correlate(BreedingRecord)
-        .exists()
-    )
-    kiddings_stmt = (
-        select(
-            BreedingRecord.id,
-            BreedingRecord.doe_id,
-            Animal.tag_number.label("doe_tag"),
-            BreedingRecord.expected_kidding_date,
-        )
-        .join(Animal, BreedingRecord.doe_id == Animal.id)
-        .where(
-            BreedingRecord.farm_id == farm.id,
-            BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
-            BreedingRecord.expected_kidding_date <= now + timedelta(days=14),
-            # Defensive: pregnancies of sold/dead does are auto-resolved on
-            # the status change, but legacy phantom rows must never list here.
-            Animal.status == AnimalStatus.ACTIVE.value,
-            no_kidding,
-        )
-    )
-    kidding_rows = (
-        await db.execute(
-            kiddings_stmt.add_columns(func.count().over().label("preview_total"))
-            .order_by(BreedingRecord.expected_kidding_date, BreedingRecord.id)
-            .limit(DASHBOARD_PREVIEW_LIMIT)
-        )
-    ).all()
-    kiddings_due = [
-        DashboardKiddingDueOut(
-            id=row.id,
-            doe_id=row.doe_id,
-            doe_tag=row.doe_tag,
-            expected_kidding_date=row.expected_kidding_date,
-        )
-        for row in kidding_rows
-    ]
-    kiddings_due_total = int(kidding_rows[0].preview_total) if kidding_rows else 0
-    cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
+    can_view_breeding = "breeding.view" in perms
+    kiddings_due: list[DashboardKiddingDueOut] = []
+    kiddings_due_total = 0
+    cull_candidates: list[Animal] = []
+    cull_candidates_total = 0
+    if can_view_breeding:
+        kiddings_due, kiddings_due_total = await _kidding_due_preview(db, farm.id, now)
+        cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
     suggestions, suggestions_total = await ready_to_move_suggestions(
-        db, farm, limit=DASHBOARD_PREVIEW_LIMIT
+        db, farm, limit=DASHBOARD_PREVIEW_LIMIT, include_breeding=can_view_breeding
     )
 
     recent_weights_stmt = (
@@ -206,7 +285,9 @@ async def dashboard(
     )
     recent_weight_rows = (
         await db.execute(
-            recent_weights_stmt.add_columns(func.count().over().label("preview_total"))
+            recent_weights_stmt.add_columns(
+                _exact_total(recent_weights_stmt).label("preview_total")
+            )
             .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
             .limit(RECENT_WEIGHTS_LIMIT)
         )
@@ -217,6 +298,9 @@ async def dashboard(
             select(Animal.status, func.count())
             .where(Animal.farm_id == farm.id)
             .group_by(Animal.status)
+            # A bare GROUP BY emits rows in hash-table order; the response is a
+            # dict the UI iterates verbatim, so pin the row order.
+            .order_by(Animal.status)
         )
     ).all()
     status_totals = {str(status): int(count) for status, count in status_rows}
@@ -315,6 +399,9 @@ async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> Rep
             select(Animal.status, func.count())
             .where(Animal.farm_id == farm.id)
             .group_by(Animal.status)
+            # Deterministic row order: the reports page renders these entries
+            # in response order, and a bare GROUP BY does not specify one.
+            .order_by(Animal.status)
         )
     ).all()
     status_counts = {str(status): int(count) for status, count in status_rows}
@@ -330,23 +417,24 @@ async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> Rep
         sex_counts[str(sex)] = int(count)
 
     # --- breeding performance ----------------------------------------------
+    # Mirrors models.helpers.conception_rate — same predicates, same result.
     completed = BreedingRecord.outcome != BreedingOutcome.PENDING.value
-    confirmed = BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value
+    conceived = BreedingRecord.outcome.in_(sorted(CONCEIVED_OUTCOMES))
     first_cycle = BreedingRecord.heat_cycle_number == 1
     (
         total_records,
         completed_count,
-        confirmed_count,
+        conceived_count,
         fc_completed,
-        fc_confirmed,
+        fc_conceived,
     ) = (
         await db.execute(
             select(
                 func.count(),
                 func.count().filter(completed),
-                func.count().filter(confirmed),
+                func.count().filter(conceived),
                 func.count().filter(completed, first_cycle),
-                func.count().filter(confirmed, first_cycle),
+                func.count().filter(conceived, first_cycle),
             ).where(BreedingRecord.farm_id == farm.id)
         )
     ).one()
@@ -379,8 +467,8 @@ async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> Rep
 
     breeding_stats = BreedingStatsOut(
         total_records=total_records,
-        conception_rate=_rate(confirmed_count, completed_count),
-        first_cycle_rate=_rate(fc_confirmed, fc_completed),
+        conception_rate=_rate(conceived_count, completed_count),
+        first_cycle_rate=_rate(fc_conceived, fc_completed),
         kiddings=kiddings_count,
         kids_per_kidding=(
             round(float(total_alive) / kiddings_count, 2) if kiddings_count else None

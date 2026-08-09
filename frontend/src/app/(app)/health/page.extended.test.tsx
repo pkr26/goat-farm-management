@@ -146,6 +146,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skipped_by_id: null,
     skipped_at: null,
     skip_reason: null,
+    rejected_by_id: null,
+    rejected_at: null,
     action_url: null,
     ...overrides,
   };
@@ -840,6 +842,52 @@ describe("HealthPage", () => {
     expect(names.some((n) => n.includes("PPR vaccination"))).toBe(true);
     expect(names.some((n) => n.includes("Deworm batch #2"))).toBe(true);
     expect(names.some((n) => n.includes("Scrub feeders"))).toBe(false);
+  });
+
+  // REGRESSION — the picker listed the tasks page's "upcoming" bucket too, but
+  // api/health.py returns 409 for an event dated before the duty's due date and
+  // the event date can never be in the future, so every future duty in the list
+  // was a guaranteed dead end.
+  it("omits duties that are not due yet from the linked-duty picker", async () => {
+    tasks = [
+      VACCINE_TASK,
+      makeTask({
+        id: 9,
+        title: "Pre-kidding ET+TT vaccine",
+        category: "VACCINE",
+        animal_id: 3,
+        due_date: addDays(TODAY, 5),
+      }),
+    ];
+    const { user, dialog } = await openDialog();
+    const combos = within(dialog).getAllByRole("combobox");
+    await user.click(combos[combos.length - 1]);
+
+    expect(await screen.findByRole("option", { name: /PPR vaccination/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /Pre-kidding ET\+TT vaccine/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  // REGRESSION — /api/tasks returns a bounded window, so a deep-linked duty
+  // outside it silently left an unlabeled id in the select with none of the
+  // scope/type/product prefill applied.
+  it("drops an unresolvable deep-linked duty and says so", async () => {
+    window.history.replaceState({}, "", "/health?task_id=734&animal_id=3");
+    tasks = [VACCINE_TASK];
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+
+    expect(
+      await within(dialog).findByText(/Could not link duty #734/),
+    ).toBeInTheDocument();
+    const combos = within(dialog).getAllByRole("combobox");
+    expect(combos[combos.length - 1]).toHaveTextContent("— none —");
+
+    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ animal_id: 3 });
+    expect(postBody!.task_id ?? null).toBeNull();
   });
 
   it("hides the linked-duty select when no health duties are pending", async () => {

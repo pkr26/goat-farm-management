@@ -14,9 +14,11 @@ from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.finance import (
     FinanceOut,
     PnlRowOut,
+    TransactionCategoryStr,
     TransactionCorrectionIn,
     TransactionIn,
     TransactionOut,
+    TransactionTypeStr,
 )
 from ..services import IdempotencyKey, execute_idempotent, monthly_pnl, require_farm_not_future
 from ..utils import add_months, money, utcnow
@@ -25,6 +27,21 @@ router = APIRouter(prefix="/api/finance", tags=["finance"])
 
 FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 FinanceManage = Annotated[set[str], Depends(require_perm("finance.manage"))]
+
+
+# Free text reaches PostgreSQL as a bind parameter, and a text/varchar column
+# cannot hold a NUL byte: asyncpg raises CharacterNotInRepertoireError, which
+# no handler maps to a 4xx, so ``notes``/``reason`` containing "\x00" answered
+# an opaque 500. No ledger narrative legitimately carries a C0 control other
+# than tab/newline/carriage return.
+_ALLOWED_CONTROL_CHARACTERS = "\t\n\r"
+
+
+def _reject_control_characters(value: str | None, field: str) -> None:
+    if value is not None and any(
+        char < " " and char not in _ALLOWED_CONTROL_CHARACTERS for char in value
+    ):
+        raise HTTPException(status_code=422, detail=f"{field} cannot contain control characters")
 
 
 def _transaction_out(txn: Transaction) -> TransactionOut:
@@ -52,14 +69,78 @@ async def _resolve_related_animal(
     return linked.id, linked.tag_number
 
 
+async def _locked_source_animal(db: DbSession, farm: CurrentFarm, animal_id: int) -> Animal:
+    animal = await db.get(Animal, animal_id, with_for_update=True) if animal_id > 0 else None
+    if animal is None or animal.farm_id != farm.id:
+        raise HTTPException(
+            status_code=409,
+            detail="The animal this transaction was booked from is no longer on this farm",
+        )
+    return animal
+
+
+async def _reconcile_source_record(
+    db: DbSession,
+    farm: CurrentFarm,
+    txn: Transaction,
+    payload: TransactionCorrectionIn,
+) -> None:
+    """Keep a system-generated row and the record that produced it in step.
+
+    A source-linked transaction is the ledger's copy of a domain event and the
+    replacement inherits its ``source_type``/``source_id``, so it must stay the
+    same kind of event — re-booking a sale as an expense left the animal
+    profile advertising a sale price that existed nowhere in the ledger — and a
+    corrected amount must reach the denormalized copy the domain record renders
+    as authoritative money. Nothing else can rewrite those fields afterwards (a
+    sold animal cannot change status again), so a correction that skipped them
+    diverged permanently.
+    """
+    if txn.source_type is None or txn.source_id is None:
+        return
+    if payload.type != txn.type or payload.category != txn.category:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"A {txn.source_type} transaction must stay {txn.type}/{txn.category}; "
+                "correct its amount, date or notes instead"
+            ),
+        )
+    amount = money(payload.amount)
+    if amount == txn.amount:
+        return
+    if txn.source_type == "ANIMAL_SALE":
+        (await _locked_source_animal(db, farm, txn.source_id)).sale_price = amount
+        return
+    if txn.source_type == "ANIMAL_PURCHASE":
+        (await _locked_source_animal(db, farm, txn.source_id)).purchase_price = amount
+        return
+    # A PURCHASE_BATCH total is allocated across every animal of the batch and a
+    # HEALTH_EVENT total across every event of the submission. Pushing a new
+    # total back would have to re-allocate an unbounded number of rows inside
+    # this request, so refuse the amount change instead of leaving those
+    # records contradicting the ledger. Date, notes and the animal link stay
+    # correctable, and a compensating entry can still adjust the books.
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            f"A {txn.source_type} amount is shared by the records it was booked from; "
+            "correct the date or notes here and book a compensating entry for the amount"
+        ),
+    )
+
+
 @router.get("")
 async def list_transactions(
     db: DbSession,
     farm: CurrentFarm,
     perms: FinanceView,
     month: str | None = None,
-    type: str | None = None,
-    category: str | None = None,
+    # Typed against the ledger's own vocabulary: an untyped str was bound
+    # straight into the SQL comparison, so "?type=%00" reached the driver and
+    # answered 500 instead of a validation error.
+    type: TransactionTypeStr | None = None,
+    category: TransactionCategoryStr | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 200,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> FinanceOut:
@@ -148,6 +229,7 @@ async def add_transaction(
             require_farm_not_future(payload.date, farm, "transaction date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        _reject_control_characters(payload.notes, "notes")
         animal_pk, animal_tag = await _resolve_related_animal(db, farm, payload.related_animal_id)
         txn = Transaction(
             farm_id=farm.id,
@@ -198,6 +280,8 @@ async def correct_transaction(
             require_farm_not_future(payload.date, farm, "replacement transaction date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        _reject_control_characters(payload.notes, "notes")
+        _reject_control_characters(payload.reason, "reason")
         if not 1 <= transaction_id <= MAX_INT32_ID:
             txn = None
         else:
@@ -212,6 +296,7 @@ async def correct_transaction(
             raise HTTPException(status_code=404, detail="Transaction not found")
         if txn.voided_at is not None:
             raise HTTPException(status_code=409, detail="Transaction has already been corrected")
+        await _reconcile_source_record(db, farm, txn, payload)
 
         animal_pk, animal_tag = await _resolve_related_animal(db, farm, payload.related_animal_id)
 

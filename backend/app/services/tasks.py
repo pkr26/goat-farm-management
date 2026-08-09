@@ -200,6 +200,18 @@ async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> None:
         raise ValueError("The weaning duty does not match a recorded kidding milestone")
 
 
+def _clear_rejection(task: Task) -> None:
+    """Drop the rejection trail once the duty leaves the rejected state.
+
+    ``verification_note`` and ``rejected_by_id``/``rejected_at`` describe the
+    rejection a row is currently carrying, exactly as ``skipped_by_id``/
+    ``skipped_at`` describe a SKIPPED one — they are never stale history.
+    """
+    task.verification_note = None
+    task.rejected_by_id = None
+    task.rejected_at = None
+
+
 async def complete_task(
     db: AsyncSession,
     task: Task,
@@ -289,7 +301,7 @@ async def complete_task(
     task.status = TaskStatus.DONE.value
     task.completed_by_id = user.id if user else None
     task.completed_at = utcnow()
-    task.verification_note = None
+    _clear_rejection(task)
 
     if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
         for animal in release_animals or []:
@@ -391,10 +403,11 @@ async def resolve_personal_task_role_fallback(db: AsyncSession, task: Task) -> i
 
 async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
     """Create the next occurrence of a recurring duty: same assignment and
-    category, due recur_days after the current due_date, fresh PENDING state.
-    Dedupes per series (title + due_date + assignment) so a reject →
-    re-complete loop doesn't pile up duplicates, while two same-titled
-    parallel series stay independent."""
+    category, due recur_days after max(the current due_date, the farm's
+    business date), fresh PENDING state. Dedupes on
+    (farm_id, recurring_series_id, due_date) via uq_task_recurring_series_due,
+    so a reject → re-complete loop doesn't pile up duplicates while two
+    same-titled parallel series stay independent."""
     if not task.recur_days or task.recur_days > MAX_RECUR_DAYS:
         return task  # absurd recurrence (legacy data): don't explode date math
     if task.recurring_series_id is None:
@@ -481,16 +494,23 @@ async def verify_task(db: AsyncSession, task: Task, user: User) -> Task:
     task.status = TaskStatus.VERIFIED.value
     task.verified_by_id = user.id
     task.verified_at = utcnow()
-    task.verification_note = None
+    _clear_rejection(task)
     await db.flush()
     return task
 
 
-async def reject_task(db: AsyncSession, task: Task, note: str) -> Task:
-    """Verifier sends a DONE duty back to PENDING with a note for the worker.
-    completed_by/at are kept as a record of the rejected attempt."""
+async def reject_task(db: AsyncSession, task: Task, user: User, note: str) -> Task:
+    """Verifier sends a DONE duty back to PENDING with a note for the worker,
+    attributed. completed_by/at are kept as a record of the rejected attempt."""
+    # PENDING is the exact state ck_tasks_user_assignment_has_role constrains,
+    # so a pre-D9 personal duty is repaired here rather than trusting the caller
+    # to have done it — spawn_next_occurrence guards its PENDING insert the same
+    # way. Raises ValueError when no retained membership role remains.
+    await resolve_personal_task_role_fallback(db, task)
     task.status = TaskStatus.PENDING.value
     task.verification_note = note or None
+    task.rejected_by_id = user.id
+    task.rejected_at = utcnow()
     await db.flush()
     return task
 

@@ -23,6 +23,12 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { usePermissions } from "@/lib/use-permissions";
 
+/** The per-head ration is a setting the operator typed and will check against
+ * what they configured, and the API stores/dispenses it at 0.001 kg. Render
+ * every digit that survives storage and trim trailing zeros: `toFixed(1)`
+ * reported a bucket set to 1.25 kg/head as "1.2". */
+const rationFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 });
+
 function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
   const truncated = row.animals.length < row.animals_total;
 
@@ -34,7 +40,7 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
           <Badge variant="secondary">{row.animals_total} head</Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          {row.bucket} · {row.daily_kg_per_head.toFixed(1)} kg/head/day · {row.who}
+          {row.bucket} · {rationFormat.format(row.daily_kg_per_head)} kg/head/day · {row.who}
         </p>
         {row.exit_rule && (
           <p className="text-xs text-muted-foreground">Exit: {row.exit_rule}</p>

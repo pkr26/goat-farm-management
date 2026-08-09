@@ -6,10 +6,19 @@
 // month ≤ 12 or the day against the calendar, so out-of-range dates rendered
 // as nonsense ("1 undefined 2026", "30 Feb 2024") instead of the em dash.
 // These tests assert the contract-correct output and now pass.
+//
+// Second bug pinned below: formatFarmDateTime built an Intl.DateTimeFormat
+// straight from the farm timezone with no guard. The backend validates that
+// value with Python's zoneinfo, which — like PostgreSQL — accepts names Intl
+// rejects ("Factory"), so the Tasks page and the Animal profile fell to the
+// error boundary for every user of such a farm while todayInTimeZone, which
+// already had a try/catch, survived. Third bug: the same helper rendered only
+// day/month/hour/minute, so two audit rows twelve months apart were
+// indistinguishable.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { formatDate } from "./format";
+import { farmToday, formatDate, formatFarmDateTime, setActiveFarmTimezone } from "./format";
 
 describe("formatDate — out-of-range calendar values (suspected bug)", () => {
   it("renders an em dash for month 13 instead of 'undefined'", () => {
@@ -35,5 +44,60 @@ describe("formatDate — out-of-range calendar values (suspected bug)", () => {
   it("renders an em dash for day 32", () => {
     // Actual today: "32 Aug 2026".
     expect(formatDate("2026-08-32")).toBe("—");
+  });
+});
+
+describe("formatFarmDateTime — naive-UTC → farm timezone", () => {
+  afterEach(() => setActiveFarmTimezone(null));
+
+  it("reads an offset-less backend timestamp as UTC and shifts it to the farm", () => {
+    setActiveFarmTimezone("Asia/Kolkata");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 19:37");
+    setActiveFarmTimezone("America/Phoenix");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 07:07");
+  });
+
+  it("uses an explicit offset when the timestamp carries one", () => {
+    setActiveFarmTimezone("Asia/Kolkata");
+    expect(formatFarmDateTime("2026-08-05T14:07:00Z")).toBe("05-08-2026 19:37");
+    expect(formatFarmDateTime("2026-08-05T19:37:00+05:30")).toBe("05-08-2026 19:37");
+  });
+
+  it("renders an em dash for missing or unparseable input", () => {
+    expect(formatFarmDateTime(null)).toBe("—");
+    expect(formatFarmDateTime(undefined)).toBe("—");
+    expect(formatFarmDateTime("")).toBe("—");
+    expect(formatFarmDateTime("not-a-timestamp")).toBe("—");
+  });
+});
+
+describe("formatFarmDateTime — audit rows a year apart (suspected bug)", () => {
+  afterEach(() => setActiveFarmTimezone(null));
+
+  it("distinguishes two instants exactly twelve months apart", () => {
+    setActiveFarmTimezone("Asia/Kolkata");
+    // Both rendered "04-03 20:00" before the year was included.
+    expect(formatFarmDateTime("2025-03-04T14:30:00")).toBe("04-03-2025 20:00");
+    expect(formatFarmDateTime("2026-03-04T14:30:00")).toBe("04-03-2026 20:00");
+  });
+});
+
+describe("farm timezones Intl rejects but the backend accepts (suspected bug)", () => {
+  afterEach(() => setActiveFarmTimezone(null));
+
+  it("falls back to the product default instead of throwing RangeError", () => {
+    setActiveFarmTimezone("Factory");
+    const instant = new Date("2026-08-08T20:00:00Z");
+
+    expect(() => farmToday(instant)).not.toThrow();
+    expect(farmToday(instant)).toBe("2026-08-09");
+    // Threw RangeError before the guard, taking the whole page down.
+    expect(() => formatFarmDateTime("2026-08-05T14:07:00")).not.toThrow();
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 19:37");
+  });
+
+  it("falls back for a stale or garbage zone too", () => {
+    setActiveFarmTimezone("Not/A_Timezone");
+    expect(formatFarmDateTime("2026-08-05T14:07:00")).toBe("05-08-2026 19:37");
   });
 });

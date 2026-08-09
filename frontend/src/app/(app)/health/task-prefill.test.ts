@@ -33,6 +33,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skipped_by_id: null,
     skipped_at: null,
     skip_reason: null,
+    rejected_by_id: null,
+    rejected_at: null,
     ...overrides,
   };
 }

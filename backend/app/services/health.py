@@ -33,6 +33,13 @@ _HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
 }
 
 
+# Canonical title of the generated pre-kidding vaccine duty. Owned here (with
+# the rest of the programme vocabulary) so services.breeding builds exactly the
+# phrase protocol_phrase_of/template_name_for_task recognise; the doe's tag is
+# appended as ": {tag_number}" display text and carries no programme meaning.
+PRE_KIDDING_VACCINE_TITLE = "Pre-kidding ET+TT vaccine"
+
+
 def _words(text: str) -> tuple[str, ...]:
     return tuple(re.findall(r"[a-z0-9]+", text.lower()))
 
@@ -54,13 +61,37 @@ def _has_alias(words: tuple[str, ...], *aliases: str) -> bool:
     return False
 
 
+def protocol_phrase_of(title: str) -> str:
+    """The operator-free portion of an auto-generated health-duty title.
+
+    Generated titles wrap user text around a fixed protocol phrase: the
+    quarantine schedule prefixes ``[{supplier} #{batch id}] `` and the
+    pre-kidding duty appends ``: {tag number}``. A supplier or tag naming
+    another disease ("PPR Traders", a doe tagged "PPR-01") must never decide
+    which programme item the duty belongs to, so both wrappers are removed
+    before any alias scan.
+    """
+    phrase = title
+    if phrase.startswith("["):
+        # A supplier may itself contain "]"; the generated prefix always ends
+        # at the LAST one, because no protocol phrase contains a bracket.
+        closing = phrase.rfind("]")
+        if closing != -1:
+            phrase = phrase[closing + 1 :]
+    phrase = phrase.strip()
+    if phrase.startswith(PRE_KIDDING_VACCINE_TITLE):
+        return PRE_KIDDING_VACCINE_TITLE
+    return phrase
+
+
 def template_name_for_task(title: str, category: str) -> str | None:
     """Canonical template inferred from an auto-generated health task.
 
     The task is the authoritative link; free text remains useful as a product
-    note but cannot silently complete a different programme item.
+    note but cannot silently complete a different programme item — which is
+    also why only the protocol phrase of the title is scanned.
     """
-    words = _words(title)
+    words = _words(protocol_phrase_of(title))
     if category == HealthEventType.DEWORMING.value:
         return "Deworming"
     if _has_alias(words, "ppr", "peste des petits"):
@@ -101,7 +132,15 @@ def target_matches_template(target: str, template_name: str) -> bool:
         return _has_alias(target_words, "goat pox", "goatpox")
     if template_name == "Deworming":
         return any(word.startswith("deworm") for word in target_words)
-    return _has_alias(target_words, template_name.split("(")[0])
+    # A template that advertises its own abbreviation — "Haemorrhagic
+    # Septicaemia (HS)" — must accept it: the read/inference path already does
+    # (_legacy_event_matches), so rejecting it here would punish the more
+    # precise entry while a blank target is accepted.
+    abbrev_match = re.search(r"\(([^)]+)\)", template_name)
+    aliases = [template_name.split("(")[0]]
+    if abbrev_match:
+        aliases.append(abbrev_match.group(1))
+    return _has_alias(target_words, *aliases)
 
 
 def place_movement_restriction(
@@ -162,14 +201,6 @@ async def validated_template(
     if template.name != "Deworming" and event_type != HealthEventType.VACCINE.value:
         raise ValueError("Vaccine template requires a VACCINE event")
     return template
-
-
-async def validated_template_name(
-    db: AsyncSession, template_name: str | None, event_type: str
-) -> str | None:
-    """Compatibility wrapper for callers that only need the canonical name."""
-    template = await validated_template(db, template_name, event_type)
-    return str(template.name) if template is not None else None
 
 
 async def record_health_event(
@@ -273,6 +304,12 @@ async def record_health_event(
             health_event_id=event.id,
             acted_at=placed_at,
         )
+        # Deliberately assigned, not merged: this column describes the CURRENT
+        # episode only. place_movement_restriction opens a new episode for every
+        # suspicion, so carrying a previous date forward would falsely assert
+        # the authority had been told about THIS concern. The historical fact is
+        # not lost — it stays on the HealthEvent that recorded it, which the
+        # restriction action cites via health_event_id.
         animal.authority_notified_at = authority_notified_at
     if exact_total_cost is not None and animals:
         db.add(

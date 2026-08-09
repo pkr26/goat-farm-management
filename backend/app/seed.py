@@ -3,9 +3,13 @@ recipes with lines, vaccination schedule templates. Feed inventory rows and
 RBAC role presets are seeded per farm on farm creation. All idempotent."""
 
 import json
+import logging
+from collections.abc import Iterable
+from datetime import datetime
 
 from sqlalchemy import String, and_, column, func, literal, or_, select, text, true, tuple_, values
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
@@ -23,6 +27,8 @@ from .models import (
     VaccineTemplate,
 )
 from .permissions import ROLE_PRESETS, TASK_CATEGORY_ROLE_MAP
+
+logger = logging.getLogger("goatfarm.seed")
 
 WET = IngredientCategory.ROUGHAGE_WET.value
 DRY = IngredientCategory.ROUGHAGE_DRY.value
@@ -366,22 +372,68 @@ async def seed_farm_inventory(db: AsyncSession, farm_id: int) -> None:
     await _seed_farm_inventories(db, farm_id)
 
 
+def _free_preset_role_name(preset_name: str, code: str, taken: set[str]) -> str:
+    """Return a display name no active role on this farm already holds.
+
+    `uq_roles_farm_active_name` is a real partial unique index on
+    (farm_id, name), and nothing reserves preset names: an owner may already
+    have created a custom role literally called "Feeder".  A preset's stable
+    identity is its `code`, so a decorated display name is fully functional —
+    whereas inserting the colliding name raises IntegrityError and takes every
+    other tenant's repair down with it.
+    """
+    if preset_name not in taken:
+        return preset_name
+    suffixed = f"{preset_name} ({code})"
+    candidate = suffixed
+    ordinal = 2
+    while candidate in taken:
+        candidate = f"{suffixed} {ordinal}"
+        ordinal += 1
+    return candidate
+
+
 def _add_missing_preset_roles(
-    db: AsyncSession, farm_id: int, existing_codes: set[str | None]
+    db: AsyncSession,
+    farm_id: int,
+    existing_codes: set[str | None],
+    active_names: set[str],
 ) -> None:
-    """Queue inserts for the preset roles a farm doesn't have yet (flush by caller)."""
+    """Queue inserts for the preset roles a farm doesn't have yet (flush by
+    caller).  `active_names` is updated with each chosen name so two presets
+    cannot collide with each other either."""
     for preset in ROLE_PRESETS:
         if preset["code"] in existing_codes:
             continue
+        name = _free_preset_role_name(preset["name"], preset["code"], active_names)
+        active_names.add(name)
         db.add(
             Role(
                 farm_id=farm_id,
                 code=preset["code"],
-                name=preset["name"],
+                name=name,
                 description=preset["description"],
                 permissions=json.dumps(preset["permissions"]),
             )
         )
+
+
+def _role_identity_rows(
+    rows: Iterable[tuple[str | None, str, datetime | None]],
+) -> tuple[set[str | None], set[str]]:
+    """Split (code, name, deleted_at) rows into seeded codes and taken names.
+
+    Codes deliberately include tombstoned roles (a preset code is never
+    re-created), while only live rows reserve a name — the unique index is
+    partial on `deleted_at IS NULL`.
+    """
+    codes: set[str | None] = set()
+    names: set[str] = set()
+    for code, name, deleted_at in rows:
+        codes.add(code)
+        if deleted_at is None:
+            names.add(name)
+    return codes, names
 
 
 async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
@@ -393,10 +445,24 @@ async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
     names are editable while their codes are the stable identity.  Locking
     before reading codes serializes concurrent app boots and farm-creation
     retries without overwriting an operator's edits.
+
+    A Farm ROW lock is correct here, unlike the manual-duty queue in
+    `api.tasks._lock_manual_task_queue`, which had to become an advisory lock.
+    The difference is what the holder already owns: this function's own
+    `roles` INSERT takes FOR KEY SHARE on the very same Farm row, and its
+    callers (farm creation, the legacy-repair worker) reach it already holding
+    that row.  Taking the row first is therefore the consistent order; an
+    advisory lock would invert against those callers and deadlock — which is
+    exactly what `test_concurrent_role_seed_serializes_on_farm_row` pins.
     """
     await db.execute(select(Farm.id).where(Farm.id == farm_id).with_for_update())
-    result = await db.execute(select(Role.code).where(Role.farm_id == farm_id))
-    _add_missing_preset_roles(db, farm_id, set(result.scalars()))
+    result = await db.execute(
+        select(Role.code, Role.name, Role.deleted_at).where(Role.farm_id == farm_id)
+    )
+    codes, names = _role_identity_rows(
+        [(code, name, deleted_at) for code, name, deleted_at in result.all()]
+    )
+    _add_missing_preset_roles(db, farm_id, codes, names)
     await db.flush()
 
 
@@ -459,17 +525,30 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
     if not farm_ids:
         return 0
 
-    role_rows = await db.execute(select(Role.farm_id, Role.code).where(Role.farm_id.in_(farm_ids)))
-    codes_by_farm: dict[int, set[str | None]] = {}
-    for selected_farm_id, code in role_rows.all():
-        codes_by_farm.setdefault(selected_farm_id, set()).add(code)
-    for selected_farm_id in farm_ids:
-        _add_missing_preset_roles(
-            db,
-            selected_farm_id,
-            codes_by_farm.get(selected_farm_id, set()),
+    role_rows = await db.execute(
+        select(Role.farm_id, Role.code, Role.name, Role.deleted_at).where(
+            Role.farm_id.in_(farm_ids)
         )
-    await db.flush()
+    )
+    rows_by_farm: dict[int, list[tuple[str | None, str, datetime | None]]] = {}
+    for selected_farm_id, code, name, deleted_at in role_rows.all():
+        rows_by_farm.setdefault(selected_farm_id, []).append((code, name, deleted_at))
+    for selected_farm_id in farm_ids:
+        codes, names = _role_identity_rows(rows_by_farm.get(selected_farm_id, []))
+        # One tenant must not be able to roll the whole batch back. A savepoint
+        # per farm keeps an external-writer race (or any other per-farm insert
+        # failure) from also cancelling the other claimed farms' repairs, the
+        # feed-inventory repair below, and the task-role backfill that runs
+        # after this call.
+        try:
+            async with db.begin_nested():
+                _add_missing_preset_roles(db, selected_farm_id, codes, names)
+                await db.flush()
+        except IntegrityError:
+            logger.warning(
+                "legacy preset-role repair skipped farm_id=%s (conflicting role row)",
+                selected_farm_id,
+            )
     await _seed_farm_inventories(db, farm_ids=farm_ids)
     return len(farm_ids)
 
@@ -550,7 +629,13 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
             task.assigned_role_id = role_id
             assigned += 1
     await db.flush()
-    return assigned
+    if assigned != len(tasks):
+        logger.info("task role backfill resolved %d of %d claimed duties", assigned, len(tasks))
+    # Report rows CLAIMED, not rows written: the caller uses this to decide
+    # whether the candidate set is drained, and a claimed-but-unresolvable row
+    # is still progress through it. Returning `assigned` made one such row end
+    # the worker's whole batch budget while thousands of duties remained.
+    return len(tasks)
 
 
 async def repair_legacy_data_batch(

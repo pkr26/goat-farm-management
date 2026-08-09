@@ -95,3 +95,54 @@ async def test_create_amount_non_finite_should_return_422(
     # Expected: a clean 422 (validation rejects non-finite amounts) — not a
     # crashed response while FastAPI serializes the validation error.
     assert resp.status_code == 422, resp.text
+
+
+async def test_feed_restock_provenance_survives_an_audited_correction(
+    client: httpx.AsyncClient,
+) -> None:
+    """Bug 4 — the automatic feed-purchase expense carried no source pair, so
+    the finance table presented a system-generated row as "Manual entry". A
+    restock persists no record of its own (only the running inventory
+    balance, whose id repeats), so the ledger row is its own source: unique
+    against the partial unique index over ACTIVE source pairs. That pair must
+    still round-trip through a correction, whose replacement inherits it after
+    the original is voided.
+    """
+    owner = await owner_with_farm(client)
+    inventory = await client.get("/api/feeding/inventory", headers=owner)
+    assert inventory.status_code == 200, inventory.text
+    item = inventory.json()[0]
+    restock = await client.post(
+        f"/api/feeding/inventory/{item['id']}/add",
+        json={"qty_kg": 10.0, "price_per_kg": 20.0},
+        headers=owner,
+    )
+    assert restock.status_code == 200, restock.text
+    (booked,) = (await client.get("/api/finance", headers=owner)).json()["transactions"]
+    assert booked["source_type"] == "FEED_PURCHASE"
+    assert booked["source_id"] == booked["id"]
+
+    correction = txn_payload(
+        date=booked["date"],
+        amount=booked["amount"],
+        notes="Supplier invoice GRN-4471",
+        reason="Attach the supplier invoice number",
+    )
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct", json=correction, headers=owner
+    )
+    assert corrected.status_code == 201, corrected.text
+    assert corrected.json()["source_type"] == "FEED_PURCHASE"
+    assert corrected.json()["source_id"] == booked["source_id"]
+
+    # Consequence of gaining provenance: the restock's price already reached
+    # FeedInventory.last_purchase_price_per_kg, so re-pricing the ledger row
+    # alone would leave stock valuation contradicting the books. The generic
+    # source-linked guard now refuses it and asks for a compensating entry.
+    repriced = await client.post(
+        f"/api/finance/transactions/{corrected.json()['id']}/correct",
+        json=correction | {"amount": 250.0, "reason": "Wrong unit price"},
+        headers=owner,
+    )
+    assert repriced.status_code == 409, repriced.text
+    assert "FEED_PURCHASE" in repriced.json()["detail"]

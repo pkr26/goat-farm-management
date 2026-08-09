@@ -6,7 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useRef, useState, type FormEvent } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -62,6 +63,13 @@ import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+
+/** Deep-link ids arrive as raw query strings; anything that is not a positive
+ * safe integer is ignored. */
+function parsePositiveId(raw: string | null): number | null {
+  const parsed = raw === null ? Number.NaN : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
 
 function localToday(): string {
   return farmToday();
@@ -279,14 +287,24 @@ function UltrasoundDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [pregnant, setPregnant] = useState(true);
-  const [kidCount, setKidCount] = useState("2");
+  // Opened before the planned scan, the only recordable result is a negative
+  // one, so the form starts there instead of opening in an error state.
+  const scanDue = !record.ultrasound_date || record.ultrasound_date <= localToday();
+  const [pregnant, setPregnant] = useState(scanDue);
+  const [kidCount, setKidCount] = useState(scanDue ? "2" : "");
   const [resultDate, setResultDate] = useState(localToday());
   const [saving, setSaving] = useState(false);
   const saveLock = useRef(false);
   const [formError, setFormError] = useState<string | null>(null);
   const mutation = useSubmitUltrasoundApiBreedingRecordIdUltrasoundPost();
-  const earliestResultDate = record.ultrasound_date ?? record.breeding_date;
+  // Mirrors record_ultrasound_result(): every result must fall on/after the
+  // breeding date and on/before today, but only a POSITIVE one has to wait for
+  // the planned scan. A doe back in standing heat at the ~21-day cycle is
+  // evidence the service failed, so her NOT-pregnant result is recordable the
+  // day it was observed instead of being backdated to a fictitious day-32 scan.
+  const earliestResultDate = pregnant
+    ? (record.ultrasound_date ?? record.breeding_date)
+    : record.breeding_date;
   const resultDateError = !resultDate
     ? "Result date is required"
     : resultDate < earliestResultDate
@@ -350,7 +368,7 @@ function UltrasoundDialog({
             <Input
               id={`ultrasound-result-date-${record.id}`}
               type="date"
-              min={record.ultrasound_date ?? record.breeding_date}
+              min={earliestResultDate}
               max={localToday()}
               required
               value={resultDate}
@@ -368,8 +386,9 @@ function UltrasoundDialog({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Planned check: {formatDate(record.ultrasound_date)}. Use the actual historical date
-              for backdated entry.
+              Planned check: {formatDate(record.ultrasound_date)}. A pregnant result needs that
+              scan; a not-pregnant one (doe back in heat) can be recorded from the breeding date.
+              Use the actual historical date for backdated entry.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -571,7 +590,7 @@ function PregnancyLossDialog({
   );
 }
 
-export default function BreedingPage() {
+function BreedingPageContent() {
   const queryClient = useQueryClient();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("breeding.view");
@@ -581,12 +600,12 @@ export default function BreedingPage() {
   const [ultrasoundFor, setUltrasoundFor] = useState<BreedingRecordOut | null>(null);
   const [lossFor, setLossFor] = useState<BreedingRecordOut | null>(null);
   const [prefillDismissed, setPrefillDismissed] = useState(false);
-  const [requestedUltrasoundId] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    const raw = new URLSearchParams(window.location.search).get("ultrasound_id");
-    const parsed = raw === null ? Number.NaN : Number(raw);
-    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-  });
+  // Read from the router, not window.location: Next commits the browser URL
+  // in an insertion effect, i.e. after this component has already rendered, so
+  // a router.replace("/breeding?ultrasound_id=…") redirect is still invisible
+  // to window.location during the first render.
+  const searchParams = useSearchParams();
+  const requestedUltrasoundId = parsePositiveId(searchParams.get("ultrasound_id"));
   const [offset, setOffset] = useState(0);
   const limit = 50;
   const query = useBreedingListApiBreedingGet(
@@ -613,12 +632,10 @@ export default function BreedingPage() {
   const fetchedPrefillRecord =
     prefillRecordQuery.data?.status === 200 ? prefillRecordQuery.data.data : undefined;
   const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;
+  // PENDING is the whole gate, exactly like the per-row action: the dialog
+  // itself decides which results the planned scan date still constrains.
   const deepLinkedUltrasound =
-    canManage &&
-    !prefillDismissed &&
-    requestedRecord?.outcome === "PENDING" &&
-    requestedRecord.ultrasound_date &&
-    requestedRecord.ultrasound_date <= localToday()
+    canManage && !prefillDismissed && requestedRecord?.outcome === "PENDING"
       ? requestedRecord
       : null;
   const activeUltrasound = ultrasoundFor ?? deepLinkedUltrasound;
@@ -772,7 +789,15 @@ export default function BreedingPage() {
                   {canManage && (
                     <TableCell className="text-right">
                       <div className="flex flex-wrap items-center justify-end gap-2">
-                      {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date <= localToday() && (
+                      {/* A not-pregnant result is recordable before the planned
+                          scan (doe back in heat), so the action stays open for
+                          every PENDING record; the plan is only a hint. */}
+                      {r.outcome === "PENDING" && r.ultrasound_date && r.ultrasound_date > localToday() && (
+                        <span className="text-xs text-muted-foreground">
+                          Scan planned {formatDate(r.ultrasound_date)}
+                        </span>
+                      )}
+                      {r.outcome === "PENDING" && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -780,11 +805,6 @@ export default function BreedingPage() {
                         >
                           Ultrasound result
                         </Button>
-                      )}
-                      {r.outcome === "PENDING" && (!r.ultrasound_date || r.ultrasound_date > localToday()) && (
-                        <span className="text-xs text-muted-foreground">
-                          Result available {formatDate(r.ultrasound_date)}
-                        </span>
                       )}
                       {r.outcome === "CONFIRMED_PREGNANT" && !r.has_kidding && (
                         <Button
@@ -843,5 +863,13 @@ export default function BreedingPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function BreedingPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <BreedingPageContent />
+    </Suspense>
   );
 }

@@ -69,6 +69,21 @@ const RESULT = {
       figures: { npv: 234567, discount_rate: 0.12, ignored: null },
     },
     {
+      key: "loan_amount",
+      title: "Loan",
+      explanation:
+        "85.0% of the project cost is repaid over 72 months at 11.0% annual interest.",
+      // Real backend figure keys (explain.py): a 0-1 fraction and a month
+      // count sitting next to genuine money.
+      figures: { loan_amount: 250000, loan_fraction: 0.85, loan_term_months: 72 },
+    },
+    {
+      key: "break_even_meat_price_per_kg",
+      title: "Break-even",
+      explanation: "The unit clears break-even with a safety margin.",
+      figures: { break_even_meat_price_per_kg: 320, safety_margin: 0.426 },
+    },
+    {
       key: "project_cost",
       title: "Project Cost",
       explanation: "Total project cost is ₹5,00,000 at month 0.",
@@ -175,6 +190,28 @@ describe("SimulationPage explainability", () => {
     expect(within(dialog).getByText("Working Capital")).toBeInTheDocument();
     // equipment_cost and working_capital are both 50000 in the fixture.
     expect(within(dialog).getAllByText("₹50,000")).toHaveLength(2);
+  });
+
+  // REGRESSION — formatFigure inferred units from substrings, so the money
+  // pattern claimed `loan_fraction` and `loan_term_months` ("loan") and
+  // `subsidy_fraction` ("subsidy"), rendering "₹0.85" and "₹72"; `safety_margin`
+  // matched nothing and printed the raw 0.43.
+  it("formats fractions as percentages and month counts as plain numbers", async () => {
+    const user = await renderWithResult();
+
+    await user.click(screen.getByRole("button", { name: "Explain Loan" }));
+    const loanDialog = await screen.findByRole("dialog");
+    expect(within(loanDialog).getByText("₹2,50,000")).toBeInTheDocument();
+    expect(within(loanDialog).getByText("85.0%")).toBeInTheDocument();
+    expect(within(loanDialog).getByText("72")).toBeInTheDocument();
+    expect(within(loanDialog).queryByText("₹0.85")).not.toBeInTheDocument();
+    expect(within(loanDialog).queryByText("₹72")).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Explain Break-even meat (₹/kg)" }));
+    const breakEvenDialog = await screen.findByRole("dialog");
+    expect(within(breakEvenDialog).getByText("42.6%")).toBeInTheDocument();
+    expect(within(breakEvenDialog).queryByText("0.43")).not.toBeInTheDocument();
   });
 
   it("renders all six narrative report sections with the verdict badge", async () => {

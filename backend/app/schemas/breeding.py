@@ -19,13 +19,19 @@ class BreedingCreateIn(StrictInputModel):
     doe_id: BoundedId
     buck_id: BoundedId
     breeding_date: PastOrTodayDate
+    # Accepted for wire compatibility but NOT stored: the cycle index is
+    # derived from the doe's own consecutive failed cycles
+    # (services.breeding.derived_heat_cycle_number), so the reports'
+    # first-cycle metric cannot be inflated by a client that omits or forges
+    # it. The bound mirrors ck_breeding_records_heat_cycle.
     heat_cycle_number: Annotated[StrictInt, Field(ge=1, le=99)] = 1
 
 
 class UltrasoundIn(StrictInputModel):
     pregnant: StrictBool
     # Optional for backwards compatibility with existing records. When
-    # supplied, chronology is enforced against the planned check date.
+    # supplied, chronology is enforced against the breeding date; a positive
+    # result additionally cannot predate the planned check date.
     date: PastOrTodayDate | None = None
     # SPEC §BreedingRecord: kid_count_detected is 1/2/3 nullable (SINGLE/TWIN/TRIPLET).
     kid_count: Annotated[StrictInt, Field(ge=1, le=3)] | None = None
@@ -73,7 +79,9 @@ class BreedingRecordOut(BaseModel):
     pregnant: bool | None
     kid_count_detected: int | None
     expected_kidding_date: date | None
-    outcome: str  # PENDING | CONFIRMED_PREGNANT | FAILED | ABORTED
+    # UNASSESSED: the doe left the herd before her pregnancy check, so the
+    # service can never be scanned (models.enums.BreedingOutcome).
+    outcome: str  # PENDING | CONFIRMED_PREGNANT | FAILED | ABORTED | UNASSESSED
     loss_date: date | None
     loss_cause: str | None
     loss_notes: str | None

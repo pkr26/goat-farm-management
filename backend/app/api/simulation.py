@@ -6,28 +6,40 @@ transport, persistence (assumptions stored as JSON text, like
 ``Role.permissions``) and RBAC. Runs are synchronous CPU work — horizon and
 Monte Carlo runs are bounded by the assumption schema (monte_carlo_runs <=
 2000), which still leaves a worst-case run (240-month horizon + max Monte
-Carlo + sensitivity + break-even) at roughly 12 s of single-threaded CPU.
-Every run is offloaded to a worker thread so it can't block the event loop,
-and each farm is limited to one in-flight run: concurrent run/compare
-requests for the same farm get a 429 instead of piling onto the threadpool.
+Carlo + sensitivity + break-even) at 15-25 s of single-threaded CPU. Runs are
+offloaded to a worker thread, but the work is pure Python: the GIL is held
+throughout, so offloading bounds neither latency nor CPU on its own.
+
+Three limits therefore apply to every run/compare request:
+- one in-flight run per farm and per user, plus two process-wide, so
+  concurrent requests get a 429 instead of piling onto the threadpool;
+- a per-user and per-farm sliding CPU budget (``_RunCostWindow``) priced by
+  what the request will actually cost, so a caller cannot simply loop
+  expensive runs back to back and starve every other tenant;
+- a hard 422 on any non-finite result.
+
+A distributed job queue (and a separate process for Monte Carlo) remains the
+deployment path for multi-replica scale.
 """
 
 import asyncio
 import json
 import math
+import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import ValidationError
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql.elements import ColumnElement
 from starlette.concurrency import run_in_threadpool
 
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, AnimalStatus, Farm, SimulationScenario
+from ..models import Animal, AnimalStatus, SimulationScenario
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.simulation import (
     BreedsOut,
@@ -47,6 +59,10 @@ from ..simulation.results import SimulationResult
 from ..utils import today
 
 router = APIRouter(prefix="/api/simulation", tags=["simulation"])
+
+# Namespace for the per-farm scenario-quota mutex. Advisory lock keys are
+# global to the database, so every acquisition of this counter must pass it.
+SCENARIO_QUOTA_LOCK_NAMESPACE = 4713
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 SimManage = Annotated[set[str], Depends(require_perm("simulation.manage"))]
@@ -166,8 +182,10 @@ def _run(
 async def _run_offloaded(
     assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool
 ) -> SimulationResult:
-    """Runs are synchronous CPU work — push them off the event loop so a long
-    horizon / Monte Carlo batch can't stall every other request."""
+    """Runs are synchronous CPU work — push them off the event loop so the
+    request handler itself does not block. The engine is pure Python and holds
+    the GIL, so this alone does not protect other requests; the concurrency
+    caps and the CPU budget above are what bound the damage."""
     return await run_in_threadpool(_run, assumptions, monte_carlo, sensitivity)
 
 
@@ -177,6 +195,110 @@ async def _run_offloaded(
 _farm_run_locks: dict[int, asyncio.Lock] = {}
 _user_run_locks: dict[int, asyncio.Lock] = {}
 _global_run_slots = asyncio.BoundedSemaphore(2)
+
+# Concurrency caps bound parallelism, not request *rate*: without a budget a
+# caller can loop maximum-cost runs forever and hold both process-wide slots,
+# which measures as a ~200x latency hit on every other tenant's ordinary read.
+# So each run is priced before it starts and charged against a sliding window.
+# The unit is one engine pass over one simulated month, which tracks measured
+# CPU closely: a default 120-month run costs ~6.4k, the schema-maximal body
+# (240 months, 2,000 Monte Carlo runs, sensitivity) ~497k.
+_RUN_BUDGET_WINDOW_SECONDS = 300
+_RUN_BUDGET_UNITS = 500_000
+_BREAK_EVEN_PASSES = 52  # npv_at(0), npv_at(5x) + 50 bisection steps
+_SENSITIVITY_PASSES = 17  # base + 8 parameters x (low, high)
+_RUN_BUDGET_MAX_KEYS = 50_000  # cardinality ceiling, mirroring app.ratelimit
+
+
+def _run_cost(assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool) -> int:
+    """Engine passes x simulated months — what this request will cost."""
+    passes = 1 + _BREAK_EVEN_PASSES
+    if monte_carlo:
+        passes += assumptions.risk.monte_carlo_runs
+    if sensitivity:
+        passes += _SENSITIVITY_PASSES
+    return passes * assumptions.meta.horizon_months
+
+
+class _RunCostWindow:
+    """Sliding-window CPU budget keyed by ``(scope, principal id)``.
+
+    Unlike the attempt counter in ``app.ratelimit`` the cost of one simulation
+    request spans three orders of magnitude, so the window accumulates cost
+    rather than requests: a caller may spend its budget on a single maximal
+    run or on many cheap ones. Per-process and non-persistent, with the same
+    single-process caveat as the auth limiter.
+    """
+
+    def __init__(
+        self,
+        *,
+        window_seconds: int,
+        budget: int,
+        max_keys: int,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._window_seconds = window_seconds
+        self._budget = budget
+        self._max_keys = max_keys
+        self._clock = clock
+        self._spend: dict[tuple[str, int], deque[tuple[float, int]]] = {}
+
+    def is_over_budget(self, scope: str, key: int) -> bool:
+        return self._spent(scope, key) >= self._budget
+
+    def charge(self, scope: str, key: int, cost: int) -> None:
+        bucket = (scope, key)
+        self._spent(scope, key)  # prune first so the ceiling counts live keys
+        if bucket not in self._spend and len(self._spend) >= self._max_keys:
+            self._sweep()
+        if bucket not in self._spend and len(self._spend) >= self._max_keys:
+            return  # spray of unique keys: drop the charge rather than the process
+        self._spend.setdefault(bucket, deque()).append((self._clock(), cost))
+
+    def clear(self) -> None:
+        """Test hook: drop all recorded spend."""
+        self._spend.clear()
+
+    def _spent(self, scope: str, key: int) -> int:
+        bucket = (scope, key)
+        entries = self._spend.get(bucket)
+        if entries is None:
+            return 0  # a pure budget probe must not allocate a dictionary key
+        cutoff = self._clock() - self._window_seconds
+        while entries and entries[0][0] <= cutoff:
+            entries.popleft()
+        if not entries:
+            del self._spend[bucket]
+            return 0
+        return sum(cost for _, cost in entries)
+
+    def _sweep(self) -> None:
+        for scope, key in list(self._spend):
+            self._spent(scope, key)
+
+
+_run_budget = _RunCostWindow(
+    window_seconds=_RUN_BUDGET_WINDOW_SECONDS,
+    budget=_RUN_BUDGET_UNITS,
+    max_keys=_RUN_BUDGET_MAX_KEYS,
+)
+
+
+def _check_run_budget(farm_id: int, user_id: int) -> None:
+    """429 when this user or farm has already spent its window's CPU budget."""
+    if _run_budget.is_over_budget("user", user_id) or _run_budget.is_over_budget("farm", farm_id):
+        raise HTTPException(
+            status_code=429,
+            detail="Simulation CPU budget exhausted; try again shortly.",
+            headers={"Retry-After": str(_RUN_BUDGET_WINDOW_SECONDS)},
+        )
+
+
+def _charge_run_budget(farm_id: int, user_id: int, cost: int) -> None:
+    """Book a request's cost before it runs, so its own spend counts."""
+    _run_budget.charge("user", user_id, cost)
+    _run_budget.charge("farm", farm_id, cost)
 
 
 def _farm_run_lock(farm_id: int) -> asyncio.Lock:
@@ -210,12 +332,17 @@ async def _with_run_limits[RunResult](
     """Execute one bounded CPU operation or fail fast instead of queueing."""
     lock = _farm_run_lock(farm_id)
     user_lock = _run_lock(_user_run_locks, user_id)
-    if lock.locked() or user_lock.locked() or _global_run_slots.locked():
-        raise HTTPException(
-            status_code=429,
-            detail="Simulation capacity is busy; wait for the current run to finish.",
-        )
+    # The busy check lives inside the try so the two locks just created are
+    # dropped again on the 429 fast path — that path is reached precisely with
+    # unseen farm/user keys (the global semaphore is full for everyone), and
+    # leaking one entry per key is the cardinality growth _release_run_lock
+    # exists to prevent.
     try:
+        if lock.locked() or user_lock.locked() or _global_run_slots.locked():
+            raise HTTPException(
+                status_code=429,
+                detail="Simulation capacity is busy; wait for the current run to finish.",
+            )
         async with user_lock, lock, _global_run_slots:
             return await operation()
     finally:
@@ -230,11 +357,15 @@ async def _run_for_farm(
     monte_carlo: bool,
     sensitivity: bool,
 ) -> SimulationResult:
-    return await _with_run_limits(
-        farm_id,
-        user_id,
-        lambda: _run_offloaded(assumptions, monte_carlo, sensitivity),
-    )
+    _check_run_budget(farm_id, user_id)
+
+    async def run() -> SimulationResult:
+        # Charged on admission, not at the gate: a request the concurrency
+        # limiter turns away never runs and must not spend the budget.
+        _charge_run_budget(farm_id, user_id, _run_cost(assumptions, monte_carlo, sensitivity))
+        return await _run_offloaded(assumptions, monte_carlo, sensitivity)
+
+    return await _with_run_limits(farm_id, user_id, run)
 
 
 @router.get("/defaults/breeds")
@@ -344,13 +475,19 @@ async def create_scenario(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Name is required.")
-    # Serialize the count-and-create decision on the tenant's Farm row. A
-    # plain COUNT is raceable and simultaneous requests could all consume the
-    # final slot; this lock keeps the quota a real bound.
-    # Lock before inserting the idempotency claim: both rows reference Farm,
-    # and allowing distinct keyed requests to acquire FK KEY SHARE first and
-    # then upgrade to FOR UPDATE would create a lock-upgrade deadlock.
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    # Serialize the count-and-create decision per tenant. A plain COUNT is
+    # raceable and simultaneous requests could all consume the final slot; this
+    # lock keeps the quota a real bound.
+    # Deliberately an ADVISORY lock, not `SELECT farms.id ... FOR UPDATE`:
+    # inserting any farm-scoped child row takes FOR KEY SHARE on that Farm row,
+    # so a Farm row lock held across other locks inverts against every
+    # animal-first write and PostgreSQL deadlocks. The advisory lock serializes
+    # the same counter, self-conflicts exactly as the row lock did, and never
+    # conflicts with an FK key-share lock. It is still taken before the
+    # idempotency claim so distinct keyed requests cannot lock-upgrade.
+    await db.execute(
+        select(func.pg_advisory_xact_lock(literal(SCENARIO_QUOTA_LOCK_NAMESPACE), literal(farm.id)))
+    )
 
     async def mutate() -> ScenarioOut:
         scenario_count = (
@@ -460,14 +597,15 @@ async def compare_scenarios(
 
     async def run_compare() -> ScenarioCompareOut:
         scenarios = [await _get_scenario(db, farm.id, scenario_id) for scenario_id in id_list]
+        loaded = [_load_assumptions(scenario) for scenario in scenarios]
+        # Charged once the scenarios are known, before any engine work starts.
+        _charge_run_budget(farm.id, user.id, sum(_run_cost(a, False, False) for a in loaded))
         return ScenarioCompareOut(
             scenarios=[_scenario_out(scenario) for scenario in scenarios],
-            results=[
-                await _run_offloaded(_load_assumptions(scenario), False, False)
-                for scenario in scenarios
-            ],
+            results=[await _run_offloaded(a, False, False) for a in loaded],
         )
 
+    _check_run_budget(farm.id, user.id)
     return await _with_run_limits(farm.id, user.id, run_compare)
 
 

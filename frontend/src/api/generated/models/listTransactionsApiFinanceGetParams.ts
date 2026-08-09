@@ -4,11 +4,13 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ListTransactionsApiFinanceGetCategory } from './listTransactionsApiFinanceGetCategory';
+import type { ListTransactionsApiFinanceGetType } from './listTransactionsApiFinanceGetType';
 
 export type ListTransactionsApiFinanceGetParams = {
 month?: string | null;
-type?: string | null;
-category?: string | null;
+type?: ListTransactionsApiFinanceGetType;
+category?: ListTransactionsApiFinanceGetCategory;
 /**
  * @minimum 1
  * @maximum 200

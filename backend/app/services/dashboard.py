@@ -37,6 +37,7 @@ async def ready_to_move_suggestions(
     farm: Farm,
     *,
     limit: int,
+    include_breeding: bool,
 ) -> tuple[list[dict[str, Any]], int]:
     """Return a deterministic suggestion preview plus its exact SQL count.
 
@@ -44,6 +45,15 @@ async def ready_to_move_suggestions(
     the database boundary. The former implementation hydrated every active
     animal with every weight, bucket move, breeding and kidding row before it
     could decide whether even one suggestion existed.
+
+    ``include_breeding`` is mandatory and keyword-only for the same reason
+    ``_shared.animal_out`` demands ``permissions``: a suggestion to move a doe
+    into BREEDING restates ``is_breeding_ready``, and one to move her on
+    through gestation restates ``is_currently_pregnant`` down to the day, so a
+    caller without ``breeding.view`` must not receive either. The rule is
+    applied in SQL so the returned count matches the returned rows. Selling a
+    grown male kid is an age/weight judgement carrying no breeding fact and
+    stays visible.
     """
     reference_date = today(farm.timezone)
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
@@ -137,47 +147,48 @@ async def ready_to_move_suggestions(
         ),
         Date,
     )
+    breeding_rules = [
+        and_(
+            context.c.sex == "F",
+            context.c.current_bucket.in_([Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value]),
+            context.c.effective_dob.is_not(None),
+            context.c.effective_dob <= age_cutoff,
+            context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
+            context.c.open_pregnancy_date.is_(None),
+        ),
+        and_(
+            context.c.sex == "F",
+            context.c.current_bucket == Bucket.RESTING.value,
+            bucket_started_local_date <= reference_date - timedelta(days=30),
+            context.c.effective_dob.is_not(None),
+            context.c.effective_dob <= age_cutoff,
+            context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
+            context.c.open_pregnancy_date.is_(None),
+        ),
+        and_(
+            context.c.current_bucket == Bucket.PREGNANCY_EARLY.value,
+            context.c.open_pregnancy_date <= reference_date - timedelta(days=100),
+        ),
+        and_(
+            context.c.current_bucket == Bucket.PREGNANCY_LATE.value,
+            context.c.open_pregnancy_date <= reference_date - timedelta(days=135),
+        ),
+    ]
+    market_rule = and_(
+        context.c.sex == "M",
+        context.c.current_bucket == Bucket.MALE_KIDS.value,
+        context.c.effective_dob.is_not(None),
+        context.c.effective_dob <= male_sale_age_cutoff,
+        context.c.latest_weight >= 24.0,
+        context.c.has_active_withdrawal.is_(False),
+    )
     qualifies = and_(
         # Suggestions must never contradict the authoritative write paths:
         # every lifecycle move and sale is blocked while either safety hold
         # is active, regardless of which transition rule would otherwise fit.
         context.c.movement_restricted.is_(False),
         context.c.suspected_scheduled_disease.is_(False),
-        or_(
-            and_(
-                context.c.sex == "F",
-                context.c.current_bucket.in_([Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value]),
-                context.c.effective_dob.is_not(None),
-                context.c.effective_dob <= age_cutoff,
-                context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
-                context.c.open_pregnancy_date.is_(None),
-            ),
-            and_(
-                context.c.sex == "F",
-                context.c.current_bucket == Bucket.RESTING.value,
-                bucket_started_local_date <= reference_date - timedelta(days=30),
-                context.c.effective_dob.is_not(None),
-                context.c.effective_dob <= age_cutoff,
-                context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
-                context.c.open_pregnancy_date.is_(None),
-            ),
-            and_(
-                context.c.current_bucket == Bucket.PREGNANCY_EARLY.value,
-                context.c.open_pregnancy_date <= reference_date - timedelta(days=100),
-            ),
-            and_(
-                context.c.current_bucket == Bucket.PREGNANCY_LATE.value,
-                context.c.open_pregnancy_date <= reference_date - timedelta(days=135),
-            ),
-            and_(
-                context.c.sex == "M",
-                context.c.current_bucket == Bucket.MALE_KIDS.value,
-                context.c.effective_dob.is_not(None),
-                context.c.effective_dob <= male_sale_age_cutoff,
-                context.c.latest_weight >= 24.0,
-                context.c.has_active_withdrawal.is_(False),
-            ),
-        ),
+        or_(*breeding_rules, market_rule) if include_breeding else market_rule,
     )
     candidates = select(context, func.count().over().label("suggestions_total")).where(qualifies)
     rows = (

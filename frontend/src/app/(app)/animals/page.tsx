@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
+import { farmToday } from "@/lib/format";
 import {
   isPersistableNonnegativeMoney,
   MIN_PERSISTED_MONEY_MESSAGE,
@@ -66,6 +67,9 @@ import { usePermissions } from "@/lib/use-permissions";
 
 const ALL = "ALL";
 const PAGE_SIZE = 50;
+/** Mirrors backend/app/api/animals.py `q: Query(max_length=60)`. */
+const MAX_TAG_SEARCH = 60;
+const clampSearch = (value: string) => value.slice(0, MAX_TAG_SEARCH);
 const BUCKETS = Object.values(AnimalCreateInCurrentBucket);
 const BIRTH_TYPES = Object.values(AnimalCreateInBirthType);
 const WORKFLOW_ONLY_INITIAL_BUCKETS = new Set<string>([
@@ -77,6 +81,15 @@ const WORKFLOW_ONLY_INITIAL_BUCKETS = new Set<string>([
 const HISTORICAL_IMPORT_BUCKETS = BUCKETS.filter(
   (bucket) => !WORKFLOW_ONLY_INITIAL_BUCKETS.has(bucket),
 );
+/** Sex each bucket is reserved for, mirroring backend/app/schemas/animals.py
+ * (and the ck_animals_bucket_sex CHECK). Buckets absent here take both. */
+const BUCKET_REQUIRED_SEX: Record<string, string> = {
+  [AnimalCreateInCurrentBucket.MALE_KIDS]: AnimalCreateInSex.M,
+  [AnimalCreateInCurrentBucket.FEMALE_KIDS]: AnimalCreateInSex.F,
+  [AnimalCreateInCurrentBucket.RESTING]: AnimalCreateInSex.F,
+};
+const bucketAllowsSex = (bucket: string, sex: string) =>
+  (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
 
 const bucketLabel = (b: string) => b.replace(/_/g, " ");
 /** value → label maps for the root `items` prop: without it, Base UI's
@@ -97,6 +110,10 @@ const BUCKET_FILTER_ITEMS: Record<string, string> = {
   ...Object.fromEntries(Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [b, bucketLabel(b)])),
 };
 const SEX_FILTER_ITEMS: Record<string, string> = { [ALL]: "Both sexes", ...SEX_ITEMS };
+const STATUS_FILTER_ITEMS: Record<string, string> = {
+  [ALL]: "All statuses",
+  ...Object.fromEntries(Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => [s, s])),
+};
 
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
@@ -105,10 +122,7 @@ const optNum = (schema: z.ZodNumber) =>
   );
 
 function localToday(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
+  return farmToday();
 }
 
 function completedMonths(dateOfBirth: string, referenceDate: string): number | null {
@@ -135,19 +149,19 @@ const createSchema = z
     date_of_birth: z.string().optional(),
     estimated_dob: z.string().optional(),
     birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
-    birth_weight: optNum(z.number().nonnegative()),
+    birth_weight: optNum(z.number().nonnegative().max(1000, "At most 1000 kg")),
     purchase_date: z.string().optional(),
     purchase_price: optNum(
       z.number().nonnegative().refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     seller_name: z.string().max(120).optional(),
-    weight_kg: optNum(z.number().positive()),
+    weight_kg: optNum(z.number().positive().max(1000, "At most 1000 kg")),
     weight_date: z
       .string()
       .optional()
       .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
     historical_import_reason: z.string().max(255).optional(),
-    notes: z.string().optional(),
+    notes: z.string().max(4000, "Max 4000 characters").optional(),
   })
   .superRefine((values, ctx) => {
     if (values.weight_date && values.weight_kg === undefined) {
@@ -159,6 +173,14 @@ const createSchema = z
     }
     if (values.source !== AnimalCreateInSource.BORN) return;
 
+    if (!bucketAllowsSex(values.current_bucket, values.sex)) {
+      const requiredSex = BUCKET_REQUIRED_SEX[values.current_bucket];
+      ctx.addIssue({
+        code: "custom",
+        path: ["current_bucket"],
+        message: `Only ${requiredSex === AnimalCreateInSex.M ? "male" : "female"} animals may enter ${values.current_bucket}`,
+      });
+    }
     if (!values.historical_import_reason?.trim()) {
       ctx.addIssue({
         code: "custom",
@@ -422,11 +444,13 @@ function CreateAnimalDialog({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {HISTORICAL_IMPORT_BUCKETS.map((b) => (
-                          <SelectItem key={b} value={b}>
-                            {bucketLabel(b)}
-                          </SelectItem>
-                        ))}
+                        {HISTORICAL_IMPORT_BUCKETS.filter((b) => bucketAllowsSex(b, sex)).map(
+                          (b) => (
+                            <SelectItem key={b} value={b}>
+                              {bucketLabel(b)}
+                            </SelectItem>
+                          ),
+                        )}
                       </SelectContent>
                     </Select>
                   )}
@@ -577,7 +601,14 @@ function CreateAnimalDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="notes">Notes</Label>
-            <Textarea id="notes" rows={2} {...register("notes")} />
+            <Textarea
+              id="notes"
+              rows={2}
+              maxLength={4000}
+              aria-invalid={Boolean(errors.notes) || undefined}
+              {...register("notes")}
+            />
+            {errors.notes && <p className="text-sm text-destructive">{errors.notes.message}</p>}
           </div>
 
           <DialogFooter>
@@ -602,7 +633,7 @@ function AnimalsPageContent() {
   const [bucket, setBucket] = useState(searchParams.get("bucket") ?? ALL);
   const [sex, setSex] = useState(searchParams.get("sex") ?? ALL);
   const [status, setStatus] = useState(searchParams.get("status") ?? ALL);
-  const [q, setQ] = useState(searchParams.get("q") ?? "");
+  const [q, setQ] = useState(clampSearch(searchParams.get("q") ?? ""));
   const [debouncedQ, setDebouncedQ] = useState(q.trim());
   const [searchNavigationPending, setSearchNavigationPending] = useState(false);
   const [page, setPage] = useState(() => pageFromSearchParams(searchParams));
@@ -617,14 +648,18 @@ function AnimalsPageContent() {
     setBucket(params.get("bucket") ?? ALL);
     setSex(params.get("sex") ?? ALL);
     setStatus(params.get("status") ?? ALL);
-    const nextQ = params.get("q") ?? "";
+    const nextQ = clampSearch(params.get("q") ?? "");
     setQ(nextQ);
     setDebouncedQ(nextQ.trim());
     setSearchNavigationPending(false);
     setPage(pageFromSearchParams(params));
   }, [paramsKey]);
   // ?new=1 opens the create dialog once; strip it so a reload doesn't reopen
-  // the dialog.
+  // the dialog. Latch the flag on the first render (like /breeding and
+  // /kidding do): the strip effect runs while permissions are still loading,
+  // i.e. before CreateAnimalDialog is ever mounted, so reading the live
+  // params at render time loses the /animals/new deep link on a cold load.
+  const [openFromUrl] = useState(() => searchParams.get("new") === "1");
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
     if (params.get("new") !== "1") return;
@@ -781,7 +816,7 @@ function AnimalsPageContent() {
             <CreateAnimalDialog
               onCreated={refresh}
               isOwner={isOwner}
-              startOpen={searchParams.get("new") === "1"}
+              startOpen={openFromUrl}
             />
           )
         }
@@ -819,7 +854,11 @@ function AnimalsPageContent() {
             <SelectItem value={ListAnimalsApiAnimalsGetSex.M}>Male</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={status} onValueChange={(value) => changeFilter("status", value)}>
+        <Select
+          value={status}
+          onValueChange={(value) => changeFilter("status", value)}
+          items={STATUS_FILTER_ITEMS}
+        >
           <SelectTrigger aria-label="Filter animals by status">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
@@ -840,6 +879,7 @@ function AnimalsPageContent() {
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by tag…"
             aria-label="Search animals by tag"
+            maxLength={60}
             className="w-full pl-8 sm:w-56"
           />
         </div>

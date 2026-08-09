@@ -170,8 +170,8 @@ class _CoreResult:
     irr: float | None
     bcr: float | None
     dscr_per_year: list[float]
-    avg_dscr: float
-    min_dscr: float
+    avg_dscr: float | None
+    min_dscr: float | None
     payback_month: int | None
 
 
@@ -227,11 +227,22 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
     f_grower = [0.0] * (afb - 6)  # ages 6..afb-1
     if f_grower:
         f_grower[len(f_grower) // 2] = float(a.herd.female_growers)
+    else:
+        # afb == 6: the grower chain is empty, so a starting female grower is
+        # already breeding-age. Park her at the end of the weaner class so she
+        # graduates in month 1 through the normal retention/cap path — exactly
+        # what a one-slot chain (afb == 7) does. Dropping her silently deleted
+        # head the promoter is still charged for in shed and stock cost.
+        f_weaner[-1] += float(a.herd.female_growers)
     m_kid = [0.0, float(a.herd.male_kids), 0.0]
     m_weaner = [0.0, float(a.herd.male_weaners), 0.0]
     m_grower = [0.0] * (sale_age - 6)  # ages 6..sale_age-1
     if m_grower:
         m_grower[len(m_grower) // 2] = float(a.herd.male_growers)
+    else:
+        # sale_age == 6: same empty-chain case — the male is already at sale
+        # age, so he graduates out of the weaner class and is sold in month 1.
+        m_weaner[-1] += float(a.herd.male_growers)
 
     open_waiting = [0.0] * r.months_open_before_breeding
     open_ready = float(a.herd.does)
@@ -267,6 +278,9 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
     s_weaner = 1.0 - monthly_mortality_rate(mort.kid_post_weaning)
     s_grower = 1.0 - monthly_mortality_rate(mort.grower)
     s_adult = 1.0 - monthly_mortality_rate(mort.adult)
+    # Same annual -> monthly compounding converter as the mortality classes:
+    # twelve months of it remove exactly doe_cull_rate_annual of the pool.
+    monthly_cull_rate = monthly_mortality_rate(cull.doe_cull_rate_annual)
 
     start_month = int(a.meta.start_year_month.split("-")[1])
     f_grower_mid_age = (6 + afb - 1) // 2
@@ -496,11 +510,14 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
             cull_revenue += overflow * sales.cull_doe_price_per_kg * doe_w
 
         # Rate-based doe cull, applied from month 13 (foundation-year grace).
+        # The annual fraction compounds monthly like every other annual rate in
+        # the model (a plain rate/12 removed only 18.3% of the does for a
+        # documented 20% policy, and 64.8% for a "cull everything" 1.0).
         if month >= 13:
             does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
-            culled = does_now * cull.doe_cull_rate_annual / 12.0
+            culled = does_now * monthly_cull_rate
             if culled > 0.0:
-                factor = 1.0 - cull.doe_cull_rate_annual / 12.0
+                factor = 1.0 - monthly_cull_rate
                 open_ready *= factor
                 open_waiting = _scale(open_waiting, factor)
                 preg = _scale(preg, factor)
@@ -754,6 +771,11 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
     # Annual P&L in 12-month blocks (last block may be partial).
     annual_pl: list[AnnualPLRow] = []
     flows = [-equity]
+    # Gross benefit / cost series for the benefit-cost ratio. Keeping them
+    # separate from the net ``flows`` is what makes the BCR an independent
+    # metric instead of a restatement of NPV's sign (see finance.bcr).
+    benefit_flows = [0.0]
+    cost_flows = [equity]
     times = [0.0]
     for start in range(0, horizon, 12):
         block = months[start : start + 12]
@@ -801,6 +823,8 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
             )
         )
         flows.append(net_cash)
+        benefit_flows.append(total_revenue)
+        cost_flows.append(total_opex + debt)
         times.append(block[-1].month / 12.0)
 
     dscr_per_year = [
@@ -809,8 +833,12 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
     active_dscr = [
         d for d, row in zip(dscr_per_year, annual_pl, strict=True) if row.debt_service > 0.0
     ]
-    avg_dscr = sum(active_dscr) / len(active_dscr) if active_dscr else 0.0
-    min_dscr = min(active_dscr) if active_dscr else 0.0
+    # None (not 0.0) when no year carries debt service: a DSCR of exactly zero
+    # — or any negative one — is a real, catastrophic debt year, and a sentinel
+    # that collides with it made consumers report "no debt in the horizon" for
+    # a farm that cannot pay a rupee of its instalment from operations.
+    avg_dscr = sum(active_dscr) / len(active_dscr) if active_dscr else None
+    min_dscr = min(active_dscr) if active_dscr else None
 
     cum_series = [-equity, *[m.cumulative_cash_flow for m in months]]
 
@@ -826,9 +854,15 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         sum(m.feed_cost for m in months[y * 12 : (y + 1) * 12]) for y in range(n_years)
     ]
     # Land requirement from the horizon-average annual green-DM need. The green
-    # DM requirement is the as-fed kg x DM content.
+    # DM requirement is the as-fed kg x DM content. The average is taken per
+    # month and annualised: a horizon that is not a whole number of years ends
+    # in a partial block, and dividing the ragged sum by n_years counted that
+    # stub as a full year (a 121-month run reported 8% less land than a
+    # 120-month one, and 13 months 45% less than 12).
     avg_annual_green_dm = (
-        sum(g_kg * feed.green_dm_pct for g_kg in annual_green) / n_years if n_years else 0.0
+        sum(g_kg * feed.green_dm_pct for g_kg in annual_green) * 12.0 / len(months)
+        if months
+        else 0.0
     )
     land_acres = avg_annual_green_dm / (feed.fodder_yield_t_dm_per_acre_year * 1000.0)
 
@@ -855,7 +889,7 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         equity=equity,
         npv=npv(fin.discount_rate_annual, flows, times),
         irr=irr(flows, times),
-        bcr=bcr(fin.discount_rate_annual, flows, times),
+        bcr=bcr(fin.discount_rate_annual, benefit_flows, cost_flows, times),
         dscr_per_year=dscr_per_year,
         avg_dscr=avg_dscr,
         min_dscr=min_dscr,

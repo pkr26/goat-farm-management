@@ -67,3 +67,9 @@ class PurchaseBatchDetailOut(BaseModel):
     batch: PurchaseBatchOut
     animals: list[AnimalOut | PurchaseQuarantineAnimalOut]
     tasks: list[TaskOut | QuarantineScheduleTaskOut]
+    # `animals` is a bounded page (a batch may hold MAX_BATCH_COUNT head), so the
+    # envelope carries its window the same way PurchaseBatchListOut does —
+    # without it a client cannot tell a 100-animal batch from a truncated 1,000.
+    animals_total: int
+    animals_limit: int
+    animals_offset: int

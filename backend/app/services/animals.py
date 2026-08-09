@@ -4,7 +4,7 @@ import secrets
 from datetime import date
 from typing import Literal
 
-from sqlalchemy import select, update
+from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -17,6 +17,7 @@ from ..models import (
     AnimalStatus,
     Bucket,
     BucketMove,
+    PurchaseBatch,
     Task,
     TaskStatus,
 )
@@ -41,7 +42,13 @@ TransitionFacts = tuple[float | None, bool]
 # POST /animals/{id}/move: the corresponding domain record/task must cause
 # them.  ``history_override`` is handled separately after the factual guards.
 LEGAL_BUCKET_TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
-    (Bucket.QUARANTINE.value, Bucket.FOUNDATION.value): frozenset({"quarantine_release"}),
+    # A batch animal is still released only by the guarded day-45 duty —
+    # move_bucket refuses the manual form for anything carrying a
+    # purchase_batch_id. "manual" exists for an animal entered straight into
+    # QUARANTINE (a historical mid-quarantine import owns no batch, so no
+    # protocol series and no release duty were ever generated for it) which
+    # would otherwise be stuck in the bucket for good.
+    (Bucket.QUARANTINE.value, Bucket.FOUNDATION.value): frozenset({"manual", "quarantine_release"}),
     (Bucket.FOUNDATION.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
     (Bucket.FEMALE_KIDS.value, Bucket.FOUNDATION.value): frozenset({"manual"}),
     (Bucket.FEMALE_KIDS.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
@@ -220,41 +227,17 @@ def move_animal(
     animal.current_bucket = to_bucket
 
 
-async def skip_pending_tasks_for_animal(
-    db: AsyncSession,
-    farm_id: int,
-    animal_id: int,
-    reason: str = "Animal removed from active lifecycle",
-    *,
-    batch_size: int = 500,
+async def _skip_locked_pending_tasks(
+    db: AsyncSession, candidates: Select[tuple[int]], reason: str
 ) -> int:
-    """Cancel an animal's pending tasks (death/sale/cull): a dead or sold
-    animal must not keep generating work (vaccines, moves, kidding due)."""
-    if not 1 <= batch_size <= 10_000:
-        raise ValueError("batch_size must be between 1 and 10000")
-    # Materialize the finite locked ID set before UPDATE. Embedding a
-    # FOR-UPDATE/LIMIT select directly inside the UPDATE predicate lets
-    # PostgreSQL rescan it as rows change and can update beyond the apparent
-    # limit—precisely the unbounded request work this helper prevents.
-    candidate_ids = list(
-        (
-            await db.execute(
-                select(Task.id)
-                .where(
-                    Task.farm_id == farm_id,
-                    Task.animal_id == animal_id,
-                    Task.status == TaskStatus.PENDING.value,
-                )
-                # Match the online partial cleanup index
-                # (animal_id, id) WHERE status='PENDING'. A global id order
-                # can force PostgreSQL to scan/sort the entire pending cohort
-                # before returning this bounded worker batch.
-                .order_by(Task.animal_id, Task.id)
-                .limit(batch_size)
-                .with_for_update(skip_locked=True)
-            )
-        ).scalars()
-    )
+    """Skip the finite, already-locked pending-task set ``candidates`` selects.
+
+    Materialize the locked ID set before UPDATE. Embedding a FOR-UPDATE/LIMIT
+    select directly inside the UPDATE predicate lets PostgreSQL rescan it as
+    rows change and can update beyond the apparent limit — precisely the
+    unbounded request work these helpers prevent.
+    """
+    candidate_ids = list((await db.execute(candidates)).scalars())
     if not candidate_ids:
         return 0
     skipped = await db.execute(
@@ -271,6 +254,99 @@ async def skip_pending_tasks_for_animal(
     return len(skipped.scalars().all())
 
 
+async def skip_pending_tasks_for_animal(
+    db: AsyncSession,
+    farm_id: int,
+    animal_id: int,
+    reason: str = "Animal removed from active lifecycle",
+    *,
+    batch_size: int = 500,
+) -> int:
+    """Cancel an animal's pending tasks (death/sale/cull): a dead or sold
+    animal must not keep generating work (vaccines, moves, kidding due)."""
+    if not 1 <= batch_size <= 10_000:
+        raise ValueError("batch_size must be between 1 and 10000")
+    return await _skip_locked_pending_tasks(
+        db,
+        select(Task.id)
+        .where(
+            Task.farm_id == farm_id,
+            Task.animal_id == animal_id,
+            Task.status == TaskStatus.PENDING.value,
+        )
+        # Match the online partial cleanup index
+        # (animal_id, id) WHERE status='PENDING'. A global id order
+        # can force PostgreSQL to scan/sort the entire pending cohort
+        # before returning this bounded worker batch.
+        .order_by(Task.animal_id, Task.id)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True),
+        reason,
+    )
+
+
+async def skip_pending_tasks_for_empty_batch(
+    db: AsyncSession,
+    farm_id: int,
+    purchase_batch_id: int,
+    reason: str = "Purchase batch has no animals left in the herd",
+    *,
+    batch_size: int = 500,
+) -> int:
+    """Cancel a purchase batch's protocol duties once its herd is gone.
+
+    The 45-day quarantine series is linked to the batch, not to an animal
+    (``Task.animal_id`` is NULL), so neither ``skip_pending_tasks_for_animal``
+    nor the background sweeper — both keyed on ``animal_id`` — can ever reach
+    it. When every animal of a batch was sold or died the duties stayed PENDING
+    forever: permanently overdue on the dashboard, uncompletable (the linked
+    health form rejects a batch with no active quarantine animals) and
+    unskippable (a generated batch duty refuses a manual skip).
+
+    Locking the batch row serializes the "was that the last animal?" decision,
+    so two simultaneous retirements cannot each observe the other's animal as
+    still active and leave the duties behind. Lock order: animal → batch → task
+    (the task select never waits — it skips locked rows).
+    """
+    if not 1 <= batch_size <= 10_000:
+        raise ValueError("batch_size must be between 1 and 10000")
+    batch_id = (
+        await db.execute(
+            select(PurchaseBatch.id)
+            .where(PurchaseBatch.id == purchase_batch_id, PurchaseBatch.farm_id == farm_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if batch_id is None:
+        return 0
+    still_active = (
+        await db.execute(
+            select(Animal.id)
+            .where(
+                Animal.farm_id == farm_id,
+                Animal.purchase_batch_id == batch_id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if still_active is not None:
+        return 0
+    return await _skip_locked_pending_tasks(
+        db,
+        select(Task.id)
+        .where(
+            Task.farm_id == farm_id,
+            Task.purchase_batch_id == batch_id,
+            Task.status == TaskStatus.PENDING.value,
+        )
+        .order_by(Task.id)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True),
+        reason,
+    )
+
+
 async def skip_inactive_animal_tasks_batch(db: AsyncSession, *, batch_size: int) -> int:
     """Skip one finite global batch left after high-cardinality retirements.
 
@@ -281,35 +357,19 @@ async def skip_inactive_animal_tasks_batch(db: AsyncSession, *, batch_size: int)
     """
     if not 1 <= batch_size <= 10_000:
         raise ValueError("batch_size must be between 1 and 10000")
-    candidate_ids = list(
-        (
-            await db.execute(
-                select(Task.id)
-                .join(Animal, Animal.id == Task.animal_id)
-                .where(
-                    Task.status == TaskStatus.PENDING.value,
-                    Animal.status != AnimalStatus.ACTIVE.value,
-                )
-                .order_by(Task.id)
-                .limit(batch_size)
-                .with_for_update(skip_locked=True, of=Task)
-            )
-        ).scalars()
-    )
-    if not candidate_ids:
-        return 0
-    skipped = await db.execute(
-        update(Task)
-        .where(Task.id.in_(candidate_ids), Task.status == TaskStatus.PENDING.value)
-        .values(
-            status=TaskStatus.SKIPPED.value,
-            skipped_by_id=None,
-            skipped_at=utcnow(),
-            skip_reason="Animal removed from active lifecycle",
+    return await _skip_locked_pending_tasks(
+        db,
+        select(Task.id)
+        .join(Animal, Animal.id == Task.animal_id)
+        .where(
+            Task.status == TaskStatus.PENDING.value,
+            Animal.status != AnimalStatus.ACTIVE.value,
         )
-        .returning(Task.id)
+        .order_by(Task.id)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True, of=Task),
+        "Animal removed from active lifecycle",
     )
-    return len(skipped.scalars().all())
 
 
 # Placeholder tag scheme until RFID scanning is introduced; manual tags are

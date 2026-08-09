@@ -109,6 +109,68 @@ describe("RemotePicker", () => {
     );
   });
 
+  it("sends one search request for a typed term, not one per keystroke", async () => {
+    const user = userEvent.setup();
+    const queries: string[] = [];
+    const loadPage = vi.fn(async ({ query }: RemotePickerLoadArgs) => {
+      queries.push(query);
+      return { options: [{ value: "12", label: "G-0012 · Nila" }], total: 1, nextOffset: 1 };
+    });
+    const Harness = renderPicker({ loadPage });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    await within(dialog).findByRole("option", { name: /G-0012 · Nila/ });
+
+    await user.type(within(dialog).getByLabelText("Search animals"), "G-0012");
+
+    await waitFor(() => expect(queries).toContain("G-0012"));
+    // Previously: one request per committed keystroke ("G", "G-", "G-0", …).
+    expect(queries).toEqual(["", "G-0012"]);
+  });
+
+  it("keeps the loaded options on screen while the next search is in flight", async () => {
+    const user = userEvent.setup();
+    let releaseSearch: (() => void) | undefined;
+    const searchInFlight = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
+    const loadPage = vi.fn(async ({ query }: RemotePickerLoadArgs) => {
+      if (query) await searchInFlight;
+      return {
+        options: query
+          ? [{ value: "2", label: "G-0002 · Tara" }]
+          : [{ value: "1", label: "G-0001 · Nila" }],
+        total: 1,
+        nextOffset: 1,
+      };
+    });
+    const Harness = renderPicker({ loadPage });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    await within(dialog).findByRole("option", { name: /G-0001 · Nila/ });
+
+    await user.type(within(dialog).getByLabelText("Search animals"), "Tara");
+    await waitFor(() =>
+      expect(loadPage).toHaveBeenLastCalledWith(expect.objectContaining({ query: "Tara" })),
+    );
+
+    // Previously the fresh query key had no data, so the whole listbox was
+    // replaced by "Loading options…" and nothing was clickable while typing.
+    expect(within(dialog).getByRole("option", { name: /G-0001 · Nila/ })).toBeInTheDocument();
+    expect(within(dialog).queryByText("Loading options…")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+
+    releaseSearch?.();
+    expect(
+      await within(dialog).findByRole("option", { name: /G-0002 · Tara/ }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("listbox")).not.toHaveAttribute("aria-busy");
+  });
+
   it("shows an exhausted empty state and lets the user retry an initial error", async () => {
     const user = userEvent.setup();
     let fails = true;

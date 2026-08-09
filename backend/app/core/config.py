@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     db_pool_timeout: int = Field(default=30, ge=1)  # seconds to wait for a free connection
     db_statement_timeout_ms: int = Field(default=30_000, ge=1)  # asyncpg server_settings
 
+    # Migrations get their own budget: a table rewrite or a CREATE INDEX
+    # CONCURRENTLY (which additionally waits for every concurrent transaction
+    # to drain) legitimately runs far longer than any request ever may, so the
+    # OLTP backstop above would cancel it and abort the release. 0 disables the
+    # per-statement cap for the Alembic connection; lock_timeout still bounds
+    # how long DDL may queue behind live traffic.
+    migration_statement_timeout_ms: int = Field(default=0, ge=0)
+
     # Successful Idempotency-Key results are replayable for this window.
     # Expired records are removed by a bounded background cleanup job.
     idempotency_retention_hours: int = Field(default=24 * 7, ge=1, le=24 * 90)
@@ -171,6 +179,8 @@ class Settings(BaseSettings):
     # "127.0.0.1,10.0.0.0/8"). When non-empty, X-Forwarded-For from those
     # hosts restores the real client IP (rate limiting, logs). Default ""
     # trusts nothing: a spoofable header must never steer the limiter.
+    # Validated by _validated_trusted_proxy_hosts: uvicorn silently treats "*"
+    # as always-trust and silently ignores anything that is not an IP/CIDR.
     trusted_proxy_hosts: str = ""
 
     # A single account may own at most this many farms.
@@ -199,6 +209,92 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("must not be blank")
         return normalized
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def _canonical_allowed_hosts(cls, value: list[str]) -> list[str]:
+        """Store the form TrustedHostMiddleware actually compares against.
+
+        Starlette matches the Host header byte-exactly, while browsers and
+        proxies always send a lower-cased, dot-free authority. Validating a
+        normalized copy and then installing the raw string lets "API.Example.com"
+        pass the fail-closed production gate and then reject 100% of traffic —
+        including through a container probe that sends the same raw value and
+        therefore keeps reporting healthy. Normalize once, here.
+        """
+        return [host.strip().lower().rstrip(".") for host in value]
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _canonical_cors_origins(cls, value: list[str]) -> list[str]:
+        """Store the exact origin bytes a browser sends.
+
+        CORSMiddleware matches with ``origin in allow_origins``, but the
+        production check below validates urlsplit components, which are already
+        lower-cased and drop the default port. Canonicalize so a value that
+        passes validation is a value the middleware can match. Entries that do
+        not parse as a plain origin are returned untouched so the production
+        gate still reports them verbatim.
+        """
+        canonical: list[str] = []
+        for origin in value:
+            candidate = origin.strip()
+            try:
+                parsed = urlsplit(candidate)
+                port = parsed.port
+            except ValueError:
+                canonical.append(origin)
+                continue
+            host = parsed.hostname
+            if not parsed.scheme or not host or parsed.path or parsed.query or parsed.fragment:
+                canonical.append(origin)
+                continue
+            if parsed.username is not None or parsed.password is not None:
+                canonical.append(origin)
+                continue
+            authority = f"[{host}]" if ":" in host else host
+            default_port = {"http": 80, "https": 443}.get(parsed.scheme)
+            if port is not None and port != default_port:
+                authority = f"{authority}:{port}"
+            canonical.append(f"{parsed.scheme}://{authority}")
+        return canonical
+
+    @field_validator("trusted_proxy_hosts")
+    @classmethod
+    def _validated_trusted_proxy_hosts(cls, value: str) -> str:
+        """Refuse anything uvicorn would turn into always-trust or a no-op.
+
+        ``_TrustedHosts`` treats "*" (and any prefix-length-0 network) as
+        "every peer is a proxy", which makes X-Forwarded-For — and therefore
+        every per-IP auth ceiling and every throttling log line — attacker
+        controlled. Conversely it drops entries that are neither an IP nor a
+        CIDR into a literal set that can never match a peer address, so a
+        hostname silently trusts nothing. Both failures are silent at runtime;
+        fail closed at boot instead.
+        """
+        entries = [entry.strip() for entry in value.split(",") if entry.strip()]
+        invalid: list[str] = []
+        wildcards: list[str] = []
+        for entry in entries:
+            try:
+                # uvicorn parses a "/"-bearing entry with ip_network (strict)
+                # and everything else with ip_address; mirror that exactly.
+                network = (
+                    ipaddress.ip_network(entry)
+                    if "/" in entry
+                    else ipaddress.ip_network(ipaddress.ip_address(entry))
+                )
+            except ValueError:
+                invalid.append(entry)
+                continue
+            if network.prefixlen == 0:
+                wildcards.append(entry)
+        if invalid or wildcards:
+            raise ValueError(
+                "must be a comma-separated list of proxy IPs or CIDRs "
+                f"(never a hostname or a wildcard): {invalid + wildcards}"
+            )
+        return ",".join(entries)
 
     @model_validator(mode="after")
     def _production_safety(self) -> Settings:
@@ -288,8 +384,7 @@ class Settings(BaseSettings):
                 f"(no wildcard, credentials, path, query or fragment): {invalid_origins}"
             )
         invalid_hosts: list[str] = []
-        for configured_host in self.allowed_hosts:
-            host = configured_host.strip().lower()
+        for host in self.allowed_hosts:  # already canonicalized by the field validator
             candidate = host[2:] if host.startswith("*.") else host
             is_loopback = False
             try:
@@ -304,7 +399,7 @@ class Settings(BaseSettings):
                 or any(character.isspace() for character in host)
                 or is_loopback
             ):
-                invalid_hosts.append(configured_host)
+                invalid_hosts.append(host)
         if not self.allowed_hosts or invalid_hosts:
             problems.append(
                 "GOATFARM_ALLOWED_HOSTS must contain non-loopback hostnames "

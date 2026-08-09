@@ -78,51 +78,92 @@ def npv(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]
     return sum(cf / _fpow(1.0 + rate_annual, t) for cf, t in zip(flows, times_years, strict=True))
 
 
-def irr(flows: Sequence[float], times_years: Sequence[float]) -> float | None:
-    """Internal rate of return by bisection on (-0.99, 10), 200 iterations.
+IRR_BRACKET = (-0.99, 10.0)
+_IRR_SCAN_STEPS = 220  # ~5 percentage points of discount rate per step
 
-    Returns ``None`` when the series has no sign change (all-positive,
-    all-negative or all-zero flows have no meaningful IRR) or when the NPV
-    has the same sign at both bracket ends (no root inside the bracket).
+
+def irr_roots(flows: Sequence[float], times_years: Sequence[float]) -> list[float]:
+    """Every rate in ``IRR_BRACKET`` where the NPV curve crosses zero.
+
+    A series with more than one sign reversal can cross zero several times,
+    and each crossing is a mathematically valid IRR. Bisecting the whole
+    bracket would silently keep the leftmost one, so the crossings are located
+    first, on a uniform scan, and each is then refined by bisection.
     """
-    if not any(cf > 0.0 for cf in flows) or not any(cf < 0.0 for cf in flows):
-        return None  # no sign change (all-zero or one-sided) — IRR undefined
-    lo, hi = -0.99, 10.0
+    lo_bound, hi_bound = IRR_BRACKET
+    step = (hi_bound - lo_bound) / _IRR_SCAN_STEPS
+    roots: list[float] = []
+    lo = lo_bound
     f_lo = npv(lo, flows, times_years)
-    f_hi = npv(hi, flows, times_years)
-    if f_lo * f_hi > 0.0:
-        return None
+    for index in range(1, _IRR_SCAN_STEPS + 1):
+        hi = lo_bound + index * step
+        f_hi = npv(hi, flows, times_years)
+        if f_lo == 0.0:
+            roots.append(lo)
+        elif f_lo * f_hi < 0.0:
+            roots.append(_bisect(lo, hi, f_lo, flows, times_years))
+        lo, f_lo = hi, f_hi
+    if f_lo == 0.0:
+        roots.append(lo)
+    return roots
+
+
+def _bisect(
+    lo: float,
+    hi: float,
+    f_lo: float,
+    flows: Sequence[float],
+    times_years: Sequence[float],
+) -> float:
+    """Refine a bracketed root of NPV(rate) to full double precision."""
     for _ in range(200):
         mid = (lo + hi) / 2.0
         f_mid = npv(mid, flows, times_years)
         if f_lo * f_mid <= 0.0:
             hi = mid
-            f_hi = f_mid
         else:
-            lo = mid
-            f_lo = f_mid
+            lo, f_lo = mid, f_mid
     return (lo + hi) / 2.0
 
 
-def bcr(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]) -> float | None:
-    """Benefit-cost ratio: PV of inflows / PV of outflows.
+def irr(flows: Sequence[float], times_years: Sequence[float]) -> float | None:
+    """Internal rate of return: the rate where NPV is zero.
 
-    ``None`` when there are no outflows — the ratio is undefined, not
+    ``None`` when the series has no such rate inside ``IRR_BRACKET`` (an
+    all-positive, all-negative or all-zero series never crosses), and equally
+    ``None`` when it has *several* — a series with more than one sign reversal
+    can cross zero repeatedly and no single number is then the return. For
+    ``[-954244, -390293, -528292, 1930642, 1572511, -238266, -51854, -865625,
+    94536]`` the roots are -89.2%, -26.4% and +16.4% while NPV at 10% is
+    +₹201,590; bisecting the whole bracket used to report -89.16% for that
+    viable project. Multiple sign reversals alone are not disqualifying —
+    only genuinely multiple roots are.
+    """
+    roots = irr_roots(flows, times_years)
+    return roots[0] if len(roots) == 1 else None
+
+
+def bcr(
+    rate_annual: float,
+    benefit_flows: Sequence[float],
+    cost_flows: Sequence[float],
+    times_years: Sequence[float],
+) -> float | None:
+    """Benefit-cost ratio: PV of gross benefits / PV of gross costs.
+
+    The two series are supplied *gross* — revenue on one side, capital plus
+    operating cost plus debt service on the other. Splitting a single series
+    of net flows by sign instead yields ``1 + NPV / PV(costs)``: it agrees
+    with NPV's sign but carries no information beyond it, and the magnitude a
+    lender compares against the customary 1.5 threshold comes out 1.5-3x off.
+
+    ``None`` when there are no discounted costs — the ratio is undefined, not
     infinite (an inf would crash JSON serialization of the result).
     """
-    pv_in = sum(
-        cf / _fpow(1.0 + rate_annual, t)
-        for cf, t in zip(flows, times_years, strict=True)
-        if cf > 0.0
-    )
-    pv_out = sum(
-        -cf / _fpow(1.0 + rate_annual, t)
-        for cf, t in zip(flows, times_years, strict=True)
-        if cf < 0.0
-    )
-    if pv_out == 0.0:
+    pv_costs = npv(rate_annual, cost_flows, times_years)
+    if pv_costs == 0.0:
         return None
-    return pv_in / pv_out
+    return npv(rate_annual, benefit_flows, times_years) / pv_costs
 
 
 def payback_month(cumulative_cash: Sequence[float]) -> int | None:

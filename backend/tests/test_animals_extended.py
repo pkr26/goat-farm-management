@@ -665,6 +665,80 @@ async def test_historical_purchase_import_requires_and_audits_a_reason(
     assert (await client.get("/api/purchases", headers=owner)).json()["total"] == 0
 
 
+async def test_historical_import_with_a_price_requires_its_purchase_date(
+    client: httpx.AsyncClient,
+) -> None:
+    """A historical import stores purchase_date verbatim, so a price without a
+    date used to book the acquisition of an old herd into today's ledger."""
+    owner = await owner_with_farm(client)
+    base = {
+        "sex": "F",
+        "source": "PURCHASED",
+        "current_bucket": "FOUNDATION",
+        "historical_import_reason": "Migrated from the 2022 paper register",
+        "purchase_price": 8000.0,
+    }
+    undated = await post_animal(client, owner, base | {"tag_number": "HIST-NODATE"})
+    assert undated.status_code == 422, undated.text
+    assert "purchase_date is required" in undated.json()["detail"]
+    assert await transactions(client, owner) == []
+
+    bought_on = today() - timedelta(days=1200)
+    dated = await post_animal(
+        client,
+        owner,
+        base | {"tag_number": "HIST-DATED", "purchase_date": iso(bought_on)},
+    )
+    assert dated.status_code == 201, dated.text
+    assert dated.json()["purchase_date"] == iso(bought_on)
+    booked = await transactions(client, owner)
+    assert len(booked) == 1
+    # The expense belongs to the period the herd was bought in, not to today.
+    assert booked[0]["date"] == iso(bought_on)
+    assert booked[0]["amount"] == 8000.0
+
+
+async def test_imported_quarantine_animal_can_still_leave_quarantine(
+    client: httpx.AsyncClient,
+) -> None:
+    """A mid-quarantine import owns no batch, so no day-45 release duty was
+    ever generated for it: the manual release is its only way out."""
+    owner = await owner_with_farm(client)
+    imported = await make_animal(
+        client,
+        owner,
+        tag="Q-9",
+        bucket="QUARANTINE",
+        historical_import_reason="mid-quarantine herd migration",
+    )
+    # No batch, therefore no protocol series and no day-45 release duty.
+    assert (await client.get("/api/purchases", headers=owner)).json()["total"] == 0
+    resp = await client.post(
+        f"/api/animals/{imported['id']}/move",
+        json={"to_bucket": "FOUNDATION", "reason": "Quarantine completed before migration"},
+        headers=owner,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["current_bucket"] == "FOUNDATION"
+
+    # A batch animal still has to come out through its guarded protocol duty.
+    batch = await client.post(
+        "/api/purchases/new",
+        json={"date": iso(today()), "count": 1},
+        headers=owner,
+    )
+    assert batch.status_code == 201, batch.text
+    detail = await client.get(f"/api/purchases/{batch.json()['id']}", headers=owner)
+    batch_animal = detail.json()["animals"][0]
+    blocked = await client.post(
+        f"/api/animals/{batch_animal['id']}/move",
+        json={"to_bucket": "FOUNDATION"},
+        headers=owner,
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert "guarded batch task" in blocked.json()["detail"]
+
+
 async def test_create_age_months_from_dob(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     # 731 days is always >= 24 full months and < 25, whatever the leap days
@@ -1061,9 +1135,14 @@ async def test_create_purchase_price_boundaries(client: httpx.AsyncClient) -> No
     for bad in [-500, "-500", "nan", "inf", "1e999"]:
         resp = await post_animal(client, owner, base | {"purchase_price": bad})
         assert resp.status_code == 422, bad
-    animal = await make_animal(client, owner, tag="G-2", purchase_price=0)
+    # A priced historical import must date its own acquisition (otherwise the
+    # expense would land in today's ledger against an undated animal).
+    bought_on = iso(today() - timedelta(days=30))
+    animal = await make_animal(client, owner, tag="G-2", purchase_price=0, purchase_date=bought_on)
     assert animal["purchase_price"] == 0.0
-    animal = await make_animal(client, owner, tag="G-3", purchase_price=999999999.99)
+    animal = await make_animal(
+        client, owner, tag="G-3", purchase_price=999999999.99, purchase_date=bought_on
+    )
     assert animal["purchase_price"] == 999999999.99
 
 
@@ -1564,7 +1643,16 @@ async def test_profile_kids_and_breedings(client: httpx.AsyncClient) -> None:
     doe = await make_doe(client, owner)
     buck = await make_buck(client, owner)
     br = await make_breeding(client, owner, doe["id"], buck["id"], today() - timedelta(days=160))
-    br = await submit_ultrasound(client, owner, br["id"], pregnant=True, kid_count=2)
+    # Record the scan on its planned check date: a delivery may not predate the
+    # confirmation that the doe was carrying.
+    br = await submit_ultrasound(
+        client,
+        owner,
+        br["id"],
+        pregnant=True,
+        kid_count=2,
+        result_date=date.fromisoformat(br["ultrasound_date"]),
+    )
     kidding_date = br["expected_kidding_date"]
     resp = await client.post(
         "/api/kidding",
@@ -2446,6 +2534,46 @@ async def test_status_change_clears_cull_candidate(client: httpx.AsyncClient) ->
     assert resp.json()["cull_candidate"] is False
 
 
+async def test_batch_quarantine_duties_are_swept_when_its_herd_is_gone(
+    client: httpx.AsyncClient,
+) -> None:
+    """The 45-day protocol is linked to the batch, not to an animal, so the
+    per-animal skip cannot reach it. Once nobody is left the duties can never
+    be completed (the health form needs an active quarantine animal) nor
+    skipped (a generated batch duty refuses one), so they must be swept."""
+    owner = await owner_with_farm(client)
+    created = await client.post(
+        "/api/purchases/new",
+        json={"date": iso(today()), "count": 2, "create_animals": True},
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    batch_id = created.json()["id"]
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animals = detail.json()["animals"]
+    assert len(animals) == 2
+    assert {task["status"] for task in detail.json()["tasks"]} == {"PENDING"}
+
+    first = await mark_status(client, owner, animals[0]["id"], "DEAD", mortality_cause="PPR")
+    assert first.status_code == 200, first.text
+    # One animal left: the batch protocol is still live work.
+    listed = (await client.get("/api/purchases", headers=owner)).json()["batches"][0]
+    assert listed["open_tasks"] == 8
+
+    second = await mark_status(client, owner, animals[1]["id"], "DEAD", mortality_cause="PPR")
+    assert second.status_code == 200, second.text
+    listed = (await client.get("/api/purchases", headers=owner)).json()["batches"][0]
+    assert listed["open_tasks"] == 0
+    closed = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    tasks = closed.json()["tasks"]
+    assert len(tasks) == 8
+    assert {task["status"] for task in tasks} == {"SKIPPED"}
+    dash = await client.get("/api/dashboard", headers=owner)
+    assert dash.status_code == 200, dash.text
+    assert dash.json()["todays_tasks_total"] == dash.json()["overdue_tasks_total"] == 0
+
+
 # ---------------------------------------------------------------------------
 # 9. Buckets board
 # ---------------------------------------------------------------------------
@@ -2468,7 +2596,31 @@ async def test_buckets_board_returns_all_ten_in_spec_order(client: httpx.AsyncCl
             "animals_page_path",
         }
         assert row["animals_limit"] == 100
-        assert row["animals_page_path"] == f"/animals?bucket={row['bucket']}"
+        assert row["animals_page_path"] == f"/animals?bucket={row['bucket']}&status=ACTIVE"
+
+
+async def test_buckets_board_register_link_opens_the_population_it_counted(
+    client: httpx.AsyncClient,
+) -> None:
+    """A sold animal keeps its last bucket forever, so a link without the
+    status filter opens a register whose headcount contradicts the board."""
+    owner = await owner_with_farm(client)
+    await make_animal(client, owner, tag="LIVE-1", bucket="FOUNDATION")
+    sold = await make_animal(client, owner, tag="GONE-1", bucket="FOUNDATION")
+    assert (await mark_status(client, owner, sold["id"], "SOLD", sale_price=100)).status_code == 200
+
+    row = next(
+        r
+        for r in (await client.get("/api/buckets", headers=owner)).json()
+        if r["bucket"] == "FOUNDATION"
+    )
+    assert row["animals_total"] == 1
+    _path, _, query = row["animals_page_path"].partition("?")
+    filters = dict(pair.split("=", 1) for pair in query.split("&"))
+    register = await client.get("/api/animals", params=filters, headers=owner)
+    assert register.status_code == 200, register.text
+    assert register.json()["total"] == row["animals_total"]
+    assert [a["tag_number"] for a in register.json()["animals"]] == ["LIVE-1"]
 
 
 async def test_buckets_board_quarantine_metadata_matches_spec(client: httpx.AsyncClient) -> None:
@@ -2740,10 +2892,18 @@ async def test_animal_reads_redact_nested_fields_by_effective_permissions(
         mortality_reported_at=iso(today()),
     )
     assert dead_response.status_code == 200, dead_response.text
+    # A grown male kid, so the suggestion comes from the market rule (age +
+    # weight) rather than a breeding rule. This test is about field-level
+    # redaction inside a nested dashboard animal, and a MOVER holds
+    # animals.view but not breeding.view — the breeding-derived suggestions are
+    # withheld from them entirely, which is asserted separately in
+    # test_finance_extended.py.
     suggestion = await make_animal(
         client,
         owner,
         tag="PRIVATE-SUGGESTION",
+        sex="M",
+        bucket="MALE_KIDS",
         date_of_birth=iso(dob),
         purchase_date=iso(purchase_date),
         purchase_price=7777,
@@ -3179,3 +3339,64 @@ async def test_manual_orphan_wean_rejects_kid_without_kidding_provenance(
     assert forged.status_code == 409
     assert "illegal lifecycle transition" in forged.json()["detail"].lower()
     assert (await get_animal(client, headers, kid["id"]))["current_bucket"] == "RECOVERY"
+
+
+# ---------------------------------------------------------------------------
+# N3: a terminal status also closes the doe's never-scanned service
+# ---------------------------------------------------------------------------
+# The sweep beside the pregnancy auto-abort: a PENDING (not yet ultrasounded)
+# service has no other exit once the doe leaves the herd, because
+# record_ultrasound_result refuses a non-ACTIVE doe. It used to sit in her
+# history for good.
+async def _bred_doe(
+    client: httpx.AsyncClient, headers: dict, tag: str = "D-BRED"
+) -> tuple[dict, dict, dict]:
+    doe = await make_doe(client, headers, tag)
+    buck = await make_buck(client, headers, f"{tag}-B")
+    br = await make_breeding(client, headers, doe["id"], buck["id"], today() - timedelta(days=35))
+    assert br["outcome"] == "PENDING"
+    return doe, buck, br
+
+
+async def _breeding_record(client: httpx.AsyncClient, headers: dict, br_id: int) -> dict:
+    resp = await client.get(f"/api/breeding/{br_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _duties(client: httpx.AsyncClient, headers: dict) -> list[dict]:
+    resp = await client.get("/api/tasks", headers=headers)
+    assert resp.status_code == 200, resp.text
+    tabs = resp.json()
+    return tabs["today"] + tabs["overdue"] + tabs["upcoming"] + tabs["awaiting"] + tabs["completed"]
+
+
+async def test_sale_closes_never_scanned_service_and_still_books_income(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await _bred_doe(client, headers)
+
+    sold = await mark_status(client, headers, doe["id"], "SOLD", sale_price=4000)
+    assert sold.status_code == 200, sold.text
+    assert sold.json()["status"] == "SOLD"
+
+    assert (await _breeding_record(client, headers, br["id"]))["outcome"] == "UNASSESSED"
+    # Closing the service leaves no duty pointing at it, and the sale's own
+    # side effects are untouched by the extra sweep.
+    related = [t for t in await _duties(client, headers) if t["breeding_record_id"] == br["id"]]
+    assert {t["status"] for t in related} == {"SKIPPED"}
+    assert [t["amount"] for t in await transactions(client, headers)] == [4000.0]
+
+
+async def test_selling_the_sire_leaves_the_does_service_open(
+    client: httpx.AsyncClient,
+) -> None:
+    """The sweep belongs to the doe, not the sire: she is still in the herd and
+    her pregnancy check can still answer whether this service took."""
+    headers = await owner_with_farm(client)
+    _doe, buck, br = await _bred_doe(client, headers)
+
+    sold = await mark_status(client, headers, buck["id"], "SOLD", sale_price=5000)
+    assert sold.status_code == 200, sold.text
+    assert (await _breeding_record(client, headers, br["id"]))["outcome"] == "PENDING"

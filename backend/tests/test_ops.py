@@ -4,6 +4,7 @@ validation, docs gating, the GOATFARM_TEST_DB footgun guard, and direct
 coverage of seed_startup / backfill_task_assignments (the lifespan path the
 httpx ASGI transport never triggers)."""
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -11,13 +12,15 @@ from collections.abc import AsyncIterator
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from types import ModuleType
 
 import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
-from sqlalchemy import delete, event, select, update
+from sqlalchemy import delete, event, select, text, update
+from sqlalchemy.exc import IntegrityError
 
 import app.main as main_module
 from app.core.config import Settings, get_settings
@@ -26,12 +29,14 @@ from app.main import create_app, lifespan
 from app.models import (
     BucketDefinition,
     Farm,
+    FarmMembership,
     FeedInventory,
     FeedRecipe,
     FeedRecipeLine,
     Role,
     Task,
     TaskCategory,
+    TaskStatus,
     User,
     VaccineTemplate,
 )
@@ -42,15 +47,29 @@ from app.seed import (
     FARM_INGREDIENTS,
     FEED_RECIPES,
     VACCINE_TEMPLATES,
+    backfill_task_assignments_batch,
     repair_legacy_data_batch,
+    seed_default_roles,
     seed_reference_data,
     seed_startup,
 )
+from app.utils import utcnow
 
 VALID_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET = "previous-production-idempotency-hmac-secret-0001"
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_alembic_revision(module_name: str) -> ModuleType:
+    """Import one revision file so a test can run the exact shipped SQL."""
+    path = BACKEND_DIR / "alembic" / "versions" / f"{module_name}.py"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 # --- health / readiness probes (11-H1) ---------------------------------------
 
@@ -748,3 +767,181 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
             )
         ).scalar_one()
         assert task_after.assigned_role_id == vet_role_id
+
+
+# --- legacy-repair worker robustness -----------------------------------------
+
+
+async def test_preset_role_repair_survives_a_custom_role_holding_a_preset_name() -> None:
+    """`uq_roles_farm_active_name` is a real partial unique index and nothing
+    reserves preset display names, so a tenant may already own a custom role
+    called "Veterinarian". Inserting the colliding name raised IntegrityError,
+    rolled the whole 25-farm batch back, and — because the claim query is
+    deterministic and main.py swallows the exception — wedged the worker
+    forever. One poisoned tenant must not stop the others."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="collide-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        poisoned = Farm(name="Poisoned Farm", owner_id=owner.id)
+        healthy = Farm(name="Healthy Legacy Farm", owner_id=owner.id)
+        db.add_all([poisoned, healthy])
+        await db.flush()
+        preset = next(item for item in ROLE_PRESETS if item["code"] == "VET")
+        db.add(Role(farm_id=poisoned.id, code=None, name=preset["name"], permissions="[]"))
+        await db.commit()
+        poisoned_id, healthy_id = poisoned.id, healthy.id
+
+    async with get_sessionmaker()() as db:
+        farms, _tasks = await repair_legacy_data_batch(db, farm_batch_size=10, task_batch_size=100)
+        await db.commit()
+    assert farms == 2
+
+    async with get_sessionmaker()() as db:
+        roles = list((await db.execute(select(Role).where(Role.farm_id == poisoned_id))).scalars())
+        # Every preset code exists; the colliding preset took a decorated name.
+        assert {role.code for role in roles if role.code} == {item["code"] for item in ROLE_PRESETS}
+        vet = next(role for role in roles if role.code == "VET")
+        assert vet.name != preset["name"]
+        assert preset["name"] in vet.name
+        # The unpoisoned farm in the same batch was repaired too — roles AND
+        # the canonical feed inventory that used to be rolled back with it.
+        assert {
+            role.code
+            for role in (await db.execute(select(Role).where(Role.farm_id == healthy_id))).scalars()
+        } == {item["code"] for item in ROLE_PRESETS}
+        inventory = (
+            await db.execute(select(FeedInventory).where(FeedInventory.farm_id == healthy_id))
+        ).scalars()
+        assert len(list(inventory)) == len(FARM_INGREDIENTS)
+
+    # Idempotent: a second pass has nothing left to claim.
+    async with get_sessionmaker()() as db:
+        farms, _tasks = await repair_legacy_data_batch(db, farm_batch_size=10, task_batch_size=100)
+        await db.commit()
+    assert farms == 0
+
+
+async def test_task_backfill_reports_claimed_rows_not_repaired_rows() -> None:
+    """The worker's continuation test compares this count with the batch size.
+    Returning only the rows it managed to update made one unresolvable duty end
+    the whole batch budget while thousands of legacy duties remained."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="claimed-count-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Claimed Count Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        # Claimable (auto-generated, mapped category, no role) but unresolvable:
+        # this legacy farm has no roles at all, so the lookup finds nothing.
+        db.add(
+            Task(
+                farm_id=farm.id,
+                title="Unresolvable duty",
+                due_date=date(2026, 1, 10),
+                category=TaskCategory.CLEANING.value,
+                auto_generated=True,
+            )
+        )
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        claimed = await backfill_task_assignments_batch(db, batch_size=1)
+        await db.commit()
+    assert claimed == 1  # claimed, even though nothing could be assigned
+
+
+async def test_non_pending_personal_duty_is_repaired_so_rejection_stays_possible() -> None:
+    """ck_tasks_user_assignment_has_role also fires on an UPDATE that moves a
+    row INTO PENDING, which is exactly what verification rejection does. The
+    earlier PENDING-only backfill left DONE/VERIFIED/SKIPPED personal duties as
+    landmines: rejecting one raised CheckViolation and 500'd forever."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="reject-legacy-owner@farm.in", password_hash="argon2-placeholder")
+        worker = User(email="reject-legacy-worker@farm.in", password_hash="argon2-placeholder")
+        db.add_all([owner, worker])
+        await db.flush()
+        farm = Farm(name="Reject Legacy Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        role = (
+            await db.execute(select(Role).where(Role.farm_id == farm.id, Role.code == "CLEANER"))
+        ).scalar_one()
+        db.add(FarmMembership(user_id=worker.id, farm_id=farm.id, role_id=role.id))
+        await db.flush()
+        task = Task(
+            farm_id=farm.id,
+            title="Clean the pen",
+            due_date=date(2026, 1, 10),
+            category=TaskCategory.CLEANING.value,
+            status=TaskStatus.DONE.value,
+            assigned_user_id=worker.id,
+            assigned_role_id=None,  # the legacy shape this revision repairs
+            completed_by_id=worker.id,
+            completed_at=utcnow(),
+        )
+        db.add(task)
+        await db.commit()
+        task_id, role_id = task.id, role.id
+
+    # Without the repair the duty cannot be sent back to the worker at all.
+    async with get_sessionmaker()() as db:
+        with pytest.raises(IntegrityError):
+            await db.execute(
+                update(Task).where(Task.id == task_id).values(status=TaskStatus.PENDING.value)
+            )
+            await db.flush()
+        await db.rollback()
+
+    revision = _load_alembic_revision("a1b2c3d4e5f7_repair_non_pending_personal_task_roles")
+    async with get_sessionmaker()() as db:
+        await db.execute(text(revision.REPAIR_PERSONAL_TASK_ROLES))
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        repaired = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+        assert repaired.assigned_role_id == role_id
+        await db.execute(
+            update(Task).where(Task.id == task_id).values(status=TaskStatus.PENDING.value)
+        )
+        await db.commit()
+
+
+# --- unhandled errors stay correlatable --------------------------------------
+
+
+async def test_unhandled_errors_keep_the_request_id_and_security_headers(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Starlette routes the `Exception` handler to ServerErrorMiddleware, which
+    wraps every user middleware from the outside — so a 500 used to carry no
+    X-Request-ID, no security headers and no Cache-Control, and its traceback
+    was logged with request id `-`."""
+    app = create_app()
+
+    @app.get("/api/_boom")
+    async def boom() -> None:  # pragma: no cover - raises by design
+        raise RuntimeError("kaboom")
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    # The id reaches log records through the app's own filter; attach it to the
+    # capture handler so the assertion does not depend on handler ordering.
+    caplog.handler.addFilter(main_module._RequestIdFilter())
+    with caplog.at_level("ERROR", logger="goatfarm"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
+            response = await failing.get("/api/_boom", headers={"X-Request-ID": "trace-500"})
+
+    # The traceback is logged while the id is still bound, not as `[-]`.
+    traceback_record = next(
+        record for record in caplog.records if record.message.startswith("unhandled error on")
+    )
+    assert getattr(traceback_record, "request_id", "-") == "trace-500"
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal server error"}
+    assert response.headers["X-Request-ID"] == "trace-500"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Cache-Control"] == "no-store"

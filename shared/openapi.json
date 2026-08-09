@@ -3156,15 +3156,6 @@
             }
           },
           {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          },
-          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -3178,6 +3169,15 @@
                 }
               ],
               "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3943,6 +3943,10 @@
             "schema": {
               "anyOf": [
                 {
+                  "enum": [
+                    "INCOME",
+                    "EXPENSE"
+                  ],
                   "type": "string"
                 },
                 {
@@ -3959,6 +3963,18 @@
             "schema": {
               "anyOf": [
                 {
+                  "enum": [
+                    "ANIMAL_SALE",
+                    "ANIMAL_PURCHASE",
+                    "FEED",
+                    "MEDICINE",
+                    "VET",
+                    "LABOUR",
+                    "EQUIPMENT",
+                    "MILK",
+                    "MANURE",
+                    "OTHER"
+                  ],
                   "type": "string"
                 },
                 {
@@ -4421,7 +4437,7 @@
           "purchases"
         ],
         "summary": "Batch Detail",
-        "description": "One batch with its quarantine schedule and purpose-scoped animals.\n\nThe schedule itself belongs to procurement, but task assignment and\ncompletion attribution remain task-module data. Likewise, a batch animal\ncan be tracked through quarantine without granting its complete profile.",
+        "description": "One batch with its quarantine schedule and purpose-scoped animals.\n\nThe schedule itself belongs to procurement, but task assignment and\ncompletion attribution remain task-module data. Likewise, a batch animal\ncan be tracked through quarantine without granting its complete profile.\n\nA batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals\nare a bounded page like every other list in the API; the exact occupancy\nstays available as the batch's ``animals_created``. The protocol schedule\nneeds no bound \u2014 ``QUARANTINE_PROTOCOL`` is 8 steps.",
         "operationId": "batch_detail_api_purchases__batch_id__get",
         "parameters": [
           {
@@ -4431,6 +4447,30 @@
             "schema": {
               "type": "integer",
               "title": "Batch Id"
+            }
+          },
+          {
+            "name": "animals_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Animals Limit"
+            }
+          },
+          {
+            "name": "animals_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Animals Offset"
             }
           },
           {
@@ -4489,7 +4529,7 @@
           "dashboard"
         ],
         "summary": "Dashboard",
-        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.",
+        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view``, the same permission that governs\n``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in\n``animal_out``. A caller without it gets empty lists and zero totals rather\nthan a 403, so the page still renders for e.g. the cleaner preset.",
         "operationId": "dashboard_api_dashboard_get",
         "parameters": [
           {
@@ -8095,17 +8135,11 @@
             "title": "Shift"
           },
           "recipe_code": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 30,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Recipe Code"
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "title": "Recipe Code",
+            "description": "Ration dispensed; use DRY_ROUGHAGE_ONLY for a grain-free ration"
           },
           "qty_kg": {
             "type": "number",
@@ -8130,6 +8164,7 @@
         "required": [
           "bucket",
           "shift",
+          "recipe_code",
           "qty_kg"
         ],
         "title": "DispenseIn"
@@ -11599,13 +11634,28 @@
             },
             "type": "array",
             "title": "Tasks"
+          },
+          "animals_total": {
+            "type": "integer",
+            "title": "Animals Total"
+          },
+          "animals_limit": {
+            "type": "integer",
+            "title": "Animals Limit"
+          },
+          "animals_offset": {
+            "type": "integer",
+            "title": "Animals Offset"
           }
         },
         "type": "object",
         "required": [
           "batch",
           "animals",
-          "tasks"
+          "tasks",
+          "animals_total",
+          "animals_limit",
+          "animals_offset"
         ],
         "title": "PurchaseBatchDetailOut"
       },
@@ -12698,13 +12748,23 @@
           "delta_npv_high": {
             "type": "number",
             "title": "Delta Npv High"
+          },
+          "label_low": {
+            "type": "string",
+            "title": "Label Low"
+          },
+          "label_high": {
+            "type": "string",
+            "title": "Label High"
           }
         },
         "type": "object",
         "required": [
           "parameter",
           "delta_npv_low",
-          "delta_npv_high"
+          "delta_npv_high",
+          "label_low",
+          "label_high"
         ],
         "title": "SensitivityItem",
         "description": "One-at-a-time sensitivity of NPV to a single parameter."
@@ -13267,6 +13327,29 @@
             ],
             "title": "Skip Reason"
           },
+          "rejected_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected By Id"
+          },
+          "rejected_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected At"
+          },
           "assigned_role_name": {
             "anyOf": [
               {
@@ -13339,7 +13422,9 @@
           "verification_note",
           "skipped_by_id",
           "skipped_at",
-          "skip_reason"
+          "skip_reason",
+          "rejected_by_id",
+          "rejected_at"
         ],
         "title": "TaskOut"
       },
@@ -14012,11 +14097,25 @@
             "title": "Dscr Per Year"
           },
           "avg_dscr": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Avg Dscr"
           },
           "min_dscr": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Min Dscr"
           },
           "payback_month": {

@@ -74,19 +74,29 @@ function FarmSelectPageContent() {
 
   async function onSubmit(values: FarmValues) {
     setServerError(null);
+    let farm: FarmEntry;
     try {
-      const farm = await apiFetch<FarmEntry>("/api/auth/farms", {
+      farm = await apiFetch<FarmEntry>("/api/auth/farms", {
         method: "POST",
         body: JSON.stringify({ ...values, location: values.location || null }),
       });
-      await refreshFarms();
-      reset({ name: "", location: "", timezone: "Asia/Kolkata" });
-      await pick(farm);
     } catch (err) {
       setServerError(
         err instanceof ApiError ? err.detail : "Could not create the farm.",
       );
+      return;
     }
+    // The farm is durably created from here on. Never report a follow-up
+    // failure as a creation failure: the retry would mint a fresh
+    // Idempotency-Key and create a second, identical farm.
+    reset({ name: "", location: "", timezone: "Asia/Kolkata" });
+    try {
+      await refreshFarms();
+    } catch {
+      // Best-effort: the list is re-fetched on the next load, and pick()
+      // below takes the operator straight into the farm they just created.
+    }
+    await pick(farm);
   }
 
   if (loading || !user) {

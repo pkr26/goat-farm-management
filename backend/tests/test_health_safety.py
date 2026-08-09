@@ -14,7 +14,11 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from app.db import get_engine, get_sessionmaker
 from app.main import create_app
 from app.models import HealthEvent, MovementRestrictionAction, Task, Transaction, VaccineTemplate
-from app.services import target_matches_template, template_name_for_task
+from app.services.health import (
+    protocol_phrase_of,
+    target_matches_template,
+    template_name_for_task,
+)
 from app.utils import today, utcnow
 
 from .conftest import create_farm, owner_with_farm
@@ -649,6 +653,114 @@ def test_health_template_matching_uses_words_and_requires_both_combined_componen
         "Enterotoxaemia (ET)"
     )
     assert template_name_for_task("Pre-kidding ET+TT vaccine", "VACCINE") == ("ET + TT pre-kidding")
+
+
+def test_template_inference_ignores_operator_supplied_labels() -> None:
+    """Only the protocol phrase decides the programme item: the quarantine
+    supplier prefix and the pre-kidding tag suffix are display text."""
+    assert protocol_phrase_of("[PPR Traders #1] Day 20: vaccinate ET + Tetanus (toxoid, SC)") == (
+        "Day 20: vaccinate ET + Tetanus (toxoid, SC)"
+    )
+    # A supplier may itself contain "]"; the generated prefix ends at the last.
+    assert protocol_phrase_of("[A] Day 10: PPR #1] Day 40: vaccinate FMD (killed, SC)") == (
+        "Day 40: vaccinate FMD (killed, SC)"
+    )
+    assert protocol_phrase_of("Pre-kidding ET+TT vaccine: PPR-01") == "Pre-kidding ET+TT vaccine"
+
+    for supplier in ("PPR Traders", "Goat Pox Agro", "FMD Exports"):
+        title = f"[{supplier} #7] Day 20: vaccinate ET + Tetanus (toxoid, SC)"
+        assert template_name_for_task(title, "VACCINE") == "Enterotoxaemia (ET)"
+        pox = f"[{supplier} #7] Day 30: vaccinate Goat Pox (live viral, SC)"
+        assert template_name_for_task(pox, "VACCINE") == "Goat Pox"
+    assert template_name_for_task("Pre-kidding ET+TT vaccine: PPR-01", "VACCINE") == (
+        "ET + TT pre-kidding"
+    )
+
+
+def test_template_abbreviation_matches_its_own_target() -> None:
+    """The read/inference path accepts the advertised abbreviation, so the
+    stricter write path must not reject the more precise entry."""
+    assert target_matches_template("HS", "Haemorrhagic Septicaemia (HS)")
+    assert target_matches_template("Haemorrhagic Septicaemia", "Haemorrhagic Septicaemia (HS)")
+    assert not target_matches_template("Anthrax", "Haemorrhagic Septicaemia (HS)")
+
+
+async def test_linked_duty_without_a_target_cannot_be_closed(client: httpx.AsyncClient) -> None:
+    """A generated VACCINE duty carrying neither an animal nor a batch has no
+    scope to validate against, so it must never close from a health record."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="NO-TARGET")
+    async with get_sessionmaker()() as db:
+        orphan = Task(
+            farm_id=int(owner["X-Farm-Id"]),
+            title="Day 10: vaccinate PPR (live viral, SC)",
+            due_date=today(),
+            status="PENDING",
+            category="VACCINE",
+            auto_generated=True,
+        )
+        db.add(orphan)
+        await db.commit()
+        task_id = orphan.id
+
+    response = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": animal["id"],
+            "type": "VACCINE",
+            "disease_target": "PPR",
+            "task_id": task_id,
+        },
+        headers=owner,
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Linked health task has no supported target"
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Task, task_id)
+        assert stored is not None and stored.status == "PENDING"
+
+
+async def test_a_new_suspicion_episode_restates_its_own_authority_notification(
+    client: httpx.AsyncClient,
+) -> None:
+    """place_movement_restriction opens a NEW episode, so the animal-level
+    restriction columns describe the current concern only. Carrying a previous
+    notification date forward would falsely assert the authority was told about
+    the new suspicion; the fact itself stays on the event that recorded it."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="NOTIFY-1")
+    notified_on = today() - timedelta(days=3)
+    await record_event(
+        client,
+        owner,
+        scope="animal",
+        animal_id=animal["id"],
+        type="TREATMENT",
+        disease_target="Anthrax",
+        suspected_scheduled_disease=True,
+        authority_notified_at=notified_on.isoformat(),
+    )
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.json()["animal"]["authority_notified_at"] == notified_on.isoformat()
+
+    await record_event(
+        client,
+        owner,
+        scope="animal",
+        animal_id=animal["id"],
+        type="TREATMENT",
+        disease_target="Anthrax",
+        suspected_scheduled_disease=True,
+    )
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.json()["animal"]["restriction_version"] == 2
+    assert profile.json()["animal"]["authority_notified_at"] is None
+    ledger = await client.get("/api/health/events", headers=owner)
+    assert ledger.status_code == 200, ledger.text
+    assert notified_on.isoformat() in {
+        event["authority_notified_at"] for event in ledger.json()["events"]
+    }
 
 
 async def test_manual_diet_task_does_not_gain_an_et_template_by_substring(

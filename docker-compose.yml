@@ -1,4 +1,6 @@
-# Optional local/self-hosted stack: Postgres + migration job + API + frontend.
+# Optional local/self-hosted stack: Postgres + migration job + API + frontend,
+# published through one edge proxy so the SPA and the API share a public origin
+# (the topology README documents for production).
 # Single backend replica on purpose — the auth rate limiter is in-memory and
 # the container CMD hard-codes --workers 1.
 # Credentials come from .env (copy .env.example to .env for defaults).
@@ -48,13 +50,19 @@ services:
       GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
       GOATFARM_COOKIE_SECURE: ${GOATFARM_COOKIE_SECURE:-false}
       GOATFARM_CORS_ORIGINS: '${GOATFARM_CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}'
-      # Next's rewrite uses changeOrigin and sends Host: backend:8000. Keep the
-      # exact internal service name in every override as well as public hosts.
+      # The edge forwards the browser's Host. Next's server-side rewrite still
+      # uses changeOrigin and sends Host: backend:8000, so keep the exact
+      # internal service name in every override as well as public hosts.
       GOATFARM_ALLOWED_HOSTS: '${GOATFARM_ALLOWED_HOSTS:-["localhost","127.0.0.1","test","testserver","backend"]}'
       GOATFARM_MIN_PASSWORD_LENGTH: ${GOATFARM_MIN_PASSWORD_LENGTH:-8}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-development-only-idempotency-hmac-secret-change-me}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
-      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-}
+      # Exactly the edge container's fixed address (see the `default` network
+      # below) — never the whole bridge range, which would also cover the
+      # docker gateway and let anything reaching the published API port spoof
+      # X-Forwarded-For. Without this every per-IP auth ceiling would count all
+      # clients as one address and become a product-wide lockout.
+      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-172.31.243.10}
       GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
       GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
     volumes:
@@ -71,8 +79,63 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # Not published: the edge below is the single public entry. Browser /api
+    # traffic must not transit Next's rewrite, whose proxy never emits
+    # X-Forwarded-For (it sets only x-forwarded-host), so the API would see
+    # the Next container's address for every client on the planet.
+    expose:
+      - "3000"
+
+  edge:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    configs:
+      - source: edge_proxy
+        target: /etc/nginx/conf.d/default.conf
+    networks:
+      default:
+        # Fixed so GOATFARM_TRUSTED_PROXY_HOSTS can name this one address.
+        ipv4_address: 172.31.243.10
     ports:
       - "3000:3000"
+
+configs:
+  edge_proxy:
+    # `$$` escapes Compose interpolation; nginx receives single-dollar vars.
+    content: |
+      server {
+          listen 3000;
+          server_name _;
+
+          # Preserve the browser's Host: TrustedHostMiddleware validates it and
+          # the SPA builds same-origin URLs from it. X-Forwarded-For is what
+          # lets the API key its auth rate limits on the real client.
+          proxy_set_header Host $$host;
+          proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $$scheme;
+          proxy_http_version 1.1;
+          # Mirrors GOATFARM_MAX_REQUEST_BODY_BYTES: reject oversized bodies at
+          # the edge rather than inside the application.
+          client_max_body_size 1m;
+
+          location /api/ {
+              proxy_pass http://backend:8000;
+          }
+          location / {
+              proxy_pass http://frontend:3000;
+          }
+      }
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.243.0/24
 
 volumes:
   pgdata:

@@ -172,12 +172,19 @@ async def batch_detail(
     farm: CurrentFarm,
     membership: CurrentMembership,
     perms: PurchasesView,
+    animals_limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    animals_offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> PurchaseBatchDetailOut:
     """One batch with its quarantine schedule and purpose-scoped animals.
 
     The schedule itself belongs to procurement, but task assignment and
     completion attribution remain task-module data. Likewise, a batch animal
     can be tracked through quarantine without granting its complete profile.
+
+    A batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals
+    are a bounded page like every other list in the API; the exact occupancy
+    stays available as the batch's ``animals_created``. The protocol schedule
+    needs no bound — ``QUARANTINE_PROTOCOL`` is 8 steps.
     """
     batch = await db.get(PurchaseBatch, batch_id) if 1 <= batch_id <= MAX_INT32_ID else None
     if batch is None or batch.farm_id != farm.id:
@@ -187,9 +194,20 @@ async def batch_detail(
         task_stmt = task_stmt.options(*TASK_LOADS)
     task_result = await db.execute(task_stmt.order_by(Task.due_date, Task.id))
     animal_stmt = select(Animal).where(Animal.purchase_batch_id == batch.id)
-    animal_result = await db.execute(animal_stmt.order_by(Animal.tag_number))
+    animal_result = await db.execute(
+        animal_stmt.order_by(Animal.tag_number, Animal.id)
+        .offset(animals_offset)
+        .limit(animals_limit)
+    )
     tasks = list(task_result.scalars().all())
     animals = list(animal_result.scalars().all())
+    # Exact occupancy, not the page length: an offset past the end must still
+    # report the real total so a client can page back to it.
+    animals_total = (
+        await db.execute(
+            select(func.count()).select_from(Animal).where(Animal.purchase_batch_id == batch.id)
+        )
+    ).scalar_one()
     reference_date = today(farm.timezone)
     computed = (
         await animal_computed_facts(db, animals, reference_date, farm.timezone)
@@ -220,4 +238,7 @@ async def batch_detail(
             )
             for task in tasks
         ],
+        animals_total=int(animals_total),
+        animals_limit=animals_limit,
+        animals_offset=animals_offset,
     )

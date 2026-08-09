@@ -253,12 +253,28 @@ def task_action_url(task: Task) -> str | None:
     return None
 
 
+def assignee_label(user: User | None) -> str | None:
+    """Non-identifying operational name for a task's assignee.
+
+    ``User.display_name`` falls back to the login email for a worker created
+    without a name, but task rows travel much further than the roster: the
+    awaiting-verification queue is farm-wide for any ``tasks.verify`` holder,
+    while the roster that legitimately carries emails is behind ``team.manage``.
+    Duties therefore name the worker, never their email address.
+    """
+    if user is None:
+        return None
+    if user.deleted_at is not None:
+        return user.display_name  # already the "Deleted account" tombstone label
+    return user.name or f"Worker #{user.id}"
+
+
 def task_out(task: Task) -> TaskOut:
     """Out model + display enrichment. Callers must have loaded the
     assigned_role / assigned_user / animal relationships (TASK_LOADS)."""
     out = TaskOut.model_validate(task)
     out.assigned_role_name = task.assigned_role.name if task.assigned_role else None
-    out.assigned_user_name = task.assigned_user.display_name if task.assigned_user else None
+    out.assigned_user_name = assignee_label(task.assigned_user)
     out.animal_tag = task.animal.tag_number if task.animal else None
     out.needs_verification = task.needs_verification
     out.action_url = task_action_url(task)

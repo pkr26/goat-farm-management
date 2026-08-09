@@ -97,6 +97,14 @@ describe("Select trigger labels (suspected bug: raw value shown instead of label
     expect(trigger).toHaveTextContent("Female");
   });
 
+  it("status filter shows 'All statuses' by default, not the raw 'ALL' sentinel", async () => {
+    renderWithProviders(<AnimalsPage />);
+    await screen.findByText("1 animal(s)");
+    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent(
+      "All statuses",
+    );
+  });
+
   it("create dialog defaults show 'Female' and 'Purchased', not raw enum values", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);

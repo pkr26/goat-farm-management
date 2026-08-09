@@ -80,6 +80,20 @@ UNTRUSTED_COOKIE_ORIGIN = "Untrusted origin for cookie-authenticated request."
 EMAIL_LIMIT_MULTIPLIER = 3
 IP_LIMIT_MULTIPLIER = 10
 
+# Current-password confirmation is what stops a stolen access token from
+# becoming a permanent account takeover, so it gets the same two-layer budget:
+# a composite (IP, account) counter plus an IP-agnostic per-account ceiling
+# that rotating source addresses cannot reset. `_reserve_password_work` only
+# serializes concurrent verifies for one account; it is not a budget.
+CHANGE_PASSWORD_SCOPE = "change-password"
+CHANGE_PASSWORD_ACCOUNT_SCOPE = "change-password-account"
+ACCOUNT_DELETE_SCOPE = "account-delete"
+ACCOUNT_DELETE_ACCOUNT_SCOPE = "account-delete-account"
+# Both account password workflows share one reservation, as the two team
+# password endpoints do: with a scope each, one account could hold two of the
+# global Argon slots at once and 429 every other user's login.
+ACCOUNT_PASSWORD_RESERVATION_SCOPE = "account-password-work"
+
 # Lazily built (Argon2 needs the settings and costs real CPU at first use).
 # create_app() calls prime_dummy_password_hash() at startup so the first
 # unknown-email login is not measurably slower than any subsequent one
@@ -197,6 +211,42 @@ def _record_attempt(scope: str, key: str) -> None:
     s = get_settings()
     if s.auth_rate_limit_enabled:
         auth_limiter.record(scope, key, s.auth_rate_limit_window_seconds)
+
+
+def _account_password_blocked(scope: str, account_scope: str, rate_key: str, user_id: int) -> bool:
+    """Composite (IP, account) ceiling plus the IP-agnostic per-account one.
+
+    Without the second counter a caller who varies their source address gets a
+    fresh budget on every request, exactly the distributed-guessing hole the
+    login path closes with "login-email".
+    """
+    s = get_settings()
+    if not s.auth_rate_limit_enabled:
+        return False
+    attempts, window = s.auth_rate_limit_max_attempts, s.auth_rate_limit_window_seconds
+    blocked = auth_limiter.is_blocked(scope, rate_key, attempts, window) or auth_limiter.is_blocked(
+        account_scope, str(user_id), attempts * EMAIL_LIMIT_MULTIPLIER, window
+    )
+    if blocked:
+        logger.info("%s throttled (user_id=%s)", scope, user_id)
+    return blocked
+
+
+def _record_account_password_attempt(
+    scope: str, account_scope: str, rate_key: str, user_id: int
+) -> None:
+    """Charge every request that completed a full Argon2 verify without
+    producing the change it asked for — a wrong current password, a rejected
+    replacement, or an unavailable deletion."""
+    _record_attempt(scope, rate_key)
+    _record_attempt(account_scope, str(user_id))
+
+
+def _reset_account_password_attempts(
+    scope: str, account_scope: str, rate_key: str, user_id: int
+) -> None:
+    auth_limiter.reset(scope, rate_key)
+    auth_limiter.reset(account_scope, str(user_id))
 
 
 def _too_many_attempts() -> HTTPException:
@@ -450,6 +500,11 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             await db.execute(
                 select(User)
                 .where(User.id == snapshot.id, User.deleted_at.is_(None))
+                # Every locked re-read repopulates: a row already in the
+                # identity map would otherwise be returned with its pre-lock
+                # column values, silently discarding the row this SELECT
+                # locked specifically in order to read.
+                .execution_options(populate_existing=True)
                 .with_for_update()
             )
         ).scalar_one_or_none()
@@ -487,6 +542,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         await db.execute(
             select(User)
             .where(User.id == claims.user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
             .with_for_update()
         )
     ).scalar_one_or_none()
@@ -496,7 +552,10 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
     # both pass the consumption check.
     session = (
         await db.execute(
-            select(RefreshSession).where(RefreshSession.jti == claims.jti).with_for_update()
+            select(RefreshSession)
+            .where(RefreshSession.jti == claims.jti)
+            .execution_options(populate_existing=True)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if session is None:
@@ -594,6 +653,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
             await db.execute(
                 select(User)
                 .where(User.id == candidate_user_id, User.deleted_at.is_(None))
+                .execution_options(populate_existing=True)
                 .with_for_update()
             )
         ).scalar_one_or_none()
@@ -604,7 +664,10 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     if claims is not None and logged_out_user is not None:
         session = (
             await db.execute(
-                select(RefreshSession).where(RefreshSession.jti == claims.jti).with_for_update()
+                select(RefreshSession)
+                .where(RefreshSession.jti == claims.jti)
+                .execution_options(populate_existing=True)
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if (
@@ -666,12 +729,14 @@ async def change_password(
     authenticated_token_version = user.token_version
     authenticated_password_hash = user.password_hash
     rate_key = f"{_client_key(request)}|{user_id}"
-    if _rate_limited("change-password", rate_key):
+    # (composite scope, account scope, composite key, account id) for the
+    # budget helpers above.
+    scopes = (CHANGE_PASSWORD_SCOPE, CHANGE_PASSWORD_ACCOUNT_SCOPE, rate_key, user_id)
+    if _account_password_blocked(*scopes):
         raise _too_many_attempts()
-    reservation_scope = "change-password-work"
-    _reserve_password_work(reservation_scope, str(user_id))
+    _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
     try:
-        if _rate_limited("change-password", rate_key):
+        if _account_password_blocked(*scopes):
             raise _too_many_attempts()
         # Release CurrentUser's read transaction/connection before Argon2.
         await db.rollback()
@@ -682,18 +747,21 @@ async def change_password(
         if not ok:
             if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
                 await verify_password_async(payload.current_password, _dummy_password_hash())
-            _record_attempt("change-password", rate_key)
+            _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
-        # Knowing the current password proves this is not a guessing request,
-        # so clear the local abuse budget even when replacement policy fails.
-        auth_limiter.reset("change-password", rate_key)
+        # A rejected replacement still cost a full memory-hard verify. Charging
+        # it (and clearing the budget only once the change commits) is what
+        # stops an authenticated caller from looping this endpoint unthrottled
+        # and holding a slot in the deliberately non-queuing Argon pool.
         if payload.new_password == payload.current_password:
+            _record_account_password_attempt(*scopes)
             raise HTTPException(
                 status_code=400,
                 detail="New password must be different from the current password.",
             )
         error = password_policy_error(payload.new_password)
         if error:
+            _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail=error)
         replacement_hash = await hash_password_async(payload.new_password)
 
@@ -717,9 +785,12 @@ async def change_password(
         await revoke_user_sessions(db, locked_user.id)
         out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
         await db.commit()
+        # Only a completed change proves the caller knew the current password
+        # AND consumed no further budget; clear it after the commit.
+        _reset_account_password_attempts(*scopes)
         return out
     finally:
-        auth_limiter.release(reservation_scope, str(user_id))
+        auth_limiter.release(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
 
 
 @router.get("/me")
@@ -827,12 +898,14 @@ async def delete_account(
     authenticated_token_version = user.token_version
     authenticated_password_hash = user.password_hash
     rate_key = f"{_client_key(request)}|{user_id}"
-    if _rate_limited("account-delete", rate_key):
+    # (composite scope, account scope, composite key, account id) for the
+    # budget helpers above.
+    scopes = (ACCOUNT_DELETE_SCOPE, ACCOUNT_DELETE_ACCOUNT_SCOPE, rate_key, user_id)
+    if _account_password_blocked(*scopes):
         raise _too_many_attempts()
-    reservation_scope = "account-delete-work"
-    _reserve_password_work(reservation_scope, str(user_id))
+    _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
     try:
-        if _rate_limited("account-delete", rate_key):
+        if _account_password_blocked(*scopes):
             raise _too_many_attempts()
         # CurrentUser performed only an unlocked read for this exempt auth
         # lifecycle route. End that transaction before password verification.
@@ -844,9 +917,8 @@ async def delete_account(
         if not ok:
             if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
                 await verify_password_async(payload.current_password, _dummy_password_hash())
-            _record_attempt("account-delete", rate_key)
+            _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
-        auth_limiter.reset("account-delete", rate_key)
 
         # Produce unusable replacement material before acquiring the User
         # write lock. Exact snapshot comparison below discards it safely if a
@@ -873,6 +945,10 @@ async def delete_account(
             await db.execute(select(Farm.id).where(Farm.owner_id == locked_user.id).limit(1))
         ).scalar_one_or_none()
         if owns_farm is not None:
+            # Two Argon2 runs already happened; an owner could otherwise loop
+            # this rejected path unthrottled. Only a completed deletion clears
+            # the budget (below, after the commit).
+            _record_account_password_attempt(*scopes)
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -892,12 +968,13 @@ async def delete_account(
         locked_user.password_hash = tombstone_password_hash
         locked_user.token_version += 1
         await db.commit()
+        _reset_account_password_attempts(*scopes)
 
         response.delete_cookie(get_settings().refresh_cookie_name, path="/api/auth")
         response.status_code = 204
         return response
     finally:
-        auth_limiter.release(reservation_scope, str(user_id))
+        auth_limiter.release(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
 
 
 @router.get("/permissions")

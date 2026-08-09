@@ -96,11 +96,11 @@ class ViabilityMetrics(BaseModel):
     subsidy_amount: float
     equity: float  # month-0 promoter outflow
     npv: float  # ₹ at finance.discount_rate_annual
-    irr: float | None  # None when the cash-flow series has no sign change root
-    bcr: float | None  # PV(inflows) / PV(outflows); None when there are no outflows
+    irr: float | None  # None when the flows admit no single well-defined IRR
+    bcr: float | None  # PV(gross benefits) / PV(gross costs); None without costs
     dscr_per_year: list[float]  # 0 for years without debt service
-    avg_dscr: float  # over years with debt service > 0 (0 if none)
-    min_dscr: float
+    avg_dscr: float | None  # over years with debt service > 0; None when there are none
+    min_dscr: float | None  # weakest such year; None when there are none
     payback_month: int | None  # first month cumulative cash >= 0; None if never
     break_even_meat_price_per_kg: float | None  # meat price making NPV = 0
 
@@ -176,6 +176,11 @@ class SensitivityItem(BaseModel):
     parameter: str
     delta_npv_low: float  # NPV(param low) - NPV(base)
     delta_npv_high: float  # NPV(param high) - NPV(base)
+    # The perturbation actually applied, in the parameter's own units
+    # ("-20%", "-2 month(s)"). Nominal +/-20% is not what every case runs:
+    # sale age moves by whole months and four cases clamp at a schema ceiling.
+    label_low: str
+    label_high: str
 
 
 class SimulationResult(BaseModel):

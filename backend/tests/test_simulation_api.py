@@ -12,12 +12,26 @@ from datetime import date, timedelta
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import text
 
-from app.api.simulation import _farm_run_lock
+from app.api.simulation import (
+    _BREAK_EVEN_PASSES,
+    _RUN_BUDGET_UNITS,
+    _SENSITIVITY_PASSES,
+    _farm_run_lock,
+    _farm_run_locks,
+    _global_run_slots,
+    _run_budget,
+    _run_cost,
+    _RunCostWindow,
+    _user_run_locks,
+    _with_run_limits,
+)
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.schemas.common import MAX_PAGE_OFFSET
+from app.simulation import SimulationAssumptions
 
 from .conftest import login, owner_with_farm
 
@@ -569,6 +583,96 @@ async def test_run_limiter_429_while_run_in_flight(client: httpx.AsyncClient) ->
     finally:
         lock.release()
     # Once the lock is free, the same payload runs.
+    resp = await client.post(
+        "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_busy_fast_path_does_not_leak_keyed_run_locks() -> None:
+    """The 429 branch raised *before* the try/finally that drops idle keyed
+    locks, so every distinct (farm, user) that arrived while the process-wide
+    slots were full left two dict entries behind forever — precisely the
+    cardinality growth _release_run_lock was written to prevent. The busy path
+    is reached with unseen keys exactly when both global slots are taken."""
+    keys = range(900_001, 900_051)
+
+    async def never_runs() -> None:  # pragma: no cover - the 429 fires first
+        raise AssertionError("operation must not run while capacity is busy")
+
+    async with _global_run_slots, _global_run_slots:  # occupy both slots
+        for key in keys:
+            with pytest.raises(HTTPException) as exc_info:
+                await _with_run_limits(key, key, never_runs)
+            assert exc_info.value.status_code == 429
+    assert not any(key in _farm_run_locks for key in keys)
+    assert not any(key in _user_run_locks for key in keys)
+
+
+# ---------------------------------------------------------------------------
+# Per-user/per-farm CPU budget: concurrency caps bound parallelism, not rate
+# ---------------------------------------------------------------------------
+def test_run_cost_prices_horizon_and_monte_carlo() -> None:
+    """A request's price must track the CPU it will actually burn, otherwise a
+    per-request counter lets the schema-maximal body (240 months x 2,000 Monte
+    Carlo runs, ~20 s of pure-Python CPU) cost the same as a 12-month run."""
+    a = SimulationAssumptions()  # 120 months, 500 Monte Carlo runs
+    base_passes = 1 + _BREAK_EVEN_PASSES
+    assert _run_cost(a, False, False) == base_passes * 120
+    assert _run_cost(a, True, False) == (base_passes + 500) * 120
+    assert _run_cost(a, False, True) == (base_passes + _SENSITIVITY_PASSES) * 120
+    a.meta.horizon_months = 240
+    a.risk.monte_carlo_runs = 2000
+    # The worst case the schema allows must not fit in the window twice.
+    assert _run_cost(a, True, True) > _RUN_BUDGET_UNITS / 2
+
+
+def test_run_cost_window_expires_and_keeps_scopes_apart() -> None:
+    now = [1000.0]
+    window = _RunCostWindow(window_seconds=60, budget=100, max_keys=10, clock=lambda: now[0])
+    assert not window.is_over_budget("user", 1)
+    window.charge("user", 1, 60)
+    assert not window.is_over_budget("user", 1)
+    window.charge("user", 1, 40)
+    assert window.is_over_budget("user", 1)
+    assert not window.is_over_budget("farm", 1)  # scopes are independent
+    assert not window.is_over_budget("user", 2)  # so are principals
+    now[0] += 61.0  # the window slides
+    assert not window.is_over_budget("user", 1)
+
+
+async def test_run_endpoints_429_once_the_cpu_budget_is_spent(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    farm_id = int(headers["X-Farm-Id"])
+    created = await create_scenario(client, headers, "Budgeted", assumptions)
+    try:
+        resp = await client.post(
+            "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+
+        _run_budget.charge("farm", farm_id, _RUN_BUDGET_UNITS)
+        for resp in (
+            await client.post(
+                "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+            ),
+            await client.post(f"/api/simulation/scenarios/{created['id']}/run", headers=headers),
+            await client.get(
+                "/api/simulation/scenarios/compare",
+                params={"ids": str(created["id"])},
+                headers=headers,
+            ),
+        ):
+            assert resp.status_code == 429, resp.text
+            assert "budget" in resp.json()["detail"]
+            assert resp.headers["Retry-After"]
+    finally:
+        _run_budget.clear()
+    # With the budget released the same payload runs again.
     resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )

@@ -8,16 +8,23 @@ failure behavior.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
+import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
+from app.core.config import Settings
 from scripts import healthcheck
+
+from .conftest import _admin_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKUP = REPO_ROOT / "backend" / "scripts" / "backup.sh"
@@ -763,3 +770,173 @@ def test_frontend_is_a_standalone_node_container() -> None:
     assert 'output: "standalone"' in config
     assert "poweredByHeader: false" in config
     assert 'CMD ["node", "server.js"]' in dockerfile
+
+
+def _stage_scripts(tmp_path: Path, env_file: str | None) -> Path:
+    """Copy the scripts under a private backend/ tree so a test can control the
+    backend/.env they read without touching the repository's own file."""
+    staged = tmp_path / "staged-backend" / "scripts"
+    staged.mkdir(parents=True)
+    for source in (BACKUP, RESTORE, URL_HELPER):
+        shutil.copy(source, staged / source.name)
+    if env_file is not None:
+        (staged.parent / ".env").write_text(env_file)
+    return staged
+
+
+def test_backup_reads_the_application_env_file_for_its_safety_gates(tmp_path: Path) -> None:
+    """The TLS and mandatory-GPG gates key off GOATFARM_ENVIRONMENT and
+    GOATFARM_DB_SSLMODE, which config.py reads from backend/.env. A cron entry
+    that exports only GOATFARM_DATABASE_URL used to silently degrade a
+    production host to an unsigned plaintext dump over a connection this script
+    then forces to `disable` — and exit 0."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.pop("GOATFARM_ENVIRONMENT")
+    env.pop("GOATFARM_DB_SSLMODE")
+    staged = _stage_scripts(
+        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=require\n"
+    )
+
+    result = subprocess.run(
+        ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 2
+    assert "authenticated GPG encryption" in result.stderr
+    assert _log_text(env) == ""  # never connected to the database
+
+
+def test_restore_reads_the_application_env_file_for_its_safety_gates(tmp_path: Path) -> None:
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.pop("GOATFARM_ENVIRONMENT")
+    env.pop("GOATFARM_DB_SSLMODE")
+    staged = _stage_scripts(
+        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=require\n"
+    )
+    archive = tmp_path / "goatfarm.dump"
+    archive.write_bytes(b"archive")
+    _write_checksum(archive)
+    restore_env = env.copy()
+    restore_env["GOATFARM_RESTORE_CONFIRM"] = "goatfarm_restore_test"
+    restore_env["GOATFARM_RESTORE_DATABASE_URL"] = (
+        "postgresql://restore_user:restore%3Asecret@db.invalid:5432/goatfarm_restore_test"
+    )
+    tmp_root = tmp_path / "restore-tmp"
+    tmp_root.mkdir()
+    restore_env["TMPDIR"] = str(tmp_root)
+
+    result = subprocess.run(
+        ["bash", str(staged / "restore.sh"), str(archive)],
+        env=restore_env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 2
+    assert "authenticated GPG backup" in result.stderr
+    assert _log_text(env) == ""
+
+
+def test_exported_environment_still_wins_over_the_env_file(tmp_path: Path) -> None:
+    """The documented production invocation passes both values on the command
+    line; an explicit export must keep overriding backend/.env."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)  # development / disable
+    staged = _stage_scripts(
+        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=require\n"
+    )
+
+    result = subprocess.run(
+        ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_compose_publishes_one_edge_that_forwards_the_real_client_address() -> None:
+    """Next's rewrite proxy never emits X-Forwarded-For, so routing browser
+    /api traffic through the SPA container made every client share the Next
+    container's address: the 11th signup in five minutes — from anyone — got
+    429, and 100 bad logins locked the whole deployment out."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    services = compose["services"]
+
+    # The SPA container is no longer a published entry point.
+    assert "ports" not in services["frontend"]
+    edge = services["edge"]
+    assert "3000:3000" in edge["ports"]
+
+    # `$$` is Compose's escape; nginx receives single-dollar variables.
+    proxy_conf = compose["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in proxy_conf
+    assert "$$" not in proxy_conf
+    assert "location /api/" in proxy_conf
+    assert "proxy_pass http://backend:8000;" in proxy_conf
+
+    # The backend trusts exactly the edge's fixed address — not the bridge
+    # range, which also covers the docker gateway and would let anything
+    # reaching the published API port spoof X-Forwarded-For.
+    edge_address = edge["networks"]["default"]["ipv4_address"]
+    trusted = services["backend"]["environment"]["GOATFARM_TRUSTED_PROXY_HOSTS"]
+    assert trusted.endswith(f":-{edge_address}}}"), trusted
+    subnet = compose["networks"]["default"]["ipam"]["config"][0]["subnet"]
+    assert ipaddress.ip_address(edge_address) in ipaddress.ip_network(subnet)
+    # And the value the compose file ships must satisfy the settings contract.
+    assert Settings(trusted_proxy_hosts=edge_address).trusted_proxy_hosts == edge_address
+
+
+def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: Path) -> None:
+    """`statement_timeout` is an OLTP backstop. Applying it to DDL cancels any
+    table rewrite, constraint validation or CREATE INDEX CONCURRENTLY that runs
+    longer than a request may, aborting the release job — and CONCURRENTLY
+    builds wait for concurrent transactions to drain, so even a small table
+    trips it."""
+    assert Settings().migration_statement_timeout_ms == 0
+
+    database = f"{os.environ.get('GOATFARM_TEST_DB', 'goatfarm_test')}_migration_timeout"
+    _admin_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    _admin_sql(f'CREATE DATABASE "{database}"')
+    try:
+        env = os.environ.copy()
+        env["GOATFARM_DATABASE_URL"] = f"postgresql+asyncpg://localhost:5432/{database}"
+        env["GOATFARM_DB_STATEMENT_TIMEOUT_MS"] = "1"
+        allowed = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "ed5efe13a516"],
+            cwd=REPO_ROOT / "backend",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        assert allowed.returncode == 0, allowed.stderr
+
+        # ...and the migration-specific knob really is the one in force.
+        env["GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS"] = "1"
+        capped = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=REPO_ROOT / "backend",
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+        assert capped.returncode != 0
+        assert "statement timeout" in capped.stderr
+    finally:
+        _admin_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')

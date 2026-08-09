@@ -495,20 +495,32 @@ async def add_feed_stock(
     if restock_money is not None:
         exact_price, total_cost = restock_money
         item.last_purchase_price_per_kg = exact_price
-        db.add(
-            Transaction(
-                farm_id=farm.id,
-                date=today(farm.timezone),
-                type=TransactionType.EXPENSE.value,
-                category=TransactionCategory.FEED.value,
-                amount=total_cost,
-                notes=(
-                    f"Feed purchase: {qty_kg:.3f} kg {item.ingredient} "
-                    f"@ ₹{exact_price:.2f}/kg = ₹{total_cost:.2f}"
-                ),
-                created_by_id=created_by_id,
-            )
+        purchase = Transaction(
+            farm_id=farm.id,
+            date=today(farm.timezone),
+            type=TransactionType.EXPENSE.value,
+            category=TransactionCategory.FEED.value,
+            amount=total_cost,
+            notes=(
+                f"Feed purchase: {qty_kg:.3f} kg {item.ingredient} "
+                f"@ ₹{exact_price:.2f}/kg = ₹{total_cost:.2f}"
+            ),
+            created_by_id=created_by_id,
         )
+        db.add(purchase)
+        # Provenance, as HEALTH_EVENT/PURCHASE_BATCH already record it: without
+        # it the finance UI presents this system-generated expense as a hand
+        # -typed "Manual entry". A restock persists no row of its own — it only
+        # moves the running FeedInventory balance — and that row's id repeats on
+        # every restock, which the partial unique index over the ACTIVE source
+        # pair (farm_id, source_type, source_id) would reject the second time.
+        # The ledger row is therefore its own source: unique by construction,
+        # and an audited correction still inherits the pair once the original is
+        # voided. Both columns are set after the insert because the source-pair
+        # CHECK forbids a half-populated pair.
+        await db.flush()
+        purchase.source_type = "FEED_PURCHASE"
+        purchase.source_id = purchase.id
     await db.flush()
 
 

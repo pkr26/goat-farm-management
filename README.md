@@ -56,8 +56,10 @@ per-owner worker-password throttling), `GOATFARM_ALLOWED_HOSTS` (the API virtual
 `GOATFARM_MAX_ROLES_PER_FARM`, `GOATFARM_MAX_SIMULATION_SCENARIOS_PER_FARM`,
 `GOATFARM_MAX_PENDING_MANUAL_TASKS_PER_FARM`,
 and the `GOATFARM_DB_POOL_*` /
-`GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards. Requests are capped at 1 MiB
-by default (`GOATFARM_MAX_REQUEST_BODY_BYTES`); configure the edge proxy to
+`GOATFARM_DB_STATEMENT_TIMEOUT_MS` pool guards (a request-path backstop only;
+migrations have their own `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS`, below).
+Requests are capped at 1 MiB by
+default (`GOATFARM_MAX_REQUEST_BODY_BYTES`); configure the edge proxy to
 the same or a smaller limit. Request paths plus query strings are capped at
 8 KiB (`GOATFARM_MAX_REQUEST_TARGET_BYTES`, returning 414); the edge must
 apply an equal or smaller request-line limit. RS256 key pairs are
@@ -87,14 +89,25 @@ Production releases may set `GOATFARM_MIGRATION_DATABASE_URL` to a separately
 privileged database identity used only by Alembic. The long-running API should
 use a credential without schema/DDL privileges. Migrations and libpq backup /
 restore tools inherit `GOATFARM_DB_SSLMODE`; remote production jobs must use
-`require`, `verify-ca`, or `verify-full`.
+`require`, `verify-ca`, or `verify-full`. Migrations do **not** inherit the
+request-path `GOATFARM_DB_STATEMENT_TIMEOUT_MS` budget: the Alembic connection
+applies `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS` instead, `0` (unbounded) by
+default, because a table rewrite, a constraint validation, or a `CREATE INDEX
+CONCURRENTLY` (which waits for every concurrent transaction to drain)
+legitimately runs far longer than any request may, and cancelling one aborts
+the release job. A fixed 10-second `lock_timeout` still applies, so DDL that
+cannot acquire its lock fails fast instead of queueing behind live traffic.
 
 The `f3d4e5f6a7b8` release migration validates the legacy personal-task role
 invariant and builds a transactional partial index on `tasks`. Its ordinary
 `CREATE INDEX` takes a PostgreSQL `SHARE` lock that blocks task writes while
 the build runs. Schedule that one-shot upgrade in a maintenance window, after
 the migration job has exclusive rollout ownership, rather than during live
-task traffic.
+task traffic. The later `a1b2c3d4e5f7` repairs the personal-task rows that
+revision's PENDING-only backfill skipped: `ck_tasks_user_assignment_has_role`
+also fires on an UPDATE that moves a row back *into* `PENDING`, which is
+exactly what rejecting a completed cleaning duty does, so an unrepaired row
+made that duty permanently un-rejectable.
 
 Treat the first upgrade of any existing deployment to the current head as a
 maintenance operation, not as an online rolling migration. The intervening
@@ -138,7 +151,10 @@ passes. Resume API replicas only after that succeeds.
   `POST /api/auth/change-password` gives users self-service password change
   (requires the current password; revokes all other sessions).
 - Farm context travels in the **`X-Farm-Id` header**, validated per request
-  (owner or active membership). All domain endpoints require it.
+  (owner or active membership). Every farm-scoped domain endpoint requires it;
+  the only exceptions are `GET /api/simulation/defaults` and
+  `GET /api/simulation/defaults/breeds`, which serve global breed/production
+  assumptions and need authentication alone (no farm context, no permission).
 - RBAC: owners hold every permission; workers get a role's permission bundle
   (presets: Animal Mover, Veterinarian, Cleaner, Cleaner Manager, Feeder —
   editable, plus custom roles). `GET /api/auth/permissions` returns the
@@ -179,7 +195,7 @@ passes. Resume API replicas only after that succeeds.
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 2826 tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 2944 tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
@@ -187,7 +203,7 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test            # 904 Vitest + MSW tests
+pnpm test            # 955 Vitest + MSW tests
 pnpm exec playwright test   # 22 browser e2e tests across 14 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
@@ -247,7 +263,11 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 - Run **one** worker/replica (in-memory login and per-owner worker-password
   rate limits, see Configuration),
   behind a TLS-terminating proxy; set `GOATFARM_TRUSTED_PROXY_HOSTS` to the
-  proxy's IPs so rate limiting keys on real client IPs.
+  proxy's own IPs/CIDRs so rate limiting keys on real client IPs. Startup
+  rejects a hostname (it can never match a peer address, so it would silently
+  trust nothing) and rejects `*` or any prefix-length-0 network (always-trust,
+  which makes `X-Forwarded-For` and every per-IP ceiling spoofable). Name the
+  proxy's addresses, not the range it sits in.
 - The frontend is a **Next.js Node server**, not a static export: dynamic
   routes, security headers and the same-origin `/api` rewrite require a
   runtime. Build `frontend/Dockerfile` with the internal API destination, for
@@ -258,14 +278,27 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
     -t goatfarm-frontend frontend
   ```
 
-  Place it behind the same public origin as the API. The Compose stack includes
-  this standalone frontend on port 3000. Next's server-side rewrite changes the
-  upstream `Host` header to its internal destination, `backend:8000`, so every
-  Compose `GOATFARM_ALLOWED_HOSTS` override must retain the exact `backend`
-  service name alongside any public API hostname (for example,
+  Place it behind the same public origin as the API — but do **not** route
+  browser `/api/*` traffic through Next's rewrite. That proxy never emits
+  `X-Forwarded-For` (it sets only `x-forwarded-host`), so the API would see the
+  Next container's address for every client: the eleventh signup in five
+  minutes — from anyone — 429s, and 100 bad logins lock the deployment out.
+  `docker-compose.yml` therefore publishes a single `edge` (nginx) container on
+  port 3000, the only published entry point besides the API's own `8000`: it
+  proxies `/api/` straight to `backend:8000` and everything else to
+  `frontend:3000`, preserves the browser's `Host`, appends
+  `X-Forwarded-For`/`X-Forwarded-Proto`, and mirrors
+  `GOATFARM_MAX_REQUEST_BODY_BYTES` with `client_max_body_size 1m`. The `edge`
+  holds a fixed address on a pinned `172.31.243.0/24` network so
+  `GOATFARM_TRUSTED_PROXY_HOSTS` can name exactly that one host
+  (`172.31.243.10`) rather than the bridge range, which would also cover the
+  docker gateway. The `frontend` service is only `expose`d, never published.
+  Next's server-side rewrite still uses changeOrigin and sends
+  `Host: backend:8000` for anything it does proxy, so every Compose
+  `GOATFARM_ALLOWED_HOSTS` override must retain the exact `backend` service
+  name alongside any public API hostname (for example,
   `["api.example.com","backend"]`). Omitting it makes the API health check pass
-  while every browser `/api/*` request through the frontend is rejected with
-  `400 Invalid host header`.
+  while every request Next forwards is rejected with `400 Invalid host header`.
 
 **Zero-downtime JWT key rotation:** every newly issued token carries a
 deterministic `kid` (the base64url SHA-256 fingerprint of its RSA public key).
@@ -343,8 +376,17 @@ GOATFARM_BACKUP_S3_URI='s3://company-backups/goatfarm' \
 ./backend/scripts/backup.sh /var/backups/goatfarm
 ```
 
+Both scripts read `GOATFARM_ENVIRONMENT` and `GOATFARM_DB_SSLMODE` — the two
+application settings that gate TLS and the signed/encrypted-artifact
+requirement — from `backend/.env` when the job did not export them, so a host
+whose `.env` says `production` cannot be degraded to an unsigned plaintext dump
+by an incomplete cron environment. An explicit export still wins, which is why
+the invocations in this section pass both explicitly.
+
 The database password is supplied to libpq through a mode-`0600` temporary
-passfile; `pg_dump`, `psql`, and `pg_restore` receive only a password-free URL.
+passfile; `pg_dump`, `psql`, and `pg_restore` receive only a password-free URL
+built by `backend/scripts/libpq_url.py`, which reads the URL from stdin so it
+never appears in any process's arguments.
 The directory lock is deliberately not auto-stolen: after a host crash, verify
 that the recorded PID/job is no longer active before manually removing the
 stale `.goatfarm-backup.lock` directory. Alert on any non-zero backup exit and
@@ -383,11 +425,20 @@ GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT='SIGNING_KEY_FINGERPRINT' \
 The revision stored in an authentic backup may legitimately be older than the
 currently deployed code. After the restore succeeds, point the migration URL
 at the restored database and bring it to the current application head before
-starting the API or performing smoke tests:
+starting the API or performing smoke tests. Alembic builds an **async** engine,
+so the migration URL must carry the `postgresql+asyncpg://` driver scheme;
+a plain libpq URL resolves to psycopg2 and aborts with a bare
+`ModuleNotFoundError: No module named 'psycopg2'` that names neither the URL
+nor the cause. `restore.sh` itself accepts `postgres://`, `postgresql://` or
+`postgresql+asyncpg://` and always hands `psql`/`pg_restore` a normalized
+password-free `postgresql://` URL, so `backend/.env.example` sets
+`GOATFARM_RESTORE_DATABASE_URL` with the async scheme and the anchored
+substitution below is a no-op for it — while still upgrading a libpq URL if the
+operator supplied one:
 
 ```bash
 cd backend
-GOATFARM_MIGRATION_DATABASE_URL="${GOATFARM_RESTORE_DATABASE_URL}" \
+GOATFARM_MIGRATION_DATABASE_URL="${GOATFARM_RESTORE_DATABASE_URL/#postgresql:/postgresql+asyncpg:}" \
 GOATFARM_DB_SSLMODE=verify-full \
 .venv/bin/alembic upgrade head
 ```
@@ -494,7 +545,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          24 tables, domain enums, computed properties — split per
+    models/          26 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,
@@ -511,8 +562,9 @@ backend/
   alembic/           Migrations (single linear head: initial schema through
                      auth/session, domain-traceability, finance/feed/task and
                      movement-clearance hardening)
-  scripts/           export_openapi.py, backup.sh, restore.sh
-  tests/             2826 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  scripts/           export_openapi.py, healthcheck.py, backup.sh, restore.sh,
+                     libpq_url.py (URL → credential-safe libpq inputs)
+  tests/             2944 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout

@@ -27,6 +27,22 @@ export function setActiveFarmTimezone(timezone: string | null | undefined): void
   activeFarmTimezone = timezone || DEFAULT_FARM_TIMEZONE;
 }
 
+/** Every formatter built from a farm timezone must go through this. The zone
+ * arrives from the API, and Intl rejects names Python's zoneinfo and
+ * PostgreSQL both accept ("Factory"), so an unguarded constructor throws
+ * RangeError mid-render for everyone on that farm. */
+function farmTimeZoneFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+  timezone: string,
+): Intl.DateTimeFormat {
+  try {
+    return new Intl.DateTimeFormat(locale, { ...options, timeZone: timezone });
+  } catch {
+    return new Intl.DateTimeFormat(locale, { ...options, timeZone: DEFAULT_FARM_TIMEZONE });
+  }
+}
+
 /** YYYY-MM-DD in an IANA timezone, built from parts so it never depends on
  * locale-specific string ordering. Invalid/stale timezone values safely use
  * the product default. */
@@ -34,24 +50,12 @@ export function todayInTimeZone(
   timezone: string,
   now: Date = new Date(),
 ): string {
-  let formatter: Intl.DateTimeFormat;
-  try {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  } catch {
-    formatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: DEFAULT_FARM_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-  }
   const parts = Object.fromEntries(
-    formatter
+    farmTimeZoneFormat(
+      "en-US",
+      { year: "numeric", month: "2-digit", day: "2-digit" },
+      timezone,
+    )
       .formatToParts(now)
       .filter((part) => part.type === "year" || part.type === "month" || part.type === "day")
       .map((part) => [part.type, part.value]),
@@ -64,26 +68,32 @@ export function farmToday(now: Date = new Date()): string {
 }
 
 /** Backend datetimes without an offset are UTC. Render the instant in the
- * active farm timezone so completion/audit times agree for every operator. */
+ * active farm timezone so completion/audit times agree for every operator.
+ * The year is always rendered: these are audit rows, and two episodes twelve
+ * months apart would otherwise be indistinguishable. */
 export function formatFarmDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const hasOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
   const date = new Date(hasOffset ? iso : `${iso}Z`);
   if (Number.isNaN(date.getTime())) return "—";
   const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-GB", {
-      timeZone: activeFarmTimezone,
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    })
+    farmTimeZoneFormat(
+      "en-GB",
+      {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      },
+      activeFarmTimezone,
+    )
       .formatToParts(date)
-      .filter((part) => ["day", "month", "hour", "minute"].includes(part.type))
+      .filter((part) => ["day", "month", "year", "hour", "minute"].includes(part.type))
       .map((part) => [part.type, part.value]),
   );
-  return `${parts.day}-${parts.month} ${parts.hour}:${parts.minute}`;
+  return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
 /** YYYY-MM-DD `days` after `iso` (both YYYY-MM-DD), timezone-safe. */

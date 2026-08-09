@@ -145,7 +145,14 @@ describe("ReportsPage", () => {
     await renderLoaded();
 
     expect(summaryValue("Breeding records")).toHaveTextContent("24");
-    expect(summaryValue("Conception rate (confirmed / completed)")).toHaveTextContent("66%");
+    // The label must say what the backend counts: an ultrasound-confirmed
+    // pregnancy is a conception even when it was later lost (ABORTED).
+    expect(
+      summaryValue("Conception rate (ultrasound-confirmed / completed)"),
+    ).toHaveTextContent("66%");
+    expect(
+      screen.getByText(/confirmed by ultrasound counts as a conception even if it was later lost/),
+    ).toBeInTheDocument();
     expect(summaryValue("First-cycle success")).toHaveTextContent("50%");
     expect(summaryValue("Kiddings recorded")).toHaveTextContent("12");
     expect(summaryValue("Alive kids per kidding")).toHaveTextContent("1.8");
@@ -209,7 +216,9 @@ describe("ReportsPage", () => {
     payload.breeding.kids_per_kidding = null;
     await renderLoaded(payload);
 
-    expect(summaryValue("Conception rate (confirmed / completed)")).toHaveTextContent("—");
+    expect(
+      summaryValue("Conception rate (ultrasound-confirmed / completed)"),
+    ).toHaveTextContent("—");
     expect(summaryValue("First-cycle success")).toHaveTextContent("—");
     expect(summaryValue("Twin rate (≥2 kids)")).toHaveTextContent("—");
     expect(summaryValue("Alive kids per kidding")).toHaveTextContent("—");

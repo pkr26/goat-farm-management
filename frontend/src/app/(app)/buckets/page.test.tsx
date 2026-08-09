@@ -151,11 +151,26 @@ describe("BucketsPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("rounds the daily kg/head to one decimal", async () => {
+  // REGRESSION — the ration was rendered with toFixed(1), so a bucket
+  // configured at 1.25 kg/head read "1.2" and misreported the operator's own
+  // setting. It is stored at 0.001 kg precision and must be shown faithfully.
+  it("renders the configured daily kg/head without truncating it", async () => {
     await renderBoard();
-    expect(within(cardOf("Quarantine")).getByText(/1\.3 kg\/head\/day|1\.2 kg\/head\/day/)).toBeInTheDocument();
-    // Exact rounding of 1.25 → toFixed(1):
-    expect(within(cardOf("Quarantine")).getByText(new RegExp(`${(1.25).toFixed(1)} kg/head/day`))).toBeInTheDocument();
+    const quarantine = cardOf("Quarantine");
+    expect(within(quarantine).getByText(/1\.25 kg\/head\/day/)).toBeInTheDocument();
+    expect(within(quarantine).queryByText(/1\.2 kg\/head\/day/)).not.toBeInTheDocument();
+  });
+
+  it("keeps gram-precision rations and trims trailing zeros", async () => {
+    useBoardHandler([
+      { ...ROW_BREEDING, daily_kg_per_head: 2 },
+      { ...ROW_QUARANTINE, daily_kg_per_head: 0.855 },
+    ]);
+    await renderBoard();
+    expect(within(cardOf("Breeding Bucket")).getByText(/· 2 kg\/head\/day ·/)).toBeInTheDocument();
+    expect(
+      within(cardOf("Quarantine")).getByText(/· 0\.855 kg\/head\/day ·/),
+    ).toBeInTheDocument();
   });
 
   it("shows the exit rule when present and hides it when empty", async () => {

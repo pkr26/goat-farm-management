@@ -17,8 +17,8 @@ export interface ViabilityMetrics {
   irr: number | null;
   bcr: number | null;
   dscr_per_year: number[];
-  avg_dscr: number;
-  min_dscr: number;
+  avg_dscr: number | null;
+  min_dscr: number | null;
   payback_month: number | null;
   break_even_meat_price_per_kg: number | null;
 }

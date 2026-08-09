@@ -1,110 +1,129 @@
 """Exhaustive RBAC coverage.
 
-`test_rbac.py` samples 3 preset roles × 4-ish endpoints. This test walks
-EVERY (path, method) that uses `require_perm(...)` and confirms a
-zero-permission worker gets 403. A new endpoint shipped without a permission
-guard now shows up as a test failure at the (route, method) level, not as a
-silent security regression that hides behind sampled coverage.
+`test_rbac.py` samples 3 preset roles × 4-ish endpoints. This module inspects
+the mounted FastAPI app and asserts two complementary things about EVERY route
+it serves:
+
+1. every route that declares a `require_perm(...)` dependency answers 403 to a
+   worker whose role holds no permissions at all, and
+2. every route that declares none is listed in `UNGUARDED_BY_DESIGN`, the
+   explicit, reasoned allowlist of public/self-service endpoints.
+
+Only (2) makes the promise this module has always made — a new endpoint
+shipped without a permission guard shows up as a test failure, not as a silent
+security regression hiding behind sampled coverage. (1) alone can never see an
+unguarded route, because an unguarded route has nothing for it to look at.
+
+We introspect FastAPI's resolved dependency tree rather than parsing the source.
+The previous ast extractor matched only a literal `Depends(require_perm("..."))`
+in a route signature, so it silently skipped the 49 routes whose guard arrives
+through a module-level alias (`TEAM_PERM`, `SimView`, `FeedingManage`, …) or
+through a prepared sub-dependency (`_prepare_worker_create`): it audited 16 of
+65 guarded routes and still reported success. The dependency tree resolves all
+of those, and `MIN_GUARDED_ROUTES` below makes a repeat collapse a failure.
 """
 
-import ast
-from pathlib import Path
+import inspect
+import re
+from collections.abc import Iterator
+from functools import cache
 
 import httpx
+from fastapi.dependencies.models import Dependant
+from fastapi.routing import APIRoute
+
+from app.deps import current_farm
+from app.main import create_app
 
 from .conftest import login, owner_with_farm
 
-API_DIR = Path(__file__).resolve().parent.parent / "app" / "api"
+# Every route that carries no `require_perm` dependency, with the reason it
+# sits outside the farm RBAC matrix. Adding an entry must be a deliberate act:
+# an unlisted unguarded route fails the suite.
+UNGUARDED_BY_DESIGN: dict[tuple[str, str], str] = {
+    ("GET", "/healthz"): "liveness probe — unauthenticated by design",
+    ("GET", "/readyz"): "readiness probe — unauthenticated by design",
+    ("POST", "/api/auth/register"): "creates the account permissions are evaluated against",
+    ("POST", "/api/auth/login"): "issues the token permissions are evaluated against",
+    ("POST", "/api/auth/refresh"): "rotates the caller's own session, authorized by the token",
+    ("POST", "/api/auth/logout"): "revokes the caller's own session",
+    ("GET", "/api/auth/me"): "the caller's own identity",
+    ("GET", "/api/auth/farms"): "the caller's own farm list — the picker that fills X-Farm-Id",
+    ("POST", "/api/auth/farms"): "creating a farm makes the caller its owner",
+    ("GET", "/api/auth/permissions"): "the caller's own effective permission set",
+    ("POST", "/api/auth/change-password"): "self-service, gated on the current password",
+    ("DELETE", "/api/auth/account"): "self-service account deletion",
+    ("GET", "/api/auth/account/export"): "the caller's own data export",
+    ("GET", "/api/simulation/defaults"): "global breed/system reference data, no farm scope",
+    ("GET", "/api/simulation/defaults/breeds"): "global breed list, no farm scope",
+}
+
+# Domain routes that deliberately resolve no `X-Farm-Id`. README's tenancy
+# section names exactly these two; keep the two in step.
+FARMLESS_BY_DESIGN: frozenset[tuple[str, str]] = frozenset(
+    {("GET", "/api/simulation/defaults"), ("GET", "/api/simulation/defaults/breeds")}
+)
+
+# The old extractor collapsed from 65 routes to 16 without anyone noticing.
+# A floor turns "the walker went blind" into a failure of its own.
+MIN_GUARDED_ROUTES = 60
+
+_PATH_PARAM = re.compile(r"\{[^{}]+\}")
 
 
-def _routes_with_require_perm() -> list[tuple[str, str, str]]:
-    """Walk backend/app/api/*.py and return (method, path, permission_code)
-    for every FastAPI decorator whose function calls `require_perm(...)`.
-
-    We use ast so a runtime shift (module import order) can't influence
-    what we inspect; the result is a static contract.
-    """
-    routes: list[tuple[str, str, str]] = []
-    for path in sorted(API_DIR.glob("*.py")):
-        if path.name in {"__init__.py", "_shared.py"}:
+def _api_routes(router: object) -> Iterator[APIRoute]:
+    """Flatten the app's route table. `include_router` stores each included
+    router inside a private container route, so recurse through it."""
+    for route in getattr(router, "routes", []):
+        if isinstance(route, APIRoute):
+            yield route
             continue
-        tree = ast.parse(path.read_text(), filename=str(path))
-        prefix = _router_prefix(tree)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                continue
-            method, route_path = _endpoint_from_decorators(node)
-            if method is None or route_path is None:
-                continue
-            perm = _first_require_perm(node)
-            if perm is None:
-                continue
-            routes.append((method, f"{prefix}{route_path}", perm))
-    return routes
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from _api_routes(included)
 
 
-def _router_prefix(tree: ast.Module) -> str:
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.Call)
-            and isinstance(node.value.func, ast.Name)
-            and node.value.func.id == "APIRouter"
-        ):
-            for kw in node.value.keywords:
-                if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
-                    return str(kw.value.value)
-    return ""
+def _required_perms(dependant: Dependant) -> list[str]:
+    """Every permission code enforced anywhere in a route's resolved dependency
+    tree. `require_perm(code)` returns a closure, so the code is read back from
+    the closure rather than from the (aliased) annotation in the signature."""
+    codes: list[str] = []
+    for sub in dependant.dependencies:
+        if getattr(sub.call, "__qualname__", "").startswith("require_perm."):
+            codes.append(str(inspect.getclosurevars(sub.call).nonlocals["code"]))
+        codes.extend(_required_perms(sub))
+    return codes
 
 
-def _endpoint_from_decorators(
-    node: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> tuple[str | None, str | None]:
-    for dec in node.decorator_list:
-        # @router.get("...") / @router.post("...") ...
-        if (
-            isinstance(dec, ast.Call)
-            and isinstance(dec.func, ast.Attribute)
-            and isinstance(dec.func.value, ast.Name)
-            and dec.func.value.id == "router"
-            and dec.func.attr in {"get", "post", "put", "patch", "delete"}
-            and dec.args
-            and isinstance(dec.args[0], ast.Constant)
-        ):
-            return dec.func.attr.upper(), str(dec.args[0].value)
-    return None, None
+def _uses_farm_context(dependant: Dependant) -> bool:
+    """True when `X-Farm-Id` is resolved anywhere in the dependency tree."""
+    return any(
+        sub.call is current_farm or _uses_farm_context(sub) for sub in dependant.dependencies
+    )
 
 
-def _first_require_perm(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
-    """Extract the string literal from a require_perm("...") anywhere in the
-    function's argument defaults (Depends(require_perm(...)))."""
-    for sub in ast.walk(node):
-        if (
-            isinstance(sub, ast.Call)
-            and isinstance(sub.func, ast.Name)
-            and sub.func.id == "require_perm"
-            and sub.args
-            and isinstance(sub.args[0], ast.Constant)
-        ):
-            return str(sub.args[0].value)
-    return None
+@cache
+def _app_routes() -> tuple[tuple[str, str, str, bool], ...]:
+    """(method, path, permission_code | "", uses_farm_context) for every route
+    the app serves. Cached: building the app is the expensive part."""
+    routes: list[tuple[str, str, str, bool]] = []
+    for route in _api_routes(create_app().router):
+        perms = sorted(set(_required_perms(route.dependant)))
+        farm_scoped = _uses_farm_context(route.dependant)
+        for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
+            routes.extend((method, route.path, perm, farm_scoped) for perm in perms or [""])
+    return tuple(routes)
+
+
+def _guarded_routes() -> list[tuple[str, str, str]]:
+    return [(method, path, perm) for method, path, perm, _ in _app_routes() if perm]
 
 
 def _placeholders(path: str, farm_id: str) -> str:
     """Replace `{...}` path params with harmless placeholders that the
     endpoint will 4xx on. We only care that we hit the perm check first
     (403), not that the underlying operation succeeds."""
-    return (
-        path.replace("{farm_id}", farm_id)
-        .replace("{animal_id}", "99999")
-        .replace("{breeding_record_id}", "99999")
-        .replace("{task_id}", "99999")
-        .replace("{membership_id}", "99999")
-        .replace("{role_id}", "99999")
-        .replace("{batch_id}", "99999")
-        .replace("{scenario_id}", "99999")
-        .replace("{id}", "99999")
-    )
+    return _PATH_PARAM.sub(lambda match: farm_id if match.group() == "{farm_id}" else "99999", path)
 
 
 async def _make_zero_perm_worker(client: httpx.AsyncClient, farm_headers: dict) -> dict:
@@ -135,14 +154,18 @@ async def _make_zero_perm_worker(client: httpx.AsyncClient, farm_headers: dict) 
 async def test_every_require_perm_route_403s_for_a_zero_permission_worker(
     client: httpx.AsyncClient,
 ) -> None:
-    """The declarative RBAC matrix. Adds/removals of require_perm decorators
+    """The declarative RBAC matrix. Adds/removals of require_perm dependencies
     show up here at the (route, method) level."""
     farm_headers = await owner_with_farm(client)
     worker_headers = await _make_zero_perm_worker(client, farm_headers)
     farm_id = farm_headers["X-Farm-Id"]
 
-    routes = _routes_with_require_perm()
-    assert routes, "expected at least one require_perm route to audit"
+    routes = _guarded_routes()
+    assert len(routes) >= MIN_GUARDED_ROUTES, (
+        f"only {len(routes)} permission-guarded routes discovered, expected at least "
+        f"{MIN_GUARDED_ROUTES} — the walker has gone blind, so this test is auditing "
+        "far less than it claims"
+    )
 
     failures: list[str] = []
     for method, path, perm in routes:
@@ -164,3 +187,64 @@ async def test_every_require_perm_route_403s_for_a_zero_permission_worker(
             )
 
     assert not failures, "RBAC coverage failures:\n" + "\n".join(failures)
+
+
+async def test_guards_declared_through_aliases_and_sub_dependencies_are_seen() -> None:
+    """Regression for the blind spot this module used to have: the ast walker
+    matched only an inline `Depends(require_perm("..."))` in the route
+    signature, so every router that declares its guard as a module-level
+    `Annotated` alias — or behind a prepared sub-dependency — was dropped,
+    leaving 16 of 65 routes audited while the suite stayed green."""
+    guarded = set(_guarded_routes())
+    aliased = {
+        ("GET", "/api/team", "team.manage"),
+        ("POST", "/api/tasks/{task_id}/verify", "tasks.verify"),
+        ("GET", "/api/health/events", "health.view"),
+        ("GET", "/api/finance", "finance.view"),
+        ("POST", "/api/feeding/mix", "feeding.manage"),
+        ("GET", "/api/purchases", "purchases.view"),
+        ("GET", "/api/dashboard", "dashboard.view"),
+        ("DELETE", "/api/simulation/scenarios/{scenario_id}", "simulation.manage"),
+    }
+    # team.py reaches require_perm only via _prepare_worker_create /
+    # _prepare_password_reset, so these need the tree walked recursively.
+    nested = {
+        ("POST", "/api/team/workers", "team.manage"),
+        ("POST", "/api/team/workers/{membership_id}/reset-password", "team.manage"),
+    }
+    assert (aliased | nested) <= guarded, f"missed: {sorted((aliased | nested) - guarded)}"
+
+
+async def test_no_route_ships_without_a_permission_guard() -> None:
+    """The other half of the contract: a route with no `require_perm` anywhere
+    in its dependency tree must be an acknowledged public/self-service one."""
+    unguarded = {(method, path) for method, path, perm, _ in _app_routes() if not perm}
+
+    undeclared = sorted(unguarded - UNGUARDED_BY_DESIGN.keys())
+    assert not undeclared, (
+        "route(s) shipped with no permission guard:\n"
+        + "\n".join(f"  {method} {path}" for method, path in undeclared)
+        + "\nAdd the require_perm dependency, or record the reason it is public "
+        "in UNGUARDED_BY_DESIGN."
+    )
+
+    stale = sorted(UNGUARDED_BY_DESIGN.keys() - unguarded)
+    assert not stale, (
+        "UNGUARDED_BY_DESIGN lists route(s) that are now guarded or gone:\n"
+        + "\n".join(f"  {method} {path}" for method, path in stale)
+    )
+
+
+async def test_every_domain_route_resolves_farm_context() -> None:
+    """README's tenancy section promises `X-Farm-Id` on the domain API. The two
+    global simulation reference endpoints are the documented exceptions; any
+    third one must be a deliberate, documented decision."""
+    farmless = {
+        (method, path)
+        for method, path, _, farm_scoped in _app_routes()
+        if not farm_scoped and path.startswith("/api/") and not path.startswith("/api/auth/")
+    }
+    assert farmless == FARMLESS_BY_DESIGN, (
+        "domain routes without X-Farm-Id changed; update README's tenancy "
+        f"section and FARMLESS_BY_DESIGN together. Found: {sorted(farmless)}"
+    )

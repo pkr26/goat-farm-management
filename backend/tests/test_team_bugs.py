@@ -7,9 +7,13 @@ regression guards. Helpers are reused from the extended suite.
 """
 
 import httpx
+import pytest
+from sqlalchemy import func, literal, select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.api.team as team_api
 from app.db import get_sessionmaker
-from app.models import Role
+from app.models import Farm, FarmMembership, Role, User
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
@@ -381,3 +385,106 @@ async def test_team_manager_cannot_update_or_delete_richer_role(
     assert owner_update.status_code == 200, owner_update.text
     assert owner_update.json()["name"] == "Owner-renamed Finance Role"
     assert (await client.delete(f"/api/team/roles/{rich['id']}", headers=owner)).status_code == 204
+
+
+async def test_reset_password_increments_the_locked_token_version(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_get_membership` selectinloads the target User, so the later locked
+    re-read used to hand back that cached pre-lock instance and
+    `token_version += 1` incremented a stale value — a lost update that
+    re-wrote the version a concurrent change-password had just committed,
+    leaving the revoked worker's access token valid for its whole TTL."""
+    owner = await owner_with_farm(client, "reset-stale-owner@farm.in")
+    rid = await role_id(client, owner, "CLEANER")
+    assert (await add_worker(client, owner, rid, "reset-stale@farm.in")).status_code == 201
+    mid = await membership_id(client, owner, "reset-stale@farm.in")
+
+    async with get_sessionmaker()() as db:
+        worker_id, before = (
+            await db.execute(
+                select(User.id, User.token_version).where(User.email == "reset-stale@farm.in")
+            )
+        ).one()
+
+    original = team_api._get_membership
+    bumped = False
+
+    async def bump_between_load_and_lock(
+        db: AsyncSession,
+        farm: Farm,
+        target_id: int,
+        *,
+        for_update: bool = False,
+        no_key_update: bool = False,
+    ) -> FarmMembership:
+        nonlocal bumped
+        membership = await original(
+            db, farm, target_id, for_update=for_update, no_key_update=no_key_update
+        )
+        if for_update and not bumped:
+            bumped = True
+            # Stand in for a concurrent self-service change-password that
+            # commits a new token_version after the membership load but before
+            # the route takes its FOR UPDATE lock on the same user row.
+            async with get_sessionmaker()() as other:
+                await other.execute(
+                    update(User)
+                    .where(User.id == worker_id)
+                    .values(token_version=User.token_version + 1)
+                )
+                await other.commit()
+        return membership
+
+    monkeypatch.setattr(team_api, "_get_membership", bump_between_load_and_lock)
+    resp = await client.post(
+        f"/api/team/workers/{mid}/reset-password",
+        json={"password": "brandnewpass1"},
+        headers=owner,
+    )
+    assert resp.status_code == 200, resp.text
+    assert bumped
+
+    async with get_sessionmaker()() as db:
+        after = (
+            await db.execute(select(User.token_version).where(User.id == worker_id))
+        ).scalar_one()
+    # Both increments survive: the reset built on the value it locked, so the
+    # token minted by the concurrent change-password is now invalid.
+    assert after == before + 2
+
+
+async def test_team_provisioning_lock_does_not_block_unrelated_tenant_writes(
+    client: httpx.AsyncClient,
+) -> None:
+    """Team/role provisioning serializes on a per-farm ADVISORY lock. A
+    `SELECT farms.id ... FOR UPDATE` conflicts with the FOR KEY SHARE that
+    every farm-scoped child insert takes, so the guard used to stall every
+    unrelated write in the tenant for the rest of the request transaction."""
+    owner = await owner_with_farm(client, "advisory-owner@farm.in")
+    farm_id = int(owner["X-Farm-Id"])
+
+    async with get_sessionmaker()() as holder:
+        farm = (await holder.execute(select(Farm).where(Farm.id == farm_id))).scalar_one()
+        await team_api._lock_farm_provisioning(holder, farm)
+
+        # An unrelated farm-scoped insert (FK to farms) must not queue behind it.
+        async with get_sessionmaker()() as writer:
+            await writer.execute(text("SET lock_timeout = '2s'"))
+            writer.add(Role(farm_id=farm_id, name="Concurrent insert probe", permissions="[]"))
+            await writer.commit()
+
+        # The guard still self-conflicts, so the capacity ceilings stay real.
+        async with get_sessionmaker()() as contender:
+            taken = (
+                await contender.execute(
+                    select(
+                        func.pg_try_advisory_xact_lock(
+                            literal(team_api.TEAM_PROVISIONING_LOCK_NAMESPACE), literal(farm_id)
+                        )
+                    )
+                )
+            ).scalar_one()
+            await contender.rollback()
+        assert taken is False
+        await holder.rollback()

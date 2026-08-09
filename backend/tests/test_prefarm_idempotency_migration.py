@@ -22,6 +22,17 @@ F3_REVISION = "f3d4e5f6a7b8"
 F4_REVISION = "f4e5f6a7b8c9"
 
 
+def _is_throwaway_db(name: str) -> bool:
+    """conftest's own throwaway-database rule, verbatim (conftest.py:20).
+
+    The destructive tests below downgrade and re-upgrade the schema, so they
+    re-check it locally — but they must not re-derive a *stricter* rule: a bare
+    `endswith("_test")` rejects the suffixed parallel-run names conftest itself
+    documents (goatfarm_test_ops, …) and fails the run for no reason.
+    """
+    return name.endswith("_test") or "_test_" in name
+
+
 async def _alembic(*args: str, succeeds: bool = True) -> subprocess.CompletedProcess[str]:
     result = await asyncio.to_thread(
         subprocess.run,
@@ -171,10 +182,23 @@ async def test_f3_catalog_downgrade_guard_roundtrip_and_autogenerate(
         await _alembic("upgrade", "head")
 
 
+def test_throwaway_db_guard_accepts_every_name_conftest_accepts() -> None:
+    """Regression: the destructive-test guard used to be `endswith("_test")`,
+    which rejected the parallel-run convention conftest documents — so
+    `GOATFARM_TEST_DB=goatfarm_test_ops` produced exactly one red test out of
+    ~2,800, teaching everyone to ignore this module's failures."""
+    for accepted in ("goatfarm_test", "goatfarm_test_ops", "goatfarm_test_finance", "a_test_1"):
+        assert _is_throwaway_db(accepted), accepted
+    for refused in ("goatfarm", "goatfarm_prod", "testing", "test"):
+        assert not _is_throwaway_db(refused), refused
+    # Whatever this run uses already cleared conftest's gate at import time.
+    assert _is_throwaway_db(TEST_DB), TEST_DB
+
+
 async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
     client: httpx.AsyncClient,
 ) -> None:
-    assert TEST_DB.endswith("_test")
+    assert _is_throwaway_db(TEST_DB), TEST_DB
     owner = await owner_with_farm(
         client,
         email="f4-sensitive-purge-owner@farm.in",
@@ -226,8 +250,15 @@ async def test_f4_purges_only_sensitive_rows_and_is_irreversible_roundtrip(
             await connection.close()
         assert [row["operation"] for row in operations] == ["finance.transactions.create"]
 
+        # F4 is applied and the history stayed linear. Asserting F4 *is* the
+        # head would break the day any later revision lands, which says nothing
+        # about F4.
         heads = await _alembic("heads")
-        assert f"{F4_REVISION} (head)" in heads.stdout
+        assert heads.stdout.count("(head)") == 1, heads.stdout
+        history = await _alembic("history")
+        assert F4_REVISION in history.stdout, history.stdout
+        current = await _alembic("current")
+        assert "(head)" in current.stdout, current.stdout
         await _alembic("check")
 
         # Downgrade cannot reconstruct the purged secret-bearing replay row;

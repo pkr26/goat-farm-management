@@ -34,6 +34,18 @@ def _year_of(month: int) -> str:
     return f"month {month} (year {(month - 1) // 12 + 1})"
 
 
+def _ranked(items: list[tuple[str, float]], total: float) -> str:
+    """'labour ₹12.00 lakh (64.4%), feed … and vet …', largest first.
+
+    The ranking is computed, never assumed: a flat ₹10,000/month labour floor
+    makes labour — not feed — the biggest cost of any smallholder herd, and a
+    sentence that hard-codes the order contradicts the figures it prints.
+    """
+    ordered = sorted(items, key=lambda item: item[1], reverse=True)
+    parts = [f"{name} {_inr(value)} ({_share(value, total)})" for name, value in ordered]
+    return (", ".join(parts[:-1]) + " and " + parts[-1]) if len(parts) > 1 else parts[0]
+
+
 def build_metric_explanations(
     a: SimulationAssumptions, result: SimulationResult
 ) -> list[MetricExplanation]:
@@ -148,8 +160,10 @@ def build_metric_explanations(
                     f"{_pct(fin.discount_rate_annual)} discount rate, so the project falls "
                     f"short of the required return."
                     if m.irr is not None
-                    else "The IRR is undefined for this cash-flow pattern (the flows never "
-                    "change sign), which usually means the investment is never recovered."
+                    else "The IRR is undefined for this cash-flow pattern: the flows either "
+                    "never change sign (the investment is never recovered) or change sign "
+                    "more than once, which admits several mathematically valid rates. Judge "
+                    "the project on its NPV instead."
                 )
             ),
             figures={"irr": m.irr, "discount_rate_annual": fin.discount_rate_annual},
@@ -160,18 +174,21 @@ def build_metric_explanations(
             key="bcr",
             title="Benefit-cost ratio (BCR)",
             explanation=(
-                f"Present value of all cash inflows divided by the present value of all "
-                f"outflows: {m.bcr:.2f}. Above 1.0 the project earns more than it costs "
-                f"(at the {_pct(fin.discount_rate_annual)} discount rate); banks typically "
-                f"look for 1.5 or better."
+                f"Present value of the project's gross revenue divided by the present value "
+                f"of its gross costs (capital, operating cost and debt service): {m.bcr:.2f}. "
+                f"Above 1.0 the project earns more than it costs (at the "
+                f"{_pct(fin.discount_rate_annual)} discount rate); banks typically look for "
+                f"1.5 or better."
                 if m.bcr is not None
                 else "Benefit-cost ratio is undefined because the project has no "
-                "discounted outflows (no costs at all — e.g. a fully subsidised, "
-                "immediately cash-positive setup)."
+                "discounted costs at all (e.g. a fully subsidised, immediately "
+                "cash-positive setup)."
             ),
             figures={"bcr": m.bcr},
         )
     )
+    # A DSCR of zero or less is a real (catastrophic) debt year, so the branch
+    # is on whether any year carries debt service — never on the ratio's sign.
     debt_years = sum(1 for row in result.annual_pl if row.debt_service > 0.0)
     out.append(
         MetricExplanation(
@@ -182,24 +199,33 @@ def build_metric_explanations(
                 f"year's loan repayment, averaged over the {debt_years} "
                 f"year(s) with debt outstanding: {m.avg_dscr:.2f}. Above 1.0 the farm can "
                 f"service the loan from operations; banks usually want 1.5 or better."
-                if m.avg_dscr > 0.0
+                if m.avg_dscr is not None
                 else "No debt service falls inside the projection horizon (zero loan or the "
                 "loan is fully repaid before year 1), so no DSCR is computed."
             ),
             figures={"avg_dscr": m.avg_dscr, "min_dscr": m.min_dscr, "debt_years": debt_years},
         )
     )
+    if m.min_dscr is None:
+        min_dscr_text = "No debt year in the horizon, so there is no weak year to report."
+    elif m.min_dscr <= 0.0:
+        min_dscr_text = (
+            f"The worst single debt year: {m.min_dscr:.2f}. It is not positive, so that "
+            f"year's operating surplus (EBITDA) was zero or negative — the farm cannot pay "
+            f"any part of the instalment out of operations and must fund it from the "
+            f"promoter's pocket, a longer moratorium or a rescheduling."
+        )
+    else:
+        min_dscr_text = (
+            f"The worst single debt year: {m.min_dscr:.2f}. If this dips below 1.0 the "
+            f"farm cannot cover that year's repayment from operations and needs a cash "
+            f"buffer or rescheduling."
+        )
     out.append(
         MetricExplanation(
             key="min_dscr",
             title="Weakest-year DSCR",
-            explanation=(
-                f"The worst single debt year: {m.min_dscr:.2f}. If this dips below 1.0 the "
-                f"farm cannot cover that year's repayment from operations and needs a cash "
-                f"buffer or rescheduling."
-                if m.min_dscr > 0.0
-                else "No debt year in the horizon, so there is no weak year to report."
-            ),
+            explanation=min_dscr_text,
             figures={"min_dscr": m.min_dscr},
         )
     )
@@ -369,11 +395,18 @@ def build_narrative_report(
             key="revenue_mix",
             title="Where the money comes from",
             paragraphs=[
-                f"Total revenue over {years:g} years is {_inr(total_revenue)}. Meat sales "
-                f"dominate at {_inr(meat)} ({_share(meat, total_revenue)}), followed by cull "
-                f"sales {_inr(cull_rev)} ({_share(cull_rev, total_revenue)}), milk "
-                f"{_inr(milk)} ({_share(milk, total_revenue)}) and manure "
-                f"{_inr(manure)} ({_share(manure, total_revenue)})."
+                f"Total revenue over {years:g} years is {_inr(total_revenue)}, "
+                f"largest source first: "
+                + _ranked(
+                    [
+                        ("meat sales", meat),
+                        ("cull sales", cull_rev),
+                        ("milk", milk),
+                        ("manure", manure),
+                    ],
+                    total_revenue,
+                )
+                + "."
             ],
             figures={
                 "total_revenue": total_revenue,
@@ -398,13 +431,20 @@ def build_narrative_report(
             key="cost_mix",
             title="Where the money goes",
             paragraphs=[
-                f"Operating costs total {_inr(total_opex)} over {years:g} years. Feed is the "
-                f"largest at {_inr(feed)} ({_share(feed, total_opex)}), then labour "
-                f"{_inr(labour)} ({_share(labour, total_opex)}), stock purchases "
-                f"{_inr(stock_purchases)} ({_share(stock_purchases, total_opex)}), vet "
-                f"{_inr(vet)} ({_share(vet, total_opex)}), insurance {_inr(insurance)} "
-                f"({_share(insurance, total_opex)}) and overheads {_inr(misc)} "
-                f"({_share(misc, total_opex)}).",
+                f"Operating costs total {_inr(total_opex)} over {years:g} years, "
+                f"largest first: "
+                + _ranked(
+                    [
+                        ("feed", feed),
+                        ("labour", labour),
+                        ("stock purchases", stock_purchases),
+                        ("vet", vet),
+                        ("insurance", insurance),
+                        ("overheads", misc),
+                    ],
+                    total_opex,
+                )
+                + ".",
                 f"Growing green fodder needs about "
                 f"{result.feed_summary.land_requirement_acres:.2f} acre(s) on average"
                 + (
@@ -435,9 +475,18 @@ def build_narrative_report(
         problems.append("the NPV is negative")
     if m.bcr is not None and m.bcr < 1.0:
         problems.append("the benefit-cost ratio is below 1.0")
-    if m.irr is None or m.irr < a.finance.discount_rate_annual:
+    if m.irr is None:
+        problems.append("the IRR is undefined for this cash-flow pattern")
+    elif m.irr < a.finance.discount_rate_annual:
         problems.append("the IRR is below your discount rate")
-    if 0.0 < m.min_dscr < 1.0:
+    # None means "no debt year at all"; every number below 1.0 — including the
+    # non-positive ones, which are strictly the worst outcome — is a problem.
+    if m.min_dscr is not None and m.min_dscr <= 0.0:
+        problems.append(
+            "the weakest debt year has a non-positive DSCR (no operating surplus to pay "
+            "the instalment from)"
+        )
+    elif m.min_dscr is not None and m.min_dscr < 1.0:
         problems.append("the weakest debt year has a DSCR below 1.0")
     if m.payback_month is None:
         problems.append("the equity is never paid back inside the horizon")
@@ -509,14 +558,21 @@ def build_narrative_report(
         )[:3]
 
         def _biggest(item: SensitivityItem) -> tuple[str, float]:
+            """(applied perturbation, NPV delta) for the item's larger side.
+
+            The label comes from the run itself: the tornado does not move
+            every parameter by 20% (sale age moves in whole months, and four
+            cases clamp at a schema ceiling), so quoting a flat 20% here
+            described scenarios the engine never ran.
+            """
             low_first = abs(item.delta_npv_low) >= abs(item.delta_npv_high)
-            delta = item.delta_npv_low if low_first else item.delta_npv_high
-            direction = "down" if low_first else "up"
-            return direction, delta
+            if low_first:
+                return item.label_low, item.delta_npv_low
+            return item.label_high, item.delta_npv_high
 
         movers = ", ".join(
             f"{item.parameter.replace('_', ' ')} "
-            f"({_biggest(item)[0]} 20% moves NPV by {_inr(_biggest(item)[1])})"
+            f"({_biggest(item)[0]} moves NPV by {_inr(_biggest(item)[1])})"
             for item in top
         )
         risk_paragraphs.append(f"The assumptions that move NPV the most: {movers}.")

@@ -126,13 +126,16 @@ export default function ReportsPage() {
 
       <DataTableCard
         title="Breeding performance"
-        description="Conception, kidding and twinning rates across all breeding records."
+        description={
+          "Conception, kidding and twinning rates across all breeding records. " +
+          "A pregnancy confirmed by ultrasound counts as a conception even if it was later lost."
+        }
       >
         <Table>
           <TableBody>
             <SummaryRow label="Breeding records" value={breeding.total_records} />
             <SummaryRow
-              label="Conception rate (confirmed / completed)"
+              label="Conception rate (ultrasound-confirmed / completed)"
               value={pct(breeding.conception_rate)}
             />
             <SummaryRow label="First-cycle success" value={pct(breeding.first_cycle_rate)} />

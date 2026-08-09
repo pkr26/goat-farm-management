@@ -496,6 +496,162 @@ describe("SimulationPage", () => {
     expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
   });
 
+  // REGRESSION — the assumption-editor unit caption was inferred from
+  // substrings, so ₹10,000/month of labour read "Unit: months" and a
+  // head-count threshold read "Unit: ₹".
+  it("captions per-month money, head counts and fodder yield with real units", async () => {
+    registerApiHandlers();
+    server.use(
+      http.get("/api/simulation/defaults", () =>
+        HttpResponse.json({
+          ...DEFAULTS,
+          costs: {
+            labour_per_month: 10000,
+            labour_per_head_threshold: 75,
+            misc_overhead_per_month: 2000,
+          },
+          feed: { fodder_yield_t_dm_per_acre_year: 6 },
+        }),
+      ),
+    );
+    renderWithProviders(<SimulationPage />);
+    await screen.findByText("Horizon Months");
+
+    const unitOf = (label: string) =>
+      screen.getByLabelText(label).closest("div")?.querySelector("p")?.textContent;
+    expect(unitOf("Labour Per Month")).toBe("Unit: ₹/month");
+    expect(unitOf("Misc Overhead Per Month")).toBe("Unit: ₹/month");
+    expect(unitOf("Labour Per Head Threshold")).toBe("Unit: head per labourer");
+    expect(unitOf("Fodder Yield T Dm Per Acre Year")).toBe("Unit: t DM/acre/yr");
+    // The genuine duration field is unaffected.
+    expect(unitOf("Horizon Months")).toBe("Unit: months");
+  });
+
+  // REGRESSION — the System trigger passed no `items` map, so Base UI showed
+  // the raw enum "stall_fed" while the open list read "Stall Fed".
+  it("shows the humanized system label in the closed trigger", async () => {
+    await renderLoaded();
+    expect(screen.getByLabelText("System")).toHaveTextContent("Stall Fed");
+    expect(screen.getByLabelText("System")).not.toHaveTextContent("stall_fed");
+  });
+
+  // REGRESSION — head counts are expected-value float64s; the cells used to
+  // print the full 17-significant-digit repr.
+  it("rounds the monthly projection head counts instead of printing raw floats", async () => {
+    server.use(
+      http.post("/api/simulation/run", () =>
+        HttpResponse.json({
+          ...RESULT,
+          months: [
+            monthRow({
+              total_herd: 58.851702943044856,
+              births: 7.127272727272728,
+              deaths: 0.28410042178298056,
+              sales_head: 1.5000000000000002,
+            }),
+          ],
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+
+    const projection = (await screen.findByText("Monthly projection")).closest(
+      "[data-slot='card']",
+    ) as HTMLElement;
+    const row = within(projection).getByText("58.9").closest("tr") as HTMLElement;
+    expect(within(row).getByText("7.1")).toBeInTheDocument();
+    expect(within(row).getByText("0.3")).toBeInTheDocument();
+    expect(within(row).getByText("1.5")).toBeInTheDocument();
+    expect(
+      within(projection).queryByText("58.851702943044856"),
+    ).not.toBeInTheDocument();
+  });
+
+  // REGRESSION — updated_at is a naive-UTC datetime; the date-only formatter
+  // printed the UTC day, which is the previous day for farms ahead of UTC.
+  it("renders the scenario Updated column in the farm timezone", async () => {
+    await renderLoaded([
+      {
+        id: 1,
+        farm_id: 1,
+        name: "Plan B",
+        notes: "",
+        assumptions: DEFAULTS,
+        valid: true,
+        validation_error: null,
+        created_at: "2026-08-08T20:30:00",
+        // 20:30 UTC on 8 Aug is 02:00 on 9 Aug for the Asia/Kolkata test farm.
+        updated_at: "2026-08-08T20:30:00",
+      },
+    ]);
+
+    expect(await screen.findByText("09-08-2026 02:00")).toBeInTheDocument();
+    expect(screen.queryByText("8 Aug 2026")).not.toBeInTheDocument();
+  });
+
+  // REGRESSION — a scenario run was fingerprinted from the scenario's stored
+  // assumptions while the comparison value was always derived from the editor,
+  // so the "results are stale" banner was on after every saved-scenario run.
+  describe("saved-scenario run staleness", () => {
+    const SCENARIO = {
+      id: 7,
+      farm_id: 1,
+      name: "Plan B",
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const STALE = /results do not match the current/i;
+
+    async function runScenario() {
+      server.use(
+        http.post("/api/simulation/scenarios/7/run", () => HttpResponse.json(RESULT)),
+      );
+      const user = userEvent.setup();
+      await renderLoaded([SCENARIO]);
+      await user.click(screen.getByRole("button", { name: "Run" }));
+      expect(await screen.findByText("Source: Saved scenario “Plan B”")).toBeInTheDocument();
+      return user;
+    }
+
+    it("does not warn about staleness right after running a saved scenario", async () => {
+      await runScenario();
+      expect(screen.queryByText(STALE)).not.toBeInTheDocument();
+    });
+
+    it("still warns when a run option is toggled after the scenario run", async () => {
+      const user = await runScenario();
+      await user.click(screen.getByRole("checkbox", { name: "Monte Carlo" }));
+      expect(screen.getByText(STALE)).toBeInTheDocument();
+    });
+
+    it("warns once the editor diverges from the scenario it is showing", async () => {
+      const user = await runScenario();
+      // Load the same scenario into the editor: it now describes the run.
+      await user.click(screen.getByRole("button", { name: "Load" }));
+      expect(screen.queryByText(STALE)).not.toBeInTheDocument();
+
+      const does = screen.getByLabelText("Does");
+      await user.clear(does);
+      await user.type(does, "51");
+      expect(screen.getByText(STALE)).toBeInTheDocument();
+    });
+
+    it("leaves an editor-only edit alone while the results describe a scenario", async () => {
+      const user = await runScenario();
+      const does = screen.getByLabelText("Does");
+      await user.clear(does);
+      await user.type(does, "51");
+      expect(screen.queryByText(STALE)).not.toBeInTheDocument();
+    });
+  });
+
   it("shows the server detail inline when the run fails", async () => {
     server.use(
       http.post("/api/simulation/run", () =>

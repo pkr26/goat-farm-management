@@ -28,6 +28,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
+from app.main import create_app
 from app.models import (
     SHIFT_SPLIT,
     Animal,
@@ -48,9 +49,10 @@ from app.services import (
     BUCKET_ALLOCATION_REFERENCE,
     DRY_ROUGHAGE,
     add_feed_stock,
+    get_daily_kg_per_head,
     recipe_for_animal,
 )
-from app.utils import today
+from app.utils import today, utcnow
 
 from .conftest import login, owner_with_farm
 
@@ -636,6 +638,35 @@ async def test_plan_resting_day0_gets_maintenance(client: httpx.AsyncClient) -> 
     assert line["kg_per_head"] == 1.2
 
 
+@pytest.mark.parametrize(
+    ("days_in_bucket", "expected"),
+    [(9, "MAINTENANCE_75_25"), (10, "FLUSH_70_30")],
+)
+async def test_plan_resting_flush_switch_is_day_10(
+    client: httpx.AsyncClient, days_in_bucket: int, expected: str
+) -> None:
+    """The flush rule is implemented twice — recipe_for_animal in Python and a
+    SQL CASE inside feeding_plan. Pin the plan's own day-10 boundary too; the
+    two screens must not disagree by a day. (The API cannot backdate a
+    BucketMove, so the move is aged directly.)"""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, "R-FLUSH", bucket="RESTING")
+    async with get_sessionmaker()() as db:
+        move = (
+            await db.execute(
+                select(BucketMove)
+                .where(BucketMove.animal_id == animal["id"])
+                .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        move.moved_at = utcnow() - timedelta(days=days_in_bucket)
+        await db.commit()
+    line = (await get_plan(client, headers))["lines"][0]
+    assert line["bucket"] == "RESTING"
+    assert line["recipe_code"] == expected
+
+
 async def test_plan_female_kids_gets_lactating(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     await make_animal(client, headers, "FK-1", bucket="FEMALE_KIDS", dob_days=200)
@@ -868,6 +899,35 @@ async def test_settings_nonfinite_rejected(client: httpx.AsyncClient) -> None:
         assert resp.status_code == 422, bad
 
 
+async def test_get_daily_kg_per_head_resolves_default_override_and_unknown_bucket(
+    client: httpx.AsyncClient,
+) -> None:
+    """``get_daily_kg_per_head`` is an exported service helper the board no
+    longer calls (it joins the overrides in bulk instead), so its per-farm
+    override lookup had no coverage at all: a broken override branch would
+    silently feed every herd the seeded default."""
+    owner = await owner_with_farm(client)
+    other = await owner_with_farm(client, email="other@farm.in", farm_name="Other Farm")
+    farm_id = int(owner["X-Farm-Id"])
+    other_farm_id = int(other["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        assert await get_daily_kg_per_head(db, farm_id, "FOUNDATION") == 1.2
+        assert await get_daily_kg_per_head(db, farm_id, "QUARANTINE") == 0.8
+        assert await get_daily_kg_per_head(db, farm_id, "NOT_A_BUCKET") == 1.2  # documented default
+
+    resp = await client.post(
+        "/api/feeding/settings",
+        json={"bucket": "QUARANTINE", "daily_kg_per_head": 2.5},
+        headers=owner,
+    )
+    assert resp.status_code == 204, resp.text
+    async with get_sessionmaker()() as db:
+        assert await get_daily_kg_per_head(db, farm_id, "QUARANTINE") == 2.5
+        assert await get_daily_kg_per_head(db, farm_id, "FOUNDATION") == 1.2  # untouched bucket
+        # The override belongs to one farm only.
+        assert await get_daily_kg_per_head(db, other_farm_id, "QUARANTINE") == 0.8
+
+
 async def test_settings_garbage_types_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     for payload in [
@@ -999,12 +1059,32 @@ async def test_dispense_response_shape(client: httpx.AsyncClient) -> None:
 
 
 async def test_dispense_without_recipe_is_rejected(client: httpx.AsyncClient) -> None:
+    """Absence is a schema violation, not a hand-rolled domain 400.
+
+    The route always refused a recipe-less dispensing record, so the field is
+    declared required; omitting or nulling it now fails validation and the
+    error points at the offending field.
+    """
     headers = await owner_with_farm(client)
     base = {"bucket": "BREEDING", "shift": "MORNING", "qty_kg": 5.0}
     for payload in (base, base | {"recipe_code": None}):
         resp = await client.post("/api/feeding/dispense", json=payload, headers=headers)
-        assert resp.status_code == 400, resp.text
-        assert resp.json()["detail"].startswith("Recipe is required")
+        assert resp.status_code == 422, resp.text
+        assert [error["loc"] for error in resp.json()["detail"]] == [["body", "recipe_code"]]
+
+
+def test_dispense_contract_declares_the_recipe_required() -> None:
+    """A field the route can never do without must not be advertised optional.
+
+    ``recipe_code: RecipeCodeStr | None = None`` made every generated client
+    believe a recipe-less dispensing record was a legal request; the sentinel
+    recipe stays the documented way to log a grain-free ration.
+    """
+    schema = create_app().openapi()["components"]["schemas"]["DispenseIn"]
+    assert "recipe_code" in schema["required"]
+    field = schema["properties"]["recipe_code"]
+    assert "anyOf" not in field and field["type"] == "string"
+    assert DRY_ROUGHAGE in field["description"]
 
 
 async def test_dispense_explicit_today_and_past_dates(client: httpx.AsyncClient) -> None:
@@ -1086,8 +1166,13 @@ async def test_dispense_recipe_code_is_case_sensitive(client: httpx.AsyncClient)
 async def test_dispense_whitespace_only_recipe_is_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     resp = await dispense(client, headers, recipe_code="   ")
-    assert resp.status_code == 400, resp.text
-    assert resp.json()["detail"].startswith("Recipe is required")
+    assert resp.status_code == 422, resp.text
+    # The hand-rolled 400 is gone, but its guidance is not.
+    (error,) = resp.json()["detail"]
+    assert error["loc"] == ["body", "recipe_code"]
+    assert error["msg"].endswith(
+        f"Recipe is required; use {DRY_ROUGHAGE} for the dry-roughage ration"
+    )
 
 
 async def test_dispense_padded_recipe_is_trimmed(client: httpx.AsyncClient) -> None:
@@ -1370,6 +1455,25 @@ async def test_dispense_very_long_recipe_code_rejected_safely(client: httpx.Asyn
     resp = await dispense(client, headers, recipe_code="X" * 10_000)
     assert resp.status_code == 422
     assert (await get_plan(client, headers))["records"] == []
+
+
+async def test_dispense_nul_byte_recipe_rejected_not_500(client: httpx.AsyncClient) -> None:
+    """A PostgreSQL text column cannot hold a NUL byte: unfiltered it reached
+    asyncpg on the recipe lookup and came back as an opaque 500."""
+    headers = await owner_with_farm(client)
+    resp = await dispense(client, headers, recipe_code="A\x00B")
+    assert resp.status_code == 422, resp.text
+    assert (await get_plan(client, headers))["records"] == []
+
+
+async def test_mix_nul_byte_recipe_rejected_not_500(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.post(
+        "/api/feeding/mix",
+        json={"recipe_code": "A\x00B", "batch_kg": 10.0},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
 
 
 async def test_dispense_tiny_and_huge_qty_boundaries(client: httpx.AsyncClient) -> None:
@@ -2100,6 +2204,31 @@ async def test_add_stock_books_a_feed_expense(client: httpx.AsyncClient) -> None
     assert txn["amount"] == pytest.approx(2550.0)  # qty × price
     assert txn["date"] == today().isoformat()
     assert "Crushed maize" in txn["notes"]
+
+
+async def test_add_stock_expense_records_its_system_provenance(
+    client: httpx.AsyncClient,
+) -> None:
+    """A restock expense is generated, never typed: the ledger must say so.
+
+    Without a source pair the finance table renders this row as "Manual
+    entry", exactly like a hand-keyed transaction. A restock persists no row of
+    its own, so the ledger entry is its own source — the running inventory row
+    would repeat and collide with the active-source partial unique index on the
+    second purchase of the same ingredient, which this test also exercises.
+    """
+    headers = await owner_with_farm(client)
+    item = await inv_item(client, headers, "Crushed maize")
+    for _ in range(2):
+        resp = await add_stock(client, headers, item["id"], 40.0, price=25.0)
+        assert resp.status_code == 200, resp.text
+
+    txns = await finance_txns(client, headers)
+    assert len(txns) == 2
+    for txn in txns:
+        assert txn["source_type"] == "FEED_PURCHASE"
+        assert txn["source_id"] == txn["id"]
+    assert txns[0]["source_id"] != txns[1]["source_id"]
 
 
 async def test_add_stock_without_price_books_no_expense(client: httpx.AsyncClient) -> None:

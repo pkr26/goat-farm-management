@@ -122,13 +122,21 @@ const PROFILE = {
   weights_total: 2,
   weights_offset: 0,
   moves: [
-    { id: 31, from_bucket: null, to_bucket: "QUARANTINE", reason: null, moved_at: "2026-06-20" },
+    {
+      id: 31,
+      from_bucket: null,
+      to_bucket: "QUARANTINE",
+      reason: null,
+      // Naive UTC, as the backend serialises BucketMoveOut.moved_at: 20:15 UTC
+      // on 20 Jun is already 01:45 on 21 Jun for the Asia/Kolkata test farm.
+      moved_at: "2026-06-20T20:15:00",
+    },
     {
       id: 32,
       from_bucket: "QUARANTINE",
       to_bucket: "PREGNANCY_EARLY",
       reason: "Confirmed pregnant",
-      moved_at: "2026-07-25",
+      moved_at: "2026-07-25T06:00:00",
     },
   ],
   moves_total: 2,
@@ -534,7 +542,10 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByText("Confirmed pregnant")).toBeInTheDocument();
       const rows = screen.getAllByText("QUARANTINE");
       expect(rows.length).toBeGreaterThanOrEqual(2); // to-bucket and from-bucket cells
-      expect(screen.getByText("20 Jun 2026")).toBeInTheDocument();
+      // REGRESSION — moved_at is a datetime; the date-only formatter printed
+      // the UTC day, so an early-morning farm move showed the previous day.
+      expect(screen.getByText("21-06-2026 01:45")).toBeInTheDocument();
+      expect(screen.queryByText("20 Jun 2026")).not.toBeInTheDocument();
     });
 
     it("shows the empty state when there are no moves", async () => {
@@ -836,6 +847,18 @@ describe("AnimalProfilePage", () => {
       await user.click(within(dialog).getByRole("button", { name: "Save" }));
       expect(
         await within(dialog).findByText("Weight must be greater than 0"),
+      ).toBeInTheDocument();
+      expect(weightBodies).toHaveLength(0);
+    });
+
+    it("rejects a weight above the server's 1000 kg ceiling", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record weight");
+      setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "1200");
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+      expect(
+        await within(dialog).findByText("Weight must be at most 1000 kg"),
       ).toBeInTheDocument();
       expect(weightBodies).toHaveLength(0);
     });

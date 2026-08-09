@@ -357,6 +357,42 @@ describe("FarmSelectPage — create a farm", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  // REGRESSION — the durable POST and the read-only follow-up refresh shared
+  // one try/catch, so a 5xx on the refresh was reported as "Could not create
+  // the farm.". The retry that invited would mint a fresh Idempotency-Key and
+  // create a second, identical farm.
+  it("does not report a created farm as failed when the follow-up refresh 500s", async () => {
+    let posts = 0;
+    let listed = false;
+    server.use(
+      http.get("/api/auth/farms", () => {
+        // Answer the AuthProvider bootstrap, then fail every later refresh.
+        if (listed) return HttpResponse.json({ detail: "Internal Server Error" }, { status: 500 });
+        listed = true;
+        return HttpResponse.json(TWO_FARMS);
+      }),
+      http.post("/api/auth/farms", () => {
+        posts += 1;
+        return HttpResponse.json({ id: 3, name: "Green Acres", location: null, role: null });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText(/farm name/i), "Green Acres");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    // The created farm is still opened, and nothing blames the creation.
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(screen.queryByText("Could not create the farm.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal Server Error")).not.toBeInTheDocument();
+    // The name is cleared, so the operator is not nudged into a duplicate.
+    expect(screen.getByLabelText(/farm name/i)).toHaveValue("");
+    expect(posts).toBe(1);
+  });
+
   it("clears a previous server error when a retry succeeds", async () => {
     let attempt = 0;
     server.use(

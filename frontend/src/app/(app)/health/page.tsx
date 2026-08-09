@@ -252,6 +252,41 @@ const eventSchema = z
   });
 type EventValues = z.infer<typeof eventSchema>;
 
+/** Rebuilt on every reset: a bare reset() restores react-hook-form's
+ * mount-time snapshot, which dates events to the day the tab was opened. */
+function eventDefaults(): EventValues {
+  return {
+    scope: "animal",
+    animal_id: "",
+    bucket: "",
+    purchase_batch_id: "",
+    date: localToday(),
+    type: "VACCINE",
+    product_name: "",
+    disease_target: "",
+    dose: "",
+    route: NONE,
+    vet_name: "",
+    cost: "",
+    next_due_date: "",
+    schedule_template_name: "",
+    next_due_authority: "",
+    product_lot: "",
+    product_manufactured_on: "",
+    product_expires_on: "",
+    vaccine_valid_until: "",
+    certificate_number: "",
+    official_tag_number: "",
+    administered_by: "",
+    withdrawal_until: "",
+    suspected_scheduled_disease: false,
+    authority_notified_at: "",
+    isolation_started_at: "",
+    notes: "",
+    task_id: NONE,
+  };
+}
+
 function FieldError({ message, id }: { message?: string; id?: string }) {
   if (!message) return null;
   return <p id={id} role="alert" className="text-sm text-destructive">{message}</p>;
@@ -288,7 +323,11 @@ function HealthPageContent() {
     ? [...tabs.today, ...tabs.overdue, ...tabs.upcoming].filter(
         (t) =>
           t.status === "PENDING" &&
-          (t.category === "VACCINE" || t.category === "DEWORMING"),
+          (t.category === "VACCINE" || t.category === "DEWORMING") &&
+          // api/health.py rejects an event dated before the duty's due date,
+          // and the event date can never be in the future — so a duty that is
+          // not due yet could only ever produce a 409.
+          t.due_date <= localToday(),
       )
     : [];
 
@@ -300,6 +339,9 @@ function HealthPageContent() {
     () => searchParams.get("schedule_animal_id") ?? "",
   );
   const [prefillTaskId, setPrefillTaskId] = useState<string | null>(null);
+  /** A deep-linked duty id we could not resolve — surfaced so the operator
+   *  knows the event will be recorded without completing that duty. */
+  const [unresolvedPrefillTask, setUnresolvedPrefillTask] = useState<string | null>(null);
 
   /** value → label map for the local task select. */
   const taskItems: Record<string, string> = {
@@ -320,36 +362,7 @@ function HealthPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<EventValues>({
     resolver: zodResolver(eventSchema),
-    defaultValues: {
-      scope: "animal",
-      animal_id: "",
-      bucket: "",
-      purchase_batch_id: "",
-      date: localToday(),
-      type: "VACCINE",
-      product_name: "",
-      disease_target: "",
-      dose: "",
-      route: NONE,
-      vet_name: "",
-      cost: "",
-      next_due_date: "",
-      schedule_template_name: "",
-      next_due_authority: "",
-      product_lot: "",
-      product_manufactured_on: "",
-      product_expires_on: "",
-      vaccine_valid_until: "",
-      certificate_number: "",
-      official_tag_number: "",
-      administered_by: "",
-      withdrawal_until: "",
-      suspected_scheduled_disease: false,
-      authority_notified_at: "",
-      isolation_started_at: "",
-      notes: "",
-      task_id: NONE,
-    },
+    defaultValues: eventDefaults(),
   });
   const wAnimalId = useWatch({ control, name: "animal_id" });
   const wBucket = useWatch({ control, name: "bucket" });
@@ -480,15 +493,21 @@ function HealthPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage]);
 
-  // Once the linked tasks load, finish prefilling from the task itself.
+  // Once the linked tasks load, finish prefilling from the task itself. The
+  // duty list is a bounded window, so a deep-linked id may not be in it — drop
+  // the link rather than leaving an unlabeled id in the select with none of
+  // the scope/type/product prefill applied.
   useEffect(() => {
-    if (!prefillTaskId || pendingHealthTasks.length === 0) return;
-    applyTask(prefillTaskId);
+    if (!prefillTaskId) return;
+    if (canViewTasks && !tasksQuery.isError && !tabs) return;
+    const known = pendingHealthTasks.some((t) => String(t.id) === prefillTaskId);
+    applyTask(known ? prefillTaskId : NONE);
     // Intentional one-shot cleanup after applying the prefill (see above).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefillTaskId(null);
+    setUnresolvedPrefillTask(known ? null : prefillTaskId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefillTaskId, tasksQuery.data]);
+  }, [prefillTaskId, tasksQuery.data, tasksQuery.isError, canViewTasks]);
 
   async function onSubmit(values: EventValues) {
     let reviewedAnimalIds: number[] | undefined;
@@ -584,7 +603,7 @@ function HealthPageContent() {
       invalidateFarmData(queryClient);
       setOpen(false);
       setBulkPreview(null);
-      reset();
+      reset(eventDefaults());
       if (returnTo) router.push(returnTo);
       else if (hasDeepLink) router.replace("/health");
     } catch (err) {
@@ -637,7 +656,7 @@ function HealthPageContent() {
           canManage && (
             <Button
               onClick={() => {
-                reset();
+                reset(eventDefaults());
                 setRecordError(null);
                 setOpen(true);
               }}
@@ -1116,6 +1135,12 @@ function HealthPageContent() {
                     Retry linked duties
                   </Button>
                 </div>
+              )}
+              {unresolvedPrefillTask && (
+                <p role="alert" className="text-sm text-destructive sm:col-span-2">
+                  Could not link duty #{unresolvedPrefillTask} — it may not be due yet.
+                  Record the event without it.
+                </p>
               )}
               {canViewTasks && !tasksQuery.isError && pendingHealthTasks.length > 0 && (
                 <div className="space-y-1.5">

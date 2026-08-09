@@ -2,12 +2,13 @@
  * Extended boundary tests for the shared display formatters, complementing
  * format.test.ts: Indian lakh/crore digit grouping across every magnitude,
  * paise-level decimals and rounding, negatives, zero edge cases, huge
- * values, and formatDate month/day boundaries.
+ * values, formatDate month/day boundaries, and formatFarmDateTime's
+ * naive-UTC / explicit-offset / invalid / unusable-timezone contract.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { formatDate, formatMoney } from "./format";
+import { formatDate, formatFarmDateTime, formatMoney, setActiveFarmTimezone } from "./format";
 
 describe("formatMoney — Indian grouping across magnitudes", () => {
   it("leaves values below 1000 ungrouped", () => {
@@ -154,5 +155,50 @@ describe("formatDate — additional boundaries", () => {
 
   it("tolerates a trailing space after the date part", () => {
     expect(formatDate("2026-08-05 ")).toBe("5 Aug 2026");
+  });
+});
+
+// One instant — 2026-08-05 20:00 UTC — expressed four ways. Asia/Kolkata
+// (+05:30) puts it on the NEXT calendar day at 01:30 and America/Phoenix
+// (-07:00, no DST) leaves it at 13:00 the same day, so every expectation below
+// is a hand-computed literal: reading a naive timestamp as browser-local, or
+// re-using an offset input's wall clock, changes the rendered string.
+describe("formatFarmDateTime — instants, offsets and fallbacks", () => {
+  afterEach(() => setActiveFarmTimezone(null));
+
+  it("reads an offset-less backend datetime as UTC, not browser-local", () => {
+    setActiveFarmTimezone("Asia/Kolkata");
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("06-08-2026 01:30");
+    setActiveFarmTimezone("America/Phoenix");
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("05-08-2026 13:00");
+  });
+
+  it("honours a Z suffix identically to the naive form", () => {
+    setActiveFarmTimezone("Asia/Kolkata");
+    expect(formatFarmDateTime("2026-08-05T20:00:00Z")).toBe("06-08-2026 01:30");
+    setActiveFarmTimezone("America/Phoenix");
+    expect(formatFarmDateTime("2026-08-05T20:00:00Z")).toBe("05-08-2026 13:00");
+  });
+
+  it("converts an input carrying a +05:30 offset to the farm's clock", () => {
+    setActiveFarmTimezone("America/Phoenix");
+    expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("05-08-2026 13:00");
+    setActiveFarmTimezone("Asia/Kolkata");
+    expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("06-08-2026 01:30");
+  });
+
+  it("renders the em-dash placeholder for input that cannot be parsed", () => {
+    setActiveFarmTimezone("Asia/Kolkata");
+    // ISO-shaped but off the calendar, so Date.parse yields NaN.
+    expect(formatFarmDateTime("2026-13-01T00:00:00")).toBe("—");
+    expect(formatFarmDateTime("2026-08-05T25:00:00Z")).toBe("—");
+    expect(formatFarmDateTime("yesterday")).toBe("—");
+    expect(formatFarmDateTime(null)).toBe("—");
+  });
+
+  it("renders in the default farm timezone when Intl rejects the farm's", () => {
+    // Python's zoneinfo and PostgreSQL accept "Factory"; Intl throws on it.
+    setActiveFarmTimezone("Factory");
+    expect(formatFarmDateTime("2026-08-05T20:00:00")).toBe("06-08-2026 01:30");
   });
 });

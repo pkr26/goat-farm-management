@@ -54,16 +54,36 @@ const MANAGE_ROUTE_PERMISSIONS = [
   { path: "/kidding/new", permission: "kidding.manage" },
 ] as const;
 
-/** Validate an app-local return destination and its module permission.
+/** Sub-routes that carry no tenant-scoped id, so they mean the same thing in
+ * any farm. Every other sub-route embeds a record id (`/animals/7`,
+ * `/breeding/3/ultrasound`, `/health/schedule/12`). */
+const FARM_AGNOSTIC_SUBROUTES: readonly string[] = [
+  "/animals/new",
+  "/feeding/inventory",
+  "/feeding/recipes",
+  "/health/new",
+  "/kidding/new",
+];
+
+interface ResolvedAppPath {
+  /** The requested path, without query or hash. */
+  path: string;
+  /** The module root that granted access to it. */
+  root: string;
+  /** The requested query and hash, ready to re-append. */
+  state: string;
+}
+
+/** Shared validation for an app-local return destination.
  *
- * Farm switching accepts a destination from the URL, so this intentionally
- * fails closed for unknown roots, encoded traversal/separators, backslashes,
- * protocol-relative URLs, and module routes the selected farm cannot view.
+ * A return destination is accepted from the URL, so this intentionally fails
+ * closed for unknown roots, encoded traversal/separators, backslashes,
+ * protocol-relative URLs, and module routes the caller cannot view.
  */
-export function permittedAppPath(
+function resolveAppPath(
   raw: string | null | undefined,
   can: PermissionCheck,
-): string | null {
+): ResolvedAppPath | null {
   const safe = safeAppPath(raw);
   if (!safe) return null;
   const rawPath = safe.split(/[?#]/, 1)[0];
@@ -83,15 +103,41 @@ export function permittedAppPath(
     ({ path: root }) => path === root || path.startsWith(`${root}/`),
   );
   if (!route || !can(route.permission)) return null;
-  return `${path}${url.search}${url.hash}`;
+  return { path, root: route.path, state: `${url.search}${url.hash}` };
 }
 
+/** Validate a same-farm return destination and its module permission. Record
+ * ids stay intact: the caller never left the farm that issued them. */
+export function permittedAppPath(
+  raw: string | null | undefined,
+  can: PermissionCheck,
+): string | null {
+  const resolved = resolveAppPath(raw, can);
+  if (!resolved) return null;
+  return `${resolved.path}${resolved.state}`;
+}
+
+/** Validate a farm-switch destination. The new farm's permissions arrive as a
+ * plain list from /api/auth/permissions, and this is the only caller shape
+ * that crosses farms.
+ *
+ * Holding `animals.view` in the selected farm says nothing about animal 7,
+ * which belongs to the farm being left — every API read is farm-scoped, so
+ * returning to `/animals/7` guarantees a permanent "Animal not found". Module
+ * roots and id-free sub-routes survive intact; anything deeper falls back to
+ * its module root, dropping page state that described the previous farm.
+ */
 export function permittedAppPathFromList(
   raw: string | null | undefined,
   permissions: readonly string[],
 ): string | null {
   const held = new Set(permissions);
-  return permittedAppPath(raw, (permission) => held.has(permission));
+  const resolved = resolveAppPath(raw, (permission) => held.has(permission));
+  if (!resolved) return null;
+  if (resolved.path === resolved.root || FARM_AGNOSTIC_SUBROUTES.includes(resolved.path)) {
+    return `${resolved.path}${resolved.state}`;
+  }
+  return resolved.root;
 }
 
 /** Add/replace a returnTo parameter on a trusted app path. */

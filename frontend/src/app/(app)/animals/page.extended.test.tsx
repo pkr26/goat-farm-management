@@ -11,10 +11,11 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { setActiveFarmTimezone } from "@/lib/format";
 
 import AnimalsPage from "./page";
 
@@ -737,6 +738,104 @@ describe("AnimalsPage extended", () => {
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
       await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Animal added."));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+  });
+
+  // REGRESSION — the page used to validate and bound dates/lengths against
+  // the browser's own limits instead of the contract the server enforces, so
+  // legitimate input was blocked (or an unavoidable 422 was invited).
+  describe("backend contract parity", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+      setActiveFarmTimezone(null);
+    });
+
+    it("bounds the date inputs by the farm's calendar day, not the browser's", async () => {
+      // 2026-08-09 12:00 UTC is already 2026-08-10 on a UTC+14 farm, while
+      // every plausible test-runner timezone still reads 2026-08-09.
+      server.use(
+        http.get("/api/auth/farms", () =>
+          HttpResponse.json([
+            { id: 1, name: "Line Islands Farm", location: null, timezone: "Pacific/Kiritimati", role: null },
+          ]),
+        ),
+      );
+      vi.setSystemTime(new Date("2026-08-09T12:00:00Z"));
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+
+      expect(within(dialog).getByLabelText("Date of birth")).toHaveAttribute(
+        "max",
+        "2026-08-10",
+      );
+      expect(within(dialog).getByLabelText("Estimated DOB")).toHaveAttribute(
+        "max",
+        "2026-08-10",
+      );
+    });
+
+    it("only offers historical-import buckets the selected sex may enter", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+
+      // Female (the default): MALE_KIDS is reserved for bucks.
+      await user.click(within(dialog).getByLabelText("Bucket *"));
+      expect(await screen.findByRole("option", { name: "FEMALE KIDS" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "RESTING" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "MALE KIDS" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("option", { name: "FEMALE KIDS" }));
+
+      await pickOption(user, within(dialog).getAllByRole("combobox")[0], "Male");
+      await user.click(within(dialog).getByLabelText("Bucket *"));
+      expect(await screen.findByRole("option", { name: "MALE KIDS" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "FEMALE KIDS" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "RESTING" })).not.toBeInTheDocument();
+      // The now-illegal selection falls back to a bucket the server accepts.
+      expect(within(dialog).getByLabelText("Bucket *")).not.toHaveTextContent("FEMALE KIDS");
+    });
+
+    it("rejects notes longer than the server's 4000-character cap", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      const notes = within(dialog).getByLabelText("Notes");
+      expect(notes).toHaveAttribute("maxlength", "4000");
+      fireEvent.change(notes, { target: { value: "x".repeat(4001) } });
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(await within(dialog).findByText("Max 4000 characters")).toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("rejects an entry weight above the server's 1000 kg ceiling", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      fireEvent.change(within(dialog).getByLabelText("Entry weight (kg)"), {
+        target: { value: "1200" },
+      });
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("caps the tag search at the 60 characters the list endpoint accepts", async () => {
+      await renderLoaded();
+      const search = screen.getByLabelText("Search animals by tag");
+      expect(search).toHaveAttribute("maxlength", "60");
+
+      fireEvent.change(search, { target: { value: "Y".repeat(90) } });
+      await waitFor(() =>
+        expect(seenParams.at(-1)?.get("q")?.length ?? 0).toBeLessThanOrEqual(60),
+      );
     });
   });
 });

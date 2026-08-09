@@ -70,6 +70,8 @@ class TaskOut(BaseModel):
     skipped_by_id: int | None
     skipped_at: datetime | None
     skip_reason: str | None
+    rejected_by_id: int | None
+    rejected_at: datetime | None
     # enriched for display
     assigned_role_name: str | None = None
     assigned_user_name: str | None = None

@@ -10,7 +10,12 @@ import type { DispenseInShift } from './dispenseInShift';
 export interface DispenseIn {
   bucket: DispenseInBucket;
   shift: DispenseInShift;
-  recipe_code?: string | null;
+  /**
+     * Ration dispensed; use DRY_ROUGHAGE_ONLY for a grain-free ration
+     * @minLength 1
+     * @maxLength 30
+     */
+  recipe_code: string;
   qty_kg: number;
   date?: string | null;
 }

@@ -95,18 +95,31 @@ def test_verdict_not_viable_for_default_run() -> None:
     assert _verdict(res) == "NOT VIABLE"
 
 
-def test_verdict_viable_when_all_checks_pass() -> None:
+def _viable_assumptions() -> SimulationAssumptions:
+    """A run where every standard check genuinely passes, weakest debt year
+    included (a short, half-financed loan against strong early meat sales)."""
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 500.0
+    a.sales.meat_price_per_kg = 700.0
+    a.herd.male_growers = 250  # meat revenue from month 1
+    a.finance.loan_term_months = 12
+    a.finance.moratorium_months = 6
+    a.finance.loan_fraction_of_project_cost = 0.5
+    return a
+
+
+def test_verdict_viable_when_all_checks_pass() -> None:
+    a = _viable_assumptions()
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     # All hard and soft checks pass: npv > 0, bcr >= 1, irr >= discount rate,
-    # min_dscr outside (0, 1), payback present.
-    assert m.npv > 0.0 and m.bcr >= 1.0
+    # a real debt year with min_dscr >= 1, payback present.
+    assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
     assert m.irr is not None and m.irr >= a.finance.discount_rate_annual
     assert m.payback_month is not None
-    assert not 0.0 < m.min_dscr < 1.0
+    assert m.min_dscr is not None and m.min_dscr >= 1.0
     assert _verdict(res) == "VIABLE"
+    section = next(s for s in res.narrative_report if s.key == "viability_verdict")
+    assert any("All standard checks pass" in p for p in section.paragraphs)
 
 
 def test_verdict_viable_with_caution_for_borderline_run() -> None:
@@ -118,11 +131,98 @@ def test_verdict_viable_with_caution_for_borderline_run() -> None:
     a.sales.meat_price_per_kg = 500.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
-    assert m.npv > 0.0 and m.bcr >= 1.0
-    assert 0.0 < m.min_dscr < 1.0
+    assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
+    assert m.min_dscr is not None and 0.0 < m.min_dscr < 1.0
     assert _verdict(res) == "VIABLE WITH CAUTION"
     section = next(s for s in res.narrative_report if s.key == "viability_verdict")
     assert any("DSCR below 1.0" in p for p in section.paragraphs)
+
+
+def test_verdict_never_hides_a_negative_weakest_debt_year() -> None:
+    """A DSCR at or below zero is strictly worse than 0.5 — the debt year had
+    no operating surplus at all. The guard was `0.0 < min_dscr < 1.0`, so
+    every negative year fell through it and the report printed "VIABLE — all
+    standard checks pass" with no mention of the DSCR."""
+    a = SimulationAssumptions()
+    a.sales.meat_price_per_kg = 600.0
+    res = run_simulation(a, with_break_even=False)
+    m = res.metrics
+    # Everything else passes; only year 1 cannot service the loan.
+    assert m.npv > 0.0 and m.bcr is not None and m.bcr > 1.0
+    assert m.irr is not None and m.irr >= a.finance.discount_rate_annual
+    assert m.payback_month is not None
+    assert m.min_dscr is not None and m.min_dscr < 0.0
+    assert m.dscr_per_year[0] < 0.0
+    assert _verdict(res) == "VIABLE WITH CAUTION"
+    section = next(s for s in res.narrative_report if s.key == "viability_verdict")
+    assert any("non-positive DSCR" in p for p in section.paragraphs)
+    assert not any("All standard checks pass" in p for p in section.paragraphs)
+
+
+def test_dscr_explanations_never_claim_no_debt_when_debt_years_exist() -> None:
+    """Both DSCR explanations used a positivity test as a proxy for "debt
+    service exists", so the stock default (year-1 DSCR -6.13 over six real
+    debt years) was described as having no debt in the horizon at all — while
+    the figures in the same payload said debt_years = 6."""
+    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    m = res.metrics
+    assert m.avg_dscr is not None and m.avg_dscr < 0.0
+    assert m.min_dscr is not None and m.min_dscr < 0.0
+    by_key = {e.key: e for e in res.metric_explanations}
+    avg = by_key["avg_dscr"]
+    assert avg.figures["debt_years"] == 6
+    assert "No debt service falls inside" not in avg.explanation
+    assert f"{m.avg_dscr:.2f}" in avg.explanation
+    weakest = by_key["min_dscr"]
+    assert "No debt year in the horizon" not in weakest.explanation
+    assert f"{m.min_dscr:.2f}" in weakest.explanation
+    assert "cannot pay any part of the instalment" in weakest.explanation
+
+
+def test_dscr_explanations_report_no_debt_only_when_there_is_none() -> None:
+    a = SimulationAssumptions()
+    a.finance.loan_fraction_of_project_cost = 0.0
+    res = run_simulation(a, with_break_even=False)
+    assert res.metrics.avg_dscr is None and res.metrics.min_dscr is None
+    by_key = {e.key: e for e in res.metric_explanations}
+    assert "No debt service falls inside" in by_key["avg_dscr"].explanation
+    assert by_key["avg_dscr"].figures["debt_years"] == 0
+    assert "No debt year in the horizon" in by_key["min_dscr"].explanation
+
+
+def test_cost_and_revenue_mix_rank_by_actual_magnitude() -> None:
+    """The paragraphs used to hard-code "Feed is the largest" and "Meat sales
+    dominate". With a flat ₹10,000/month labour floor, labour outweighs feed
+    for any smallholder herd — and the old sentence contradicted the figures
+    printed in its own next clause."""
+    a = SimulationAssumptions()
+    a.herd.does = 5
+    a.herd.max_breeding_does = 5
+    res = run_simulation(a, with_break_even=False)
+    sections = {s.key: s for s in res.narrative_report}
+    cost = sections["cost_mix"]
+    labour = cast(float, cost.figures["labour_cost"])
+    feed = cast(float, cost.figures["feed_cost"])
+    assert labour > feed  # the inversion that made the old sentence false
+    paragraph = cost.paragraphs[0]
+    assert paragraph.index("labour") < paragraph.index("feed")
+    assert "Feed is the largest" not in paragraph
+    revenue = sections["revenue_mix"]
+    order = [
+        name
+        for name, _ in sorted(
+            (
+                ("meat sales", cast(float, revenue.figures["meat_revenue"])),
+                ("cull sales", cast(float, revenue.figures["cull_revenue"])),
+                ("milk", cast(float, revenue.figures["milk_revenue"])),
+                ("manure", cast(float, revenue.figures["manure_revenue"])),
+            ),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+    ]
+    positions = [revenue.paragraphs[0].index(name) for name in order]
+    assert positions == sorted(positions), revenue.paragraphs[0]
 
 
 def test_risks_section_hint_without_monte_carlo_or_sensitivity() -> None:
@@ -150,6 +250,22 @@ def test_risks_section_uses_monte_carlo_and_sensitivity() -> None:
     assert any("move NPV the most" in p for p in risks.paragraphs)
     assert any("meat price" in p for p in risks.paragraphs)
     assert "meat_price" in str(risks.figures["top_sensitivities"])
+    # Every mover quotes the perturbation the engine actually ran, never a
+    # hard-coded "20%" (sale age moves in months, four cases clamp).
+    movers = next(p for p in risks.paragraphs if "move NPV the most" in p)
+    assert "20% moves NPV" not in movers
+    top = sorted(
+        res.sensitivity,
+        key=lambda item: max(abs(item.delta_npv_low), abs(item.delta_npv_high)),
+        reverse=True,
+    )[:3]
+    for item in top:
+        larger = (
+            item.label_low
+            if abs(item.delta_npv_low) >= abs(item.delta_npv_high)
+            else item.label_high
+        )
+        assert f"{larger} moves NPV by" in movers
 
 
 def test_revenue_and_cost_mix_totals_match_annual_pl() -> None:

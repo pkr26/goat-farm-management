@@ -225,7 +225,7 @@ async def _legacy_data_repair_loop(
                     break
             if repaired_farms or repaired_tasks:
                 logger.info(
-                    "legacy repair updated farms=%d tasks=%d",
+                    "legacy repair processed farms=%d tasks=%d",
                     repaired_farms,
                     repaired_tasks,
                 )
@@ -425,11 +425,45 @@ async def request_validation_handler(_request: Request, exc: Exception) -> JSONR
     )
 
 
+def _apply_baseline_response_headers(request: Request, response: Response, request_id: str) -> None:
+    """Correlation + baseline browser protections for every response.
+
+    API deployments are sometimes exposed directly rather than solely through
+    the hardened Next.js server, so these are set at this boundary too.
+    """
+    response.headers["X-Request-ID"] = request_id
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.url.path.startswith("/api/"):
+        # Auth and farm payloads contain private data and bearer-adjacent
+        # state. Shared browsers/proxies must not retain API responses.
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+
+
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Log the traceback (with request ID) but return an opaque 500 — no
-    internals leak to the client."""
-    logger.error("unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    internals leak to the client.
+
+    Starlette routes the ``Exception`` key to ServerErrorMiddleware, the
+    OUTERMOST wrapper, so this runs above request_id_middleware: its `finally`
+    has already reset the contextvar (the traceback would be logged as `[-]`)
+    and its header pass never sees this response. Recover the id the middleware
+    stashed on the request and stamp the same headers here instead. The
+    exception is still re-raised by ServerErrorMiddleware afterwards, so the
+    ASGI server keeps its own error signal.
+    """
+    request_id = getattr(request.state, "request_id", None) or _request_id_var.get()
+    token = _request_id_var.set(request_id)
+    try:
+        logger.error("unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+    finally:
+        _request_id_var.reset(token)
+    response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    _apply_baseline_response_headers(request, response, request_id)
+    return response
 
 
 async def password_capacity_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -513,26 +547,16 @@ def create_app() -> FastAPI:
         incoming = request.headers.get("X-Request-ID", "")
         request_id = incoming if _REQUEST_ID_RE.fullmatch(incoming) else uuid.uuid4().hex
         token = _request_id_var.set(request_id)
+        # Also on the request: an unhandled error is rendered by
+        # ServerErrorMiddleware, outside this middleware and after the
+        # contextvar below is reset.
+        request.state.request_id = request_id
         started = time.perf_counter()
         status_code = 500
         try:
             response = await call_next(request)
             status_code = response.status_code
-            response.headers["X-Request-ID"] = request_id
-            # API deployments are sometimes exposed directly rather than
-            # solely through the hardened Next.js server. Keep baseline
-            # browser protections at this application boundary too.
-            response.headers.setdefault("X-Content-Type-Options", "nosniff")
-            response.headers.setdefault("X-Frame-Options", "DENY")
-            response.headers.setdefault("Referrer-Policy", "no-referrer")
-            response.headers.setdefault(
-                "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
-            )
-            if request.url.path.startswith("/api/"):
-                # Auth and farm payloads contain private data and bearer-adjacent
-                # state. Shared browsers/proxies must not retain API responses.
-                response.headers["Cache-Control"] = "no-store"
-                response.headers["Pragma"] = "no-cache"
+            _apply_baseline_response_headers(request, response, request_id)
             return response
         finally:
             duration_ms = (time.perf_counter() - started) * 1000

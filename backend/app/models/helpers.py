@@ -22,13 +22,28 @@ def planned_ultrasound_date(breeding_date: date) -> date:
     return breeding_date + timedelta(days=ULTRASOUND_AFTER_BREEDING_DAYS)
 
 
+# A service counts as a conception once an ultrasound confirmed it, even if
+# the pregnancy was later lost: ``mark_aborted`` returns early unless the
+# record is already CONFIRMED_PREGNANT, so every ABORTED row *did* conceive.
+# Pregnancy loss stays a separate fact (loss_date/loss_cause). Counting an
+# abortion as a failure to conceive let an ordinary sale of a pregnant doe —
+# which auto-aborts her pregnancy — retroactively rewrite this KPI.
+CONCEIVED_OUTCOMES = frozenset(
+    {BreedingOutcome.CONFIRMED_PREGNANT.value, BreedingOutcome.ABORTED.value}
+)
+
+
 def conception_rate(records: Iterable[BreedingRecord]) -> float | None:
-    """Confirmed / total completed breedings (PENDING excluded). Percent or None."""
+    """Conceived / total completed breedings (PENDING excluded). Percent or None.
+
+    ``GET /api/dashboard/reports`` computes the same metric in SQL from
+    ``CONCEIVED_OUTCOMES``; the two implementations must never drift.
+    """
     completed = [r for r in records if r.outcome != BreedingOutcome.PENDING.value]
     if not completed:
         return None
-    confirmed = sum(1 for r in completed if r.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value)
-    return round(100.0 * confirmed / len(completed), 1)
+    conceived = sum(1 for r in completed if r.outcome in CONCEIVED_OUTCOMES)
+    return round(100.0 * conceived / len(completed), 1)
 
 
 # 45-day quarantine protocol (day offsets relative to batch arrival date).

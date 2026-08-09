@@ -17,6 +17,7 @@ from ..models import (
     Bucket,
     Farm,
     HealthEvent,
+    HealthEventType,
     MovementRestrictionAction,
     PurchaseBatch,
     Task,
@@ -644,21 +645,29 @@ async def _record_event_mutation(
             detail="withdrawal_until cannot be before the health event date",
         )
 
+    requested_template = (payload.schedule_template_name or "").strip() or None
     template_name: str | None
-    try:
-        template = await validated_template(
-            db, (payload.schedule_template_name or "").strip() or None, payload.type
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    template_name = str(template.name) if template is not None else None
-    if template_name is not None and not target_matches_template(
-        payload.disease_target or "", template_name
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail="Disease target does not match the selected schedule template",
-        )
+    template = None
+    if payload.type in (HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value):
+        try:
+            template = await validated_template(db, requested_template, payload.type)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        template_name = str(template.name) if template is not None else None
+        if template_name is not None and not target_matches_template(
+            payload.disease_target or "", template_name
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Disease target does not match the selected schedule template",
+            )
+    else:
+        # A treatment/footbath/vitamin follow-up has no seeded programme item,
+        # but next_due_date still requires a stated schedule and authority
+        # (ck_health_events_next_due_provenance). Keep that provenance as free
+        # text: binding it to a VaccineTemplate is what the DB forbids
+        # (ck_health_events_schedule_template_type), not naming the schedule.
+        template_name = requested_template
 
     if payload.task_id is not None:
         if (

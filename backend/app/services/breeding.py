@@ -32,8 +32,13 @@ from ..models import (
 from ..utils import add_months, today, utcnow
 from ._common import _add_task, _kidding_record_of, _load_doe, _pending_tasks_for
 from .animals import move_animal
+from .health import PRE_KIDDING_VACCINE_TITLE
 
 BreedingCandidateKind = Literal["doe", "buck"]
+
+# Upper bound of BreedingRecord.heat_cycle_number (ck_breeding_records_heat_cycle
+# and the BreedingCreateIn Field bound both cap the column at 99).
+MAX_HEAT_CYCLE_NUMBER = 99
 
 
 def _latest_weight_as_of(reference_date: date) -> ColumnElement[float]:
@@ -320,13 +325,44 @@ async def _latest_doe_reproductive_boundary(
     return max(facts) if facts else None
 
 
+async def derived_heat_cycle_number(db: AsyncSession, farm_id: int, doe_id: int) -> int:
+    """Cycle index of the doe's next service, derived from her own history.
+
+    A re-service belongs to cycle N+1 only while the preceding cycles FAILED;
+    a confirmed pregnancy (kidded or lost) ends the run and the next service
+    starts a fresh cycle 1. Client input is not trusted here — no client ever
+    sent the field, so every stored record claimed cycle 1 and the reports'
+    first-cycle metric degenerated into the overall conception rate. The scan
+    is bounded by the column's own 1..99 CHECK.
+    """
+    outcomes = list(
+        (
+            await db.execute(
+                select(BreedingRecord.outcome)
+                .where(
+                    BreedingRecord.farm_id == farm_id,
+                    BreedingRecord.doe_id == doe_id,
+                    BreedingRecord.outcome != BreedingOutcome.PENDING.value,
+                )
+                .order_by(BreedingRecord.breeding_date.desc(), BreedingRecord.id.desc())
+                .limit(MAX_HEAT_CYCLE_NUMBER - 1)
+            )
+        ).scalars()
+    )
+    failed_streak = 0
+    for outcome in outcomes:
+        if outcome != BreedingOutcome.FAILED.value:
+            break
+        failed_streak += 1
+    return min(failed_streak + 1, MAX_HEAT_CYCLE_NUMBER)
+
+
 async def create_breeding_record(
     db: AsyncSession,
     farm: Farm,
     doe: Animal,
     buck: Animal,
     breeding_date: date,
-    heat_cycle_number: int = 1,
     created_by_id: int | None = None,
     *,
     doe_latest_weight_kg: float | None,
@@ -354,7 +390,7 @@ async def create_breeding_record(
         buck_id=buck.id,
         breeding_date=breeding_date,
         method=BreedingMethod.NATURAL.value,
-        heat_cycle_number=heat_cycle_number,
+        heat_cycle_number=await derived_heat_cycle_number(db, farm.id, doe.id),
         ultrasound_date=ultrasound_date,
         outcome=BreedingOutcome.PENDING.value,
         created_by_id=created_by_id,
@@ -411,12 +447,24 @@ async def record_ultrasound_result(
         raise ValueError(
             f"{doe.tag_number} is {doe.status.lower()} — cannot record an ultrasound result"
         )
+    if result_date is not None and result_date < br.breeding_date:
+        raise ValueError("Pregnancy check result cannot predate the breeding date")
     if (
         result_date is not None
         and br.ultrasound_date is not None
         and result_date < br.ultrasound_date
     ):
-        raise ValueError("Ultrasound result cannot predate its planned check date")
+        # A scan cannot confirm a pregnancy before the planned check window, so
+        # a positive result still has to wait for it. A NEGATIVE result can be
+        # factual much earlier: the heat cycle is ~21 days, and a doe seen back
+        # in standing heat is evidence the service did not hold. Recording that
+        # brings the cycle's check forward to the day it was actually observed
+        # instead of forcing the operator to falsify a day-32 scan date (which
+        # then pushed the true re-service ~12 days late, shifting the expected
+        # kidding date and every duty derived from it).
+        if pregnant:
+            raise ValueError("Ultrasound result cannot predate its planned check date")
+        br.ultrasound_date = result_date
     br.ultrasound_done = True
     br.ultrasound_result_date = result_date
     br.pregnant = pregnant
@@ -456,7 +504,7 @@ async def record_ultrasound_result(
         await _add_task(
             db,
             br.farm_id,
-            f"Pre-kidding ET+TT vaccine: {doe.tag_number}",
+            f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
             ekd - timedelta(days=40),
             TaskCategory.VACCINE,
             animal_id=doe.id,
@@ -488,6 +536,47 @@ async def record_ultrasound_result(
         await db.flush()
         await _update_cull_candidate(db, doe)
 
+    await db.flush()
+    return br
+
+
+async def mark_unassessed(
+    db: AsyncSession, br: BreedingRecord, *, closed_by_id: int
+) -> BreedingRecord:
+    """Close a service that can never be assessed because the doe left the herd.
+
+    A PENDING record is an open question — "did this service take?" — and only
+    an ultrasound answers it. ``record_ultrasound_result`` refuses a
+    SOLD/DEAD/CULLED doe, so without a terminal state the row stayed PENDING
+    forever: it held the doe's ``uq_breeding_open_pregnancy`` slot and the UI
+    kept offering an "Ultrasound result" action that could only ever 409.
+
+    UNASSESSED records exactly that the question went unanswered. Nothing is
+    invented about the pregnancy (``ultrasound_done`` stays false, ``pregnant``
+    stays NULL), so the row is neither a conception nor a failure to conceive —
+    unlike FAILED, which would assert a negative scan that never happened.
+
+    Only a PENDING record moves: a confirmed pregnancy is resolved by
+    ``mark_aborted``, and every other outcome is already terminal. The caller
+    must hold the doe's and the breeding row's FOR UPDATE locks (animal →
+    breeding → task is the canonical lock order).
+    """
+    if br.outcome != BreedingOutcome.PENDING.value:
+        return br
+    doe = await _load_doe(db, br)
+    if doe.status == AnimalStatus.ACTIVE.value:
+        raise ValueError(
+            f"{doe.tag_number} is still in the herd — record the ultrasound result instead"
+        )
+    br.outcome = BreedingOutcome.UNASSESSED.value
+    # Locked + re-checked like mark_aborted: a worker's committed DONE
+    # completion must survive — never overwrite it to SKIPPED.
+    for task in await _pending_tasks_for(db, br.farm_id, for_update=True, breeding_record_id=br.id):
+        if task.status == TaskStatus.PENDING.value:
+            task.status = TaskStatus.SKIPPED.value
+            task.skipped_by_id = closed_by_id
+            task.skipped_at = utcnow()
+            task.skip_reason = "Doe left the herd before the pregnancy check"
     await db.flush()
     return br
 

@@ -842,6 +842,20 @@ describe("TeamPage RBAC and errors", () => {
     expect(calls).toBe(2);
   });
 
+  // REGRESSION — worker creation is owner-only server-side
+  // (team.py _prepare_worker_create), so a delegated team.manage holder could
+  // fill in a colleague's name, email and a plaintext password and only then
+  // be told 403.
+  it("hides Add worker from a delegated team.manage holder and explains why", async () => {
+    server.use(permissionsHandler(["team.manage"]), teamHandler());
+    await renderLoaded();
+
+    expect(screen.queryByRole("button", { name: "Add worker" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Only the farm owner can create worker accounts\./),
+    ).toBeInTheDocument();
+  });
+
   it("never exposes password reset to a non-owner even if a forged payload allows it", async () => {
     server.use(permissionsHandler(["team.manage"]), teamHandler());
     await renderLoaded();

@@ -81,8 +81,8 @@ const SEX_ITEMS: Record<string, string> = {
   [PurchaseBatchInSex.M]: "Male",
 };
 
-// Bounds mirror backend/app/schemas/purchases.py (count 1..1000, age 0..240, prices ≥ 0,
-// date year ≥ 2000 and not in the future).
+// Bounds mirror backend/app/schemas/purchases.py (count 1..1000, age 0..240,
+// weight 0..1000 kg, prices ≥ 0, date year ≥ 2000 and not in the future).
 const batchSchema = z
   .object({
     date: z.string().min(1, "Date is required"),
@@ -94,7 +94,9 @@ const batchSchema = z
       .max(1000, "At most 1000 animals"),
     sex: z.enum([PurchaseBatchInSex.F, PurchaseBatchInSex.M]),
     avg_age_months: optNum(z.number().min(0, "Cannot be negative").max(240, "At most 240 months")),
-    avg_weight_kg: optNum(z.number().min(0, "Cannot be negative")),
+    avg_weight_kg: optNum(
+      z.number().min(0, "Cannot be negative").max(1000, "At most 1000 kg"),
+    ),
     total_price: optNum(
       z
         .number()
@@ -125,9 +127,16 @@ function BatchDetailDialog({
   canViewAnimals: boolean;
   onClose: () => void;
 }) {
-  const query = useBatchDetailApiPurchasesBatchIdGet(batchId ?? 0, {
-    query: { enabled: batchId !== null },
-  });
+  // A batch may hold up to MAX_BATCH_COUNT head, so its animals arrive as a
+  // bounded page. The parent keys this component by batch id, so opening a
+  // different batch remounts it and the offset starts at zero again.
+  const ANIMALS_LIMIT = 100;
+  const [animalsOffset, setAnimalsOffset] = useState(0);
+  const query = useBatchDetailApiPurchasesBatchIdGet(
+    batchId ?? 0,
+    { animals_limit: ANIMALS_LIMIT, animals_offset: animalsOffset },
+    { query: { enabled: batchId !== null } },
+  );
   const detail = query.data?.status === 200 ? query.data.data : undefined;
   const openTasks = (detail?.tasks ?? []).filter((t) => t.status === "PENDING");
 
@@ -158,7 +167,7 @@ function BatchDetailDialog({
               </p>
 
               <section className="space-y-2">
-                <h3 className="font-medium">Animals created ({detail.animals.length})</h3>
+                <h3 className="font-medium">Animals created ({detail.animals_total})</h3>
                 {detail.animals.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No animal stubs for this batch.</p>
                 ) : (
@@ -193,6 +202,13 @@ function BatchDetailDialog({
                     </TableBody>
                   </Table>
                 )}
+                <PaginationControls
+                  total={detail.animals_total}
+                  limit={detail.animals_limit}
+                  offset={detail.animals_offset}
+                  onOffsetChange={setAnimalsOffset}
+                  label="animals"
+                />
               </section>
 
               <section className="space-y-2">
@@ -422,7 +438,10 @@ export default function PurchasesPage() {
         </DataTableCard>
       )}
 
+      {/* Keyed by batch so opening a different one remounts the dialog and its
+          animal-page offset starts at the first page again. */}
       <BatchDetailDialog
+        key={detailId ?? "none"}
         batchId={detailId}
         canViewAnimals={canViewAnimals}
         onClose={() => setDetailId(null)}
@@ -565,6 +584,7 @@ export default function PurchasesPage() {
                   type="number"
                   step="0.1"
                   min="0"
+                  max="1000"
                   {...register("avg_weight_kg")}
                 />
                 {errors.avg_weight_kg && (

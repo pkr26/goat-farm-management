@@ -27,6 +27,8 @@ export interface TaskOut {
   skipped_by_id: number | null;
   skipped_at: string | null;
   skip_reason: string | null;
+  rejected_by_id: number | null;
+  rejected_at: string | null;
   assigned_role_name?: string | null;
   assigned_user_name?: string | null;
   animal_tag?: string | null;

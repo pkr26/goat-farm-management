@@ -20,15 +20,20 @@ Covered:
 - app/services.py pure helpers: move_animal guards, recipe_for_animal bucket
   and day/age boundaries, SHIFT_SPLIT.
 - app/schemas/*: every input schema with valid, invalid and boundary inputs.
+- README.md claims that are derivable from the code (table count, the driver
+  scheme its runbook commands feed to the async engine).
 """
 
+import re
 from datetime import UTC, date, datetime, timedelta, tzinfo
+from pathlib import Path
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
 from app import security
+from app.db import Base
 from app.models import (
     BREEDING_READY_BUCKETS,
     BUCK_DOE_RATIO,
@@ -292,7 +297,9 @@ ENUM_CASES = [
     (Sex, {"M", "F"}),
     (BirthType, {"SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"}),
     (BreedingMethod, {"NATURAL"}),
-    (BreedingOutcome, {"PENDING", "CONFIRMED_PREGNANT", "FAILED", "ABORTED"}),
+    # UNASSESSED closes a service that could never be scanned because the doe
+    # left the herd; it asserts neither a conception nor a failure to conceive.
+    (BreedingOutcome, {"PENDING", "CONFIRMED_PREGNANT", "FAILED", "ABORTED", "UNASSESSED"}),
     (KiddingEase, {"NORMAL", "ASSISTED", "DIFFICULT"}),  # SPEC §KiddingRecord
     (KidStatus, {"ALIVE", "STILLBORN", "DIED"}),
     (HealthEventType, {"VACCINE", "DEWORMING", "TREATMENT", "FOOTBATH", "VITAMIN"}),
@@ -798,7 +805,11 @@ def _br_with_outcome(outcome: str) -> BreedingRecord:
         (["FAILED"], 0.0),
         (["CONFIRMED_PREGNANT", "CONFIRMED_PREGNANT", "FAILED"], 66.7),
         (["CONFIRMED_PREGNANT", "FAILED", "FAILED"], 33.3),
-        (["CONFIRMED_PREGNANT", "ABORTED"], 50.0),  # abort counts as completed
+        # An ABORTED record was CONFIRMED_PREGNANT first (mark_aborted refuses
+        # any other source state), so it conceived; the loss is a separate fact.
+        (["CONFIRMED_PREGNANT", "ABORTED"], 100.0),
+        (["ABORTED"], 100.0),
+        (["ABORTED", "FAILED"], 50.0),
         (["CONFIRMED_PREGNANT", "FAILED", "PENDING"], 50.0),  # pending excluded
     ],
 )
@@ -1582,7 +1593,14 @@ def test_health_event_defaults_to_animal_scope() -> None:
 # ---------------------------------------------------------------------------
 # app.schemas — feeding
 # ---------------------------------------------------------------------------
-VALID_DISPENSE = {"bucket": "FOUNDATION", "shift": "MORNING", "qty_kg": 1.5}
+# recipe_code is required: a dispensing record without a recipe cannot be
+# reconciled with the ration plan and bypasses finished-feed stock deduction.
+VALID_DISPENSE = {
+    "bucket": "FOUNDATION",
+    "shift": "MORNING",
+    "qty_kg": 1.5,
+    "recipe_code": "LACTATING_60_40",
+}
 
 
 @pytest.mark.parametrize("shift", ["MORNING", "AFTERNOON", "NIGHT"])
@@ -1595,7 +1613,6 @@ def test_dispense_accepts_every_shift(shift: str) -> None:
     [
         ("qty_kg", 0.001),
         ("qty_kg", 1000.0),
-        ("recipe_code", None),
         ("recipe_code", "CREEP"),
         ("date", None),
         ("date", TODAY.isoformat()),
@@ -1617,6 +1634,8 @@ def test_dispense_valid(field: str, value: object) -> None:
         ("qty_kg", NAN),
         ("qty_kg", INF),
         ("date", DAY_AFTER_TOMORROW),
+        ("recipe_code", None),
+        ("recipe_code", ""),
     ],
 )
 def test_dispense_invalid(field: str, value: object) -> None:
@@ -1624,7 +1643,7 @@ def test_dispense_invalid(field: str, value: object) -> None:
         DispenseIn(**(VALID_DISPENSE | {field: value}))
 
 
-@pytest.mark.parametrize("missing", ["bucket", "shift", "qty_kg"])
+@pytest.mark.parametrize("missing", ["bucket", "shift", "qty_kg", "recipe_code"])
 def test_dispense_missing_required(missing: str) -> None:
     payload = dict(VALID_DISPENSE)
     del payload[missing]
@@ -2142,3 +2161,32 @@ async def test_animal_notes_free_text_is_bounded(client: httpx.AsyncClient) -> N
         headers=headers,
     )
     assert rejected.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# README claims that are derivable from the code. Prose drifts silently; these
+# keep the few README statements that have a machine-checkable answer honest.
+# ---------------------------------------------------------------------------
+README = Path(__file__).resolve().parents[2] / "README.md"
+
+
+def test_readme_table_count_matches_the_metadata() -> None:
+    """README's backend layout states how many tables `models/` declares. It
+    said 24 while the metadata declared 26 — the two undocumented ones being
+    idempotency_records and movement_restriction_actions, exactly the tables a
+    retention/inventory reader most needs."""
+    match = re.search(r"models/\s+(\d+) tables", README.read_text())
+    assert match is not None, "README no longer states a table count for models/"
+    assert int(match.group(1)) == len(Base.metadata.tables)
+
+
+def test_readme_database_urls_use_the_async_driver_scheme() -> None:
+    """Every `GOATFARM_*DATABASE_URL` README assigns is consumed by SQLAlchemy's
+    async engine (app/db.py, alembic/env.py), which needs `postgresql+asyncpg`.
+    The restore runbook used to pass `${GOATFARM_RESTORE_DATABASE_URL}` through
+    verbatim — a libpq URL that resolves to psycopg2 and dies mid-recovery with
+    `ModuleNotFoundError: No module named 'psycopg2'`."""
+    assignments = re.findall(r"GOATFARM_(?:MIGRATION_)?DATABASE_URL=(\S+)", README.read_text())
+    assert assignments, "README no longer shows a database URL to check"
+    offenders = [value for value in assignments if "postgresql+asyncpg" not in value]
+    assert not offenders, f"non-async driver scheme in README runbook: {offenders}"

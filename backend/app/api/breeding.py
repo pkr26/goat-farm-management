@@ -284,7 +284,6 @@ async def create_breeding(
             doe,
             buck,
             payload.breeding_date,
-            payload.heat_cycle_number,
             created_by_id=user.id,
             doe_latest_weight_kg=weights.get(doe.id),
             has_open_breeding=has_open_breeding,
@@ -327,6 +326,17 @@ async def submit_ultrasound(
     perms: Annotated[set[str], Depends(require_perm("breeding.manage"))],
 ) -> BreedingRecordOut:
     br = await _lock_doe_then_breeding_record(db, farm, record_id)
+    if br.outcome == BreedingOutcome.UNASSESSED.value:
+        # The doe left the herd before her check, so the sale/death closed
+        # this service as unassessable. Name the real reason instead of
+        # claiming a result that was never recorded.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{br.doe.tag_number} is {br.doe.status.lower()} — "
+                "cannot record an ultrasound result"
+            ),
+        )
     if br.outcome != BreedingOutcome.PENDING.value:
         # Result already recorded — no replays (the service would no-op anyway).
         # Re-checked under the row lock, so a raced double submit serializes:
@@ -351,7 +361,9 @@ async def submit_ultrasound(
             created_by_id=user.id,
         )
     except ValueError as exc:
-        # The doe was sold/died with this PENDING breeding still open.
+        # Defence in depth: change_status now closes a departing doe's PENDING
+        # service as UNASSESSED (caught above), so the service's own ACTIVE
+        # guard only fires for a row written outside that path.
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None
     await db.commit()

@@ -6,8 +6,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Baby, CalendarClock, Plus, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Controller, useFieldArray, useForm } from "react-hook-form";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -55,6 +56,13 @@ import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
+/** Deep-link ids arrive as raw query strings; anything that is not a positive
+ * safe integer is ignored. */
+function parsePositiveId(raw: string | null): number | null {
+  const parsed = raw === null ? Number.NaN : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 function localToday(): string {
   return farmToday();
 }
@@ -84,20 +92,39 @@ const kidSchema = z.object({
   sex: z.enum(["M", "F"]),
   birth_weight: z.number().nonnegative("Must be ≥ 0").nullish(),
   status: z.enum(KID_STATUSES),
+  // Required exactly when the kid died, mirroring KidIn (schemas/kidding.py).
+  mortality_reported_at: z.string().optional(),
 });
-const kiddingSchema = z.object({
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
-    .refine((s) => s <= localToday(), "Date can't be in the future"),
-  ease: z.enum(EASES),
-  notes: z.string().optional(),
-  kids: z.array(kidSchema).min(1, "At least one kid").max(MAX_KIDS, "At most 10 kids"),
-});
+const kiddingSchema = z
+  .object({
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
+      .refine((s) => s <= localToday(), "Date can't be in the future"),
+    ease: z.enum(EASES),
+    notes: z.string().optional(),
+    kids: z.array(kidSchema).min(1, "At least one kid").max(MAX_KIDS, "At most 10 kids"),
+  })
+  .superRefine((values, ctx) => {
+    // Mirrors services/kidding.py: a died kid needs a mortality date that is on
+    // or after the kidding date and not in the future.
+    values.kids.forEach((kid, index) => {
+      if (kid.status !== "DIED") return;
+      const reported = kid.mortality_reported_at?.trim();
+      const path = ["kids", index, "mortality_reported_at"];
+      if (!reported) {
+        ctx.addIssue({ code: "custom", path, message: "Mortality date is required" });
+      } else if (reported < values.date) {
+        ctx.addIssue({ code: "custom", path, message: "Can't be before the kidding date" });
+      } else if (reported > localToday()) {
+        ctx.addIssue({ code: "custom", path, message: "Date can't be in the future" });
+      }
+    });
+  });
 type KiddingValues = z.infer<typeof kiddingSchema>;
 
 function emptyKid(): KiddingValues["kids"][number] {
-  return { tag: "", sex: "F", birth_weight: null, status: "ALIVE" };
+  return { tag: "", sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: "" };
 }
 
 function RecordKiddingDialog({
@@ -116,6 +143,7 @@ function RecordKiddingDialog({
     control,
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<KiddingValues>({
     resolver: zodResolver(kiddingSchema),
@@ -127,6 +155,8 @@ function RecordKiddingDialog({
     },
   });
   const { fields, append, remove } = useFieldArray({ control, name: "kids" });
+  const kiddingDate = useWatch({ control, name: "date" });
+  const kidValues = useWatch({ control, name: "kids" });
 
   async function onSubmit(values: KiddingValues) {
     await createFlight.run(async () => {
@@ -143,6 +173,9 @@ function RecordKiddingDialog({
               sex: k.sex,
               birth_weight: k.birth_weight ?? null,
               status: k.status,
+              // KidIn forbids the date unless the kid died, so never send a stale one.
+              mortality_reported_at:
+                k.status === "DIED" ? (k.mortality_reported_at ?? null) : null,
             })),
           },
         });
@@ -324,7 +357,18 @@ function RecordKiddingDialog({
                     control={control}
                     name={`kids.${index}.status`}
                     render={({ field: f }) => (
-                      <Select value={f.value} onValueChange={f.onChange}>
+                      <Select
+                        value={f.value}
+                        onValueChange={(v) => {
+                          f.onChange(v);
+                          // Only a died kid may carry a mortality date.
+                          if (v !== "DIED") {
+                            setValue(`kids.${index}.mortality_reported_at`, "", {
+                              shouldValidate: true,
+                            });
+                          }
+                        }}
+                      >
                         <SelectTrigger id={`kid-${field.id}-status`} size="sm">
                           <SelectValue />
                         </SelectTrigger>
@@ -350,6 +394,37 @@ function RecordKiddingDialog({
                 >
                   <X />
                 </Button>
+                {kidValues?.[index]?.status === "DIED" && (
+                  <div className="col-span-2 space-y-1 sm:col-span-5">
+                    <Label htmlFor={`kid-${field.id}-mortality`} className="text-xs">
+                      Kid {index + 1} mortality date *
+                    </Label>
+                    <Input
+                      id={`kid-${field.id}-mortality`}
+                      type="date"
+                      min={kiddingDate}
+                      max={localToday()}
+                      aria-invalid={
+                        Boolean(errors.kids?.[index]?.mortality_reported_at) || undefined
+                      }
+                      aria-describedby={
+                        errors.kids?.[index]?.mortality_reported_at
+                          ? `kid-${field.id}-mortality-error`
+                          : undefined
+                      }
+                      {...register(`kids.${index}.mortality_reported_at`)}
+                    />
+                    {errors.kids?.[index]?.mortality_reported_at && (
+                      <p
+                        id={`kid-${field.id}-mortality-error`}
+                        role="alert"
+                        className="text-sm text-destructive"
+                      >
+                        {errors.kids[index]?.mortality_reported_at?.message}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
             {errors.kids?.root && (
@@ -418,7 +493,7 @@ function KidsCell({
   );
 }
 
-export default function KiddingPage() {
+function KiddingPageContent() {
   const queryClient = useQueryClient();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("kidding.view");
@@ -426,12 +501,10 @@ export default function KiddingPage() {
   const canViewAnimals = can("animals.view");
   const [recordFor, setRecordFor] = useState<BreedingRecordOut | null>(null);
   const [prefillDismissed, setPrefillDismissed] = useState(false);
-  const [requestedBreedingId] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    const raw = new URLSearchParams(window.location.search).get("breeding_id");
-    const parsed = raw === null ? Number.NaN : Number(raw);
-    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-  });
+  // Read from the router, not window.location: Next commits the browser URL in
+  // an insertion effect, after this component has already rendered.
+  const searchParams = useSearchParams();
+  const requestedBreedingId = parsePositiveId(searchParams.get("breeding_id"));
   const [historyOffset, setHistoryOffset] = useState(0);
   const [upcomingOffset, setUpcomingOffset] = useState(0);
   const [overdueOffset, setOverdueOffset] = useState(0);
@@ -749,5 +822,13 @@ export default function KiddingPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function KiddingPage() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <KiddingPageContent />
+    </Suspense>
   );
 }

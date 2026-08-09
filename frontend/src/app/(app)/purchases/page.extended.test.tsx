@@ -337,6 +337,19 @@ describe("PurchasesPage new-batch dialog", () => {
     expect(postCalls).toBe(0);
   });
 
+  // REGRESSION — avg_weight_kg had only a lower bound client-side, so a
+  // grams-vs-kg typo passed the review step and only failed on the final POST
+  // with a raw pydantic message and no field-level error.
+  it("rejects an average weight above the server's 1000 kg ceiling", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Avg weight/), "2500");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
   it("rejects a negative total price", async () => {
     const { user, dialog } = await openDialog();
 
@@ -470,7 +483,14 @@ describe("PurchasesPage batch detail dialog", () => {
     server.use(
       listHandler([BATCH_1]),
       http.get("/api/purchases/5", () =>
-        HttpResponse.json({ batch: BATCH_1, animals: [ANIMAL_STUB], tasks: [TASK_PENDING, TASK_DONE] }),
+        HttpResponse.json({
+          batch: BATCH_1,
+          animals: [ANIMAL_STUB],
+          tasks: [TASK_PENDING, TASK_DONE],
+          animals_total: 1,
+          animals_limit: 100,
+          animals_offset: 0,
+        }),
       ),
     );
   });
@@ -518,7 +538,14 @@ describe("PurchasesPage batch detail dialog", () => {
   it("shows empty-state copy when the batch has no animals or open tasks", async () => {
     server.use(
       http.get("/api/purchases/5", () =>
-        HttpResponse.json({ batch: BATCH_1, animals: [], tasks: [TASK_DONE] }),
+        HttpResponse.json({
+          batch: BATCH_1,
+          animals: [],
+          tasks: [TASK_DONE],
+          animals_total: 0,
+          animals_limit: 100,
+          animals_offset: 0,
+        }),
       ),
     );
     const { dialog } = await openDetail();

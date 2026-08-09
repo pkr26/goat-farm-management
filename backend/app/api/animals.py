@@ -63,6 +63,12 @@ from ..services import (
     schedule_quarantine_tasks,
     skip_pending_tasks_for_animal,
 )
+
+# Not re-exported from ``..services`` yet; imported from their modules so the
+# batch-duty sweep can run beside the per-animal one and the status sweep can
+# close a never-scanned service.
+from ..services.animals import skip_pending_tasks_for_empty_batch
+from ..services.breeding import mark_unassessed
 from ..utils import money, today
 from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out
 
@@ -243,6 +249,19 @@ async def create_animal(
             and payload.weight_date < (payload.purchase_date or farm_date)
         ):
             raise ValueError("weight_date cannot predate purchase_date")
+        if (
+            payload.source == "PURCHASED"
+            and (payload.historical_import_reason or "").strip()
+            and payload.purchase_price is not None
+            and payload.purchase_date is None
+        ):
+            # A historical import stores purchase_date verbatim while the
+            # expense fell back to today, so importing an old herd with prices
+            # but no dates booked the whole acquisition into the current
+            # accounting period against animals carrying no purchase date.
+            raise ValueError(
+                "purchase_date is required when a historical import records a purchase_price"
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
@@ -827,19 +846,27 @@ async def change_status(
     # animal's pending tasks (a dead/sold animal must not generate work).
     animal.cull_candidate = False
 
-    # A sold/dead/culled doe cannot carry a pregnancy to term: auto-resolve
-    # any live confirmed pregnancy as ABORTED instead of leaving a phantom
-    # pregnancy on the kidding due lists forever (record_kidding would reject
-    # the non-ACTIVE doe, and nothing else prompted mark_aborted). Lock order
-    # is canonical: the animal lock above → breeding rows here → task locks
-    # inside mark_aborted / skip_pending_tasks_for_animal.
+    # A sold/dead/culled doe cannot carry a pregnancy to term, and she can
+    # never be scanned again either: resolve BOTH kinds of open service here
+    # instead of leaving them on the kidding-due / ultrasound lists forever.
+    #   CONFIRMED_PREGNANT → ABORTED   (record_kidding would reject her)
+    #   PENDING            → UNASSESSED (record_ultrasound_result rejects her,
+    #                                    so the row had no exit at all)
+    # Lock order is canonical: the animal lock above → breeding rows here →
+    # task locks inside mark_aborted / mark_unassessed /
+    # skip_pending_tasks_for_animal.
     if animal.sex == "F":
         open_result = await db.execute(
             select(BreedingRecord)
             .where(
                 BreedingRecord.farm_id == farm.id,
                 BreedingRecord.doe_id == animal.id,
-                BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                BreedingRecord.outcome.in_(
+                    [
+                        BreedingOutcome.PENDING.value,
+                        BreedingOutcome.CONFIRMED_PREGNANT.value,
+                    ]
+                ),
                 ~select(KiddingRecord.id)
                 .where(
                     KiddingRecord.farm_id == farm.id,
@@ -851,6 +878,13 @@ async def change_status(
             .with_for_update()
         )
         for br in open_result.scalars():
+            if br.outcome == BreedingOutcome.PENDING.value:
+                # Never scanned: there is no pregnancy to abort, only a
+                # question nobody can answer any more. Closing it as
+                # UNASSESSED asserts no scan result — the record is neither a
+                # conception nor a failure to conceive.
+                await mark_unassessed(db, br, closed_by_id=user.id)
+                continue
             try:
                 await mark_aborted(
                     db,
@@ -913,6 +947,14 @@ async def change_status(
             )
 
     await skip_pending_tasks_for_animal(db, farm.id, animal.id)
+    if animal.purchase_batch_id is not None:
+        # The batch's 45-day protocol duties carry no animal_id, so the sweep
+        # above cannot reach them; once the batch has no animals left in the
+        # herd they are stale work nobody can complete. Autoflush is disabled,
+        # so this animal's new status must reach the database before the
+        # "any active animal left?" check runs.
+        await db.flush()
+        await skip_pending_tasks_for_empty_batch(db, farm.id, animal.purchase_batch_id)
 
     if payload.new_status == AnimalStatus.SOLD.value:
         animal.sale_price = money(payload.sale_price) if payload.sale_price is not None else None

@@ -41,6 +41,8 @@ PRESET_PERMS: dict[str, set[str]] = {
         "tasks.view",
         "tasks.complete",
     },
+    # A vet attends difficult deliveries, and KIDDING_DUE duties are routed to
+    # this role — so it must hold the kidding permissions its own duties need.
     "VET": {
         "dashboard.view",
         "animals.view",
@@ -48,6 +50,8 @@ PRESET_PERMS: dict[str, set[str]] = {
         "buckets.view",
         "breeding.view",
         "breeding.manage",
+        "kidding.view",
+        "kidding.manage",
         "health.view",
         "health.manage",
         "tasks.view",
@@ -2801,3 +2805,30 @@ async def test_cross_farm_worker_cannot_peek_team(client: httpx.AsyncClient) -> 
     # Forbidden farms answer exactly like unknown ones.
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"
+
+
+@pytest.mark.parametrize("corrupt", ["null", "5", "true", '"abc"', "not json"])
+async def test_corrupt_role_permissions_fail_closed_instead_of_500(
+    client: httpx.AsyncClient, corrupt: str
+) -> None:
+    """`permission_set` is deliberately fail-closed on a corrupt permissions
+    column, but it only caught ValueError: valid JSON that is not a list
+    ("null", "5") raised an uncaught TypeError on every authenticated request
+    that worker made, and a bare JSON string silently decomposed into its
+    characters instead of granting nothing."""
+    owner = await owner_with_farm(client, "corrupt-perms-owner@farm.in")
+    cleaner = await worker_headers(client, owner, "CLEANER", "corrupt-perms@farm.in")
+    assert (await client.get("/api/tasks", headers=cleaner)).status_code == 200
+
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text(
+                "UPDATE roles SET permissions = :value WHERE farm_id = :farm AND code = 'CLEANER'"
+            ),
+            {"value": corrupt, "farm": int(owner["X-Farm-Id"])},
+        )
+        await db.commit()
+
+    resp = await client.get("/api/tasks", headers=cleaner)
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"].startswith("Missing permission")

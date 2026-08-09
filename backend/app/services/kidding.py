@@ -79,6 +79,12 @@ async def record_kidding(
             f"~{GESTATION_DAYS} days (accepted window "
             f"{MIN_GESTATION_DAYS}–{MAX_GESTATION_DAYS} days)"
         )
+    # A doe cannot deliver before the scan that confirmed she was carrying.
+    # The loss path enforces the same ordering (mark_aborted plus the
+    # ck_breeding_loss_after_ultrasound CHECK); a late-entered result date
+    # would otherwise leave a delivery predating its own confirmation.
+    if br.ultrasound_result_date is not None and kidding_date < br.ultrasound_result_date:
+        raise ValueError("Kidding date cannot predate the pregnancy confirmation")
     for kid in kids:
         mortality_date = kid["mortality_reported_at"]
         if kid["status"] == KidStatus.DIED.value:

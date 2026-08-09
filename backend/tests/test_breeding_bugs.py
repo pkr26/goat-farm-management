@@ -173,7 +173,10 @@ async def test_ultrasound_rejected_after_doe_sold(client: httpx.AsyncClient) -> 
     assert resp.status_code == 409, resp.text
     assert "sold" in resp.json()["detail"]
     final = await get_breeding(client, headers, br["id"])
-    assert final["outcome"] == "PENDING"  # untouched by the rejected submit
+    # The sale closes a never-scanned service as UNASSESSED so it stops sitting
+    # PENDING forever holding the doe's open-pregnancy slot. The rejected
+    # submit itself recorded nothing: no scan happened.
+    assert final["outcome"] == "UNASSESSED"
     assert final["ultrasound_done"] is False
     related = [t for t in await all_tasks(client, headers) if t["breeding_record_id"] == br["id"]]
     # Only the ultrasound duty exists (skipped by the sale) — no pre-kidding

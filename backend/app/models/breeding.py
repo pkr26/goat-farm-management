@@ -64,7 +64,7 @@ class BreedingRecord(Base):
             name="ck_breeding_records_method",
         ),
         CheckConstraint(
-            "outcome IN ('PENDING', 'CONFIRMED_PREGNANT', 'FAILED', 'ABORTED')",
+            "outcome IN ('PENDING', 'CONFIRMED_PREGNANT', 'FAILED', 'ABORTED', 'UNASSESSED')",
             name="ck_breeding_records_outcome",
         ),
         CheckConstraint(
@@ -96,8 +96,11 @@ class BreedingRecord(Base):
             "kid_count_detected IS NULL OR kid_count_detected BETWEEN 1 AND 3",
             name="ck_breeding_records_kid_count",
         ),
+        # UNASSESSED shares PENDING's shape on purpose: closing an unassessable
+        # service must not invent a scan that never happened.
         CheckConstraint(
-            "(outcome = 'PENDING' AND ultrasound_done IS FALSE AND pregnant IS NULL "
+            "(outcome IN ('PENDING', 'UNASSESSED') AND ultrasound_done IS FALSE "
+            "AND pregnant IS NULL "
             "AND kid_count_detected IS NULL AND ultrasound_result_date IS NULL) OR "
             "(outcome = 'CONFIRMED_PREGNANT' AND ultrasound_done IS TRUE "
             "AND pregnant IS TRUE) OR "
@@ -108,7 +111,7 @@ class BreedingRecord(Base):
         ),
         CheckConstraint(
             "(outcome = 'CONFIRMED_PREGNANT' AND expected_kidding_date IS NOT NULL) OR "
-            "(outcome IN ('PENDING', 'FAILED') AND expected_kidding_date IS NULL) OR "
+            "(outcome IN ('PENDING', 'FAILED', 'UNASSESSED') AND expected_kidding_date IS NULL) OR "
             "outcome = 'ABORTED'",
             name="ck_breeding_records_expected_state",
         ),

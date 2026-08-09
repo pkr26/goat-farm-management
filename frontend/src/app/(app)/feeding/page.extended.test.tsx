@@ -633,6 +633,63 @@ describe("FeedingPage dispense dialog", () => {
     });
   });
 
+  // REGRESSION — DRY_ROUGHAGE_ONLY is a virtual code with no feed_recipes row,
+  // so it only ever entered the dropdown via today's plan. Once the quarantine
+  // animals passed bucket-day 3 the option vanished and the stover actually fed
+  // on an earlier day could never be recorded (or debited from inventory).
+  it("offers the dry-roughage ration even when today's plan does not use it", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.click(within(dialog).getAllByRole("combobox")[2]);
+    await user.click(await screen.findByRole("option", { name: "Dry roughage only" }));
+    fireEvent.change(within(dialog).getByLabelText("Date"), {
+      target: { value: "2026-01-01" },
+    });
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "48");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+
+    await waitFor(() => expect(dispenseCalls).toBe(1));
+    expect(dispenseBody).toMatchObject({
+      recipe_code: "DRY_ROUGHAGE_ONLY",
+      qty_kg: 48,
+      date: "2026-01-01",
+    });
+  });
+
+  // REGRESSION — a bucket split by age carries two plan lines; the handler used
+  // `.find(...)`, silently pre-selecting the alphabetically-first recipe and
+  // debiting the wrong finished-stock balance.
+  it("clears the recipe instead of guessing when a bucket has two plan lines", async () => {
+    server.use(
+      planHandler({
+        lines: [
+          LINE_BREEDING,
+          LINE_MALE_KIDS,
+          {
+            ...LINE_MALE_KIDS,
+            recipe_code: "LACTATING_60_40",
+            recipe_name: "Lactating 60/40",
+          },
+        ],
+        records: [],
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FeedingPage />);
+    await screen.findByText("Fattening 50/50");
+    await user.click(screen.getByRole("button", { name: "Record dispensing" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await user.click(within(dialog).getAllByRole("combobox")[0]);
+    await user.click(await screen.findByRole("option", { name: "MALE_KIDS" }));
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "6");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+
+    expect(await within(dialog).findByText("Pick a recipe")).toBeInTheDocument();
+    expect(dispenseCalls).toBe(0);
+  });
+
   it("keeps the dialog open when the server rejects the dispense", async () => {
     server.use(
       http.post("/api/feeding/dispense", () => {

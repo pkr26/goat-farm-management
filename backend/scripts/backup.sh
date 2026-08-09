@@ -13,12 +13,32 @@ umask 077
 
 DEST_DIR="${1:-./backups}"
 KEEP="${GOATFARM_BACKUP_KEEP:-30}"
-DB_SSLMODE="${GOATFARM_DB_SSLMODE:-disable}"
-ENVIRONMENT="${GOATFARM_ENVIRONMENT:-development}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# GOATFARM_ENVIRONMENT and GOATFARM_DB_SSLMODE are *application* settings that
+# gate TLS and mandatory GPG below.  A job that exports only
+# GOATFARM_DATABASE_URL (the one variable this script reports as missing) would
+# otherwise silently fall back to the development defaults on a production
+# host: a plaintext, unsigned dump streamed over a connection this script then
+# forces to `disable`.  Read backend/.env — the same file the application reads
+# — for any value the caller did not export; an explicit export still wins.
+app_setting() {
+    local key="$1" env_file="${SCRIPT_DIR}/../.env" value=""
+    if [[ -r "${env_file}" ]]; then
+        value="$(sed -n "s/^[[:space:]]*${key}=//p" "${env_file}" | tail -n 1 | tr -d '\r')"
+        value="${value%\"}"
+        value="${value#\"}"
+    fi
+    printf '%s' "${value}"
+}
+
+DB_SSLMODE="${GOATFARM_DB_SSLMODE:-$(app_setting GOATFARM_DB_SSLMODE)}"
+DB_SSLMODE="${DB_SSLMODE:-disable}"
+ENVIRONMENT="${GOATFARM_ENVIRONMENT:-$(app_setting GOATFARM_ENVIRONMENT)}"
+ENVIRONMENT="${ENVIRONMENT:-development}"
 S3_URI="${GOATFARM_BACKUP_S3_URI:-}"
 GPG_RECIPIENT="${GOATFARM_BACKUP_GPG_RECIPIENT:-}"
 GPG_SIGNER="${GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT:-}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 
 WORK_DIR=""
 LOCK_DIR="${DEST_DIR}/.goatfarm-backup.lock"

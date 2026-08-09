@@ -280,10 +280,54 @@ def test_mass_balance_toy_open_flock() -> None:
 
 
 def test_mass_balance_no_grower_chains() -> None:
-    a = toy()
+    # Non-zero starting growers are the point: with afb == 6 / sale_age == 6
+    # the grower age arrays are empty, and the foundation growers used to be
+    # dropped on the floor — 50 head that vanished from the herd while shed
+    # and stock cost still billed for them.
+    a = toy(female_growers=20, male_growers=30)
     a.reproduction.age_at_first_breeding_months = 6
     a.growth.sale_age_months = 6
     assert_mass_balance(a)
+
+
+def test_starting_growers_without_a_chain_are_kept_not_deleted() -> None:
+    """afb == 6 / sale_age == 6 leave no grower slots. The females are already
+    breeding-age and the males already at sale age, so both must graduate in
+    month 1 exactly as a one-slot chain (afb/sale_age == 7) makes them — not
+    disappear while ``capacity_places`` and ``stock_cost`` still charge for
+    them."""
+    a = toy(female_growers=20, male_growers=30)
+    a.meta.horizon_months = 12
+    a.reproduction.age_at_first_breeding_months = 6
+    a.growth.sale_age_months = 6
+    a.herd.max_breeding_does = 0  # unlimited: every retained female is kept
+    a.herd.female_retention_fraction = 1.0
+    res = run_simulation(a, with_break_even=False)
+    m1 = res.months[0]
+    # The 30 males are sold at sale-age weight in month 1; the 20 females join
+    # the doe pool. Nothing is silently lost.
+    assert m1.sales_head == pytest.approx(30.0)
+    assert m1.f_growers == 0.0 and m1.m_growers == 0.0
+    does = m1.open_does + m1.pregnant_does + m1.lactating_does
+    assert does == pytest.approx(30.0 * S_ADULT, abs=1e-6)  # 10 foundation + 20 growers
+    # And the same head are what the project cost was charged for.
+    assert res.project_cost_breakdown.shed_cost == pytest.approx(61 * 4500.0)
+
+
+def test_starting_growers_match_the_one_slot_chain_at_the_boundary() -> None:
+    """Continuity check: afb/sale_age == 6 must behave like the limit of 7,
+    where the single grower slot graduates in month 1."""
+
+    def run(age: int) -> tuple[float, float]:
+        a = toy(female_growers=20, male_growers=30)
+        a.meta.horizon_months = 12
+        a.reproduction.age_at_first_breeding_months = age
+        a.growth.sale_age_months = age
+        res = run_simulation(a, with_break_even=False)
+        m1 = res.months[0]
+        return m1.total_herd, m1.sales_head
+
+    assert run(6) == pytest.approx(run(7))
 
 
 def test_mass_balance_empty_herd_with_events() -> None:
@@ -518,6 +562,21 @@ def test_dscr_consistency() -> None:
     assert [row.year for row in active] == [1, 2, 3, 4, 5, 6]
 
 
+def test_avg_and_min_dscr_are_none_only_without_debt_years() -> None:
+    """0.0 was the "no debt year" sentinel, which collides with the real
+    thing: a year with zero or negative EBITDA is the worst DSCR there is, and
+    consumers read it as "this project has no debt"."""
+    a = SimulationAssumptions()
+    a.finance.loan_fraction_of_project_cost = 0.0
+    m = run_simulation(a, with_break_even=False).metrics
+    assert all(row == 0.0 for row in m.dscr_per_year)
+    assert m.avg_dscr is None and m.min_dscr is None
+    # With a loan, a negative weakest year stays a number — never the sentinel.
+    m = run_simulation(SimulationAssumptions(), with_break_even=False).metrics
+    assert m.min_dscr is not None and m.min_dscr < 0.0
+    assert m.avg_dscr is not None and m.avg_dscr < 0.0
+
+
 def test_payback_matches_cumulative_series() -> None:
     a = SimulationAssumptions()
     a.sales.meat_price_per_kg = 500.0  # profitable: payback exists
@@ -537,6 +596,34 @@ def test_npv_bcr_sign_agreement_across_grid() -> None:
         m = run_simulation(a, with_break_even=False).metrics
         assert m.bcr is not None
         assert (m.npv > 0.0) == (m.bcr > 1.0), meat_price
+
+
+def test_bcr_is_gross_benefits_over_gross_costs() -> None:
+    """BCR must be PV(revenue) / PV(capital + opex + debt service), the ratio
+    the documentation promises and a lender compares to 1.5. Splitting the
+    *net* annual flows by sign instead gives 1 + NPV/PV(negative years) —
+    algebraically just a restatement of NPV, and 1.5-3x off in magnitude
+    (0.21 instead of 0.83 at the default price, 4.16 instead of 1.45 at 700)."""
+    for meat_price in (350.0, 500.0, 700.0):
+        a = SimulationAssumptions()
+        a.sales.meat_price_per_kg = meat_price
+        res = run_simulation(a, with_break_even=False)
+        rate = a.finance.discount_rate_annual
+        times = [0.0, *[float(row.year) for row in res.annual_pl]]
+        benefits = [0.0, *[row.total_revenue for row in res.annual_pl]]
+        costs = [
+            res.metrics.equity,
+            *[row.total_opex + row.debt_service for row in res.annual_pl],
+        ]
+        expected = npv(rate, benefits, times) / npv(rate, costs, times)
+        assert res.metrics.bcr == pytest.approx(expected), meat_price
+        # The identity NPV = PV(benefits) - PV(costs) still holds, which is
+        # why the sign agreement above survives the change.
+        assert res.metrics.npv == pytest.approx(
+            npv(rate, benefits, times) - npv(rate, costs, times)
+        )
+    # And it is no longer the net-flow ratio, which would read 4.16 at 700.
+    assert res.metrics.bcr is not None and res.metrics.bcr < 2.0
 
 
 # ---------------------------------------------------------------------------

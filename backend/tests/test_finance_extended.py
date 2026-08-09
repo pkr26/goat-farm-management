@@ -17,7 +17,11 @@ from datetime import date, timedelta
 
 import httpx
 import pytest
+from sqlalchemy import select
 
+from app.api.dashboard import DASHBOARD_PREVIEW_LIMIT
+from app.db import get_sessionmaker
+from app.models import Animal, BreedingRecord, conception_rate
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, register
@@ -67,6 +71,17 @@ async def add_txn(client: httpx.AsyncClient, headers: dict, **overrides: object)
     resp = await client.post("/api/finance/new", json=txn_payload(**overrides), headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+def correction_payload(**overrides: object) -> dict:
+    payload: dict = {
+        "date": iso(today()),
+        "type": "EXPENSE",
+        "category": "FEED",
+        "amount": 100.0,
+        "reason": "Transcription error",
+    }
+    return payload | overrides
 
 
 async def get_finance(client: httpx.AsyncClient, headers: dict, **params: str) -> dict:
@@ -633,6 +648,18 @@ async def test_finance_worker_view_only_cannot_write(client: httpx.AsyncClient) 
     assert (await client.get("/api/finance", headers=worker)).status_code == 200
     resp = await client.post("/api/finance/new", json=txn_payload(), headers=worker)
     assert resp.status_code == 403
+    # Correcting voids a committed ledger row and re-books it — finance.manage,
+    # never the read permission.
+    original = await add_txn(client, owner, amount=125.0)
+    correction = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json=correction_payload(),
+        headers=worker,
+    )
+    assert correction.status_code == 403
+    assert correction.json()["detail"] == "Missing permission: finance.manage"
+    rows = (await get_finance(client, owner))["transactions"]
+    assert [row["voided_at"] for row in rows] == [None]
 
 
 async def test_finance_worker_with_manage_can_write(client: httpx.AsyncClient) -> None:
@@ -642,6 +669,13 @@ async def test_finance_worker_with_manage_can_write(client: httpx.AsyncClient) -
     resp = await client.post("/api/finance/new", json=txn_payload(), headers=worker)
     assert resp.status_code == 201, resp.text
     assert (await client.get("/api/finance", headers=worker)).status_code == 200
+    correction = await client.post(
+        f"/api/finance/transactions/{resp.json()['id']}/correct",
+        json=correction_payload(amount=90.0),
+        headers=worker,
+    )
+    assert correction.status_code == 201, correction.text
+    assert correction.json()["correction_of_id"] == resp.json()["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -747,6 +781,13 @@ async def test_correction_preserves_audit_trail_and_replaces_totals(
     old = next(row for row in data["transactions"] if row["id"] == original["id"])
     assert old["voided_at"] is not None
     assert old["void_reason"] == "Transcription error"
+    # The header total and the P&L table below it are separate queries with
+    # separate voided filters: the corrected row must be gone from both, or the
+    # same screen shows ₹100.01 spent and ₹225.01 lost.
+    month = next(row for row in data["pnl"] if row["month"] == today().strftime("%Y-%m"))
+    assert month["expense"] == 100.01
+    assert month["net"] == -100.01
+    assert month["categories"]["FEED"] == {"income": 0.0, "expense": 100.01}
 
     replay = await client.post(
         f"/api/finance/transactions/{original['id']}/correct",
@@ -816,6 +857,102 @@ async def test_correction_rejects_foreign_animal_without_voiding_original(
     assert data["transactions"][0]["id"] == original["id"]
     assert data["transactions"][0]["voided_at"] is None
     assert data["total_expense"] == 125.0
+
+
+# ---------------------------------------------------------------------------
+# Corrections of system-generated rows — the ledger and the record that
+# produced it must never drift apart.
+# ---------------------------------------------------------------------------
+async def sale_transaction(client: httpx.AsyncClient, headers: dict) -> dict:
+    rows = (await get_finance(client, headers))["transactions"]
+    return next(row for row in rows if row["source_type"] == "ANIMAL_SALE")
+
+
+async def animal_profile(client: httpx.AsyncClient, headers: dict, animal_id: int) -> dict:
+    resp = await client.get(f"/api/animals/{animal_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()["animal"]
+
+
+async def test_correcting_a_sale_updates_the_animals_recorded_price(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="SALE-FIX")
+    await change_status(client, owner, animal["id"], "SOLD", sale_price=5000.0)
+    booked = await sale_transaction(client, owner)
+
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            type="INCOME", category="ANIMAL_SALE", amount=4500.0, reason="Buyer paid less"
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    data = await get_finance(client, owner)
+    assert data["total_income"] == 4500.0
+    # The animal profile renders sale_price as authoritative money and nothing
+    # else can rewrite it — a sold animal cannot change status again.
+    assert (await animal_profile(client, owner, animal["id"]))["sale_price"] == 4500.0
+
+
+async def test_correction_cannot_rebook_a_sale_as_an_expense(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="SALE-RETYPE")
+    await change_status(client, owner, animal["id"], "SOLD", sale_price=10000.0)
+    booked = await sale_transaction(client, owner)
+
+    resp = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(type="EXPENSE", category="OTHER", amount=1.0, reason="typo"),
+        headers=owner,
+    )
+    assert resp.status_code == 422, resp.text
+    assert "must stay INCOME/ANIMAL_SALE" in resp.json()["detail"]
+    data = await get_finance(client, owner)
+    assert data["total_income"] == 10000.0
+    assert data["total_expense"] == 0.0
+    assert [row["voided_at"] for row in data["transactions"]] == [None]
+    assert (await animal_profile(client, owner, animal["id"]))["sale_price"] == 10000.0
+
+
+async def test_correcting_a_batch_expense_amount_is_refused(client: httpx.AsyncClient) -> None:
+    """A batch total is allocated across every animal it created, so it cannot
+    be re-pointed from here without leaving those per-head prices behind."""
+    owner = await owner_with_farm(client)
+    batch = await client.post(
+        "/api/purchases/new",
+        json={"date": iso(today()), "count": 2, "total_price": 1000.0},
+        headers=owner,
+    )
+    assert batch.status_code == 201, batch.text
+    rows = (await get_finance(client, owner))["transactions"]
+    booked = next(row for row in rows if row["source_type"] == "PURCHASE_BATCH")
+
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            type="EXPENSE", category="ANIMAL_PURCHASE", amount=900.0, reason="Renegotiated"
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    # A non-amount correction of the same row is still allowed.
+    amended = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=booked["amount"],
+            notes="Invoice #77",
+            reason="Attach the invoice number",
+        ),
+        headers=owner,
+    )
+    assert amended.status_code == 201, amended.text
+    data = await get_finance(client, owner)
+    assert data["total_expense"] == 1000.0
 
 
 async def test_totals_hand_computed(client: httpx.AsyncClient) -> None:
@@ -908,11 +1045,13 @@ async def test_type_filter(client: httpx.AsyncClient) -> None:
     assert all(t["type"] == "EXPENSE" for t in data["transactions"])
 
 
-async def test_type_filter_unknown_value_matches_nothing(client: httpx.AsyncClient) -> None:
+async def test_type_filter_unknown_value_is_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     await add_txn(client, owner, type="INCOME")
-    data = await get_finance(client, owner, type="income")  # no enum guard on filters
-    assert data["transactions"] == []
+    # The filter is typed against the ledger vocabulary, so an unknown value is
+    # a validation error rather than free text bound into the SQL comparison.
+    resp = await client.get("/api/finance", params={"type": "income"}, headers=owner)
+    assert resp.status_code == 422, resp.text
 
 
 async def test_category_filter(client: httpx.AsyncClient) -> None:
@@ -923,11 +1062,47 @@ async def test_category_filter(client: httpx.AsyncClient) -> None:
     assert [t["id"] for t in data["transactions"]] == [vet["id"]]
 
 
-async def test_category_filter_unknown_value_matches_nothing(client: httpx.AsyncClient) -> None:
+async def test_category_filter_unknown_value_is_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     await add_txn(client, owner, category="FEED")
-    data = await get_finance(client, owner, category="GROCERY")
-    assert data["transactions"] == []
+    resp = await client.get("/api/finance", params={"category": "GROCERY"}, headers=owner)
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("field", ["type", "category"])
+async def test_ledger_filter_with_nul_byte_is_rejected_not_500(
+    client: httpx.AsyncClient, field: str
+) -> None:
+    """A text column cannot hold a NUL byte: unfiltered it reached asyncpg and
+    came back as an opaque 500 on a plain read."""
+    owner = await owner_with_farm(client)
+    await add_txn(client, owner)
+    resp = await client.get("/api/finance", params={field: "\x00"}, headers=owner)
+    assert resp.status_code == 422, resp.text
+
+
+async def test_transaction_notes_with_control_character_rejected_not_500(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    resp = await client.post("/api/finance/new", json=txn_payload(notes="a\x00b"), headers=owner)
+    assert resp.status_code == 422, resp.text
+    assert (await get_finance(client, owner))["transactions"] == []
+
+
+async def test_correction_reason_with_control_character_rejected_not_500(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    original = await add_txn(client, owner, amount=125.0)
+    resp = await client.post(
+        f"/api/finance/transactions/{original['id']}/correct",
+        json=correction_payload(reason="a\x00bc"),
+        headers=owner,
+    )
+    assert resp.status_code == 422, resp.text
+    rows = (await get_finance(client, owner))["transactions"]
+    assert [row["voided_at"] for row in rows] == [None]  # nothing was voided
 
 
 async def test_combined_filters(client: httpx.AsyncClient) -> None:
@@ -1250,21 +1425,108 @@ async def test_dashboard_kidding_due_within_14_days(client: httpx.AsyncClient) -
     buck1 = await make_buck(client, owner, tag="KD-1-BUCK")
     br1 = await make_breeding(client, owner, doe1["id"], buck1["id"], today() - timedelta(days=140))
     await ultrasound(client, owner, br1["id"], pregnant=True)
-    # Already overdue by 20 days — no lower bound on the dashboard query.
+    # Already overdue by 20 days: a doe nobody recorded a kidding for still
+    # needs attention, so the panel keeps her — listed ahead of the upcoming
+    # one, because it stays in due-date order.
     doe2 = await make_doe(client, owner, tag="KD-2")
     buck2 = await make_buck(client, owner, tag="KD-2-BUCK")
     br2 = await make_breeding(client, owner, doe2["id"], buck2["id"], today() - timedelta(days=170))
     await ultrasound(client, owner, br2["id"], pregnant=True)
     dash = await get_dashboard(client, owner)
-    due_tags = {r["doe_tag"] for r in dash["kiddings_due"]}
-    assert due_tags == {"KD-1", "KD-2"}
+    assert [r["doe_tag"] for r in dash["kiddings_due"]] == ["KD-2", "KD-1"]
     by_tag = {r["doe_tag"]: r for r in dash["kiddings_due"]}
     assert by_tag["KD-1"]["expected_kidding_date"] == iso(today() + timedelta(days=10))
     assert by_tag["KD-2"]["expected_kidding_date"] == iso(today() - timedelta(days=20))
+    assert dash["kiddings_due_total"] == 2
     assert all(
         set(row) == {"id", "doe_id", "doe_tag", "expected_kidding_date"}
         for row in dash["kiddings_due"]
     )
+
+
+async def test_dashboard_overdue_kidding_backlog_cannot_hide_upcoming_ones(
+    client: httpx.AsyncClient,
+) -> None:
+    """An overdue backlog must not fill the whole "due in 14 days" preview.
+
+    The panel used to select every confirmed pregnancy with an expected date
+    at or before today + 14, order it ascending and cut at the preview limit,
+    so a farm carrying more overdue pregnancies than the limit saw only the
+    oldest of them and none of the kiddings actually about to happen. Overdue
+    rows are still shown, but neither side can crowd out the other.
+    """
+    owner = await owner_with_farm(client)
+    buck = await make_buck(client, owner, tag="BACKLOG-BUCK")
+    farm_id = int(owner["X-Farm-Id"])
+    backlog = DASHBOARD_PREVIEW_LIMIT + 20
+    async with get_sessionmaker()() as db:
+        does = [
+            Animal(
+                farm_id=farm_id,
+                tag_number=f"BACKLOG-{overdue_by:03d}",
+                sex="F",
+                source="BORN",
+                birth_type="SINGLE",
+                birth_weight=3.0,
+                date_of_birth=today() - timedelta(days=800),
+                current_bucket="DELIVERY",
+            )
+            for overdue_by in range(1, backlog + 1)
+        ]
+        upcoming_doe = Animal(
+            farm_id=farm_id,
+            tag_number="BACKLOG-UPCOMING",
+            sex="F",
+            source="BORN",
+            birth_type="SINGLE",
+            birth_weight=3.0,
+            date_of_birth=today() - timedelta(days=800),
+            current_bucket="DELIVERY",
+        )
+        db.add_all([*does, upcoming_doe])
+        await db.flush()
+        db.add_all(
+            [
+                BreedingRecord(
+                    farm_id=farm_id,
+                    doe_id=doe.id,
+                    buck_id=buck["id"],
+                    breeding_date=today() - timedelta(days=150 + overdue_by),
+                    ultrasound_done=True,
+                    pregnant=True,
+                    expected_kidding_date=today() - timedelta(days=overdue_by),
+                    outcome="CONFIRMED_PREGNANT",
+                )
+                for overdue_by, doe in enumerate(does, start=1)
+            ]
+            + [
+                BreedingRecord(
+                    farm_id=farm_id,
+                    doe_id=upcoming_doe.id,
+                    buck_id=buck["id"],
+                    breeding_date=today() - timedelta(days=147),
+                    ultrasound_done=True,
+                    pregnant=True,
+                    expected_kidding_date=today() + timedelta(days=3),
+                    outcome="CONFIRMED_PREGNANT",
+                )
+            ]
+        )
+        await db.commit()
+
+    dash = await get_dashboard(client, owner)
+    tags = [row["doe_tag"] for row in dash["kiddings_due"]]
+    # The kidding three days out is the whole point of the panel.
+    assert "BACKLOG-UPCOMING" in tags
+    assert tags[-1] == "BACKLOG-UPCOMING"
+    assert len(tags) == DASHBOARD_PREVIEW_LIMIT
+    assert dash["kiddings_due_total"] == backlog + 1
+    # Rows stay ordered by due date, and the overdue side keeps the freshest
+    # misses rather than the stalest ones.
+    dates = [row["expected_kidding_date"] for row in dash["kiddings_due"]]
+    assert dates == sorted(dates)
+    assert "BACKLOG-001" in tags
+    assert f"BACKLOG-{backlog:03d}" not in tags
 
 
 async def test_dashboard_pending_breeding_not_in_kiddings_due(client: httpx.AsyncClient) -> None:
@@ -1344,6 +1606,45 @@ async def test_dashboard_sold_cull_candidate_removed(client: httpx.AsyncClient) 
     assert (await get_dashboard(client, owner))["cull_candidates"] == []
 
 
+async def test_dashboard_task_assignee_never_exposes_a_worker_email(
+    client: httpx.AsyncClient,
+) -> None:
+    """Task rows travel far wider than the roster (which is behind
+    team.manage), so a duty names its worker — never their login email."""
+    owner = await owner_with_farm(client)
+    rid = await custom_role_id(
+        client, owner, "Cleaning crew", ["dashboard.view", "tasks.view", "tasks.complete"]
+    )
+    created = await client.post(
+        "/api/team/workers",
+        json={"email": "cleaner.private@farm.in", "password": WORKER_PW, "role_id": rid},
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text  # name is optional
+    worker_id = created.json()["user_id"]
+    duty = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Scrub shed A",
+            "due_date": iso(today()),
+            "category": "CLEANING",
+            "assigned_user_id": worker_id,
+            "assigned_role_id": rid,
+        },
+        headers=owner,
+    )
+    assert duty.status_code == 201, duty.text
+
+    row = next(
+        task
+        for task in (await get_dashboard(client, owner))["todays_tasks"]
+        if task["id"] == duty.json()["id"]
+    )
+    assert row["assigned_user_id"] == worker_id
+    assert row["assigned_user_name"] == f"Worker #{worker_id}"
+    assert "@" not in row["assigned_user_name"]
+
+
 async def test_dashboard_recent_weights(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, tag="W-1", weight_kg=18.5)
@@ -1414,6 +1715,96 @@ async def test_dashboard_suggestion_breeding_ready_doe(client: httpx.AsyncClient
     assert dash["suggestions_total"] == 1
     assert suggestions[0]["to"] == "BREEDING"
     assert "Breeding-ready" in suggestions[0]["reason"]
+
+
+async def pregnant_doe_in_bucket(
+    client: httpx.AsyncClient,
+    headers: dict,
+    tag: str,
+    *,
+    gestation_days: int,
+    bucket: str,
+) -> dict:
+    """A doe with a live confirmed pregnancy backdated ``gestation_days``."""
+    doe = await make_doe(client, headers, tag=tag)
+    buck = await make_buck(client, headers, tag=f"{tag}-BUCK")
+    br = await make_breeding(
+        client, headers, doe["id"], buck["id"], today() - timedelta(days=gestation_days)
+    )
+    await ultrasound(client, headers, br["id"], pregnant=True)  # → PREGNANCY_EARLY
+    if bucket == "PREGNANCY_LATE":
+        resp = await client.post(
+            f"/api/animals/{doe['id']}/move",
+            json={"to_bucket": "PREGNANCY_LATE"},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+    return doe
+
+
+@pytest.mark.parametrize(
+    ("gestation_days", "expected"),
+    [(99, False), (100, True)],  # SPEC: PREGNANCY_EARLY → PREGNANCY_LATE at day 100
+)
+async def test_dashboard_pregnancy_early_suggestion_starts_on_day_100(
+    client: httpx.AsyncClient, gestation_days: int, expected: bool
+) -> None:
+    owner = await owner_with_farm(client)
+    doe = await pregnant_doe_in_bucket(
+        client, owner, "GEST-E", gestation_days=gestation_days, bucket="PREGNANCY_EARLY"
+    )
+    dash = await get_dashboard(client, owner)
+    suggested = [s for s in dash["suggestions"] if s["animal"]["id"] == doe["id"]]
+    assert bool(suggested) is expected
+    assert dash["suggestions_total"] == int(expected)
+    if expected:
+        assert suggested[0]["to"] == "PREGNANCY_LATE"
+
+
+@pytest.mark.parametrize(
+    ("gestation_days", "expected"),
+    [(134, False), (135, True)],  # SPEC: PREGNANCY_LATE → DELIVERY at day 135
+)
+async def test_dashboard_pregnancy_late_suggestion_starts_on_day_135(
+    client: httpx.AsyncClient, gestation_days: int, expected: bool
+) -> None:
+    owner = await owner_with_farm(client)
+    doe = await pregnant_doe_in_bucket(
+        client, owner, "GEST-L", gestation_days=gestation_days, bucket="PREGNANCY_LATE"
+    )
+    dash = await get_dashboard(client, owner)
+    suggested = [s for s in dash["suggestions"] if s["animal"]["id"] == doe["id"]]
+    assert bool(suggested) is expected
+    assert dash["suggestions_total"] == int(expected)
+    if expected:
+        assert suggested[0]["to"] == "DELIVERY"
+
+
+@pytest.mark.parametrize(
+    ("weight_kg", "expected"),
+    [(23.9, False), (24.0, True)],  # SPEC sale band starts at 24 kg
+)
+async def test_dashboard_market_ready_suggestion_starts_at_24kg(
+    client: httpx.AsyncClient, weight_kg: float, expected: bool
+) -> None:
+    owner = await owner_with_farm(client)
+    dob = today() - timedelta(days=260)  # older than the 8-month sale age
+    kid = await make_animal(
+        client,
+        owner,
+        tag="MARKET-1",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(dob),
+        weight_kg=weight_kg,
+        weight_date=iso(dob),
+    )
+    dash = await get_dashboard(client, owner)
+    suggested = [s for s in dash["suggestions"] if s["animal"]["id"] == kid["id"]]
+    assert bool(suggested) is expected
+    assert dash["suggestions_total"] == int(expected)
+    if expected:
+        assert suggested[0]["to"] == "SELL"
 
 
 async def test_dashboard_no_suggestion_for_underweight_doe(client: httpx.AsyncClient) -> None:
@@ -1534,6 +1925,8 @@ async def test_dashboard_task_rows_require_tasks_view_and_skip_task_scope(
         "skipped_by_id",
         "skipped_at",
         "skip_reason",
+        "rejected_by_id",
+        "rejected_at",
         "assigned_role_name",
         "assigned_user_name",
         "animal_tag",
@@ -1596,11 +1989,11 @@ async def test_cleaner_dashboard_nested_rows_exclude_profile_secrets(
     }
 
     delegated_dashboard = await get_dashboard(client, cleaner)
-    delegated_suggestion = next(
+    # "Breeding-ready (≥10 mo, ≥22 kg)" is is_breeding_ready by another name,
+    # and animal_out blanks that field without breeding.view.
+    assert not [
         row for row in delegated_dashboard["suggestions"] if row["animal"]["id"] == animal["id"]
-    )
-    assert set(delegated_suggestion["animal"]) == {"id", "tag_number", "name"}
-    assert delegated_suggestion["animal"]["tag_number"] == "DASH-PRIVATE"
+    ]
     assert set(delegated_dashboard["recent_weights"][0]) == {
         "id",
         "date",
@@ -1613,11 +2006,12 @@ async def test_cleaner_dashboard_nested_rows_exclude_profile_secrets(
     assert delegated_dashboard["recent_weights"][0]["animal"]["tag_number"] == "DASH-PRIVATE"
     assert delegated_dashboard["recent_weights"][0]["notes"] is None
 
+    # animals.view widens which animal fields a mover may read, but the
+    # breeding programme itself stays behind breeding.view.
     authorized_dashboard = await get_dashboard(client, mover)
-    authorized_suggestion = next(
+    assert not [
         row for row in authorized_dashboard["suggestions"] if row["animal"]["id"] == animal["id"]
-    )
-    assert set(authorized_suggestion["animal"]) == {"id", "tag_number", "name"}
+    ]
     assert set(authorized_dashboard["recent_weights"][0]) == {
         "id",
         "date",
@@ -1628,6 +2022,8 @@ async def test_cleaner_dashboard_nested_rows_exclude_profile_secrets(
     }
     assert authorized_dashboard["recent_weights"][0]["notes"] is None
 
+    # The vet holds breeding.view, so she does see the suggestion — and it is
+    # still nothing more than the animal's identity.
     health_authorized_dashboard = await get_dashboard(client, vet)
     health_authorized_suggestion = next(
         row
@@ -1635,15 +2031,17 @@ async def test_cleaner_dashboard_nested_rows_exclude_profile_secrets(
         if row["animal"]["id"] == animal["id"]
     )
     assert set(health_authorized_suggestion["animal"]) == {"id", "tag_number", "name"}
+    assert health_authorized_suggestion["animal"]["tag_number"] == "DASH-PRIVATE"
     assert health_authorized_dashboard["recent_weights"][0]["notes"] == (
         "Private veterinary observation"
     )
 
 
-async def test_cleaner_dashboard_kidding_due_uses_minimum_display_context(
+async def test_dashboard_kidding_due_uses_minimum_display_context(
     client: httpx.AsyncClient,
 ) -> None:
-    """The dashboard card must not embed the complete breeding record."""
+    """For a breeding.view holder the card carries identity and a date only —
+    never the complete breeding record. A cleaner gets no card at all."""
     owner = await owner_with_farm(client)
     historical_date = today() - timedelta(days=600)
     doe = await make_animal(
@@ -1678,7 +2076,7 @@ async def test_cleaner_dashboard_kidding_due_uses_minimum_display_context(
     vet = await worker_headers(client, owner, vet_role, "kidding-vet@farm.in")
 
     expected_fields = {"id", "doe_id", "doe_tag", "expected_kidding_date"}
-    for headers in (owner, cleaner, vet):
+    for headers in (owner, vet):
         row = next(
             item
             for item in (await get_dashboard(client, headers))["kiddings_due"]
@@ -1686,6 +2084,89 @@ async def test_cleaner_dashboard_kidding_due_uses_minimum_display_context(
         )
         assert set(row) == expected_fields
         assert row["doe_tag"] == "DUE-PRIVATE"
+
+    # A doe's tag beside her kidding date is her pregnancy, which animal_out
+    # withholds as is_currently_pregnant without breeding.view.
+    cleaner_dashboard = await get_dashboard(client, cleaner)
+    assert cleaner_dashboard["kiddings_due"] == []
+    assert cleaner_dashboard["kiddings_due_total"] == 0
+
+
+async def test_dashboard_view_alone_reveals_no_breeding_programme(
+    client: httpx.AsyncClient,
+) -> None:
+    """dashboard.view must not be a side door around animal_out's gate.
+
+    The seeded cleaner preset is exactly dashboard.view + tasks.view +
+    tasks.complete, yet the aggregate page used to hand it every pregnant doe's
+    tag and due date, the cull list, and a suggestion naming the gestation day
+    — all three of which animal_out redacts without breeding.view.
+    """
+    owner = await owner_with_farm(client)
+    buck = await make_buck(client, owner, tag="GATE-BUCK")
+    pregnant = await make_doe(client, owner, tag="GATE-DOE")
+    br = await make_breeding(
+        client, owner, pregnant["id"], buck["id"], today() - timedelta(days=140)
+    )
+    await ultrasound(client, owner, br["id"], pregnant=True)
+    culled = await make_doe(client, owner, tag="GATE-CULL")
+    for cycle, days in ((1, 75), (2, 35)):
+        failed = await make_breeding(
+            client,
+            owner,
+            culled["id"],
+            buck["id"],
+            today() - timedelta(days=days),
+            heat_cycle_number=cycle,
+        )
+        await ultrasound(client, owner, failed["id"], pregnant=False)
+    await make_animal(
+        client,
+        owner,
+        tag="GATE-MARKET",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(today() - timedelta(days=300)),
+        weight_kg=25.0,
+        weight_date=iso(today() - timedelta(days=30)),
+    )
+
+    owner_dash = await get_dashboard(client, owner)
+    assert [row["doe_tag"] for row in owner_dash["kiddings_due"]] == ["GATE-DOE"]
+    assert owner_dash["kiddings_due_total"] == 1
+    assert [row["tag_number"] for row in owner_dash["cull_candidates"]] == ["GATE-CULL"]
+    assert owner_dash["cull_candidates_total"] == 1
+    owner_reasons = {
+        row["animal"]["tag_number"]: row["reason"] for row in owner_dash["suggestions"]
+    }
+    assert "Gestation day 140" in owner_reasons["GATE-DOE"]
+    assert "market ready" in owner_reasons["GATE-MARKET"]
+
+    cleaner_role = await preset_role_id(client, owner, "CLEANER")
+    cleaner = await worker_headers(client, owner, cleaner_role, "gate-cleaner@farm.in")
+    cleaner_dash = await get_dashboard(client, cleaner)
+    assert cleaner_dash["kiddings_due"] == []
+    assert cleaner_dash["kiddings_due_total"] == 0
+    assert cleaner_dash["cull_candidates"] == []
+    assert cleaner_dash["cull_candidates_total"] == 0
+    # Selling a grown male kid is an age/weight call, not a breeding one, so it
+    # survives — and the count still matches the rows actually returned.
+    assert [row["animal"]["tag_number"] for row in cleaner_dash["suggestions"]] == ["GATE-MARKET"]
+    assert cleaner_dash["suggestions_total"] == 1
+    assert not any("Gestation" in row["reason"] for row in cleaner_dash["suggestions"])
+    # Empty sections, not a 403: the page must still render its herd counts.
+    assert cleaner_dash["total_active"] == owner_dash["total_active"]
+    assert cleaner_dash["buckets"] == owner_dash["buckets"]
+
+    # The gate is breeding.view specifically — nothing about being a worker.
+    reader_role = await custom_role_id(
+        client, owner, "Breeding Reader", ["dashboard.view", "breeding.view"]
+    )
+    reader = await worker_headers(client, owner, reader_role, "gate-breeding@farm.in")
+    reader_dash = await get_dashboard(client, reader)
+    assert [row["doe_tag"] for row in reader_dash["kiddings_due"]] == ["GATE-DOE"]
+    assert [row["tag_number"] for row in reader_dash["cull_candidates"]] == ["GATE-CULL"]
+    assert reader_dash["suggestions_total"] == owner_dash["suggestions_total"]
 
 
 # ---------------------------------------------------------------------------
@@ -1777,6 +2258,9 @@ async def test_reports_sex_counts_active_only(client: httpx.AsyncClient) -> None
     assert rep["sex_counts"] == {"M": 1, "F": 0}
     assert rep["total_active"] == 1
     assert rep["status_counts"] == {"ACTIVE": 1, "SOLD": 1}
+    # The reports page renders these rows in response order, so the grouped
+    # query must specify one instead of inheriting the aggregate's.
+    assert list(rep["status_counts"]) == sorted(rep["status_counts"])
 
 
 async def test_reports_conception_rate_hand_computed(client: httpx.AsyncClient) -> None:
@@ -1815,6 +2299,60 @@ async def test_reports_first_cycle_rate_excludes_later_cycles(client: httpx.Asyn
     assert breeding["total_records"] == 2
     assert breeding["conception_rate"] == 50.0  # 1 confirmed of 2 completed
     assert breeding["first_cycle_rate"] == 0.0  # the only cycle-1 record failed
+
+
+async def test_reports_conception_rate_counts_a_lost_pregnancy_as_a_conception(
+    client: httpx.AsyncClient,
+) -> None:
+    """A doe that was ultrasound-confirmed pregnant conceived, whatever became
+    of the pregnancy — otherwise selling her (which auto-aborts it) rewrites a
+    historical breeding statistic."""
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner, tag="ABORT-1")
+    buck = await make_buck(client, owner, tag="ABORT-1-BUCK")
+    br = await make_breeding(client, owner, doe["id"], buck["id"], today() - timedelta(days=40))
+    await ultrasound(client, owner, br["id"], pregnant=True)
+    before = (await get_reports(client, owner))["breeding"]
+    assert before["conception_rate"] == 100.0
+    assert before["first_cycle_rate"] == 100.0
+
+    await change_status(client, owner, doe["id"], "SOLD", sale_price=12000.0)
+    record = await client.get(f"/api/breeding/{br['id']}", headers=owner)
+    assert record.status_code == 200, record.text
+    assert record.json()["outcome"] == "ABORTED"  # auto-resolved by the sale
+
+    after = (await get_reports(client, owner))["breeding"]
+    assert after["conception_rate"] == 100.0
+    assert after["first_cycle_rate"] == 100.0
+
+
+async def test_reports_conception_rate_matches_the_python_helper(
+    client: httpx.AsyncClient,
+) -> None:
+    """The reports SQL and models.helpers.conception_rate are two
+    implementations of one metric; pin them to the same value on one data set:
+    one confirmed, one confirmed-then-lost, one failed → 2/3."""
+    owner = await owner_with_farm(client)
+    buck = await make_buck(client, owner, tag="MIRROR-BUCK")
+    outcomes = {"MIRROR-OK": True, "MIRROR-LOST": True, "MIRROR-FAIL": False}
+    for tag, pregnant in outcomes.items():
+        doe = await make_doe(client, owner, tag=tag)
+        br = await make_breeding(client, owner, doe["id"], buck["id"], today() - timedelta(days=40))
+        await ultrasound(client, owner, br["id"], pregnant=pregnant)
+        if tag == "MIRROR-LOST":
+            await change_status(client, owner, doe["id"], "DEAD", mortality_cause="Predator")
+
+    reported = (await get_reports(client, owner))["breeding"]["conception_rate"]
+    async with get_sessionmaker()() as db:
+        records = list(
+            (
+                await db.execute(
+                    select(BreedingRecord).where(BreedingRecord.farm_id == int(owner["X-Farm-Id"]))
+                )
+            ).scalars()
+        )
+    assert {r.outcome for r in records} == {"CONFIRMED_PREGNANT", "ABORTED", "FAILED"}
+    assert reported == conception_rate(records) == 66.7
 
 
 async def test_reports_conception_rate_none_when_all_pending(client: httpx.AsyncClient) -> None:

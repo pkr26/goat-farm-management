@@ -19,10 +19,12 @@ import { addDays, farmToday } from "@/lib/format";
 
 import KiddingPage from "./page";
 
+const { navState } = vi.hoisted(() => ({ navState: { search: "" } }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/kidding",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
 }));
 
@@ -481,7 +483,7 @@ describe("KiddingPage", () => {
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody!.kids).toEqual([
-      { tag: null, sex: "F", birth_weight: null, status: "ALIVE" },
+      { tag: null, sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: null },
     ]);
   });
 
@@ -552,8 +554,14 @@ describe("KiddingPage", () => {
       notes: "easy birth",
     });
     expect(postBody!.kids).toEqual([
-      { tag: "G-201", sex: "F", birth_weight: 2.5, status: "ALIVE" },
-      { tag: null, sex: "F", birth_weight: null, status: "ALIVE" },
+      {
+        tag: "G-201",
+        sex: "F",
+        birth_weight: 2.5,
+        status: "ALIVE",
+        mortality_reported_at: null,
+      },
+      { tag: null, sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: null },
     ]);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
@@ -575,13 +583,99 @@ describe("KiddingPage", () => {
     await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
     // The sex trigger shows the label "Male", not the raw value "M".
     expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Male");
+    fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
+      target: { value: localTodayISO() },
+    });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody!.ease).toBe("DIFFICULT");
-    expect((postBody!.kids as { sex: string; status: string }[])[0]).toMatchObject({
+    // The exact shape the backend accepts: KidIn is extra="forbid" and requires
+    // mortality_reported_at whenever status is DIED.
+    expect((postBody!.kids as Record<string, unknown>[])[0]).toEqual({
+      tag: null,
       sex: "M",
+      birth_weight: null,
       status: "DIED",
+      mortality_reported_at: localTodayISO(),
+    });
+  });
+
+  it("records a died kid against a backend-faithful handler", async () => {
+    // Mirrors KidIn._mortality_report_matches_status: dropping the date again
+    // turns this into the production 422 instead of a silent green test.
+    server.use(
+      http.post("/api/kidding", async ({ request }) => {
+        postBody = (await request.json()) as Record<string, unknown>;
+        const kids = postBody.kids as { status: string; mortality_reported_at?: unknown }[];
+        const invalid = kids.some(
+          (kid) =>
+            (kid.status === "DIED") !==
+            (kid.mortality_reported_at !== null && kid.mortality_reported_at !== undefined),
+        );
+        return invalid
+          ? HttpResponse.json(
+              { detail: "mortality_reported_at is required when kid status is DIED" },
+              { status: 422 },
+            )
+          : HttpResponse.json(makeKidding({ id: 99 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
+      target: { value: localTodayISO() },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect((postBody!.kids as Record<string, unknown>[])[0].mortality_reported_at).toBe(
+      localTodayISO(),
+    );
+  });
+
+  it("requires a mortality date before posting a died kid", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    expect(await within(dialog).findByText("Mortality date is required")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Kid 1 mortality date *")).toHaveAccessibleDescription(
+      "Mortality date is required",
+    );
+    expect(postBody).toBeNull();
+  });
+
+  it("rejects a mortality date before the kidding date", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
+      target: { value: daysFromToday(-1) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    expect(
+      await within(dialog).findByText("Can't be before the kidding date"),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
+  it("drops the mortality date when a kid is switched back off DIED", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
+      target: { value: localTodayISO() },
+    });
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "ALIVE");
+    expect(
+      within(dialog).queryByLabelText("Kid 1 mortality date *"),
+    ).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect((postBody!.kids as Record<string, unknown>[])[0]).toMatchObject({
+      status: "ALIVE",
+      mortality_reported_at: null,
     });
   });
 
@@ -643,13 +737,18 @@ describe("KiddingPage", () => {
 
   // ---------- URL prefill (/kidding/new?breeding_id=… redirect) ----------
 
+  // REGRESSION — the id used to be read from window.location.search during
+  // render, which Next 16 has not updated yet when the redirect target first
+  // renders. It now comes from useSearchParams(), so these tests drive the
+  // router mock rather than window.location.
   describe("URL prefill from /kidding/new?breeding_id=…", () => {
     afterEach(() => {
+      navState.search = "";
       window.history.replaceState({}, "", "/kidding");
     });
 
     it("auto-opens the record dialog for the linked breeding record", async () => {
-      window.history.replaceState({}, "", "/kidding?breeding_id=12");
+      navState.search = "?breeding_id=12";
       renderWithProviders(<KiddingPage />);
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("Record kidding")).toBeInTheDocument();
@@ -659,7 +758,7 @@ describe("KiddingPage", () => {
     });
 
     it("opens no dialog for an unknown breeding_id", async () => {
-      window.history.replaceState({}, "", "/kidding?breeding_id=999");
+      navState.search = "?breeding_id=999";
       await renderLoaded();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
@@ -683,7 +782,7 @@ describe("KiddingPage", () => {
           return HttpResponse.json(older);
         }),
       );
-      window.history.replaceState({}, "", "/kidding?breeding_id=99");
+      navState.search = "?breeding_id=99";
       renderWithProviders(<KiddingPage />);
 
       const dialog = await screen.findByRole("dialog", { name: "Record kidding" });
@@ -694,11 +793,20 @@ describe("KiddingPage", () => {
 
     it("does not honor a forged record deep link without kidding.manage", async () => {
       server.use(permissionsHandler(["kidding.view"]));
-      window.history.replaceState({}, "", "/kidding?breeding_id=12");
+      navState.search = "?breeding_id=12";
       await renderLoaded();
 
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Record kidding" })).not.toBeInTheDocument();
+    });
+
+    it("opens the dialog when only the router knows the param, not window.location", async () => {
+      navState.search = "?breeding_id=12";
+      window.history.replaceState({}, "", "/kidding/new");
+      renderWithProviders(<KiddingPage />);
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Record kidding")).toBeInTheDocument();
     });
   });
 });

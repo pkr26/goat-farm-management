@@ -61,6 +61,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skipped_by_id: null,
     skipped_at: null,
     skip_reason: null,
+    rejected_by_id: null,
+    rejected_at: null,
     action_url: null,
     ...overrides,
   };
@@ -408,6 +410,44 @@ describe("DashboardPage — populated aggregates", () => {
     );
   });
 
+  // REGRESSION — the card spans overdue through +7 days, but the "View"
+  // fallback (shown when the viewer lacks breeding.manage) always pointed at
+  // ?tab=today, a tab that cannot contain a past- or future-dated duty.
+  it("sends the ultrasound fallback to the tab that holds the duty", async () => {
+    server.use(
+      permissionsHandler(["dashboard.view", "tasks.view"]),
+      dashboardHandler(
+        makePayload({
+          ultrasounds_due: [
+            ULTRASOUND_TASK,
+            makeTask({
+              id: 5,
+              title: "Ultrasound D-102",
+              category: "ULTRASOUND",
+              action_url: "/breeding/2/ultrasound",
+              due_date: addDays(TODAY, 5),
+            }),
+            makeTask({
+              id: 6,
+              title: "Ultrasound D-103",
+              category: "ULTRASOUND",
+              action_url: "/breeding/3/ultrasound",
+              due_date: THREE_DAYS_AGO,
+            }),
+          ],
+        }),
+      ),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findByText("Ultrasound D-101");
+
+    const hrefOf = (title: string) =>
+      within(rowOf(title)).getByRole("link", { name: "View" }).getAttribute("href");
+    expect(hrefOf("Ultrasound D-101")).toBe("/tasks?tab=today");
+    expect(hrefOf("Ultrasound D-102")).toBe("/tasks?tab=upcoming");
+    expect(hrefOf("Ultrasound D-103")).toBe("/tasks?tab=overdue");
+  });
+
   it("renders move suggestions with display name (tag · name), reason and target bucket", async () => {
     renderWithProviders(<DashboardPage />);
     await screen.findByText("Ready to move (2)");
@@ -446,7 +486,9 @@ describe("DashboardPage — populated aggregates", () => {
     await screen.findByRole("heading", { name: "Herd by bucket" });
 
     const lact = screen.getByRole("link", { name: /Lactating does/ });
-    expect(lact).toHaveAttribute("href", "/animals?bucket=LACT");
+    // REGRESSION — the tile counts ACTIVE animals only, so the link must scope
+    // the destination list the same way; /animals defaults to every status.
+    expect(lact).toHaveAttribute("href", "/animals?bucket=LACT&status=ACTIVE");
     expect(within(lact).getByText("12")).toBeInTheDocument();
     expect(within(lact).getByText("LACT")).toBeInTheDocument();
   });
@@ -457,7 +499,7 @@ describe("DashboardPage — populated aggregates", () => {
 
     expect(screen.getByRole("link", { name: /Kids 0–3 months/ })).toHaveAttribute(
       "href",
-      "/animals?bucket=KID%200-3",
+      "/animals?bucket=KID%200-3&status=ACTIVE",
     );
   });
 

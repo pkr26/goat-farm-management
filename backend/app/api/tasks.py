@@ -13,7 +13,7 @@ not the bare complete endpoint.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,9 +61,29 @@ VERIFY = Annotated[set[str], Depends(require_perm("tasks.verify"))]
 # with the dashboard/breeding/kidding/health routers.
 
 
+# Namespace for the per-farm manual-duty-queue mutex. Advisory lock keys are
+# global to the database, so every acquisition of this counter must pass it.
+MANUAL_TASK_QUEUE_LOCK_NAMESPACE = 4711
+
+
 async def _lock_manual_task_queue(db: AsyncSession, farm: Farm) -> None:
-    """Take the per-farm serialization lock for manual pending-count changes."""
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    """Take the per-farm serialization lock for manual pending-count changes.
+
+    Deliberately an ADVISORY lock, not `SELECT farms.id ... FOR UPDATE`.
+    Inserting any farm-scoped child row (a sale Transaction, a movement
+    restriction action, a breeding record, a spawned occurrence) takes FOR KEY
+    SHARE on that same Farm row, while every animal-first write locks the
+    ANIMAL before it inserts. A Farm row lock held across the Animal lock
+    therefore inverts against those writes and PostgreSQL deadlocks. A
+    transaction-scoped advisory lock serializes the same counter, self-conflicts
+    exactly like the row lock did, and never conflicts with an FK key-share
+    lock — so the canonical Farm -> Animal -> Task order stays deadlock-free.
+    """
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(literal(MANUAL_TASK_QUEUE_LOCK_NAMESPACE), literal(farm.id))
+        )
+    )
 
 
 async def _guard_manual_task_capacity_locked(db: AsyncSession, farm: Farm) -> None:
@@ -196,6 +216,22 @@ async def _lock_completion_animals(
     )
 
 
+async def _batch_has_active_animal(db: AsyncSession, farm: Farm, purchase_batch_id: int) -> bool:
+    """Does the purchase batch still hold at least one ACTIVE animal?"""
+    remaining = (
+        await db.execute(
+            select(Animal.id)
+            .where(
+                Animal.farm_id == farm.id,
+                Animal.purchase_batch_id == purchase_batch_id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return remaining is not None
+
+
 def _require_locked_linked_animal_active(task: Task, locked_animals: list[Animal]) -> None:
     """Reject direct actions on legacy pending duties for inactive animals."""
     if task.animal_id is not None and not any(
@@ -300,10 +336,16 @@ async def list_tasks(
         ),
     )
     completed_total = await total(finished)
+    # Order on the instant the row actually finished, which is what the UI
+    # renders: a SKIPPED duty only carries skipped_at, and PostgreSQL sorts the
+    # resulting NULL completed_at FIRST under DESC — so every bulk service-side
+    # skip (sale/death sweeps, aborted pregnancies) would otherwise monopolise
+    # page 1 ahead of genuinely completed work.
+    finished_at = func.coalesce(Task.completed_at, Task.skipped_at)
     completed = list(
         (
             await db.execute(
-                finished.order_by(Task.completed_at.desc(), Task.id.desc())
+                finished.order_by(finished_at.desc(), Task.id.desc())
                 .offset(completed_offset)
                 .limit(completed_limit)
             )
@@ -482,10 +524,9 @@ async def create_task(
                 detail="Task assignment changed; refresh the team list and try again",
             ) from None
 
-    # The idempotency claim itself inserts an FK to Farm (KEY SHARE). Lock the
-    # farm first so two distinct keys cannot each hold KEY SHARE and deadlock
-    # while both upgrade for the capacity check inside mutate(). Replays still
-    # bypass the count/mutation after this constant row lock.
+    # Take the queue mutex before the idempotency claim inserts its FK to Farm,
+    # so the count/create invariant inside mutate() is serialized farm-wide.
+    # Replays still bypass the count/mutation after this constant lock.
     await _lock_manual_task_queue(db, farm)
     return await execute_idempotent(
         db,
@@ -586,9 +627,34 @@ async def skip(
         # The final release accepts only DONE/VERIFIED prerequisites and there
         # is intentionally no "reopen skipped health work" shortcut, so
         # allowing SKIPPED here would permanently deadlock a safe release.
+        # Once the batch has no ACTIVE animal left there is nothing to release
+        # and no health record can be written for it (a linked bulk event needs
+        # a non-empty ACTIVE+QUARANTINE snapshot), so the gate would instead
+        # stay permanently overdue. An animal never returns to ACTIVE, making
+        # this lock-free read safe in the only direction it can move.
+        if await _batch_has_active_animal(db, farm, task.purchase_batch_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Quarantine protocol duties cannot be skipped; complete the required workflow"
+                ),
+            )
+    if (
+        task.auto_generated
+        and task.category in (TaskCategory.WEANING.value, TaskCategory.BUCKET_MOVE.value)
+        and any(animal.current_bucket == Bucket.RECOVERY.value for animal in locked_animals)
+    ):
+        # RECOVERY is a closed bucket: LEGAL_BUCKET_TRANSITIONS opens it only
+        # for the weaning/postpartum contexts this very duty produces, and no
+        # replacement duty can be created. Skipping it would strand the doe and
+        # her kids there for good — out of the breeding lifecycle and on the
+        # lactating ration — with no remaining API path back.
         raise HTTPException(
             status_code=409,
-            detail="Quarantine protocol duties cannot be skipped; complete the required workflow",
+            detail=(
+                "This duty is the only way out of postpartum recovery; "
+                "complete it once the animals can be moved"
+            ),
         )
     try:
         await skip_task(db, task, user, payload.reason if payload else None)
@@ -617,7 +683,12 @@ async def verify(
 
 @router.post("/{task_id}/reject")
 async def reject(
-    payload: TaskRejectIn, task_id: int, db: DbSession, farm: CurrentFarm, perms: VERIFY
+    payload: TaskRejectIn,
+    task_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: VERIFY,
 ) -> TaskOut:
     # Reject is the other transition that can add a PENDING manual duty. Take
     # Farm before Task so it serializes with create and recurring successor
@@ -626,8 +697,19 @@ async def reject(
     task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.DONE.value or not task.needs_verification:
         raise HTTPException(status_code=400, detail="Task is not awaiting verification")
+    # Rejection returns the duty to PENDING, which is exactly the state
+    # ck_tasks_user_assignment_has_role constrains. Repair a pre-D9 personal row
+    # first, like complete/skip do: without it the flush raises IntegrityError
+    # and the duty can never be sent back to its worker. reject_task repeats the
+    # repair for callers other than this route; resolving here maps the failure
+    # to a 409 before any capacity check runs.
+    try:
+        await resolve_personal_task_role_fallback(db, task)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     if not task.auto_generated:
         await _guard_manual_task_capacity_locked(db, farm)
-    await reject_task(db, task, (payload.note or "").strip())
+    await reject_task(db, task, user, (payload.note or "").strip())
     await db.commit()
     return task_out(task)

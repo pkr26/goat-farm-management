@@ -553,6 +553,20 @@ const dutySchema = z.object({
 });
 type DutyValues = z.infer<typeof dutySchema>;
 
+/** Rebuilt on every reset: a bare reset() restores react-hook-form's
+ * mount-time snapshot, which dates duties to the day the tab was opened. */
+function dutyDefaults(): DutyValues {
+  return {
+    title: "",
+    due_date: localToday(),
+    category: "OTHER",
+    recur_days: "",
+    assigned_role_id: NONE,
+    assigned_user_id: NONE,
+    animal_id: NONE,
+  };
+}
+
 function TasksPageContent() {
   const { can, loading: permsLoading, isError: permsError, isOwner } = usePermissions();
   const { user } = useAuth();
@@ -688,15 +702,7 @@ function TasksPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<DutyValues>({
     resolver: zodResolver(dutySchema),
-    defaultValues: {
-      title: "",
-      due_date: localToday(),
-      category: "OTHER",
-      recur_days: "",
-      assigned_role_id: NONE,
-      assigned_user_id: NONE,
-      animal_id: NONE,
-    },
+    defaultValues: dutyDefaults(),
   });
   const wAssignedRoleId = useWatch({ control, name: "assigned_role_id" });
   const wAssignedUserId = useWatch({ control, name: "assigned_user_id" });
@@ -727,7 +733,7 @@ function TasksPageContent() {
       toast.success("Duty created.");
       invalidateFarmData(queryClient);
       setOpen(false);
-      reset();
+      reset(dutyDefaults());
     } catch (err) {
       const message = mutationError(err);
       setCreateError(message);
@@ -853,7 +859,7 @@ function TasksPageContent() {
           canCreate && (
             <Button
               onClick={() => {
-                reset();
+                reset(dutyDefaults());
                 setCreateError(null);
                 setOpen(true);
               }}

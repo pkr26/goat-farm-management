@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ReceiptText, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm, useWatch, type DefaultValues } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -73,6 +73,17 @@ const TYPES = Object.values(TransactionInType);
 /** Sentinel for "no filter / no selection" (empty string is not a valid item value). */
 const ALL = "all";
 const NONE = "none";
+/** value → label maps for the root `items` prop: without them, Base UI's
+ * Select.Value renders the raw value (the "all" sentinel) in the closed
+ * trigger. */
+const TYPE_FILTER_ITEMS: Record<string, string> = {
+  [ALL]: "All types",
+  ...Object.fromEntries(TYPES.map((t) => [t, t])),
+};
+const CATEGORY_FILTER_ITEMS: Record<string, string> = {
+  [ALL]: "All categories",
+  ...Object.fromEntries(CATEGORIES.map((c) => [c, c])),
+};
 
 function localToday(): string {
   return farmToday();
@@ -109,6 +120,18 @@ const txnSchema = z.object({
 });
 type TxnInput = z.input<typeof txnSchema>;
 type TxnValues = z.output<typeof txnSchema>;
+
+/** Rebuilt on every reset: a bare reset() restores react-hook-form's
+ * mount-time snapshot, which dates entries to the day the tab was opened. */
+function txnDefaults(): DefaultValues<TxnInput> {
+  return {
+    date: localToday(),
+    type: "EXPENSE",
+    category: "OTHER",
+    notes: "",
+    related_animal_id: NONE,
+  };
+}
 
 /** Income vs expense tint pair (light + dark), reused for badges and amounts. */
 const TYPE_TINTS: Record<string, string> = {
@@ -405,8 +428,10 @@ export default function FinancePage() {
   const queryClient = useQueryClient();
 
   const [month, setMonth] = useState("");
-  const [typeFilter, setTypeFilter] = useState(ALL);
-  const [categoryFilter, setCategoryFilter] = useState(ALL);
+  // `ALL` is the "no filter" sentinel; every other value is a real enum member,
+  // so the ledger filters stay in step with the generated query contract.
+  const [typeFilter, setTypeFilter] = useState<typeof ALL | TransactionInType>(ALL);
+  const [categoryFilter, setCategoryFilter] = useState<typeof ALL | TransactionInCategory>(ALL);
   const [open, setOpen] = useState(false);
   const [correcting, setCorrecting] = useState<TransactionOut | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -437,13 +462,7 @@ export default function FinancePage() {
     formState: { errors, isSubmitting },
   } = useForm<TxnInput, unknown, TxnValues>({
     resolver: zodResolver(txnSchema),
-    defaultValues: {
-      date: localToday(),
-      type: "EXPENSE",
-      category: "OTHER",
-      notes: "",
-      related_animal_id: NONE,
-    },
+    defaultValues: txnDefaults(),
   });
   const wCategory = useWatch({ control, name: "category" });
   const wRelatedAnimalId = useWatch({ control, name: "related_animal_id" });
@@ -469,7 +488,7 @@ export default function FinancePage() {
         toast.success("Transaction saved.");
         invalidateFarmData(queryClient);
         setOpen(false);
-        reset();
+        reset(txnDefaults());
       } catch (err) {
         const message = mutationError(err);
         setFormError(message);
@@ -518,7 +537,7 @@ export default function FinancePage() {
           canManage && (
             <Button
               onClick={() => {
-                reset();
+                reset(txnDefaults());
                 setFormError(null);
                 setOpen(true);
               }}
@@ -620,9 +639,11 @@ export default function FinancePage() {
           <Select
             value={typeFilter}
             onValueChange={(v) => {
-              setTypeFilter(v);
+              // The item set below is exactly ALL plus the enum members.
+              setTypeFilter(v as typeof ALL | TransactionInType);
               setOffset(0);
             }}
+            items={TYPE_FILTER_ITEMS}
           >
             <SelectTrigger aria-label="Filter transactions by type">
               <SelectValue />
@@ -639,9 +660,11 @@ export default function FinancePage() {
           <Select
             value={categoryFilter}
             onValueChange={(v) => {
-              setCategoryFilter(v);
+              // The item set below is exactly ALL plus the enum members.
+              setCategoryFilter(v as typeof ALL | TransactionInCategory);
               setOffset(0);
             }}
+            items={CATEGORY_FILTER_ITEMS}
           >
             <SelectTrigger aria-label="Filter transactions by category">
               <SelectValue />

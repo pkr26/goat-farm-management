@@ -18,20 +18,59 @@ Covers the duty engine end to end against the SPEC contract:
   refuse the bare complete button and must be closed through their form.
 """
 
+import asyncio
 from datetime import date, timedelta
 
 import httpx
 import pytest
 from sqlalchemy import select, text, update
 
+import app.api.animals as animals_api
+from app.api._shared import task_action_url
 from app.db import get_sessionmaker
+from app.main import create_app
 from app.models import Farm, FarmMembership, Task, TaskStatus, User
+from app.permissions import (
+    ALL_PERMISSIONS,
+    PERMISSION_DEPENDENCIES,
+    ROLE_PRESETS,
+    TASK_CATEGORY_ACTION_PERMISSIONS,
+    TASK_CATEGORY_ROLE_MAP,
+)
 from app.services.tasks import task_scope
 from app.utils import today
 
 from .conftest import owner_with_farm
 
 WORKER_PW = "workerpass123"
+
+
+def lock_race_client() -> httpx.AsyncClient:
+    """An independent ASGI client so two requests hold two DB transactions."""
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app()),
+        base_url="http://test",
+    )
+
+
+async def wait_for_lock_waiters(minimum: int = 1, timeout_seconds: float = 10.0) -> None:
+    """Wait for at least ``minimum`` sessions blocked on PostgreSQL locks."""
+    for _ in range(int(timeout_seconds / 0.01)):
+        async with get_sessionmaker()() as db:
+            blocked = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() "
+                        "AND pid <> pg_backend_pid() "
+                        "AND wait_event_type = 'Lock'"
+                    )
+                )
+            ).scalar_one()
+        if blocked >= minimum:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"expected {minimum} lock waiters, saw fewer")
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +239,12 @@ async def make_breeding(
 async def submit_ultrasound(
     client: httpx.AsyncClient, headers: dict, breeding_id: int, pregnant: bool, kid_count: int = 2
 ) -> dict:
-    payload: dict[str, object] = {"pregnant": pregnant}
+    # The result is observed on the scheduled check, not "today": a pregnancy
+    # confirmed today whose kidding is then recorded on the earlier expected
+    # kidding date would predate its own confirmation.
+    detail = await client.get(f"/api/breeding/{breeding_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    payload: dict[str, object] = {"pregnant": pregnant, "date": detail.json()["ultrasound_date"]}
     if pregnant:
         payload["kid_count"] = kid_count
     resp = await client.post(
@@ -459,6 +503,8 @@ async def test_create_response_shape(client: httpx.AsyncClient) -> None:
         "skipped_by_id",
         "skipped_at",
         "skip_reason",
+        "rejected_by_id",
+        "rejected_at",
         "assigned_role_name",
         "assigned_user_name",
         "animal_tag",
@@ -2305,6 +2351,85 @@ async def test_reject_keeps_completion_attribution(client: httpx.AsyncClient) ->
     assert body["completed_at"] is not None
 
 
+async def test_reject_records_who_rejected_and_when(client: httpx.AsyncClient) -> None:
+    """Rejection is attributed like complete/verify/skip, not note-only."""
+    owner = await owner_with_farm(client)
+    cleaner, _ = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
+    manager, manager_id = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    rid = await role_id(client, owner, "CLEANER")
+    duty = await make_duty(client, owner, "Scrub", category="CLEANING", assigned_role_id=rid)
+    assert duty["rejected_by_id"] is None
+    assert duty["rejected_at"] is None
+    assert (await complete_duty(client, cleaner, duty["id"])).status_code == 200
+    resp = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "corners still dirty"}, headers=manager
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["rejected_by_id"] == manager_id
+    assert body["rejected_at"] is not None
+    # The worker sees who sent it back, not only the note.
+    mine = find_task(await get_tabs(client, cleaner), duty["id"])
+    assert mine["rejected_by_id"] == manager_id
+    assert mine["rejected_at"] == body["rejected_at"]
+
+
+async def test_rejection_trail_clears_when_the_duty_moves_on(client: httpx.AsyncClient) -> None:
+    """rejected_by/at describe the rejection a row currently carries, exactly
+    as skipped_by/at describe a SKIPPED one — they are cleared with the note
+    when the duty is re-completed and re-verified."""
+    owner = await owner_with_farm(client)
+    cleaner, _ = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
+    manager, manager_id = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    rid = await role_id(client, owner, "CLEANER")
+    duty = await make_duty(client, owner, "Scrub", category="CLEANING", assigned_role_id=rid)
+    assert (await complete_duty(client, cleaner, duty["id"])).status_code == 200
+    rejected = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "redo"}, headers=manager
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["rejected_by_id"] == manager_id
+
+    redone = await complete_duty(client, cleaner, duty["id"])
+    assert redone.status_code == 200, redone.text
+    assert redone.json()["rejected_by_id"] is None
+    assert redone.json()["rejected_at"] is None
+    assert redone.json()["verification_note"] is None
+
+    verified = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["status"] == "VERIFIED"
+    assert verified.json()["rejected_by_id"] is None
+    assert verified.json()["rejected_at"] is None
+
+
+async def test_recurring_successor_carries_no_rejection_trail(client: httpx.AsyncClient) -> None:
+    """A spawned occurrence is a fresh duty, not a copy of the rejected one."""
+    owner = await owner_with_farm(client)
+    cleaner, _ = await worker_headers(client, owner, "CLEANER", "cleaner@farm.in")
+    manager, manager_id = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    rid = await role_id(client, owner, "CLEANER")
+    duty = await make_duty(
+        client, owner, "Daily scrub", category="CLEANING", assigned_role_id=rid, recur_days=1
+    )
+    assert (await complete_duty(client, cleaner, duty["id"])).status_code == 200
+    rejected = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "redo"}, headers=manager
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["rejected_by_id"] == manager_id
+    assert (await complete_duty(client, cleaner, duty["id"])).status_code == 200
+
+    tabs = await get_tabs(client, owner)
+    successor = next(
+        t for t in all_tasks(tabs) if t["title"] == "Daily scrub" and t["id"] != duty["id"]
+    )
+    assert successor["status"] == "PENDING"
+    assert successor["rejected_by_id"] is None
+    assert successor["rejected_at"] is None
+    assert successor["verification_note"] is None
+
+
 async def test_reject_without_note(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
@@ -2451,6 +2576,91 @@ async def test_vet_sees_ultrasound_duty_mover_does_not(client: httpx.AsyncClient
     assert "ULTRASOUND" in {t["category"] for t in all_tasks(vet_tabs)}
     mover_tabs = await get_tabs(client, mover)
     assert "ULTRASOUND" not in {t["category"] for t in all_tasks(mover_tabs)}
+
+
+# ---------------------------------------------------------------------------
+# The invariant behind the category → role map: the assignee can ACT on it
+# ---------------------------------------------------------------------------
+# Asserting the mapping (KIDDING_DUE → VET) is not the same as asserting the
+# assignee can do the work. VET's preset carried no kidding permission at all,
+# so KIDDING_DUE duties landed on a role that could neither open the kidding
+# form nor record the kidding — and the duty refuses the bare complete button,
+# so nobody holding it could ever close one.
+@pytest.mark.parametrize(
+    ("category", "role_code"),
+    sorted(TASK_CATEGORY_ROLE_MAP.items()),
+    ids=sorted(TASK_CATEGORY_ROLE_MAP),
+)
+def test_auto_assigned_role_holds_the_permissions_that_category_needs(
+    category: str, role_code: str
+) -> None:
+    preset = next(p for p in ROLE_PRESETS if p["code"] == role_code)
+    held = set(preset["permissions"])
+    required = {"tasks.view", "tasks.complete"} | TASK_CATEGORY_ACTION_PERMISSIONS[category]
+    # An action permission is unusable without its module view (api/team.py
+    # enforces the same dependency when a role is edited).
+    required |= {
+        PERMISSION_DEPENDENCIES[code] for code in required if code in PERMISSION_DEPENDENCIES
+    }
+    assert required <= held, (
+        f"{role_code} is the default assignee for {category} duties "
+        f"but lacks {sorted(required - held)}"
+    )
+
+
+def test_every_auto_assigned_category_declares_its_action_permissions() -> None:
+    assert set(TASK_CATEGORY_ACTION_PERMISSIONS) == set(TASK_CATEGORY_ROLE_MAP)
+    for codes in TASK_CATEGORY_ACTION_PERMISSIONS.values():
+        assert codes <= ALL_PERMISSIONS
+
+
+def test_form_linked_categories_declare_the_permission_their_form_needs() -> None:
+    """A form-linked duty can only be closed by submitting its linked form, so
+    it must declare that form's permission — otherwise the invariant above has
+    nothing to check and a newly form-linked category could be routed to a
+    role that cannot submit it."""
+    for category in TASK_CATEGORY_ROLE_MAP:
+        probe = Task(
+            farm_id=1,
+            title="probe",
+            due_date=today(),
+            category=category,
+            animal_id=1,
+            breeding_record_id=1,
+            purchase_batch_id=1,
+        )
+        if task_action_url(probe) is not None:
+            assert TASK_CATEGORY_ACTION_PERMISSIONS[category], (
+                f"{category} duties are closed through a form; declare its permission"
+            )
+
+
+async def test_vet_can_record_the_kidding_its_own_duty_demands(
+    client: httpx.AsyncClient,
+) -> None:
+    """End to end for the mismatch above: the vet attends the kidding her
+    KIDDING_DUE duty is for, and submitting the form is what closes it."""
+    owner = await owner_with_farm(client)
+    vet, vet_id = await worker_headers(client, owner, "VET", "vet@farm.in")
+    _doe, br = await make_pregnancy(client, owner, today() - timedelta(days=160))
+    duty = next(t for t in all_tasks(await get_tabs(client, vet)) if t["category"] == "KIDDING_DUE")
+    assert duty["action_url"] == f"/kidding/new?breeding_id={br['id']}"
+
+    # The form loads its pregnancy, then records the kidding.
+    lookup = await client.get(f"/api/kidding/pregnancies/{br['id']}", headers=vet)
+    assert lookup.status_code == 200, lookup.text
+    kidding = await record_kidding(
+        client,
+        vet,
+        br,
+        date.fromisoformat(br["expected_kidding_date"]),
+        [{"tag": "K-1", "sex": "F", "birth_weight": 2.6, "status": "ALIVE"}],
+    )
+    assert kidding["breeding_record_id"] == br["id"]
+
+    closed = find_task(await get_tabs(client, owner), duty["id"])
+    assert closed["status"] == "DONE"
+    assert closed["completed_by_id"] == vet_id
 
 
 # ---------------------------------------------------------------------------
@@ -2710,3 +2920,242 @@ async def test_title_with_newline_stored(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     duty = await make_duty(client, owner, "line one\nline two")
     assert duty["title"] == "line one\nline two"
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-08-09 regressions
+# ---------------------------------------------------------------------------
+async def test_completed_tab_interleaves_skipped_duties_by_their_finish_instant(
+    client: httpx.AsyncClient,
+) -> None:
+    """A SKIPPED row carries only skipped_at, and PostgreSQL sorts the NULL
+    completed_at FIRST under DESC — so ordering on completed_at alone put every
+    skip ahead of every real completion."""
+    owner = await owner_with_farm(client)
+    first = await make_duty(client, owner, "A completed first")
+    skipped = await make_duty(client, owner, "B skipped second")
+    last = await make_duty(client, owner, "C completed last")
+    assert (await complete_duty(client, owner, first["id"])).status_code == 200
+    assert (await client.post(f"/api/tasks/{skipped['id']}/skip", headers=owner)).status_code == 200
+    assert (await complete_duty(client, owner, last["id"])).status_code == 200
+
+    tabs = await get_tabs(client, owner)
+    assert [t["title"] for t in tabs["completed"]][:3] == [
+        "C completed last",
+        "B skipped second",
+        "A completed first",
+    ]
+    page_one = await client.get("/api/tasks", params={"completed_limit": 1}, headers=owner)
+    assert page_one.status_code == 200, page_one.text
+    assert [t["id"] for t in page_one.json()["completed"]] == [last["id"]]
+
+
+async def test_weaning_duty_cannot_be_skipped_while_the_family_is_in_recovery(
+    client: httpx.AsyncClient,
+) -> None:
+    """RECOVERY only opens for the weaning/postpartum contexts this duty
+    produces, so skipping it used to strand the doe and her kids there."""
+    owner = await owner_with_farm(client)
+    doe, br = await make_pregnancy(client, owner, today() - timedelta(days=230))
+    kidding_date = date.fromisoformat(br["expected_kidding_date"])
+    await record_kidding(
+        client,
+        owner,
+        br,
+        kidding_date,
+        [{"tag": "WEAN-K1", "sex": "F", "birth_weight": 2.5, "status": "ALIVE"}],
+    )
+    tabs = await get_tabs(client, owner)
+    weaning = next(t for t in all_tasks(tabs) if t["category"] == "WEANING")
+
+    refused = await client.post(
+        f"/api/tasks/{weaning['id']}/skip",
+        json={"reason": "handled offline"},
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "postpartum recovery" in refused.json()["detail"]
+    assert find_task(await get_tabs(client, owner), weaning["id"])["status"] == "PENDING"
+
+    # The duty stays the working exit: completing it releases doe and kid.
+    assert (await complete_duty(client, owner, weaning["id"])).status_code == 200
+    doe_after = await client.get(f"/api/animals/{doe['id']}", headers=owner)
+    assert doe_after.json()["animal"]["current_bucket"] == "RESTING"
+
+
+async def test_postpartum_move_duty_cannot_be_skipped_while_the_doe_is_in_recovery(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    _doe, br = await make_pregnancy(client, owner, today() - timedelta(days=170))
+    kidding_date = date.fromisoformat(br["expected_kidding_date"])
+    await record_kidding(
+        client,
+        owner,
+        br,
+        kidding_date,
+        [{"tag": "PP-K1", "sex": "F", "birth_weight": 2.0, "status": "STILLBORN"}],
+    )
+    tabs = await get_tabs(client, owner)
+    postpartum = next(
+        t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE" and t["status"] == "PENDING"
+    )
+    refused = await client.post(f"/api/tasks/{postpartum['id']}/skip", headers=owner)
+    assert refused.status_code == 409, refused.text
+    assert "postpartum recovery" in refused.json()["detail"]
+
+
+async def test_pregnancy_delivery_move_duty_is_still_skippable(
+    client: httpx.AsyncClient,
+) -> None:
+    """The guard is scoped to RECOVERY: a pre-kidding move has other exits."""
+    owner = await owner_with_farm(client)
+    _doe, _br = await make_pregnancy(client, owner, today() - timedelta(days=140))
+    tabs = await get_tabs(client, owner)
+    move = next(t for t in all_tasks(tabs) if t["category"] == "BUCKET_MOVE")
+    skipped = await client.post(f"/api/tasks/{move['id']}/skip", headers=owner)
+    assert skipped.status_code == 200, skipped.text
+    assert skipped.json()["status"] == "SKIPPED"
+
+
+async def test_quarantine_duty_is_skippable_only_once_the_batch_has_no_active_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """A batch that loses every animal can never write the linked health event
+    nor pass the day-45 release, so its protocol duties need a terminal path."""
+    owner = await owner_with_farm(client)
+    await make_batch(client, owner, today() - timedelta(days=50))
+    tabs = await get_tabs(client, owner)
+    vaccine = next(t for t in all_tasks(tabs) if t["category"] == "VACCINE" and t["auto_generated"])
+    blocked = await client.post(f"/api/tasks/{vaccine['id']}/skip", headers=owner)
+    assert blocked.status_code == 409, blocked.text
+    assert "cannot be skipped" in blocked.json()["detail"]
+
+    animals = await client.get("/api/animals", headers=owner)
+    assert animals.status_code == 200, animals.text
+    for animal in animals.json()["animals"]:
+        dead = await client.post(
+            f"/api/animals/{animal['id']}/status",
+            json={"new_status": "DEAD"},
+            headers=owner,
+        )
+        assert dead.status_code == 200, dead.text
+
+    tabs = await get_tabs(client, owner)
+    for duty in [t for t in all_tasks(tabs) if t["auto_generated"] and t["status"] == "PENDING"]:
+        closed = await client.post(
+            f"/api/tasks/{duty['id']}/skip",
+            json={"reason": "Batch lost every animal in quarantine"},
+            headers=owner,
+        )
+        assert closed.status_code == 200, closed.text
+    assert not [t for t in all_tasks(await get_tabs(client, owner)) if t["status"] == "PENDING"]
+
+
+async def test_reject_repairs_a_legacy_personal_duty_instead_of_500(
+    client: httpx.AsyncClient,
+) -> None:
+    """reject() flips the row to PENDING — the exact state
+    ck_tasks_user_assignment_has_role constrains — so a pre-D9 personal row
+    must be repaired first, like complete/skip already do."""
+    owner = await owner_with_farm(client)
+    worker, worker_id = await worker_headers(client, owner, "CLEANER", "legacy-reject@farm.in")
+    cleaner_role = await role_id(client, owner, "CLEANER")
+    duty = await make_duty(
+        client, owner, "Legacy scrub", category="CLEANING", assigned_user_id=worker_id
+    )
+    assert (await complete_duty(client, worker, duty["id"])).status_code == 200
+    # Only the constraint's own DDL can produce the pre-D9 shape; it is put
+    # back verbatim so the row rejected below is validated against production
+    # semantics.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("ALTER TABLE tasks DROP CONSTRAINT ck_tasks_user_assignment_has_role")
+        )
+        await db.execute(update(Task).where(Task.id == duty["id"]).values(assigned_role_id=None))
+        await db.execute(
+            text(
+                "ALTER TABLE tasks ADD CONSTRAINT ck_tasks_user_assignment_has_role "
+                "CHECK (status <> 'PENDING' OR assigned_user_id IS NULL "
+                "OR assigned_role_id IS NOT NULL) NOT VALID"
+            )
+        )
+        await db.commit()
+
+    response = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "redo"}, headers=owner
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "PENDING"
+    assert response.json()["assigned_role_id"] == cleaner_role
+
+
+async def test_manual_queue_lock_does_not_deadlock_with_an_animal_first_sale(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The per-farm duty-queue mutex must not be a Farm ROW lock.
+
+    A sale holds ANIMAL and then needs FOR KEY SHARE on farms to insert its
+    Transaction, while a recurring completion took the farm mutex before the
+    ANIMAL lock. With `SELECT farms.id ... FOR UPDATE` those two orders invert
+    and PostgreSQL aborts one of them with a 500.
+    """
+    owner = await owner_with_farm(client)
+    animal_id = await make_animal(client, owner, "DEADLOCK-1")
+    created = await post_duty(
+        client,
+        owner,
+        title="Recurring animal check",
+        due_date=iso(today()),
+        category="OTHER",
+        animal_id=animal_id,
+        recur_days=1,
+    )
+    assert created.status_code == 201, created.text
+    task_id = created.json()["id"]
+
+    parked = asyncio.Event()
+    release = asyncio.Event()
+    real_skip = animals_api.skip_pending_tasks_for_animal
+
+    async def parking_skip(*args: object, **kwargs: object) -> None:
+        # Reached with the ANIMAL row already locked and immediately before the
+        # sale Transaction insert that needs farm KEY SHARE.
+        parked.set()
+        await release.wait()
+        await real_skip(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(animals_api, "skip_pending_tasks_for_animal", parking_skip)
+
+    async with lock_race_client() as sale_client, lock_race_client() as complete_client:
+        sale_request = asyncio.create_task(
+            sale_client.post(
+                f"/api/animals/{animal_id}/status",
+                json={"new_status": "SOLD", "sale_price": 5000},
+                headers=owner,
+            )
+        )
+        complete_request: asyncio.Task[httpx.Response] | None = None
+        try:
+            await asyncio.wait_for(parked.wait(), timeout=10)
+            complete_request = asyncio.create_task(
+                complete_client.post(f"/api/tasks/{task_id}/complete", headers=owner)
+            )
+            # Completion now holds the farm mutex and queues on the animal.
+            await wait_for_lock_waiters(1)
+            release.set()
+            sale_response, complete_response = await asyncio.gather(sale_request, complete_request)
+        finally:
+            release.set()
+            if not sale_request.done():
+                sale_request.cancel()
+            if complete_request is not None and not complete_request.done():
+                complete_request.cancel()
+
+    assert sale_response.status_code == 200, sale_response.text
+    # The sale committed first and swept the duty to SKIPPED, so completion
+    # loses on its own state re-check — a domain 400, never the deadlock 500
+    # the farm ROW lock produced.
+    assert complete_response.status_code == 400, complete_response.text
+    assert complete_response.json()["detail"] == "Task is not pending"

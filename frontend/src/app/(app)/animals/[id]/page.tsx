@@ -109,7 +109,10 @@ const weightSchema = z.object({
     .string()
     .optional()
     .refine((s) => !s || s <= localToday(), "Date can't be in the future"),
-  weight_kg: z.coerce.number().positive("Weight must be greater than 0"),
+  weight_kg: z.coerce
+    .number()
+    .positive("Weight must be greater than 0")
+    .max(1000, "Weight must be at most 1000 kg"),
   bcs: optNum(z.number().int().min(1).max(5)),
   notes: z.string().max(255).optional(),
 });
@@ -1062,7 +1065,7 @@ function ProfileBody({
               <TableBody>
                 {profile.moves.map((m) => (
                   <TableRow key={m.id}>
-                    <TableCell>{formatDate(m.moved_at)}</TableCell>
+                    <TableCell>{formatFarmDateTime(m.moved_at)}</TableCell>
                     <TableCell>{m.from_bucket?.replace(/_/g, " ") ?? "—"}</TableCell>
                     <TableCell>{m.to_bucket.replace(/_/g, " ")}</TableCell>
                     <TableCell>{m.reason ?? ""}</TableCell>

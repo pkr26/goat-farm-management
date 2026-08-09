@@ -130,6 +130,13 @@ async def submit_ultrasound(
         payload["kid_count"] = kid_count
     if result_date is not None:
         payload["date"] = result_date.isoformat()
+    else:
+        # Default to the scheduled check rather than "today": a pregnancy
+        # confirmed today cannot be followed by a kidding recorded on the
+        # earlier expected kidding date.
+        detail = await client.get(f"/api/breeding/{breeding_id}", headers=headers)
+        assert detail.status_code == 200, detail.text
+        payload["date"] = detail.json()["ultrasound_date"]
     resp = await client.post(
         f"/api/breeding/{breeding_id}/ultrasound",
         json=payload,

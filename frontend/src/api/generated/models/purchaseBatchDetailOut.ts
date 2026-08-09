@@ -14,4 +14,7 @@ export interface PurchaseBatchDetailOut {
   batch: PurchaseBatchOut;
   animals: (AnimalOut | PurchaseQuarantineAnimalOut)[];
   tasks: (TaskOut | QuarantineScheduleTaskOut)[];
+  animals_total: number;
+  animals_limit: number;
+  animals_offset: number;
 }

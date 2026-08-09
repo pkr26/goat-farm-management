@@ -65,6 +65,13 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
 }
 
+/** The tasks page buckets strictly by due date, so a fallback "View" link has
+ * to name the tab that can actually hold the row. */
+function taskTabHref(dueDate: string, today: string): string {
+  if (dueDate < today) return "/tasks?tab=overdue";
+  return dueDate === today ? "/tasks?tab=today" : "/tasks?tab=upcoming";
+}
+
 /** "Open" to the task's linked form, else a plain "View" link to the tasks tab. */
 function TaskLink({
   task,
@@ -365,7 +372,7 @@ export default function DashboardPage() {
                     <TableCell className="text-right">
                       <TaskLink
                         task={t}
-                        fallbackHref="/tasks?tab=today"
+                        fallbackHref={taskTabHref(t.due_date, today)}
                         returnTo="/dashboard"
                         can={can}
                         label="Record result"
@@ -473,7 +480,7 @@ export default function DashboardPage() {
             return canViewAnimals ? (
               <Link
                 key={b.code}
-                href={`/animals?bucket=${encodeURIComponent(b.code)}`}
+                href={`/animals?bucket=${encodeURIComponent(b.code)}&status=ACTIVE`}
                 className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary"
               >
                 {content}

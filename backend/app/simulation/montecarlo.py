@@ -11,12 +11,15 @@ import math
 import random
 import statistics
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from .assumptions import SimulationAssumptions
 from .engine import _run_core
 from .results import MonteCarloResult, PercentileBand, SensitivityItem
 
 _Mutator = Callable[[SimulationAssumptions], None]
+_Reader = Callable[[SimulationAssumptions], float]
+_Labeller = Callable[[float, float], str]
 
 # Fixed draw order (also the tornado-report order for the risk variables).
 _DRAW_ORDER = (
@@ -136,32 +139,69 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
     )
 
 
+@dataclass(frozen=True)
+class _SensitivityCase:
+    """One tornado row: how to read, move and describe a single parameter."""
+
+    parameter: str
+    read: _Reader
+    label: _Labeller
+    low: _Mutator
+    high: _Mutator
+
+
+def _pct_label(base: float, applied: float) -> str:
+    """Realised move as a percentage of the base value.
+
+    Computed from the value the run actually used, not from the nominal
+    multiplier: the high-side clamps mean a "+20%" case can be worth +17.6%,
+    or nothing at all when the base already sits on the ceiling.
+    """
+    if base == 0.0:
+        return "+0%"
+    return f"{(applied - base) / base * 100.0:+.1f}%"
+
+
+def _months_label(base: float, applied: float) -> str:
+    return f"{applied - base:+.0f} month(s)"
+
+
 def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
     """OAT (tornado) sensitivity of NPV: +/-20% on one parameter at a time.
 
-    ``sale_age_months`` is varied by +/-2 months instead of a percentage. The
-    list is sorted by impact (largest absolute delta first) for tornado plots.
+    ``sale_age_months`` is varied by +/-2 months instead of a percentage, and
+    four cases clamp the high side at a schema ceiling, so every item reports
+    the perturbation it actually applied (``label_low`` / ``label_high``)
+    rather than leaving readers to assume a flat 20%. The list is sorted by
+    impact (largest absolute delta first) for tornado plots.
     """
     base_npv = _run_core(a).npv
 
-    def npv_with(mutate: _Mutator) -> float:
+    def run_case(mutate: _Mutator, read: _Reader) -> tuple[float, float]:
+        """(NPV, value actually applied) for one perturbed variant."""
         variant = a.model_copy(deep=True)
         mutate(variant)
-        return _run_core(variant).npv
+        return _run_core(variant).npv, read(variant)
 
-    cases: list[tuple[str, _Mutator, _Mutator]] = [
-        (
+    cases: list[_SensitivityCase] = [
+        _SensitivityCase(
             "meat_price",
+            lambda v: v.sales.meat_price_per_kg,
+            _pct_label,
             lambda v: setattr(v.sales, "meat_price_per_kg", v.sales.meat_price_per_kg * 0.8),
             lambda v: setattr(v.sales, "meat_price_per_kg", v.sales.meat_price_per_kg * 1.2),
         ),
-        (
+        _SensitivityCase(
             "feed_prices",
+            lambda v: v.feed.green_price_per_kg,
+            _pct_label,
             lambda v: _scale_feed_prices(v, 0.8),
             lambda v: _scale_feed_prices(v, 1.2),
         ),
-        (
+        _SensitivityCase(
             "kid_pre_weaning_mortality",
+            lambda v: v.mortality.kid_pre_weaning,
+            _pct_label,
             lambda v: setattr(v.mortality, "kid_pre_weaning", v.mortality.kid_pre_weaning * 0.8),
             # Clamp at 0.9 (schema ceiling): a base > 0.833 × 1.2 overshoots 1.0
             # and monthly_mortality_rate(1 - >1) → math.pow(negative, 1/12) 500s.
@@ -169,16 +209,20 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
                 v.mortality, "kid_pre_weaning", min(0.9, v.mortality.kid_pre_weaning * 1.2)
             ),
         ),
-        (
+        _SensitivityCase(
             "litter_size",
+            lambda v: v.reproduction.litter_size,
+            _pct_label,
             lambda v: setattr(v.reproduction, "litter_size", v.reproduction.litter_size * 0.8),
             # Clamp at 4.0 (schema ceiling); mirrors _apply_draws' Monte Carlo clamp.
             lambda v: setattr(
                 v.reproduction, "litter_size", min(4.0, v.reproduction.litter_size * 1.2)
             ),
         ),
-        (
+        _SensitivityCase(
             "conception_rate",
+            lambda v: v.reproduction.conception_rate,
+            _pct_label,
             lambda v: setattr(
                 v.reproduction, "conception_rate", v.reproduction.conception_rate * 0.8
             ),
@@ -186,18 +230,24 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
                 v.reproduction, "conception_rate", min(1.0, v.reproduction.conception_rate * 1.2)
             ),
         ),
-        (
+        _SensitivityCase(
             "sale_age_months",
+            lambda v: float(v.growth.sale_age_months),
+            _months_label,
             lambda v: setattr(v.growth, "sale_age_months", max(6, v.growth.sale_age_months - 2)),
             lambda v: setattr(v.growth, "sale_age_months", min(24, v.growth.sale_age_months + 2)),
         ),
-        (
+        _SensitivityCase(
             "labour_cost",
+            lambda v: v.costs.labour_per_month,
+            _pct_label,
             lambda v: setattr(v.costs, "labour_per_month", v.costs.labour_per_month * 0.8),
             lambda v: setattr(v.costs, "labour_per_month", v.costs.labour_per_month * 1.2),
         ),
-        (
+        _SensitivityCase(
             "interest_rate",
+            lambda v: v.finance.interest_rate_annual,
+            _pct_label,
             lambda v: setattr(
                 v.finance, "interest_rate_annual", v.finance.interest_rate_annual * 0.8
             ),
@@ -207,14 +257,20 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
         ),
     ]
 
-    items = [
-        SensitivityItem(
-            parameter=name,
-            delta_npv_low=npv_with(low) - base_npv,
-            delta_npv_high=npv_with(high) - base_npv,
+    items: list[SensitivityItem] = []
+    for case in cases:
+        base_value = case.read(a)
+        npv_low, value_low = run_case(case.low, case.read)
+        npv_high, value_high = run_case(case.high, case.read)
+        items.append(
+            SensitivityItem(
+                parameter=case.parameter,
+                delta_npv_low=npv_low - base_npv,
+                delta_npv_high=npv_high - base_npv,
+                label_low=case.label(base_value, value_low),
+                label_high=case.label(base_value, value_high),
+            )
         )
-        for name, low, high in cases
-    ]
     items.sort(
         key=lambda item: max(abs(item.delta_npv_low), abs(item.delta_npv_high)), reverse=True
     )

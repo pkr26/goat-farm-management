@@ -1,4 +1,4 @@
-"""String enums (values stored verbatim in SQLite)."""
+"""String enums (values stored verbatim in PostgreSQL text columns)."""
 
 # Kept from the v1 port on purpose: str/Enum mix-ins (not StrEnum) and the
 # original punctuation in docstrings/comments/protocol strings.
@@ -54,6 +54,10 @@ class BreedingOutcome(str, enum.Enum):
     CONFIRMED_PREGNANT = "CONFIRMED_PREGNANT"
     FAILED = "FAILED"
     ABORTED = "ABORTED"
+    # Terminal: the doe left the herd (sold/dead/culled) before her pregnancy
+    # check, so this service can never be assessed. Distinct from FAILED — a
+    # negative scan is a recorded fact, this is the permanent absence of one.
+    UNASSESSED = "UNASSESSED"
 
 
 class KiddingEase(str, enum.Enum):

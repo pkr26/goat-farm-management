@@ -21,10 +21,30 @@ RAW_TARGET_URL="${GOATFARM_RESTORE_DATABASE_URL}"
 # restore process argv too.
 unset GOATFARM_RESTORE_DATABASE_URL GOATFARM_DATABASE_URL
 unset GOATFARM_MIGRATION_DATABASE_URL PGPASSWORD PGSERVICE PGSERVICEFILE
-DB_SSLMODE="${GOATFARM_DB_SSLMODE:-disable}"
-ENVIRONMENT="${GOATFARM_ENVIRONMENT:-development}"
 EXPECTED_SIGNER="${GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+
+# GOATFARM_ENVIRONMENT and GOATFARM_DB_SSLMODE are *application* settings that
+# gate TLS and the signed-and-encrypted artifact requirement below.  A job that
+# exports only the restore URL would otherwise silently fall back to the
+# development defaults on a production host and accept a plaintext dump over a
+# connection this script then forces to `disable`.  Read backend/.env — the
+# same file the application reads — for any value the caller did not export;
+# an explicit export still wins.
+app_setting() {
+    local key="$1" env_file="${SCRIPT_DIR}/../.env" value=""
+    if [[ -r "${env_file}" ]]; then
+        value="$(sed -n "s/^[[:space:]]*${key}=//p" "${env_file}" | tail -n 1 | tr -d '\r')"
+        value="${value%\"}"
+        value="${value#\"}"
+    fi
+    printf '%s' "${value}"
+}
+
+DB_SSLMODE="${GOATFARM_DB_SSLMODE:-$(app_setting GOATFARM_DB_SSLMODE)}"
+DB_SSLMODE="${DB_SSLMODE:-disable}"
+ENVIRONMENT="${GOATFARM_ENVIRONMENT:-$(app_setting GOATFARM_ENVIRONMENT)}"
+ENVIRONMENT="${ENVIRONMENT:-development}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 TMP_DIR=""
 

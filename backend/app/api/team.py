@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -65,6 +65,10 @@ ROLE_RESPONSE_OVERFLOW_REASON = (
 TEAM_PASSWORD_WORK_LIMIT_REASON = "Too many worker password operations — please try again later."
 TEAM_PASSWORD_WORK_SCOPE = "team-password-work"
 TEAM_PASSWORD_RESERVATION_SCOPE = "team-password-work-in-flight"
+
+# Namespace for the per-farm team/role provisioning mutex. Advisory lock keys
+# are global to the database, so every acquisition of it must pass this.
+TEAM_PROVISIONING_LOCK_NAMESPACE = 4712
 
 
 @dataclass(frozen=True)
@@ -510,16 +514,37 @@ async def _member_count(db: AsyncSession, role_id: int) -> int:
     return result.scalar_one()
 
 
+async def _lock_farm_provisioning(db: AsyncSession, farm: Farm) -> None:
+    """Take the per-farm serialization lock for team/role provisioning.
+
+    Deliberately an ADVISORY lock, not `SELECT farms.id ... FOR UPDATE`.
+    Every farm-scoped child insert — a weight record, a feed dispense, a
+    finance transaction, and the idempotency claim these routes make
+    themselves — takes FOR KEY SHARE on that same Farm row, so a FOR UPDATE
+    held for the rest of the request transaction serializes *all* tenant
+    writes, not just the counted resource. A transaction-scoped advisory lock
+    self-conflicts exactly like the row lock did (so the ceilings stay real
+    bounds), never conflicts with an FK key-share lock, and needs no
+    KEY SHARE -> stronger upgrade, so distinct idempotency keys still cannot
+    deadlock against each other.
+    """
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(literal(TEAM_PROVISIONING_LOCK_NAMESPACE), literal(farm.id))
+        )
+    )
+
+
 async def _guard_farm_capacity(
     db: AsyncSession, farm: Farm, *, model: type[FarmMembership] | type[Role], limit: int
 ) -> None:
-    """Serialize per-farm count-and-create operations on the Farm row.
+    """Serialize per-farm count-and-create operations.
 
     A plain COUNT followed by INSERT is raceable: simultaneous requests could
-    all observe one free slot. The farm-row lock makes the configured ceiling
-    an actual concurrency-safe bound without taking a table-wide lock.
+    all observe one free slot. The provisioning lock makes the configured
+    ceiling an actual concurrency-safe bound without taking a table-wide lock.
     """
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    await _lock_farm_provisioning(db, farm)
     if model is FarmMembership:
         count_statement = (
             select(func.count())
@@ -660,8 +685,13 @@ async def create_worker(
             if exc.status_code == 404:
                 raise HTTPException(status_code=400, detail="Pick a valid role.") from None
             raise
+        # No _guard_role_scope call here: worker creation is owner-only
+        # (_prepare_worker_create rejects every non-owner), and the guard is a
+        # no-op for the owner anyway. Passing ALL_PERMISSIONS as the ceiling
+        # made it doubly vacuous — dead code that reads like a live RBAC
+        # control is worse than none, so the real guard stays on the
+        # role-reassignment paths where a delegated manager can actually reach it.
         _guard_manager_role(role, user, farm)
-        _guard_role_scope(role, set(ALL_PERMISSIONS), user, farm)
         worker = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if worker is not None:
             # One response for owner, worker, and otherwise unaffiliated
@@ -706,10 +736,9 @@ async def create_worker(
 
     # Only a keyed HMAC-SHA-256 request fingerprint is persisted; neither the
     # raw password nor its Argon hash enters the idempotency record/response.
-    # Claim rows reference Farm. Take the capacity serialization lock before
-    # inserting that FK so distinct idempotency keys cannot deadlock while
-    # upgrading simultaneous KEY SHARE locks inside mutate().
-    await db.execute(select(Farm.id).where(Farm.id == farm.id).with_for_update())
+    # Take the capacity serialization lock before the claim insert so distinct
+    # idempotency keys enter mutate() in a defined order.
+    await _lock_farm_provisioning(db, farm)
     return await execute_idempotent(
         db,
         http_response=response,
@@ -859,6 +888,14 @@ async def reset_password(
         await db.execute(
             select(User)
             .where(User.id == membership.user_id, User.deleted_at.is_(None))
+            # _get_membership selectinloads this exact User, so the row is
+            # already in the identity map with its pre-lock column values.
+            # Without populate_existing the ORM hands back that stale instance
+            # and `token_version += 1` below increments a value the locked
+            # SELECT was taken to re-read — a lost update that can re-write the
+            # version a concurrent change-password just committed and leave the
+            # revoked worker holding a still-valid access token.
+            .execution_options(populate_existing=True)
             .with_for_update()
         )
     ).scalar_one_or_none()

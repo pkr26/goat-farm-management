@@ -102,6 +102,8 @@ const DUTY: TaskOut = {
   skipped_by_id: null,
   skipped_at: null,
   skip_reason: null,
+  rejected_by_id: null,
+  rejected_at: null,
   action_url: null,
 };
 
@@ -208,5 +210,59 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     const combos = within(dialog).getAllByRole("combobox");
     expect(combos[combos.length - 1]).toHaveTextContent(/Deworm Kaveri/);
     expect(healthAnimalQueries).toContain("#3");
+  });
+});
+
+// REGRESSION TESTS — bug fixed; these tests pin the fix.
+//
+// The Add-event form's `date` default was captured once at page mount and
+// react-hook-form's bare `reset()` restored that snapshot, so a tab left open
+// across the farm's midnight recorded health events (and the withdrawal /
+// next-due dates derived from them) one day early. Both reset call sites now
+// pass freshly computed defaults.
+
+describe("HealthPage date default survives a farm-midnight rollover", () => {
+  beforeEach(() => {
+    server.use(
+      http.get("/api/health/events", () =>
+        HttpResponse.json({ events: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("/api/health/animals", () =>
+        HttpResponse.json({ animals: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("/api/health/purchase-batches", () =>
+        HttpResponse.json({ batches: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          completed_total: 0,
+          completed_limit: 50,
+          completed_offset: 0,
+        }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("prefills the farm's current date, not the date the tab was opened", async () => {
+    vi.setSystemTime(new Date("2026-08-09T12:30:00Z")); // 18:00 IST
+    const user = userEvent.setup();
+    renderWithProviders(<HealthPage />);
+    await screen.findByText("Event log");
+
+    vi.setSystemTime(new Date("2026-08-10T12:30:00Z")); // 18:00 IST, next day
+    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+
+    const dateInput = await screen.findByLabelText("Date (defaults to today)");
+    expect(dateInput).toHaveValue("2026-08-10");
+    expect(dateInput).toHaveAttribute("max", "2026-08-10");
   });
 });

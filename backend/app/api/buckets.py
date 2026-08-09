@@ -137,7 +137,10 @@ async def buckets_board(
                 animals=by_bucket.get(d.code, []),
                 animals_total=totals.get(d.code, 0),
                 animals_limit=BUCKET_ANIMAL_PREVIEW_LIMIT,
-                animals_page_path=f"/animals?bucket={d.code}",
+                # Sold/dead/culled animals keep their last bucket forever, so
+                # the register must open on the same ACTIVE population this
+                # board counted — otherwise the two headcounts disagree.
+                animals_page_path=f"/animals?bucket={d.code}&status=ACTIVE",
             )
         )
     return rows

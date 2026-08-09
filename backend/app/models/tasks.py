@@ -97,6 +97,10 @@ class Task(Base):
             name="ck_tasks_skip_state",
         ),
         CheckConstraint(
+            "rejected_by_id IS NULL OR rejected_at IS NOT NULL",
+            name="ck_tasks_rejection_attribution",
+        ),
+        CheckConstraint(
             "status <> 'PENDING' OR assigned_user_id IS NULL OR assigned_role_id IS NOT NULL",
             name="ck_tasks_user_assignment_has_role",
         ),
@@ -133,6 +137,11 @@ class Task(Base):
     skipped_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     skipped_at: Mapped[datetime | None]
     skip_reason: Mapped[str | None] = mapped_column(String(255))
+    # Who sent a duty back to its worker, and when. Set together with
+    # verification_note and cleared with it once the duty leaves the rejected
+    # state, so they describe the rejection the row is currently carrying.
+    rejected_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    rejected_at: Mapped[datetime | None]
 
     # Recurring duty: on completion the next occurrence is spawned this many
     # days after the current due_date (e.g. 1 = daily cleaning).
@@ -149,6 +158,7 @@ class Task(Base):
     completed_by: Mapped[User | None] = relationship(foreign_keys="Task.completed_by_id")
     verified_by: Mapped[User | None] = relationship(foreign_keys="Task.verified_by_id")
     skipped_by: Mapped[User | None] = relationship(foreign_keys="Task.skipped_by_id")
+    rejected_by: Mapped[User | None] = relationship(foreign_keys="Task.rejected_by_id")
 
     @property
     def needs_verification(self) -> bool:

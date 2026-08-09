@@ -17,7 +17,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, farmToday, formatFarmDateTime } from "@/lib/format";
+import { addDays, farmToday } from "@/lib/format";
 
 import TasksPage from "./page";
 
@@ -76,6 +76,8 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     skipped_by_id: null,
     skipped_at: null,
     skip_reason: null,
+    rejected_by_id: null,
+    rejected_at: null,
     action_url: null,
     ...overrides,
   };
@@ -328,9 +330,10 @@ describe("TasksPage (extended)", () => {
     const awaitingRow = rowOf("Deep-clean kidding pen");
     expect(within(awaitingRow).getByText("DONE")).toBeInTheDocument();
     expect(within(awaitingRow).getByText("awaiting")).toBeInTheDocument();
-    // completed_at is naive UTC and renders in the active farm's timezone.
-    const expectedCompletedAt = formatFarmDateTime("2026-08-05T14:07:00");
-    expect(within(awaitingRow).getByText(expectedCompletedAt)).toBeInTheDocument();
+    // completed_at is naive UTC rendered in the active farm's timezone
+    // (Asia/Kolkata, +05:30), so 14:07 UTC must display as 19:37 — asserted as
+    // a literal so dropping the UTC normalisation in formatFarmDateTime fails.
+    expect(within(awaitingRow).getByText("05-08-2026 19:37")).toBeInTheDocument();
 
     const verifiedRow = rowOf("Weekly sweep");
     expect(within(verifiedRow).getByText("VERIFIED")).toBeInTheDocument();
@@ -345,6 +348,8 @@ describe("TasksPage (extended)", () => {
         status: "SKIPPED",
         skipped_at: "2026-08-05T13:00:00",
         skip_reason: "No animals in pen",
+        rejected_by_id: null,
+        rejected_at: null,
       }),
     ];
     payload.completed_total = 1;
@@ -355,7 +360,8 @@ describe("TasksPage (extended)", () => {
     const row = rowOf("Evening ration check");
     expect(within(row).getByText("SKIPPED")).toBeInTheDocument();
     expect(within(row).getByText("Reason: No animals in pen")).toBeInTheDocument();
-    expect(within(row).getByText(formatFarmDateTime("2026-08-05T13:00:00"))).toBeInTheDocument();
+    // 13:00 naive UTC → 18:30 in the farm's Asia/Kolkata day.
+    expect(within(row).getByText("05-08-2026 18:30")).toBeInTheDocument();
   });
 
   it("pages completed history using the backend total", async () => {
@@ -774,5 +780,24 @@ describe("TasksPage (extended)", () => {
     server.use(permissionsHandler(["tasks.view", "tasks.complete"]));
     await renderLoaded();
     expect(screen.queryByRole("button", { name: "New duty" })).not.toBeInTheDocument();
+  });
+
+  // REGRESSION — the due-date default was captured once at page mount and a
+  // bare reset() restored that snapshot, so a tab left open across the farm's
+  // midnight created duties dated yesterday, i.e. already Overdue.
+  it("prefills the due date with the farm's current date, not the mount-time date", async () => {
+    vi.setSystemTime(new Date("2026-08-09T12:30:00Z")); // 18:00 IST
+    try {
+      const user = userEvent.setup();
+      await renderLoaded();
+
+      vi.setSystemTime(new Date("2026-08-10T12:30:00Z")); // 18:00 IST, next day
+      await user.click(screen.getByRole("button", { name: "New duty" }));
+      const dialog = await screen.findByRole("dialog");
+
+      expect(within(dialog).getByLabelText("Due date *")).toHaveValue("2026-08-10");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

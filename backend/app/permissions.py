@@ -114,7 +114,14 @@ ROLE_PRESETS: list[RolePreset] = [
     {
         "code": "VET",
         "name": "Veterinarian",
-        "description": "Examines animals, records health events, ultrasounds and vaccinations.",
+        "description": (
+            "Examines animals, records health events, ultrasounds, vaccinations and kiddings."
+        ),
+        # Kidding is part of the job, not an extra: the vet attends the
+        # difficult deliveries and KIDDING_DUE duties are auto-assigned here
+        # (TASK_CATEGORY_ROLE_MAP). Those duties refuse the bare complete
+        # button, so without kidding.view/kidding.manage the assignee could
+        # neither open the kidding form nor record the kidding.
         "permissions": [
             "dashboard.view",
             "animals.view",
@@ -122,6 +129,8 @@ ROLE_PRESETS: list[RolePreset] = [
             "buckets.view",
             "breeding.view",
             "breeding.manage",
+            "kidding.view",
+            "kidding.manage",
             "health.view",
             "health.manage",
             "tasks.view",
@@ -171,4 +180,34 @@ TASK_CATEGORY_ROLE_MAP: dict[str, str] = {
     "WEANING": "MOVER",
     "FEED": "FEEDER",
     "CLEANING": "CLEANER",
+}
+
+# What an assignee must be able to DO with each auto-assigned category, on top
+# of the tasks.view / tasks.complete every preset role holds.
+#
+# A form-linked duty (api._shared.task_action_url) refuses the bare complete
+# button: completing it means recording data, so it can only be closed by
+# submitting the form it points at. Its assignee therefore needs the
+# permission guarding that form's endpoint —
+#
+#   ULTRASOUND  -> POST /api/breeding/{id}/ultrasound  (breeding.manage)
+#   VACCINE     -> POST /api/health/events             (health.manage)
+#   DEWORMING   -> POST /api/health/events             (health.manage)
+#   KIDDING_DUE -> POST /api/kidding                   (kidding.manage)
+#
+# — otherwise the duty lands on a role that structurally cannot close it.
+# The remaining categories are closed by the generic complete endpoint; their
+# side effects (quarantine release, bucket moves, weaning) run server-side
+# under tasks.complete alone. Module view permissions are implied through
+# PERMISSION_DEPENDENCIES and are not repeated here.
+TASK_CATEGORY_ACTION_PERMISSIONS: dict[str, frozenset[str]] = {
+    "ULTRASOUND": frozenset({"breeding.manage"}),
+    "VACCINE": frozenset({"health.manage"}),
+    "DEWORMING": frozenset({"health.manage"}),
+    "QUARANTINE": frozenset(),
+    "KIDDING_DUE": frozenset({"kidding.manage"}),
+    "BUCKET_MOVE": frozenset(),
+    "WEANING": frozenset(),
+    "FEED": frozenset(),
+    "CLEANING": frozenset(),
 }

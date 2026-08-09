@@ -50,6 +50,7 @@ from app.simulation import (
     weight_at_age,
 )
 from app.simulation.assumptions import HerdEventAssumptions
+from app.simulation.finance import irr_roots
 
 S_ADULT = 0.95 ** (1.0 / 12.0)  # monthly adult survival, default 5% annual mortality
 S_KID = 0.90 ** (1.0 / 12.0)  # monthly pre-weaning survival, default 10% annual
@@ -155,7 +156,12 @@ def test_npv_known_series() -> None:
     times = [0.0, 1.0, 2.0, 3.0, 4.0]
     # 400 x annuity factor(10%, 4) = 400 x 3.1698654 = 1267.946 - 1000.
     assert npv(0.10, flows, times) == pytest.approx(267.9462, abs=1e-3)
-    assert bcr(0.10, flows, times) == pytest.approx(1.2679462, abs=1e-6)
+    # BCR takes gross benefits and gross costs, not one net series: the same
+    # project is 1267.946 of discounted benefit against 1000 of cost.
+    benefits = [0.0, 400.0, 400.0, 400.0, 400.0]
+    costs = [1000.0, 0.0, 0.0, 0.0, 0.0]
+    assert bcr(0.10, benefits, costs, times) == pytest.approx(1.2679462, abs=1e-6)
+    assert bcr(0.10, benefits, [0.0] * 5, times) is None  # no costs -> undefined
 
 
 def test_irr_known_series() -> None:
@@ -164,6 +170,44 @@ def test_irr_known_series() -> None:
     assert irr(flows, times) == pytest.approx(0.2186, abs=5e-4)
     # No sign change -> no root.
     assert irr([100.0, 100.0], [0.0, 1.0]) is None
+
+
+def test_irr_is_none_when_the_series_has_several_roots() -> None:
+    """A series with more than one sign reversal can cross zero repeatedly.
+    Bisecting the whole (-0.99, 10) bracket deterministically kept the
+    LEFTMOST root — here -89.16% for a project whose NPV at the 10% discount
+    rate is +₹201,590. Several valid rates means no single IRR."""
+    flows = [
+        -954244.0,
+        -390293.0,
+        -528292.0,
+        1930642.0,
+        1572511.0,
+        -238266.0,
+        -51854.0,
+        -865625.0,
+        94536.0,
+    ]
+    times = [float(year) for year in range(len(flows))]
+    assert npv(0.10, flows, times) == pytest.approx(201589.88, abs=0.01)  # viable project
+    roots = irr_roots(flows, times)
+    assert roots == pytest.approx([-0.89156, -0.26447, 0.16333], abs=1e-5)
+    for root in roots:
+        # Rupees, against flows of order 1e6 — every root really zeroes NPV.
+        assert npv(root, flows, times) == pytest.approx(0.0, abs=0.01)
+    assert irr(flows, times) is None
+
+
+def test_irr_survives_sign_reversals_with_a_single_root() -> None:
+    """Sign reversals alone must not disqualify an IRR — only genuinely
+    multiple roots do, otherwise ordinary projects with a lumpy year lose the
+    metric entirely."""
+    flows = [-1000.0, 600.0, -100.0, 900.0]
+    times = [0.0, 1.0, 2.0, 3.0]
+    assert len(irr_roots(flows, times)) == 1
+    value = irr(flows, times)
+    assert value is not None
+    assert npv(value, flows, times) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_payback_month() -> None:
@@ -292,6 +336,64 @@ def test_fodder_balance_and_land_requirement() -> None:
     default = run_simulation(SimulationAssumptions(), with_break_even=False)
     assert default.feed_summary.fodder_deficit_months == 120
     assert default.feed_summary.land_requirement_acres > 0.0
+
+
+def test_land_requirement_is_a_true_annual_rate_on_ragged_horizons() -> None:
+    """The acreage is a per-year rate, so a horizon that is not a whole number
+    of years must not divide a partial tail block by a full year. It used to:
+    121 months reported 8% LESS land than 120, and 13 months 45% less than 12
+    — adding a month made the farm need less fodder ground."""
+
+    def acres(horizon: int) -> float:
+        res = run_simulation(
+            SimulationAssumptions(meta=MetaAssumptions(horizon_months=horizon)),
+            with_break_even=False,
+        )
+        return res.feed_summary.land_requirement_acres
+
+    # The herd (and its green-DM need) only grows, so the annualised average
+    # must rise monotonically with the horizon — never dip at a ragged year.
+    horizons = [12, 13, 18, 24, 120, 121]
+    values = [acres(h) for h in horizons]
+    assert values == sorted(values), dict(zip(horizons, values, strict=True))
+    # Whole-year horizons are unchanged: the average is still sum / n_years.
+    res = run_simulation(
+        SimulationAssumptions(meta=MetaAssumptions(horizon_months=24)), with_break_even=False
+    )
+    feed = SimulationAssumptions().feed
+    expected = (
+        sum(res.feed_summary.annual_green_kg)
+        * feed.green_dm_pct
+        / 2.0
+        / (feed.fodder_yield_t_dm_per_acre_year * 1000.0)
+    )
+    assert res.feed_summary.land_requirement_acres == pytest.approx(expected)
+
+
+def test_doe_cull_rate_removes_the_documented_annual_fraction() -> None:
+    """``doe_cull_rate_annual`` is documented as an annual fraction, so twelve
+    monthly applications must remove exactly that fraction. A plain rate/12
+    hazard left (1 - r/12)^12 standing: 18.3% for a 20% policy, and only 64.8%
+    for the schema maximum of 1.0 ("cull the whole herd this year")."""
+    for annual in (0.2, 1.0):
+        a = SimulationAssumptions(
+            meta=MetaAssumptions(horizon_months=25),
+            herd=HerdAssumptions(
+                does=100, bucks=0, auto_purchase_bucks=False, foundation_flock_state="open"
+            ),
+            culling=CullingAssumptions(doe_cull_rate_annual=annual, max_doe_age_months=180),
+        )
+        a.mortality.adult = 0.0  # isolate culling from every other removal
+        a.reproduction.conception_rate = 0.0
+        res = run_simulation(a, with_break_even=False)
+
+        def does(index: int, rows: list[MonthlyRow] = res.months) -> float:
+            row = rows[index]
+            return row.open_does + row.pregnant_does + row.lactating_does
+
+        # The rate cull starts in month 13, so month 12 -> month 24 is one
+        # full year of it.
+        assert does(23) == pytest.approx(does(11) * (1.0 - annual), abs=1e-9), annual
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +531,22 @@ def test_sensitivity_tornado_sorted() -> None:
     # Meat price must dominate: higher price raises NPV, lower price cuts it.
     meat = next(i for i in items if i.parameter == "meat_price")
     assert meat.delta_npv_high > 0.0 > meat.delta_npv_low
+
+
+def test_sensitivity_items_report_the_perturbation_they_applied() -> None:
+    """The narrative used to label every tornado entry a flat "20%". Two of
+    the eight cases are not: sale age moves by whole months, and the high side
+    of conception_rate clamps at the schema ceiling of 1.0."""
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+    a.reproduction.conception_rate = 0.85  # 0.85 x 1.2 clamps to 1.0, i.e. +17.6%
+    by_name = {item.parameter: item for item in run_sensitivity(a)}
+    assert by_name["meat_price"].label_low == "-20.0%"
+    assert by_name["meat_price"].label_high == "+20.0%"
+    # sale_age_months is +/-2 months, never a percentage.
+    assert by_name["sale_age_months"].label_low == "-2 month(s)"
+    assert by_name["sale_age_months"].label_high == "+2 month(s)"
+    # A clamped high side reports the move it really made.
+    assert by_name["conception_rate"].label_high == "+17.6%"
 
 
 def test_sensitivity_high_conception_never_reduces_a_valid_one_hundred_percent_base() -> None:

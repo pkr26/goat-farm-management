@@ -15,14 +15,16 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AnimalOut, BreedingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, farmToday } from "@/lib/format";
+import { addDays, farmToday, formatDate } from "@/lib/format";
 
 import BreedingPage from "./page";
+
+const { navState } = vi.hoisted(() => ({ navState: { search: "" } }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/breeding",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
 }));
 
@@ -142,6 +144,13 @@ const FAILED_REC = makeRecord({
   ultrasound_done: true,
   pregnant: false,
   outcome: "FAILED",
+});
+/** Bred 21 days ago — the documented heat cycle — so the doe can be seen back
+ *  in standing heat 11 days before the day-32 scan the record still plans. */
+const HEAT_RETURN_REC = makeRecord({
+  id: 80,
+  breeding_date: addDays(TODAY, -21),
+  ultrasound_date: addDays(TODAY, 11),
 });
 const ABORTED_REC = makeRecord({
   id: 5,
@@ -414,15 +423,22 @@ describe("BreedingPage", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("withholds the result action until the planned ultrasound date", async () => {
-    const futureDate = addDays(TODAY, 5);
-    listPayload.records = [makeRecord({ id: 80, ultrasound_date: futureDate })];
+  it("offers the result action before the planned date, keeping the plan as a hint", async () => {
+    listPayload.records = [HEAT_RETURN_REC];
     renderWithProviders(<BreedingPage />);
     const pending = await screen.findByText("PENDING");
     const row = pending.closest("tr") as HTMLElement;
 
-    expect(within(row).queryByRole("button", { name: "Ultrasound result" })).not.toBeInTheDocument();
-    expect(within(row).getByText(/^Result available /)).toBeInTheDocument();
+    // A doe back in standing heat has to be recordable as not-pregnant now.
+    expect(within(row).getByRole("button", { name: "Ultrasound result" })).toBeInTheDocument();
+    expect(
+      within(row).getByText(`Scan planned ${formatDate(HEAT_RETURN_REC.ultrasound_date)}`),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no planned-scan hint once the scan date has arrived", async () => {
+    await renderLoaded();
+    expect(within(rowOf("PENDING")).queryByText(/^Scan planned /)).not.toBeInTheDocument();
   });
 
   // ---------- Add-breeding dialog ----------
@@ -693,6 +709,62 @@ describe("BreedingPage", () => {
     expect(ultrasoundBody).toBeNull();
   });
 
+  // The server accepts a NOT-pregnant result from the breeding date onwards —
+  // only a positive one has to wait for the planned scan — so the doe seen
+  // back in heat at day 21 must be recordable without falsifying a day-32 scan.
+  async function openEarlyUltrasound() {
+    const user = userEvent.setup();
+    listPayload.records = [HEAT_RETURN_REC];
+    renderWithProviders(<BreedingPage />);
+    const row = (await screen.findByText("PENDING")).closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Ultrasound result" }));
+    return { user, dialog: await screen.findByRole("dialog") };
+  }
+
+  it("records an early not-pregnant result for a doe back in heat", async () => {
+    const { user, dialog } = await openEarlyUltrasound();
+
+    expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
+    expect(within(dialog).queryByText("Kid count detected")).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Result date *")).toHaveAttribute(
+      "min",
+      HEAT_RETURN_REC.breeding_date,
+    );
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save result" }));
+    await waitFor(() => expect(ultrasoundBody).not.toBeNull());
+    expect(ultrasoundBody).toEqual({ pregnant: false, date: TODAY, kid_count: null });
+  });
+
+  it("still holds a pregnant result back to the planned scan date", async () => {
+    const { user, dialog } = await openEarlyUltrasound();
+    await user.click(within(dialog).getByRole("checkbox"));
+
+    expect(
+      within(dialog).getByText(
+        `Result date cannot be before ${formatDate(HEAT_RETURN_REC.ultrasound_date)}`,
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save result" })).toBeDisabled();
+    expect(ultrasoundBody).toBeNull();
+  });
+
+  it("rejects a not-pregnant result that predates the breeding date", async () => {
+    const { dialog } = await openEarlyUltrasound();
+    fireEvent.change(within(dialog).getByLabelText("Result date *"), {
+      target: { value: addDays(HEAT_RETURN_REC.breeding_date, -1) },
+    });
+
+    expect(
+      within(dialog).getByText(
+        `Result date cannot be before ${formatDate(HEAT_RETURN_REC.breeding_date)}`,
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save result" })).toBeDisabled();
+    expect(ultrasoundBody).toBeNull();
+  });
+
   it("hides the kid count and posts kid_count null when not pregnant", async () => {
     const { user, dialog } = await openUltrasound();
     await user.click(within(dialog).getByRole("checkbox"));
@@ -840,13 +912,21 @@ describe("BreedingPage", () => {
 
   // ---------- URL prefill (/breeding/{id}/ultrasound redirect) ----------
 
+  // REGRESSION — the id used to be read from window.location.search in a
+  // useState initializer. Next 16 writes the browser URL in HistoryUpdater's
+  // useInsertionEffect, i.e. after the destination page has rendered, so the
+  // /breeding/{id}/ultrasound → /breeding?ultrasound_id={id} redirect left the
+  // page reading the PREVIOUS URL and the dialog never opened. The param now
+  // comes from useSearchParams(), which is why these tests drive the router
+  // mock rather than window.location.
   describe("URL prefill from /breeding?ultrasound_id=…", () => {
     afterEach(() => {
+      navState.search = "";
       window.history.replaceState({}, "", "/breeding");
     });
 
     it("auto-opens the ultrasound dialog for the linked PENDING record", async () => {
-      window.history.replaceState({}, "", "/breeding?ultrasound_id=1");
+      navState.search = "?ultrasound_id=1";
       renderWithProviders(<BreedingPage />);
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("Ultrasound result")).toBeInTheDocument();
@@ -856,7 +936,7 @@ describe("BreedingPage", () => {
     });
 
     it("opens no dialog when the linked record is not PENDING", async () => {
-      window.history.replaceState({}, "", "/breeding?ultrasound_id=2");
+      navState.search = "?ultrasound_id=2";
       await renderLoaded();
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
@@ -864,12 +944,34 @@ describe("BreedingPage", () => {
     it("fetches and opens an older linked record outside the current page", async () => {
       const older = makeRecord({ id: 99, breeding_date: "2026-06-01", ultrasound_date: "2026-07-03" });
       server.use(http.get("/api/breeding/99", () => HttpResponse.json(older)));
-      window.history.replaceState({}, "", "/breeding?ultrasound_id=99");
+      navState.search = "?ultrasound_id=99";
       renderWithProviders(<BreedingPage />);
 
       const dialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
       expect(within(dialog).getByText(/bred 1 Jun 2026/)).toBeInTheDocument();
       expect(within(dialog).getByText(/planned scan 3 Jul 2026/)).toBeInTheDocument();
+    });
+
+    it("opens a linked record whose planned scan is still ahead", async () => {
+      // The task deep-link is only gated on PENDING now: the dialog itself
+      // decides that just the not-pregnant result is recordable this early.
+      listPayload.records = [HEAT_RETURN_REC];
+      navState.search = "?ultrasound_id=80";
+      renderWithProviders(<BreedingPage />);
+
+      const dialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
+      expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
+    });
+
+    it("opens the dialog when only the router knows the param, not window.location", async () => {
+      // Exactly the redirect ordering: the router already carries the query
+      // string while document.location is still the pre-navigation URL.
+      navState.search = "?ultrasound_id=1";
+      window.history.replaceState({}, "", "/breeding/1/ultrasound");
+      renderWithProviders(<BreedingPage />);
+
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("Ultrasound result")).toBeInTheDocument();
     });
   });
 });

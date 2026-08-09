@@ -79,6 +79,22 @@ function meetsPlannedQuantity(actual: number, planned: number): boolean {
   return actual + 0.0005 >= planned;
 }
 
+/** What the API will actually store for a typed kg value.
+ *
+ * `POST /api/feeding/settings` answers 204, so a confirmation can only be
+ * truthful by applying the server's own rounding — schemas/common.py does
+ * `Decimal(str(value)).quantize("0.001", ROUND_HALF_UP)`. That rounds the
+ * decimal the operator typed, not the binary double, so `toFixed(3)` is not
+ * equivalent: it reports 1.2345 as 1.234 where the server stores 1.235. */
+function quantizePersistedKg(value: number): number {
+  const match = /^(-?)(\d+)\.(\d+)$/.exec(String(value));
+  if (!match) return value;
+  const [, sign, whole, fraction] = match;
+  if (fraction.length <= 3) return value;
+  const magnitude = (Number(whole + fraction.slice(0, 3)) + (fraction[3] >= "5" ? 1 : 0)) / 1000;
+  return sign === "-" ? -magnitude : magnitude;
+}
+
 /** The generated PlanLineOutShiftsItem is schema-less ({[key: string]:
  *  unknown}), so validate the fields the plan table renders instead of
  *  casting. Malformed cells degrade to visible placeholders rather than
@@ -162,8 +178,9 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
           daily_kg_per_head: values.daily_kg_per_head,
         },
       });
-      toast.success(`Saved ${values.daily_kg_per_head} kg/head for ${line.bucket}.`);
-      reset({ daily_kg_per_head: values.daily_kg_per_head });
+      const stored = quantizePersistedKg(values.daily_kg_per_head);
+      toast.success(`Saved ${stored} kg/head for ${line.bucket}.`);
+      reset({ daily_kg_per_head: stored });
       invalidateFarmData(queryClient);
       setOpen(false);
     } catch (err) {
@@ -275,9 +292,10 @@ export default function FeedingPage() {
   for (const line of payload?.lines ?? []) {
     recipeOptions.set(line.recipe_code, line.recipe_name);
   }
-  if ([...(payload?.lines ?? [])].some((line) => line.recipe_code === DRY_ROUGHAGE)) {
-    recipeOptions.set(DRY_ROUGHAGE, "Dry roughage only");
-  }
+  // Virtual code (services/feeding.py): it has no feed_recipes row, so the
+  // catalog never returns it, yet the API accepts it on any past date — offer
+  // it unconditionally so a backdated dry-roughage ration can be recorded.
+  recipeOptions.set(DRY_ROUGHAGE, "Dry roughage only");
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
   const recipeItems: Record<string, string> = Object.fromEntries(recipeOptions);
@@ -715,10 +733,18 @@ export default function FeedingPage() {
                   value={wBucket}
                   onValueChange={(v) => {
                     setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: true });
-                    const plannedRecipe = payload.lines.find((line) => line.bucket === v)?.recipe_code;
-                    if (plannedRecipe) {
-                      setValue("recipe_code", plannedRecipe, { shouldValidate: true });
-                    }
+                    // A bucket split by age/day carries several plan lines;
+                    // only prefill when the plan is unambiguous, otherwise the
+                    // operator would silently debit the wrong ration.
+                    const plannedRecipes = new Set(
+                      payload.lines
+                        .filter((line) => line.bucket === v)
+                        .map((line) => line.recipe_code),
+                    );
+                    const [plannedRecipe] = plannedRecipes;
+                    setValue("recipe_code", plannedRecipes.size === 1 ? plannedRecipe : "", {
+                      shouldValidate: true,
+                    });
                   }}
                 >
                   <SelectTrigger id="dispense-bucket" className="w-full">

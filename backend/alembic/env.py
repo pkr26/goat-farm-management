@@ -4,6 +4,12 @@ Zero-downtime posture:
 - ``lock_timeout`` is set on the migration connection so a DDL statement
   that can't grab its lock fails fast instead of queueing behind (or
   stalling) live traffic.
+- ``statement_timeout`` comes from ``migration_statement_timeout_ms`` (default
+  0 = unbounded), never from the API's request-path backstop. DDL is not OLTP:
+  a table rewrite, a constraint validation, or a CREATE INDEX CONCURRENTLY —
+  which waits twice for every concurrent transaction to drain — legitimately
+  runs for minutes, and cancelling one mid-flight aborts the release and can
+  leave an invalid index behind.
 - Migrations run inside a transaction (safe DDL rollback). A future
   revision that adds an index to a large/hot table should instead build it
   with ``op.create_index(..., postgresql_concurrently=True)`` from a
@@ -57,15 +63,16 @@ async def run_migrations_online() -> None:
     settings = get_settings()
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = settings.migration_database_url or settings.database_url
-    # Alembic is a separate engine from app.db. Carry the same wire-TLS and
-    # statement-timeout guarantees across instead of silently falling back to
-    # asyncpg/libpq defaults during the most privileged database operation.
+    # Alembic is a separate engine from app.db. Carry the same wire-TLS
+    # guarantee across instead of silently falling back to the asyncpg/libpq
+    # default during the most privileged database operation. The per-statement
+    # budget is migration-specific (see the module docstring).
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         connect_args={
             "ssl": settings.db_sslmode,
-            "server_settings": {"statement_timeout": str(settings.db_statement_timeout_ms)},
+            "server_settings": {"statement_timeout": str(settings.migration_statement_timeout_ms)},
         },
     )
     async with connectable.connect() as connection:

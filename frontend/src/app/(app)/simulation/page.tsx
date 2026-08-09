@@ -94,7 +94,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 
 const DEFAULT_BREED = "osmanabadi";
@@ -107,7 +107,12 @@ type ScenarioRow = ScenarioOut;
 
 type BoundResult = {
   data: SimulationResult;
+  /** Assumptions the run actually used. */
   fingerprint: string;
+  /** Run options the run actually used. */
+  options: string;
+  /** Saved scenario the run came from; null for an ad-hoc editor run. */
+  scenarioId: number | null;
   source: string;
 };
 
@@ -181,6 +186,13 @@ const FIELD_BOUNDS: Record<
   "risk.monte_carlo_runs": { min: 1, max: 2000 },
 };
 
+/** Units the naming heuristics in numericRule cannot infer. Explicit paths
+ * win, exactly as FIELD_BOUNDS does for limits. */
+const FIELD_UNITS: Record<string, string> = {
+  "costs.labour_per_head_threshold": "head per labourer",
+  "feed.fodder_yield_t_dm_per_acre_year": "t DM/acre/yr",
+};
+
 function numericRule(section: string, key: string): NumericRule {
   const path = `${section}.${key}`;
   const rule: NumericRule = {
@@ -228,13 +240,19 @@ function numericRule(section: string, key: string): NumericRule {
   // eid_price_uplift <= 2).
   Object.assign(rule, FIELD_BOUNDS[path]);
 
-  if (
+  if (FIELD_UNITS[path]) rule.unit = FIELD_UNITS[path];
+  else if (
     path === "sales.eid_price_uplift" ||
     path === "finance.loan_fraction_of_project_cost"
   )
     rule.unit = "fraction";
+  // `_per_month` / `_per_year` are rates of the underlying metric, not
+  // durations — settle them before the month/year duration patterns, which
+  // otherwise caption ₹10,000/month of labour as "months".
+  else if (key.endsWith("_per_month")) rule.unit = "₹/month";
+  else if (key.endsWith("_per_year")) rule.unit = "₹/yr";
   else if (key.includes("month")) rule.unit = "months";
-  else if (key.includes("year") && !key.includes("per_year")) rule.unit = "years";
+  else if (key.includes("year")) rule.unit = "years";
   else if (
     key.includes("price") ||
     key.includes("cost") ||
@@ -250,12 +268,18 @@ function numericRule(section: string, key: string): NumericRule {
   return rule;
 }
 
-function resultFingerprint(
-  assumptions: SimulationAssumptions,
-  monteCarlo: boolean,
-  sensitivity: boolean,
-): string {
-  return JSON.stringify({ assumptions, monte_carlo: monteCarlo, sensitivity });
+/** Identity of one assumption set. `events` is normalized because the editor
+ * always carries a (possibly empty) event list while a stored scenario may
+ * omit the key entirely — without this, a scenario run and the very same
+ * scenario loaded in the editor never compared equal. */
+function assumptionsFingerprint(assumptions: SimulationAssumptions): string {
+  return JSON.stringify({ ...assumptions, events: assumptions.events ?? [] });
+}
+
+/** Run options belong to a result's identity: toggling Monte Carlo or
+ * sensitivity after a run leaves the displayed figures incomplete. */
+function runOptionsFingerprint(monteCarlo: boolean, sensitivity: boolean): string {
+  return JSON.stringify({ monte_carlo: monteCarlo, sensitivity });
 }
 
 function scenarioUsable(scenario: ScenarioRow): scenario is ScenarioRow & {
@@ -319,8 +343,16 @@ function validateEvents(events: HerdEventAssumptions[], horizonMonths: number): 
  * percent for rate-shaped keys, otherwise a plain number. */
 function formatFigure(key: string, value: number | string): string {
   if (typeof value === "string") return value;
-  if (/rate|irr|percent|pct|prob/i.test(key)) return formatPercent(value);
-  if (/cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash/i.test(key))
+  // Fraction- and duration-shaped keys are settled first: the money pattern
+  // matches on substrings ("loan", "subsidy"), so loan_fraction (0.85),
+  // subsidy_fraction (0.0) and loan_term_months (72) would render as rupees.
+  if (/_fraction$|_margin$/.test(key) || /rate|irr|percent|pct|prob/i.test(key))
+    return formatPercent(value);
+  const isDuration = /_months?$|_years$|_runs$/.test(key);
+  if (
+    !isDuration &&
+    /cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash/i.test(key)
+  )
     return formatMoney(value);
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
@@ -343,6 +375,14 @@ function formatRatio(value: number | null | undefined, digits = 2): string {
 /** IRR is a fraction (0.18 → "18.0%"); null → "—". */
 function formatPercent(value: number | null): string {
   return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
+}
+
+/** Cohort head counts are expected values (float64), so they are almost never
+ * integral. Render them at the precision the backend narrative uses. */
+function formatHead(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : value.toFixed(1);
 }
 
 /** Headline metric: shared StatCard with tabular numerals, plus an optional
@@ -801,9 +841,28 @@ export default function SimulationPage() {
   const hasEditorErrors =
     invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
   const currentPayload = assumptions ? { ...assumptions, events } : null;
-  const currentFingerprint = currentPayload
-    ? resultFingerprint(currentPayload, monteCarlo, sensitivity)
-    : null;
+  const currentFingerprint = currentPayload ? assumptionsFingerprint(currentPayload) : null;
+  const currentOptions = runOptionsFingerprint(monteCarlo, sensitivity);
+
+  /** The basis a result claims to describe, as it stands right now: the editor
+   * for an ad-hoc run — and for a scenario run while the editor is showing
+   * that same scenario — otherwise the saved scenario the run came from.
+   * `null` when the basis is off-screen and cannot be compared. Measuring a
+   * scenario run against unrelated editor state left the staleness banner
+   * permanently on, which drowned out the real signal. */
+  function liveFingerprint(bound: BoundResult): string | null {
+    if (bound.scenarioId === null || bound.scenarioId === loadedScenario?.id)
+      return currentFingerprint;
+    const scenario = scenarios.find((row) => row.id === bound.scenarioId);
+    return scenario && scenarioUsable(scenario)
+      ? assumptionsFingerprint(scenario.assumptions)
+      : null;
+  }
+
+  const resultIsStale =
+    result !== null &&
+    (result.options !== currentOptions ||
+      (liveFingerprint(result) ?? result.fingerprint) !== result.fingerprint);
 
   function addEvent() {
     setEventKeys((previous) => [...previous, `event-${eventKeyCounter.current++}`]);
@@ -891,7 +950,9 @@ export default function SimulationPage() {
       if (res.status === 200)
         setResult({
           data: res.data,
-          fingerprint: resultFingerprint(payload, monteCarlo, sensitivity),
+          fingerprint: assumptionsFingerprint(payload),
+          options: runOptionsFingerprint(monteCarlo, sensitivity),
+          scenarioId: null,
           source: "Current editor assumptions",
         });
     } catch (err) {
@@ -913,7 +974,9 @@ export default function SimulationPage() {
       if (res.status === 200)
         setResult({
           data: res.data,
-          fingerprint: resultFingerprint(scenario.assumptions, monteCarlo, sensitivity),
+          fingerprint: assumptionsFingerprint(scenario.assumptions),
+          options: runOptionsFingerprint(monteCarlo, sensitivity),
+          scenarioId: scenario.id,
           source: `Saved scenario “${scenario.name}”`,
         });
     } catch (err) {
@@ -1377,10 +1440,10 @@ export default function SimulationPage() {
                     }
                   >
                     <TableCell>{row.month}</TableCell>
-                    <TableCell>{row.total_herd}</TableCell>
-                    <TableCell>{row.births}</TableCell>
-                    <TableCell>{row.deaths}</TableCell>
-                    <TableCell>{row.sales_head}</TableCell>
+                    <TableCell>{formatHead(row.total_herd)}</TableCell>
+                    <TableCell>{formatHead(row.births)}</TableCell>
+                    <TableCell>{formatHead(row.deaths)}</TableCell>
+                    <TableCell>{formatHead(row.sales_head)}</TableCell>
                     <TableCell>{formatMoney(row.sales_revenue)}</TableCell>
                     <TableCell>{formatMoney(row.feed_cost)}</TableCell>
                     <TableCell>{formatMoney(row.debt_service)}</TableCell>
@@ -1646,6 +1709,9 @@ export default function SimulationPage() {
                 onValueChange={(v) =>
                   setSystem(v as BreedDefaultsApiSimulationDefaultsGetSystem)
                 }
+                items={Object.fromEntries(
+                  (breeds?.systems ?? [system]).map((s) => [s, humanize(s)]),
+                )}
               >
                 <SelectTrigger id="sim-system">
                   <SelectValue />
@@ -1949,13 +2015,14 @@ export default function SimulationPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Results</h2>
           <p className="text-sm text-muted-foreground">Source: {result.source}</p>
-          {currentFingerprint !== result.fingerprint && (
+          {resultIsStale && (
             <p
               role="status"
               className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
             >
-              These results do not match the current editor assumptions or run options.
-              Run the simulation again before using them for a decision.
+              These results do not match the current{" "}
+              {result.scenarioId === null ? "editor assumptions" : "saved scenario"} or run
+              options. Run the simulation again before using them for a decision.
             </p>
           )}
           {renderResults(result.data)}
@@ -2039,7 +2106,7 @@ export default function SimulationPage() {
                         </p>
                       )}
                     </TableCell>
-                    <TableCell>{formatDate(scenario.updated_at)}</TableCell>
+                    <TableCell>{formatFarmDateTime(scenario.updated_at)}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
                         <Button

@@ -31,6 +31,7 @@ import type {
   AnimalOut,
   AnimalProfileApiAnimalsAnimalIdGetParams,
   AnimalProfileOut,
+  BatchDetailApiPurchasesBatchIdGetParams,
   BreedDefaultsApiSimulationDefaultsGetParams,
   BreedingCandidateListOut,
   BreedingCandidatesApiBreedingCandidatesGetParams,
@@ -6279,12 +6280,20 @@ export type batchDetailApiPurchasesBatchIdGetResponseError = (batchDetailApiPurc
 
 export type batchDetailApiPurchasesBatchIdGetResponse = (batchDetailApiPurchasesBatchIdGetResponseSuccess | batchDetailApiPurchasesBatchIdGetResponseError)
 
-export const getBatchDetailApiPurchasesBatchIdGetUrl = (batchId: number,) => {
+export const getBatchDetailApiPurchasesBatchIdGetUrl = (batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/purchases/${batchId}`
+  return stringifiedParams.length > 0 ? `/api/purchases/${batchId}?${stringifiedParams}` : `/api/purchases/${batchId}`
 }
 
 /**
@@ -6293,11 +6302,17 @@ export const getBatchDetailApiPurchasesBatchIdGetUrl = (batchId: number,) => {
  * The schedule itself belongs to procurement, but task assignment and
  * completion attribution remain task-module data. Likewise, a batch animal
  * can be tracked through quarantine without granting its complete profile.
+ *
+ * A batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals
+ * are a bounded page like every other list in the API; the exact occupancy
+ * stays available as the batch's ``animals_created``. The protocol schedule
+ * needs no bound — ``QUARANTINE_PROTOCOL`` is 8 steps.
  * @summary Batch Detail
  */
-export const batchDetailApiPurchasesBatchIdGet = async (batchId: number, options?: Parameters<typeof customInstance>[1]): Promise<batchDetailApiPurchasesBatchIdGetResponse> => {
+export const batchDetailApiPurchasesBatchIdGet = async (batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams, options?: Parameters<typeof customInstance>[1]): Promise<batchDetailApiPurchasesBatchIdGetResponse> => {
 
-  return customInstance<batchDetailApiPurchasesBatchIdGetResponse>(getBatchDetailApiPurchasesBatchIdGetUrl(batchId),
+  return customInstance<batchDetailApiPurchasesBatchIdGetResponse>(getBatchDetailApiPurchasesBatchIdGetUrl(batchId,params),
   {
     ...options,
     method: 'GET'
@@ -6310,23 +6325,25 @@ export const batchDetailApiPurchasesBatchIdGet = async (batchId: number, options
 
 
 
-export const getBatchDetailApiPurchasesBatchIdGetQueryKey = (batchId: number,) => {
+export const getBatchDetailApiPurchasesBatchIdGetQueryKey = (batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams,) => {
     return [
-    `/api/purchases/${batchId}`
+    `/api/purchases/${batchId}`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getBatchDetailApiPurchasesBatchIdGetQueryOptions = <TData = Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError = ErrorType<HTTPValidationError>>(batchId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getBatchDetailApiPurchasesBatchIdGetQueryOptions = <TData = Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError = ErrorType<HTTPValidationError>>(batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getBatchDetailApiPurchasesBatchIdGetQueryKey(batchId);
+  const queryKey =  queryOptions?.queryKey ?? getBatchDetailApiPurchasesBatchIdGetQueryKey(batchId,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>> = ({ signal }) => batchDetailApiPurchasesBatchIdGet(batchId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>> = ({ signal }) => batchDetailApiPurchasesBatchIdGet(batchId,params, { signal, ...requestOptions });
 
 
 
@@ -6340,7 +6357,8 @@ export type BatchDetailApiPurchasesBatchIdGetQueryError = ErrorType<HTTPValidati
 
 
 export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError = ErrorType<HTTPValidationError>>(
- batchId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>> & Pick<
+ batchId: number,
+    params: undefined |  BatchDetailApiPurchasesBatchIdGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>,
           TError,
@@ -6350,7 +6368,8 @@ export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError = ErrorType<HTTPValidationError>>(
- batchId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>> & Pick<
+ batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>,
           TError,
@@ -6360,7 +6379,8 @@ export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError = ErrorType<HTTPValidationError>>(
- batchId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
 /**
@@ -6368,11 +6388,12 @@ export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<
  */
 
 export function useBatchDetailApiPurchasesBatchIdGet<TData = Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError = ErrorType<HTTPValidationError>>(
- batchId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ batchId: number,
+    params?: BatchDetailApiPurchasesBatchIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof batchDetailApiPurchasesBatchIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getBatchDetailApiPurchasesBatchIdGetQueryOptions(batchId,options)
+  const queryOptions = getBatchDetailApiPurchasesBatchIdGetQueryOptions(batchId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -6419,6 +6440,13 @@ export const getDashboardApiDashboardGetUrl = () => {
  * Operational lists contain at most ``preview_limit`` rows; recent weights
  * use ``recent_weights_limit``. The dedicated tasks, breeding and animals
  * pages remain the full paginated/history views.
+ *
+ * Sections carrying a breeding-programme judgement — kiddings due, cull
+ * candidates and the suggestions derived from breeding readiness or an open
+ * pregnancy — need ``breeding.view``, the same permission that governs
+ * ``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in
+ * ``animal_out``. A caller without it gets empty lists and zero totals rather
+ * than a 403, so the page still renders for e.g. the cleaner preset.
  * @summary Dashboard
  */
 export const dashboardApiDashboardGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<dashboardApiDashboardGetResponse> => {

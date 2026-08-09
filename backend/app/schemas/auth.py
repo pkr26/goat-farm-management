@@ -9,6 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .common import StrictInputModel
 
 MAX_EMAIL_LENGTH = 254
+
+# tzdata entries that resolve under zoneinfo but that ECMA-402 excludes from the
+# named time zones every browser must support, so Intl.DateTimeFormat raises a
+# RangeError on them. Verified against this repo's tzdata: these are the only
+# names in zoneinfo.available_timezones() that a browser rejects for being
+# placeholders rather than for tzdata skew.
+NON_LOCATION_TIMEZONES = frozenset({"Factory", "localtime"})
+
 _EMAIL_RE = re.compile(
     r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
     r"(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@"
@@ -123,6 +131,16 @@ class FarmCreateIn(StrictInputModel):
             ZoneInfo(value)
         except ZoneInfoNotFoundError as exc:
             raise ValueError("timezone must be a valid IANA timezone") from exc
+        # tzdata ships a handful of non-location placeholder zones that ECMA-402
+        # deliberately excludes, so a browser's Intl.DateTimeFormat throws on them
+        # even though zoneinfo resolves them happily. They are never a real farm
+        # location, so refuse them here rather than let one reach a client.
+        # This is only the outer half of the guard: server and browser carry
+        # independent tzdata, so a genuinely new zone (America/Coyhaique, say) can
+        # still be unknown to an older browser. format.ts must therefore fall back
+        # safely on its own — see todayInTimeZone/formatFarmDateTime.
+        if value in NON_LOCATION_TIMEZONES:
+            raise ValueError("timezone must be a real location, not a placeholder zone")
         return value
 
 

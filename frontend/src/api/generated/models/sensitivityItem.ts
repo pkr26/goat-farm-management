@@ -12,4 +12,6 @@ export interface SensitivityItem {
   parameter: string;
   delta_npv_low: number;
   delta_npv_high: number;
+  label_low: string;
+  label_high: string;
 }
