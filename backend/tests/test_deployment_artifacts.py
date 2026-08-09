@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
 from scripts import healthcheck
@@ -404,7 +405,7 @@ def test_production_and_offsite_backup_require_authenticated_encryption(
             "authenticated GPG encryption",
         ),
         (
-            {"GOATFARM_ENVIRONMENT": "production", "GOATFARM_DB_SSLMODE": "require"},
+            {"GOATFARM_ENVIRONMENT": "production", "GOATFARM_DB_SSLMODE": "verify-full"},
             "authenticated GPG encryption",
         ),
         (
@@ -422,6 +423,62 @@ def test_production_and_offsite_backup_require_authenticated_encryption(
         assert result.returncode == 2
         assert error in result.stderr
     assert _log_text(env) == ""
+
+
+@pytest.mark.parametrize("sslmode", ["require", "verify-ca"])
+def test_production_database_jobs_require_hostname_verification(
+    tmp_path: Path,
+    sslmode: str,
+) -> None:
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.update(
+        {
+            "GOATFARM_ENVIRONMENT": "production",
+            "GOATFARM_DB_SSLMODE": sslmode,
+            "GOATFARM_BACKUP_GPG_RECIPIENT": SIGNER_B,
+            "GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT": SIGNER_A,
+            "GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT": SIGNER_A,
+        }
+    )
+
+    backup = _run_backup(tmp_path / "backups", env)
+    assert backup.returncode == 2
+    assert "GOATFARM_DB_SSLMODE=verify-full" in backup.stderr
+
+    archive = tmp_path / "goatfarm.dump.gpg"
+    archive.write_bytes(b"encrypted archive")
+    _write_checksum(archive)
+    restore = _run_restore(archive, env)
+    assert restore.returncode == 2
+    assert "GOATFARM_DB_SSLMODE=verify-full" in restore.stderr
+    assert _log_text(env) == ""
+
+
+def test_production_alembic_refuses_unsafe_tls_before_engine_creation() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "GOATFARM_ENVIRONMENT": "production",
+            "GOATFARM_DB_SSLMODE": "disable",
+            "GOATFARM_MIGRATION_DATABASE_URL": (
+                "postgresql+asyncpg://migrator@must-not-connect.invalid:5432/goatfarm"
+            ),
+        }
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head", "--sql"],
+        cwd=REPO_ROOT / "backend",
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode != 0
+    assert "Refusing migration: GOATFARM_DB_SSLMODE='disable'" in result.stderr
 
 
 def test_failed_second_offsite_upload_removes_remote_partial_only(
@@ -602,7 +659,7 @@ def test_restore_is_single_transaction_sanitizes_credentials_and_checks_alembic(
     env.update(
         {
             "GOATFARM_ENVIRONMENT": "production",
-            "GOATFARM_DB_SSLMODE": "require",
+            "GOATFARM_DB_SSLMODE": "verify-full",
             "GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT": SIGNER_A,
         }
     )
@@ -669,7 +726,7 @@ def test_restore_fails_closed_when_alembic_marker_is_invalid(tmp_path: Path) -> 
 def test_production_restore_requires_signed_encrypted_artifact(tmp_path: Path) -> None:
     mock_bin = _install_mock_tools(tmp_path)
     env = _base_env(tmp_path, mock_bin)
-    env.update({"GOATFARM_ENVIRONMENT": "production", "GOATFARM_DB_SSLMODE": "require"})
+    env.update({"GOATFARM_ENVIRONMENT": "production", "GOATFARM_DB_SSLMODE": "verify-full"})
     archive = tmp_path / "goatfarm.dump"
     archive.write_bytes(b"archive")
     _write_checksum(archive)
@@ -694,6 +751,8 @@ def test_backend_container_separates_migration_and_readiness() -> None:
 
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
     for setting in (
+        "GOATFARM_DATABASE_URL",
+        "GOATFARM_MIGRATION_DATABASE_URL",
         "GOATFARM_COOKIE_SECURE",
         "GOATFARM_CORS_ORIGINS",
         "GOATFARM_ALLOWED_HOSTS",
@@ -795,7 +854,7 @@ def test_backup_reads_the_application_env_file_for_its_safety_gates(tmp_path: Pa
     env.pop("GOATFARM_ENVIRONMENT")
     env.pop("GOATFARM_DB_SSLMODE")
     staged = _stage_scripts(
-        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=require\n"
+        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=verify-full\n"
     )
 
     result = subprocess.run(
@@ -818,7 +877,7 @@ def test_restore_reads_the_application_env_file_for_its_safety_gates(tmp_path: P
     env.pop("GOATFARM_ENVIRONMENT")
     env.pop("GOATFARM_DB_SSLMODE")
     staged = _stage_scripts(
-        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=require\n"
+        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=verify-full\n"
     )
     archive = tmp_path / "goatfarm.dump"
     archive.write_bytes(b"archive")
@@ -852,7 +911,7 @@ def test_exported_environment_still_wins_over_the_env_file(tmp_path: Path) -> No
     mock_bin = _install_mock_tools(tmp_path)
     env = _base_env(tmp_path, mock_bin)  # development / disable
     staged = _stage_scripts(
-        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=require\n"
+        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=verify-full\n"
     )
 
     result = subprocess.run(
@@ -867,7 +926,7 @@ def test_exported_environment_still_wins_over_the_env_file(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
-def test_compose_publishes_one_edge_that_forwards_the_real_client_address() -> None:
+def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address() -> None:
     """Next's rewrite proxy never emits X-Forwarded-For, so routing browser
     /api traffic through the SPA container made every client share the Next
     container's address: the 11th signup in five minutes — from anyone — got
@@ -875,8 +934,10 @@ def test_compose_publishes_one_edge_that_forwards_the_real_client_address() -> N
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
     services = compose["services"]
 
-    # The SPA container is no longer a published entry point.
+    # The SPA and API containers are internal-only entry points.
     assert "ports" not in services["frontend"]
+    assert "ports" not in services["backend"]
+    assert "8000" in services["backend"]["expose"]
     edge = services["edge"]
     assert "3000:3000" in edge["ports"]
 
@@ -888,8 +949,7 @@ def test_compose_publishes_one_edge_that_forwards_the_real_client_address() -> N
     assert "proxy_pass http://backend:8000;" in proxy_conf
 
     # The backend trusts exactly the edge's fixed address — not the bridge
-    # range, which also covers the docker gateway and would let anything
-    # reaching the published API port spoof X-Forwarded-For.
+    # range, which also covers the docker gateway and other containers.
     edge_address = edge["networks"]["default"]["ipv4_address"]
     trusted = services["backend"]["environment"]["GOATFARM_TRUSTED_PROXY_HOSTS"]
     assert trusted.endswith(f":-{edge_address}}}"), trusted
@@ -899,6 +959,34 @@ def test_compose_publishes_one_edge_that_forwards_the_real_client_address() -> N
     assert Settings(trusted_proxy_hosts=edge_address).trusted_proxy_hosts == edge_address
 
 
+def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> None:
+    compose_path = REPO_ROOT / "docker-compose.yml"
+    compose_text = compose_path.read_text()
+    services = yaml.safe_load(compose_text)["services"]
+    migration_env = services["migrate"]["environment"]
+    api_env = services["backend"]["environment"]
+
+    assert "GOATFARM_DATABASE_URL" not in migration_env
+    assert "GOATFARM_MIGRATION_DATABASE_URL" in migration_env
+    assert migration_env["GOATFARM_ENVIRONMENT"] == "${GOATFARM_ENVIRONMENT:-development}"
+    assert "GOATFARM_DATABASE_URL" in api_env
+    assert "GOATFARM_MIGRATION_DATABASE_URL" not in api_env
+    assert "postgresql+asyncpg://${POSTGRES" not in compose_text
+    assert "${POSTGRES_PASSWORD" not in migration_env["GOATFARM_MIGRATION_DATABASE_URL"]
+    assert "${POSTGRES_PASSWORD" not in api_env["GOATFARM_DATABASE_URL"]
+
+    # Full, percent-encoded URLs preserve reserved credential characters; raw
+    # string concatenation in Compose did not.
+    parsed = make_url("postgresql+asyncpg://api:p%40ss%3Aword%2Fmore@db:5432/goatfarm")
+    assert parsed.username == "api"
+    assert parsed.password == "p@ss:word/more"
+
+    compose_example = (REPO_ROOT / ".env.example").read_text()
+    assert "GOATFARM_DATABASE_URL=postgresql+asyncpg://" in compose_example
+    assert "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://" in compose_example
+    assert "Percent-encode reserved characters" in compose_example
+
+
 def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: Path) -> None:
     """`statement_timeout` is an OLTP backstop. Applying it to DDL cancels any
     table rewrite, constraint validation or CREATE INDEX CONCURRENTLY that runs
@@ -906,6 +994,9 @@ def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: 
     builds wait for concurrent transactions to drain, so even a small table
     trips it."""
     assert Settings().migration_statement_timeout_ms == 0
+    alembic_env = (REPO_ROOT / "backend" / "alembic" / "env.py").read_text()
+    assert "get_migration_settings" in alembic_env
+    assert "get_settings" not in alembic_env
 
     database = f"{os.environ.get('GOATFARM_TEST_DB', 'goatfarm_test')}_migration_timeout"
     _admin_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')

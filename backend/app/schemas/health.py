@@ -121,6 +121,7 @@ class HealthBulkTargetIn(StrictInputModel):
     scope: Literal["bucket", "batch"]
     bucket: "BucketStr | None" = None
     purchase_batch_id: BoundedId | None = None
+    task_id: BoundedId | None = None
 
     @model_validator(mode="after")
     def _one_target(self) -> "HealthBulkTargetIn":
@@ -134,6 +135,8 @@ class HealthBulkTargetIn(StrictInputModel):
                 raise ValueError("purchase_batch_id is required for batch scope")
             if self.bucket is not None:
                 raise ValueError("bucket only applies to bucket scope")
+        if self.task_id is not None and self.scope != "batch":
+            raise ValueError("task_id only applies to batch scope")
         return self
 
 
@@ -141,6 +144,7 @@ class HealthBulkTargetPreviewOut(BaseModel):
     scope: Literal["bucket", "batch"]
     bucket: "BucketStr | None"
     purchase_batch_id: int | None
+    task_id: int | None
     target_animal_ids: list[int]
     target_animals: list[AnimalIdentityOut]
     target_count: int

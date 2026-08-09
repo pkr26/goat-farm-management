@@ -247,6 +247,10 @@ class _RunCostWindow:
     def is_over_budget(self, scope: str, key: int) -> bool:
         return self._spent(scope, key) >= self._budget
 
+    def would_exceed_budget(self, scope: str, key: int, cost: int) -> bool:
+        """Whether admitting ``cost`` would cross the window ceiling."""
+        return self._spent(scope, key) + cost > self._budget
+
     def charge(self, scope: str, key: int, cost: int) -> None:
         bucket = (scope, key)
         self._spent(scope, key)  # prune first so the ceiling counts live keys
@@ -285,9 +289,11 @@ _run_budget = _RunCostWindow(
 )
 
 
-def _check_run_budget(farm_id: int, user_id: int) -> None:
-    """429 when this user or farm has already spent its window's CPU budget."""
-    if _run_budget.is_over_budget("user", user_id) or _run_budget.is_over_budget("farm", farm_id):
+def _check_run_budget(farm_id: int, user_id: int, cost: int) -> None:
+    """429 when admitting ``cost`` would exceed either principal's budget."""
+    if _run_budget.would_exceed_budget("user", user_id, cost) or _run_budget.would_exceed_budget(
+        "farm", farm_id, cost
+    ):
         raise HTTPException(
             status_code=429,
             detail="Simulation CPU budget exhausted; try again shortly.",
@@ -357,12 +363,13 @@ async def _run_for_farm(
     monte_carlo: bool,
     sensitivity: bool,
 ) -> SimulationResult:
-    _check_run_budget(farm_id, user_id)
+    cost = _run_cost(assumptions, monte_carlo, sensitivity)
 
     async def run() -> SimulationResult:
         # Charged on admission, not at the gate: a request the concurrency
         # limiter turns away never runs and must not spend the budget.
-        _charge_run_budget(farm_id, user_id, _run_cost(assumptions, monte_carlo, sensitivity))
+        _check_run_budget(farm_id, user_id, cost)
+        _charge_run_budget(farm_id, user_id, cost)
         return await _run_offloaded(assumptions, monte_carlo, sensitivity)
 
     return await _with_run_limits(farm_id, user_id, run)
@@ -598,14 +605,15 @@ async def compare_scenarios(
     async def run_compare() -> ScenarioCompareOut:
         scenarios = [await _get_scenario(db, farm.id, scenario_id) for scenario_id in id_list]
         loaded = [_load_assumptions(scenario) for scenario in scenarios]
+        cost = sum(_run_cost(a, False, False) for a in loaded)
         # Charged once the scenarios are known, before any engine work starts.
-        _charge_run_budget(farm.id, user.id, sum(_run_cost(a, False, False) for a in loaded))
+        _check_run_budget(farm.id, user.id, cost)
+        _charge_run_budget(farm.id, user.id, cost)
         return ScenarioCompareOut(
             scenarios=[_scenario_out(scenario) for scenario in scenarios],
             results=[await _run_offloaded(a, False, False) for a in loaded],
         )
 
-    _check_run_budget(farm.id, user.id)
     return await _with_run_limits(farm.id, user.id, run_compare)
 
 

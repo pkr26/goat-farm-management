@@ -73,7 +73,7 @@ async def buckets_board(
         .lateral("bucket_latest_weight")
     )
     latest_move = (
-        select(BucketMove.moved_at)
+        select(BucketMove.effective_date)
         .where(BucketMove.animal_id == preview_animals.c.animal_id)
         .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
         .limit(1)
@@ -87,7 +87,7 @@ async def buckets_board(
                 func.coalesce(latest_weight.c.weight_kg, preview_animals.c.birth_weight).label(
                     "latest_weight_kg"
                 ),
-                latest_move.c.moved_at.label("latest_moved_at"),
+                latest_move.c.effective_date.label("latest_effective_date"),
             )
             .select_from(preview_animals)
             .outerjoin(latest_weight, true())
@@ -103,8 +103,7 @@ async def buckets_board(
     by_bucket: dict[str, list[BucketAnimalOut]] = {d.code: [] for d in defs}
     totals: dict[str, int] = {}
     for row in active_rows:
-        bucket_started_at = row.latest_moved_at or row.created_at
-        bucket_started = business_date(bucket_started_at, farm.timezone)
+        bucket_started = row.latest_effective_date or business_date(row.created_at, farm.timezone)
         by_bucket.setdefault(row.current_bucket, []).append(
             BucketAnimalOut(
                 id=row.animal_id,

@@ -174,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * session, and only the login/register path may ask for that. */
   const establishSession = useCallback(
     async (accessToken: string, u: SessionUser, revokeOnFailure: boolean) => {
-      setAccessToken(accessToken);
+      setAccessToken(accessToken, u.id);
       try {
         const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
         setUser(u);

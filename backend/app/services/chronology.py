@@ -5,7 +5,15 @@ from datetime import date
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Animal, BreedingRecord, Farm, HealthEvent, KiddingRecord, WeightRecord
+from ..models import (
+    Animal,
+    BreedingRecord,
+    BucketMove,
+    Farm,
+    HealthEvent,
+    KiddingRecord,
+    WeightRecord,
+)
 from ..utils import today
 
 
@@ -77,6 +85,18 @@ async def require_status_after_recorded_facts(
         )
         .scalar_subquery()
     )
+    latest_move = (
+        select(func.max(BucketMove.effective_date))
+        # The initial placement records when the row entered this farm's
+        # ledger; for historical imports it is not proof the animal was alive
+        # on that entry date. Later bucket transitions are real lifecycle
+        # facts and therefore do constrain a terminal status date.
+        .where(
+            BucketMove.animal_id == animal.id,
+            BucketMove.from_bucket.is_not(None),
+        )
+        .scalar_subquery()
+    )
     row = (
         await db.execute(
             select(
@@ -86,6 +106,7 @@ async def require_status_after_recorded_facts(
                 breeding_facts.c.latest_ultrasound_result_date,
                 breeding_facts.c.latest_loss_date,
                 latest_kidding.label("latest_kidding_date"),
+                latest_move.label("latest_bucket_move_date"),
             )
         )
     ).one()
@@ -95,4 +116,77 @@ async def require_status_after_recorded_facts(
         raise ValueError(
             f"Status change cannot predate {animal.tag_number}'s latest recorded "
             f"lifecycle event on {latest_fact.isoformat()}"
+        )
+
+
+async def require_purchase_before_recorded_facts(
+    db: AsyncSession, animal: Animal, purchase_date: date
+) -> None:
+    """Reject an acquisition date moved after an already-recorded animal fact.
+
+    Writers of these facts lock the animal first. Finance correction holds the
+    same row lock, so the earliest-fact boundary cannot change between this
+    check and synchronising the animal and its initial bucket placement.
+    """
+    breeding_facts = (
+        select(
+            func.min(BreedingRecord.breeding_date).label("first_breeding_date"),
+            func.min(BreedingRecord.ultrasound_result_date)
+            .filter(BreedingRecord.doe_id == animal.id)
+            .label("first_ultrasound_result_date"),
+            func.min(BreedingRecord.loss_date)
+            .filter(BreedingRecord.doe_id == animal.id)
+            .label("first_loss_date"),
+        )
+        .where(
+            BreedingRecord.farm_id == animal.farm_id,
+            or_(BreedingRecord.doe_id == animal.id, BreedingRecord.buck_id == animal.id),
+        )
+        .subquery()
+    )
+    first_weight = (
+        select(func.min(WeightRecord.date))
+        .where(WeightRecord.animal_id == animal.id)
+        .scalar_subquery()
+    )
+    first_health = (
+        select(func.min(HealthEvent.date))
+        .where(
+            HealthEvent.farm_id == animal.farm_id,
+            HealthEvent.animal_id == animal.id,
+        )
+        .scalar_subquery()
+    )
+    first_kidding = (
+        select(func.min(KiddingRecord.date))
+        .where(
+            KiddingRecord.farm_id == animal.farm_id,
+            KiddingRecord.doe_id == animal.id,
+        )
+        .scalar_subquery()
+    )
+    first_subsequent_move = (
+        select(func.min(BucketMove.effective_date))
+        .where(BucketMove.animal_id == animal.id, BucketMove.from_bucket.is_not(None))
+        .scalar_subquery()
+    )
+    row = (
+        await db.execute(
+            select(
+                first_weight.label("first_weight_date"),
+                first_health.label("first_health_date"),
+                breeding_facts.c.first_breeding_date,
+                breeding_facts.c.first_ultrasound_result_date,
+                breeding_facts.c.first_loss_date,
+                first_kidding.label("first_kidding_date"),
+                first_subsequent_move.label("first_subsequent_move_date"),
+            )
+        )
+    ).one()
+    facts = [value for value in row if value is not None]
+    earliest_fact = min(facts) if facts else None
+    if earliest_fact is not None and purchase_date > earliest_fact:
+        raise ValueError(
+            f"Purchase date cannot follow {animal.tag_number}'s earliest recorded "
+            f"lifecycle event on {earliest_fact.isoformat()}"
         )

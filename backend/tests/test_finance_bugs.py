@@ -135,14 +135,15 @@ async def test_feed_restock_provenance_survives_an_audited_correction(
     assert corrected.json()["source_type"] == "FEED_PURCHASE"
     assert corrected.json()["source_id"] == booked["source_id"]
 
-    # Consequence of gaining provenance: the restock's price already reached
-    # FeedInventory.last_purchase_price_per_kg, so re-pricing the ledger row
-    # alone would leave stock valuation contradicting the books. The generic
-    # source-linked guard now refuses it and asks for a compensating entry.
+    # FEED_PURCHASE is a self-sourced ledger chain, not an allocation across
+    # hidden restock rows. Its amount therefore remains auditable/correctable
+    # instead of falling into the shared-source rejection path.
     repriced = await client.post(
         f"/api/finance/transactions/{corrected.json()['id']}/correct",
         json=correction | {"amount": 250.0, "reason": "Wrong unit price"},
         headers=owner,
     )
-    assert repriced.status_code == 409, repriced.text
-    assert "FEED_PURCHASE" in repriced.json()["detail"]
+    assert repriced.status_code == 201, repriced.text
+    assert repriced.json()["amount"] == 250.0
+    assert repriced.json()["source_type"] == "FEED_PURCHASE"
+    assert repriced.json()["source_id"] == booked["source_id"]

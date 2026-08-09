@@ -94,6 +94,7 @@ from .breeding import (
 from .chronology import (
     require_animal_event_chronology,
     require_farm_not_future,
+    require_purchase_before_recorded_facts,
     require_status_after_recorded_facts,
 )
 from .dashboard import ready_to_move_suggestions
@@ -122,7 +123,7 @@ from .health import (
     validated_template,
 )
 from .idempotency import IdempotencyKey, execute_idempotent
-from .kidding import KidSpec, record_kidding
+from .kidding import KidSpec, record_kidding, replan_dam_after_last_kid_death
 from .purchases import create_purchase_batch, schedule_quarantine_tasks
 from .tasks import (
     actionable_pending_task_predicate,
@@ -219,9 +220,11 @@ __all__ = [
     "record_kidding",
     "record_ultrasound_result",
     "reject_task",
+    "replan_dam_after_last_kid_death",
     "require_animal_event_chronology",
     "require_bucket_transition",
     "require_farm_not_future",
+    "require_purchase_before_recorded_facts",
     "require_status_after_recorded_facts",
     "resolve_personal_task_role_fallback",
     "schedule_quarantine_tasks",

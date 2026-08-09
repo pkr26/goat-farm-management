@@ -343,7 +343,7 @@ async def test_delete_tombstones_identity_and_preserves_task_attribution(
     )
     assert login.status_code == 401
     client.cookies.clear()
-    client.cookies.set(REFRESH_COOKIE, stolen_refresh)
+    client.cookies.set(REFRESH_COOKIE, stolen_refresh, domain="test.local", path="/")
     refresh = await client.post("/api/auth/refresh")
     assert refresh.status_code == 401
 

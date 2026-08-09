@@ -48,6 +48,16 @@ from .services.idempotency import purge_expired_idempotency_records
 
 logger = logging.getLogger("goatfarm")
 
+CORS_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+CORS_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "Idempotency-Key",
+    "X-Farm-Id",
+    "X-Request-ID",
+]
+CORS_EXPOSE_HEADERS = ["Idempotency-Replayed", "X-Request-ID", "Retry-After"]
+
 # Request ID of the in-flight request, bound into every log record by
 # _RequestIdFilter so a user report can be correlated with server logs.
 _request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
@@ -463,6 +473,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         _request_id_var.reset(token)
     response = JSONResponse(status_code=500, content={"detail": "Internal server error"})
     _apply_baseline_response_headers(request, response, request_id)
+    # ``Exception`` is rendered by Starlette's outer ServerErrorMiddleware,
+    # above every user-installed middleware.  CORSMiddleware therefore never
+    # sees this response; reproduce its exact-origin simple-response headers so
+    # an allowed SPA can read the structured 500 and correlation id.
+    origin = request.headers.get("Origin")
+    allowed_origins = get_settings().cors_origins
+    if origin is not None and ("*" in allowed_origins or origin in allowed_origins):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Expose-Headers"] = ", ".join(CORS_EXPOSE_HEADERS)
+        response.headers.add_vary_header("Origin")
     return response
 
 
@@ -521,15 +542,9 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         # Enumerated (not "*") so the credentialed preflight surface matches
         # exactly what the API and SPA use.
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        allow_headers=[
-            "Authorization",
-            "Content-Type",
-            "Idempotency-Key",
-            "X-Farm-Id",
-            "X-Request-ID",
-        ],
-        expose_headers=["Idempotency-Replayed", "X-Request-ID", "Retry-After"],
+        allow_methods=CORS_METHODS,
+        allow_headers=CORS_HEADERS,
+        expose_headers=CORS_EXPOSE_HEADERS,
     )
     trusted = [h.strip() for h in settings.trusted_proxy_hosts.split(",") if h.strip()]
     if trusted:

@@ -43,17 +43,25 @@ function tokenActorScope(token: string | null): string | null {
   }
 }
 
-export function setAccessToken(token: string | null): void {
+export function setAccessToken(
+  token: string | null,
+  actorScope?: string | number | null,
+): void {
   // External token installation/teardown marks a new authenticated session.
   // Same-session refresh writes the rotated token internally without bumping.
   const changed = token !== accessToken;
   if (changed) authSessionEpoch += 1;
   accessToken = token;
-  const parsedActor = tokenActorScope(token);
+  const parsedActor =
+    actorScope === undefined
+      ? tokenActorScope(token)
+      : actorScope === null
+        ? null
+        : String(actorScope);
   // Auth bootstrap deliberately re-applies the token returned by refresh.
   // Preserve refresh's trusted UserOut fallback when an opaque token has no
   // decodable JWT subject and the token itself did not change.
-  if (changed || parsedActor !== null || token === null) {
+  if (changed || actorScope !== undefined || parsedActor !== null || token === null) {
     accessTokenActorScope = parsedActor;
   }
 }
@@ -66,7 +74,10 @@ export function setOnAuthFailure(handler: (() => void) | null): void {
   onAuthFailure = handler;
 }
 
-async function performRefresh(expectedEpoch: number): Promise<RefreshSessionResult | null> {
+async function performRefresh(
+  expectedEpoch: number,
+  expectedActorScope: string | null,
+): Promise<RefreshSessionResult | null> {
   if (authSessionEpoch !== expectedEpoch) return null;
   try {
     const resp = await fetch("/api/auth/refresh", {
@@ -76,10 +87,22 @@ async function performRefresh(expectedEpoch: number): Promise<RefreshSessionResu
     if (!resp.ok) return null;
     const body = (await resp.json()) as RefreshSessionResult;
     if (authSessionEpoch !== expectedEpoch) return null;
-    accessToken = body.access_token;
-    accessTokenActorScope =
+    const refreshedActorScope =
       tokenActorScope(body.access_token) ??
       ((body.user as UserOut | undefined)?.id != null ? String(body.user.id) : null);
+    if (
+      expectedActorScope !== null &&
+      refreshedActorScope !== expectedActorScope
+    ) {
+      // Another tab replaced the origin-wide refresh cookie with a different
+      // account. Never replay the caller's request under that actor while the
+      // current React tree still displays the old identity.
+      setAccessToken(null);
+      onAuthFailure?.();
+      return null;
+    }
+    accessToken = body.access_token;
+    accessTokenActorScope = refreshedActorScope;
     return body;
   } catch {
     return null;
@@ -88,6 +111,7 @@ async function performRefresh(expectedEpoch: number): Promise<RefreshSessionResu
 
 async function performCoordinatedRefresh(
   expectedEpoch: number,
+  expectedActorScope: string | null,
 ): Promise<RefreshSessionResult | null> {
   // Web Locks coordinates all same-origin tabs/windows. Waiting tabs begin
   // their fetch only after the first response has installed the rotated
@@ -96,17 +120,18 @@ async function performCoordinatedRefresh(
   // browsers without Web Locks and network-level races.
   if (typeof navigator !== "undefined" && navigator.locks) {
     return navigator.locks.request("goatfarm-auth-refresh", () =>
-      performRefresh(expectedEpoch),
+      performRefresh(expectedEpoch, expectedActorScope),
     );
   }
-  return performRefresh(expectedEpoch);
+  return performRefresh(expectedEpoch, expectedActorScope);
 }
 
 export function refreshSession(): Promise<RefreshSessionResult | null> {
   // De-duplicate React/query concurrency inside this JavaScript realm too.
   const expectedEpoch = authSessionEpoch;
+  const expectedActorScope = accessTokenActorScope;
   if (!refreshPromise || refreshPromiseEpoch !== expectedEpoch) {
-    refreshPromise = performCoordinatedRefresh(expectedEpoch);
+    refreshPromise = performCoordinatedRefresh(expectedEpoch, expectedActorScope);
     refreshPromiseEpoch = expectedEpoch;
     const settled = refreshPromise;
     void settled.finally(() => {

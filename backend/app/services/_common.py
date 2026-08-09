@@ -17,6 +17,13 @@ from ..models import (
 from ..permissions import TASK_CATEGORY_ROLE_MAP
 
 
+def _clear_task_rejection(task: Task) -> None:
+    """Clear rejection metadata when a task leaves its returned-to-PENDING state."""
+    task.verification_note = None
+    task.rejected_by_id = None
+    task.rejected_at = None
+
+
 async def _pending_tasks_for(
     db: AsyncSession, farm_id: int, for_update: bool = False, **filters: object
 ) -> list[Task]:

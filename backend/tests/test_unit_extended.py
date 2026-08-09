@@ -467,16 +467,17 @@ def test_role_permission_set(raw: str, expected: set[str]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("category", "expected"),
+    ("category", "status", "expected"),
     [
-        ("CLEANING", True),  # DONE means "awaiting verification" for cleaning
-        ("VACCINE", False),
-        ("BUCKET_MOVE", False),
-        ("OTHER", False),
+        ("CLEANING", "DONE", True),  # DONE means "awaiting verification" for cleaning
+        ("CLEANING", "SKIPPED", False),
+        ("VACCINE", "DONE", False),
+        ("BUCKET_MOVE", "DONE", False),
+        ("OTHER", "DONE", False),
     ],
 )
-def test_task_needs_verification(category: str, expected: bool) -> None:
-    task = Task(farm_id=1, title="t", due_date=today(), category=category)
+def test_task_needs_verification(category: str, status: str, expected: bool) -> None:
+    task = Task(farm_id=1, title="t", due_date=today(), category=category, status=status)
     assert task.needs_verification is expected
 
 

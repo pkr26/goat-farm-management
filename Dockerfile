@@ -6,7 +6,7 @@
 # The CMD hard-codes --workers 1 (the auth rate limiter is in-memory, per
 # process — multi-worker would silently multiply every limit). Also set
 # GOATFARM_ENVIRONMENT=production, GOATFARM_COOKIE_SECURE=true,
-# GOATFARM_CORS_ORIGINS, GOATFARM_DB_SSLMODE=require and
+# GOATFARM_CORS_ORIGINS, GOATFARM_DB_SSLMODE=verify-full and
 # GOATFARM_MIN_PASSWORD_LENGTH>=12 for real deployments. Production also
 # requires a stable RS256 keypair mounted at /app/keys (or configured paths).
 

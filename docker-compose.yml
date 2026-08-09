@@ -3,7 +3,10 @@
 # (the topology README documents for production).
 # Single backend replica on purpose — the auth rate limiter is in-memory and
 # the container CMD hard-codes --workers 1.
-# Credentials come from .env (copy .env.example to .env for defaults).
+# Credentials come from .env (copy .env.example to .env for local defaults).
+# API and migration URLs are supplied whole: Compose must not concatenate raw
+# usernames/passwords into URLs because reserved characters would change how
+# SQLAlchemy parses the credential.
 services:
   db:
     image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
@@ -15,7 +18,9 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-goatfarm} -d ${POSTGRES_DB:-goatfarm}"]
+      # Expand the already-injected container variables at runtime and quote
+      # them, rather than splicing raw .env values into a shell command.
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -27,7 +32,13 @@ services:
       db:
         condition: service_healthy
     environment:
-      GOATFARM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-goatfarm}:${POSTGRES_PASSWORD:-goatfarm}@db:5432/${POSTGRES_DB:-goatfarm}
+      # Deliberately do not expose the long-running API credential to this
+      # one-shot DDL job. Production should give this URL a migrator identity.
+      GOATFARM_MIGRATION_DATABASE_URL: '${GOATFARM_MIGRATION_DATABASE_URL:?copy .env.example to .env and set the full migration URL}'
+      # Alembic consumes a migration-only settings projection: this enables
+      # the production verify-full gate without injecting API cookie/JWT/HMAC
+      # configuration into the privileged one-shot container.
+      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
       GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
 
   backend:
@@ -39,11 +50,12 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      GOATFARM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-goatfarm}:${POSTGRES_PASSWORD:-goatfarm}@db:5432/${POSTGRES_DB:-goatfarm}
+      # This process receives only the DDL-free application identity.
+      GOATFARM_DATABASE_URL: '${GOATFARM_DATABASE_URL:?copy .env.example to .env and set the full API URL}'
       GOATFARM_DB_SSLMODE: ${GOATFARM_DB_SSLMODE:-disable}
       # Local stack on plain HTTP: stays "development". A real deployment sets
       # GOATFARM_ENVIRONMENT=production + GOATFARM_COOKIE_SECURE=true +
-      # non-localhost GOATFARM_CORS_ORIGINS + GOATFARM_DB_SSLMODE=require
+      # non-localhost GOATFARM_CORS_ORIGINS + GOATFARM_DB_SSLMODE=verify-full
       # + GOATFARM_MIN_PASSWORD_LENGTH=12, a stable externally supplied
       # idempotency HMAC secret, and stable mounted JWT keys
       # (validated fail-closed at boot).
@@ -58,17 +70,18 @@ services:
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-development-only-idempotency-hmac-secret-change-me}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
       # Exactly the edge container's fixed address (see the `default` network
-      # below) — never the whole bridge range, which would also cover the
-      # docker gateway and let anything reaching the published API port spoof
-      # X-Forwarded-For. Without this every per-IP auth ceiling would count all
-      # clients as one address and become a product-wide lockout.
+      # below) — never the whole bridge range, which would also cover other
+      # containers and let them spoof X-Forwarded-For. Without this every
+      # per-IP auth ceiling would count all clients as one address and become
+      # a product-wide lockout.
       GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-172.31.243.10}
       GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
       GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
     volumes:
       - jwtkeys:/app/keys
-    ports:
-      - "8000:8000"
+    # Internal only: the edge below is the sole host-published listener.
+    expose:
+      - "8000"
 
   frontend:
     build:

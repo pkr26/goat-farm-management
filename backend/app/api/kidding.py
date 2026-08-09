@@ -17,7 +17,7 @@ from ..models import (
     BreedingOutcome,
     BreedingRecord,
     KiddingRecord,
-    KidStatus,
+    KidEntry,
 )
 from ..schemas.breeding import BreedingRecordOut
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
@@ -272,10 +272,10 @@ async def create_kidding(
         )
 
     kids: list[KidSpec] = []
-    explicit_tags: list[str] = []  # alive-kid tags the user actually set (blank stays auto)
+    explicit_tags: list[str] = []  # user-set tags; blank stays auto-generated
     for i, kid in enumerate(payload.kids):
         tag = (kid.tag or "").strip()
-        if tag and kid.status != KidStatus.STILLBORN.value:
+        if tag:
             explicit_tags.append(tag)
         kids.append(
             {
@@ -295,10 +295,16 @@ async def create_kidding(
     if len(set(explicit_tags)) != len(explicit_tags):
         raise HTTPException(status_code=400, detail="Duplicate kid tags")
     if explicit_tags:
-        clash = await db.execute(
+        animal_clash = await db.execute(
             select(Animal.id).where(Animal.farm_id == farm.id, Animal.tag_number.in_(explicit_tags))
         )
-        if clash.first() is not None:
+        kid_clash = await db.execute(
+            select(KidEntry.id).where(
+                KidEntry.farm_id == farm.id,
+                KidEntry.tag.in_(explicit_tags),
+            )
+        )
+        if animal_clash.first() is not None or kid_clash.first() is not None:
             raise HTTPException(status_code=400, detail="A kid tag already exists in this farm")
 
     # SPEC defines ease as NORMAL | ASSISTED | DIFFICULT — the schema
@@ -321,7 +327,11 @@ async def create_kidding(
         # <doe>-K<n> tag raced _unique_tag's pre-insert snapshot). Answer
         # each with its own pre-check's status/message, never a bare 500.
         await db.rollback()
-        if _unique_constraint_name(exc) == "uq_animal_tag_per_farm":
+        if _unique_constraint_name(exc) in {
+            "uq_animal_tag_per_farm",
+            "uq_kid_entries_farm_tag",
+            "uq_stillborn_tag_farm_namespace",
+        }:
             raise HTTPException(
                 status_code=400, detail="A kid tag already exists in this farm"
             ) from None

@@ -13,7 +13,7 @@ not the bare complete endpoint.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import Select, and_, func, literal, or_, select
+from sqlalchemy import Select, and_, case, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -341,7 +341,10 @@ async def list_tasks(
     # resulting NULL completed_at FIRST under DESC — so every bulk service-side
     # skip (sale/death sweeps, aborted pregnancies) would otherwise monopolise
     # page 1 ahead of genuinely completed work.
-    finished_at = func.coalesce(Task.completed_at, Task.skipped_at)
+    finished_at = case(
+        (Task.status == TaskStatus.SKIPPED.value, Task.skipped_at),
+        else_=Task.completed_at,
+    )
     completed = list(
         (
             await db.execute(
@@ -370,6 +373,27 @@ async def list_tasks(
         completed_limit=completed_limit,
         completed_offset=completed_offset,
     )
+
+
+@router.get("/{task_id}")
+async def get_task(
+    task_id: int,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    _perms: VIEW,
+) -> TaskOut:
+    """Resolve one visible farm task independently of bounded tab pages."""
+    if not 1 <= task_id <= MAX_INT32_ID:
+        raise HTTPException(status_code=404, detail="Task not found")
+    scoped = (await task_scope(db, farm, user)).options(*TASK_LOADS)
+    task = (await db.execute(scoped.where(Task.id == task_id))).scalar_one_or_none()
+    if task is None:
+        # Missing, cross-farm and assignment-inaccessible tasks deliberately
+        # share one response: a deep link only resolves data already visible
+        # to this caller's tasks scope.
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task_out(task)
 
 
 @router.post("", status_code=201)
@@ -584,7 +608,13 @@ async def complete(
     ):
         raise HTTPException(status_code=409, detail="This duty is not due yet")
     try:
-        await complete_task(db, task, user, locked_animals=locked_animals)
+        await complete_task(
+            db,
+            task,
+            user,
+            locked_animals=locked_animals,
+            reference_date=today(farm.timezone),
+        )
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from None

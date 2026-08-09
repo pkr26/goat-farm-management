@@ -23,6 +23,7 @@ from ..models import (
     Transaction,
     TransactionCategory,
     TransactionType,
+    WeightRecord,
     quarantine_schedule,
 )
 from ..utils import add_months, allocate_money, money
@@ -164,12 +165,26 @@ async def create_purchase_batch(
                     animal_id=animal.id,
                     from_bucket=None,
                     to_bucket=Bucket.QUARANTINE.value,
+                    effective_date=batch_date,
                     reason=f"Purchase batch #{batch.id}",
                     created_by_id=created_by_id,
                 )
                 for animal in animals
             ]
         )
+        if avg_weight_kg is not None and avg_weight_kg > 0:
+            db.add_all(
+                [
+                    WeightRecord(
+                        animal_id=animal.id,
+                        date=batch_date,
+                        weight_kg=avg_weight_kg,
+                        notes="Estimated from purchase batch average",
+                        created_by_id=created_by_id,
+                    )
+                    for animal in animals
+                ]
+            )
         await schedule_quarantine_tasks(db, farm, batch)
 
     if exact_total_price is not None:  # an explicit ₹0 still books a ₹0 expense

@@ -170,33 +170,15 @@
         "summary": "Change Password",
         "description": "Self-service password change. Requires the current password,\nrevokes EVERY outstanding refresh session, then\nissues a fresh pair so the current device stays signed in.",
         "operationId": "change_password_api_auth_change_password_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ChangePasswordIn"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -219,7 +201,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/auth/me": {
@@ -229,24 +216,6 @@
         ],
         "summary": "Me",
         "operationId": "me_api_auth_me_get",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -257,18 +226,13 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/auth/account/export": {
@@ -279,24 +243,6 @@
         "summary": "Export Account",
         "description": "Export the caller's identity and tenant relationships as JSON.\n\nDeliberately excludes farm-domain records: a worker's attribution to a\ntransaction, animal, or duty does not entitle them to export another\ntenant's operational data. Farm owners receive farm metadata only here;\ndomain-specific exports can be added separately with explicit tenancy\nauthorization.",
         "operationId": "export_account_api_auth_account_export_get",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -307,18 +253,13 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/auth/account": {
@@ -329,33 +270,15 @@
         "summary": "Delete Account",
         "description": "Remove account access and profile data after password confirmation.\n\nFarm operational and audit rows retain a pseudonymous actor reference so\nattributed history is not silently rewritten when a worker leaves.",
         "operationId": "delete_account_api_auth_account_delete",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AccountDeleteIn"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "204": {
@@ -371,7 +294,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/auth/permissions": {
@@ -381,23 +309,12 @@
         ],
         "summary": "Permissions",
         "operationId": "permissions_api_auth_permissions_get",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -439,22 +356,9 @@
         ],
         "summary": "List Farms",
         "operationId": "list_farms_api_auth_farms_get",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
+            "HTTPBearer": []
           }
         ],
         "responses": {
@@ -471,16 +375,6 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
         }
       },
@@ -490,6 +384,11 @@
         ],
         "summary": "Create Farm",
         "operationId": "create_farm_api_auth_farms_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -508,22 +407,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -568,6 +451,11 @@
         ],
         "summary": "List Animals",
         "operationId": "list_animals_api_animals_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "bucket",
@@ -698,22 +586,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -745,6 +617,11 @@
         ],
         "summary": "Create Animal",
         "operationId": "create_animal_api_animals_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -772,22 +649,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -832,6 +693,11 @@
         ],
         "summary": "Animal Profile",
         "operationId": "animal_profile_api_animals__animal_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -922,22 +788,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -971,6 +821,11 @@
         ],
         "summary": "Move Bucket",
         "operationId": "move_bucket_api_animals__animal_id__move_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -988,22 +843,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -1048,6 +887,11 @@
         ],
         "summary": "Record Weight",
         "operationId": "record_weight_api_animals__animal_id__weight_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -1084,22 +928,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -1144,6 +972,11 @@
         ],
         "summary": "Change Status",
         "operationId": "change_status_api_animals__animal_id__status_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -1161,22 +994,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -1222,6 +1039,11 @@
         "summary": "Buckets Board",
         "description": "All buckets with exact occupancy and a tag-ordered 100-animal preview.\n\nEvery caller receives the same purpose-specific animal shape. The full,\nindependently-authorized register is the paginated ``/animals`` page in\n``animals_page_path``.",
         "operationId": "buckets_board_api_buckets_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -1230,22 +1052,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -1284,6 +1090,11 @@
         ],
         "summary": "Breeding List",
         "operationId": "breeding_list_api_breeding_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "limit",
@@ -1317,22 +1128,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -1364,23 +1159,12 @@
         ],
         "summary": "Create Breeding",
         "operationId": "create_breeding_api_breeding_post",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -1433,6 +1217,11 @@
         "summary": "Breeding Candidates",
         "description": "Search a bounded page of animals eligible for the breeding form.\n\nThis domain-scoped summary deliberately does not grant access to the full\nanimal register. Eligibility, literal search, count, and pagination are\nevaluated in SQL; each selected row carries only its latest weight scalar.",
         "operationId": "breeding_candidates_api_breeding_candidates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "kind",
@@ -1496,22 +1285,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -1545,6 +1318,11 @@
         ],
         "summary": "Get Breeding Record",
         "operationId": "get_breeding_record_api_breeding__record_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "record_id",
@@ -1562,22 +1340,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -1612,6 +1374,11 @@
         ],
         "summary": "Submit Ultrasound",
         "operationId": "submit_ultrasound_api_breeding__record_id__ultrasound_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "record_id",
@@ -1620,22 +1387,6 @@
             "schema": {
               "type": "integer",
               "title": "Record Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -1689,6 +1440,11 @@
         ],
         "summary": "Abort Pregnancy",
         "operationId": "abort_pregnancy_api_breeding__record_id__abort_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "record_id",
@@ -1697,22 +1453,6 @@
             "schema": {
               "type": "integer",
               "title": "Record Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -1766,6 +1506,11 @@
         ],
         "summary": "Kidding List",
         "operationId": "kidding_list_api_kidding_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "limit",
@@ -1847,22 +1592,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -1894,23 +1623,12 @@
         ],
         "summary": "Create Kidding",
         "operationId": "create_kidding_api_kidding_post",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -1963,6 +1681,11 @@
         "summary": "Kidding Pregnancy",
         "description": "Resolve one live pregnancy for a task/deep-link independent of pages.",
         "operationId": "kidding_pregnancy_api_kidding_pregnancies__breeding_record_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "breeding_record_id",
@@ -1980,22 +1703,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -2031,6 +1738,11 @@
         "summary": "Health Animal Options",
         "description": "Farm-local active-animal summaries for health schedules and events.\n\nA numeric query, optionally prefixed by ``#``, resolves an exact selected\nid without requiring access to the full animal profile endpoint.",
         "operationId": "health_animal_options_api_health_animals_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "q",
@@ -2081,22 +1793,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -2131,6 +1827,11 @@
         "summary": "Health Purchase Batch Options",
         "description": "Opaque targetable batch ids without exposing the purchase ledger.\n\nOnly the id needed by the health write and the current quarantine target\ncount are returned. Supplier, purchase date, original count and price are\nprocurement data and require ``purchases.view``. Search is deliberately\nexact-id-only so a health-only role cannot probe supplier names.",
         "operationId": "health_purchase_batch_options_api_health_purchase_batches_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "q",
@@ -2181,22 +1882,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -2230,6 +1915,11 @@
         ],
         "summary": "Movement Restriction History",
         "operationId": "movement_restriction_history_api_health_restrictions__animal_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -2272,22 +1962,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -2322,6 +1996,11 @@
         "summary": "Clear Movement Restriction",
         "description": "Record a factual authority/veterinary clearance and release a hold.\n\nThis does not diagnose or treat an animal. It only makes a previously\nrecorded operational restriction reversible through an attributed,\nreferenced action instead of a database edit.",
         "operationId": "clear_movement_restriction_api_health_restrictions__animal_id__clear_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -2330,22 +2009,6 @@
             "schema": {
               "type": "integer",
               "title": "Animal Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -2393,6 +2056,11 @@
         "summary": "List Events",
         "description": "A requested page of health events, newest first, with its full count.",
         "operationId": "list_events_api_health_events_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "limit",
@@ -2426,22 +2094,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -2474,6 +2126,11 @@
         "summary": "Record Event",
         "description": "Record an individual event or an exact reviewed bulk target snapshot.\n\nA durable idempotency key makes retries return the first committed event\nset without re-evaluating mutable bucket/batch membership.",
         "operationId": "record_event_api_health_events_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -2492,22 +2149,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -2562,6 +2203,11 @@
         "summary": "Preview Bulk Event Targets",
         "description": "Return the exact, bounded active-animal snapshot a bulk write must present.",
         "operationId": "preview_bulk_event_targets_api_health_events_preview_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -2570,22 +2216,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -2631,6 +2261,11 @@
         "summary": "Vaccination Schedule",
         "description": "Per-animal vaccination schedule computed from seeded templates.",
         "operationId": "vaccination_schedule_api_health_schedule__animal_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "animal_id",
@@ -2648,22 +2283,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -2699,6 +2318,11 @@
         "summary": "List Tasks",
         "description": "All five v1 tabs as deterministic, independently pageable lists.",
         "operationId": "list_tasks_api_tasks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "active_limit",
@@ -2785,22 +2409,6 @@
             }
           },
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
             "name": "x-farm-id",
             "in": "header",
             "required": true,
@@ -2840,6 +2448,11 @@
         "summary": "Create Task",
         "description": "Create a manual duty with explicit, farm-scoped assignments.\n\nAssignment is operational state, not optional enrichment.  Silently\ndropping an invalid worker or role leaves an apparently successful duty\nvisible only to the owner, so reject stale, inactive, and cross-farm\nreferences instead.",
         "operationId": "create_task_api_tasks_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -2858,22 +2471,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -2920,13 +2517,19 @@
         }
       }
     },
-    "/api/tasks/{task_id}/complete": {
-      "post": {
+    "/api/tasks/{task_id}": {
+      "get": {
         "tags": [
           "tasks"
         ],
-        "summary": "Complete",
-        "operationId": "complete_api_tasks__task_id__complete_post",
+        "summary": "Get Task",
+        "description": "Resolve one visible farm task independently of bounded tab pages.",
+        "operationId": "get_task_api_tasks__task_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "task_id",
@@ -2938,19 +2541,59 @@
             }
           },
           {
-            "name": "authorization",
+            "name": "x-farm-id",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOut"
                 }
-              ],
-              "title": "Authorization"
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{task_id}/complete": {
+      "post": {
+        "tags": [
+          "tasks"
+        ],
+        "summary": "Complete",
+        "operationId": "complete_api_tasks__task_id__complete_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
             }
           },
           {
@@ -2994,6 +2637,11 @@
         ],
         "summary": "Skip",
         "operationId": "skip_api_tasks__task_id__skip_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "task_id",
@@ -3002,22 +2650,6 @@
             "schema": {
               "type": "integer",
               "title": "Task Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -3078,6 +2710,11 @@
         ],
         "summary": "Verify",
         "operationId": "verify_api_tasks__task_id__verify_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "task_id",
@@ -3086,22 +2723,6 @@
             "schema": {
               "type": "integer",
               "title": "Task Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -3145,6 +2766,11 @@
         ],
         "summary": "Reject",
         "operationId": "reject_api_tasks__task_id__reject_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "task_id",
@@ -3153,22 +2779,6 @@
             "schema": {
               "type": "integer",
               "title": "Task Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -3223,6 +2833,11 @@
         "summary": "Feeding Today",
         "description": "Today's plan plus the latest 200 dispensing records for today.\n\n``records_total`` remains the truthful full-day count. Clients needing\nolder rows use the paginated ``GET /api/feeding/records`` endpoint.",
         "operationId": "feeding_today_api_feeding_plan_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -3231,22 +2846,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -3282,6 +2881,11 @@
         "summary": "Save Setting",
         "description": "Override the per-head daily ration (kg) for one bucket.",
         "operationId": "save_setting_api_feeding_settings_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -3290,22 +2894,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -3344,6 +2932,11 @@
         "summary": "Dispense",
         "description": "Record feed actually dispensed to a bucket on a shift.",
         "operationId": "dispense_api_feeding_dispense_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -3362,22 +2955,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -3432,6 +3009,11 @@
         "summary": "Feeding History",
         "description": "Paginated dispensing history, including backdated records.",
         "operationId": "feeding_history_api_feeding_records_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "date_from",
@@ -3499,22 +3081,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -3549,6 +3115,11 @@
         "summary": "List Recipes",
         "description": "All feed recipes (with lines) + the bucket allocation reference table.",
         "operationId": "list_recipes_api_feeding_recipes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -3557,22 +3128,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -3608,6 +3163,11 @@
         "summary": "List Finished Stock",
         "description": "Ready-to-dispense recipe balances created by successful mixes.",
         "operationId": "list_finished_stock_api_feeding_finished_stock_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -3616,22 +3176,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -3671,6 +3215,11 @@
         "summary": "Mix Batch",
         "description": "Mix a batch of a recipe, decrementing inventory per recipe lines.",
         "operationId": "mix_batch_api_feeding_mix_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -3689,22 +3238,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -3759,6 +3292,11 @@
         "summary": "List Inventory",
         "description": "Feed inventory for this farm, ordered by category then ingredient.",
         "operationId": "list_inventory_api_feeding_inventory_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -3767,22 +3305,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -3822,6 +3344,11 @@
         "summary": "Add Stock",
         "description": "Purchase stock: bump qty on hand, update last price, book a FEED expense.",
         "operationId": "add_stock_api_feeding_inventory__item_id__add_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "item_id",
@@ -3849,22 +3376,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -3919,6 +3430,11 @@
         "summary": "List Transactions",
         "description": "Paginated transactions with optional filters, all-time totals and a\ntrue rolling 12-calendar-month P&L. ``transactions_total`` always reports\nthe full filtered count so clients can expose honest pagination.",
         "operationId": "list_transactions_api_finance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "month",
@@ -4016,22 +3532,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -4066,6 +3566,11 @@
         "summary": "Add Transaction",
         "description": "Record an income/expense with an optional verified farm-animal link.",
         "operationId": "add_transaction_api_finance_new_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -4084,22 +3589,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4154,6 +3643,11 @@
         "summary": "Correct Transaction",
         "description": "Void one ledger row and create its audited replacement atomically.",
         "operationId": "correct_transaction_api_finance_transactions__transaction_id__correct_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "transaction_id",
@@ -4181,22 +3675,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4251,6 +3729,11 @@
         "summary": "List Batches",
         "description": "Searched, paginated purchase batches for this farm, newest first.\n\nText searches supplier names literally (LIKE wildcards are escaped); a\nnumeric query, with an optional leading ``#``, also matches an exact batch\nid. This keeps selectors bounded without hiding old purchase batches.",
         "operationId": "list_batches_api_purchases_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "q",
@@ -4301,22 +3784,6 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -4351,6 +3818,11 @@
         "summary": "Create Batch",
         "description": "Create a batch: stub animals into QUARANTINE, generate the 45-day\nquarantine task schedule and book the purchase expense.",
         "operationId": "create_batch_api_purchases_new_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -4369,22 +3841,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4439,6 +3895,11 @@
         "summary": "Batch Detail",
         "description": "One batch with its quarantine schedule and purpose-scoped animals.\n\nThe schedule itself belongs to procurement, but task assignment and\ncompletion attribution remain task-module data. Likewise, a batch animal\ncan be tracked through quarantine without granting its complete profile.\n\nA batch may legitimately hold ``MAX_BATCH_COUNT`` animals, so its animals\nare a bounded page like every other list in the API; the exact occupancy\nstays available as the batch's ``animals_created``. The protocol schedule\nneeds no bound \u2014 ``QUARANTINE_PROTOCOL`` is 8 steps.",
         "operationId": "batch_detail_api_purchases__batch_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "batch_id",
@@ -4471,22 +3932,6 @@
               "minimum": 0,
               "default": 0,
               "title": "Animals Offset"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4531,23 +3976,12 @@
         "summary": "Dashboard",
         "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view``, the same permission that governs\n``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in\n``animal_out``. A caller without it gets empty lists and zero totals rather\nthan a 403, so the page still renders for e.g. the cleaner preset.",
         "operationId": "dashboard_api_dashboard_get",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -4590,6 +4024,11 @@
         "summary": "Reports",
         "description": "Herd summary, breeding performance, mortality \u2014 all aggregated in SQL;\nonly a 100-row purpose-specific cull preview is hydrated as ORM rows and\nits exact count is returned separately.",
         "operationId": "reports_api_dashboard_reports_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "x-farm-id",
@@ -4598,22 +4037,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -4648,23 +4071,12 @@
         ],
         "summary": "Team Page",
         "operationId": "team_page_api_team_get",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -4707,6 +4119,11 @@
         "summary": "Create Worker",
         "description": "Provision a new worker account owned by this farm.\n\nA pre-existing global account is always refused. Supporting those users\nsafely requires an invitation that they explicitly accept while signed in\n(or through a verified one-time email link); silent enrollment is an\naccount-takeover primitive because farm managers can reset provisioned\nworker passwords.",
         "operationId": "create_worker_api_team_workers_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -4725,22 +4142,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4794,6 +4195,11 @@
         ],
         "summary": "Change Role",
         "operationId": "change_role_api_team_workers__membership_id__role_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "membership_id",
@@ -4802,22 +4208,6 @@
             "schema": {
               "type": "integer",
               "title": "Membership Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4871,6 +4261,11 @@
         ],
         "summary": "Set Worker Status",
         "operationId": "set_worker_status_api_team_workers__membership_id__status_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "membership_id",
@@ -4879,22 +4274,6 @@
             "schema": {
               "type": "integer",
               "title": "Membership Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -4949,6 +4328,11 @@
         "summary": "Reset Password",
         "description": "Owner-only reset of a global account this farm demonstrably provisioned.",
         "operationId": "reset_password_api_team_workers__membership_id__reset_password_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "membership_id",
@@ -4957,22 +4341,6 @@
             "schema": {
               "type": "integer",
               "title": "Membership Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -5026,23 +4394,12 @@
         ],
         "summary": "Create Role",
         "operationId": "create_role_api_team_roles_post",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -5094,6 +4451,11 @@
         ],
         "summary": "Update Role",
         "operationId": "update_role_api_team_roles__role_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "role_id",
@@ -5102,22 +4464,6 @@
             "schema": {
               "type": "integer",
               "title": "Role Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -5169,6 +4515,11 @@
         ],
         "summary": "Delete Role",
         "operationId": "delete_role_api_team_roles__role_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "role_id",
@@ -5177,22 +4528,6 @@
             "schema": {
               "type": "integer",
               "title": "Role Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -5230,24 +4565,6 @@
         "summary": "List Breeds",
         "description": "Available breed presets and production systems (global reference data \u2014\nany authenticated user, no farm context needed).",
         "operationId": "list_breeds_api_simulation_defaults_breeds_get",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -5258,18 +4575,13 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/simulation/defaults": {
@@ -5280,6 +4592,11 @@
         "summary": "Breed Defaults",
         "description": "Default assumptions for a breed + production system.\n\nGlobal reference data: any authenticated user, no farm context needed.",
         "operationId": "breed_defaults_api_simulation_defaults_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "breed",
@@ -5303,22 +4620,6 @@
               "type": "string",
               "default": "stall_fed",
               "title": "System"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5354,6 +4655,11 @@
         "summary": "Herd Snapshot",
         "description": "Group the farm's ACTIVE animals into simulation starting cohorts:\nkid 0-2 m, weaner 3-5 m, grower 6 m up to breeding age, adult at breeding\nage (doe threshold = the breed's age-at-first-breeding, buck at 12 m;\nunknown age counts as adult). The bucketing itself lives in\n``app.simulation.snapshot.herd_cohorts``.",
         "operationId": "herd_snapshot_api_simulation_herd_snapshot_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "breed",
@@ -5372,22 +4678,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5423,23 +4713,12 @@
         "summary": "Run Adhoc",
         "description": "Run a simulation from posted assumptions (no persistence).",
         "operationId": "run_adhoc_api_simulation_run_post",
-        "parameters": [
+        "security": [
           {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
           {
             "name": "x-farm-id",
             "in": "header",
@@ -5491,6 +4770,11 @@
         ],
         "summary": "Create Scenario",
         "operationId": "create_scenario_api_simulation_scenarios_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -5509,22 +4793,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -5576,6 +4844,11 @@
         ],
         "summary": "List Scenarios",
         "operationId": "list_scenarios_api_simulation_scenarios_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "limit",
@@ -5608,22 +4881,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5659,6 +4916,11 @@
         "summary": "Compare Scenarios",
         "description": "Run stored scenarios deterministically side by side (``ids=1,2``).\n\nDuplicate ids are collapsed (a repeated id must not re-run a simulation);\na single distinct id is accepted and simply returns that scenario's run;\nmore than MAX_COMPARE_IDS distinct ids is a 400.",
         "operationId": "compare_scenarios_api_simulation_scenarios_compare_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "ids",
@@ -5668,22 +4930,6 @@
               "type": "string",
               "maxLength": 128,
               "title": "Ids"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -5727,6 +4973,11 @@
         ],
         "summary": "Get Scenario",
         "operationId": "get_scenario_api_simulation_scenarios__scenario_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "scenario_id",
@@ -5744,22 +4995,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5792,6 +5027,11 @@
         ],
         "summary": "Update Scenario",
         "operationId": "update_scenario_api_simulation_scenarios__scenario_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "scenario_id",
@@ -5809,22 +5049,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5867,6 +5091,11 @@
         ],
         "summary": "Delete Scenario",
         "operationId": "delete_scenario_api_simulation_scenarios__scenario_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "scenario_id",
@@ -5884,22 +5113,6 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5928,6 +5141,11 @@
         "summary": "Run Scenario",
         "description": "Run a stored scenario's assumptions (optionally with MC / sensitivity).",
         "operationId": "run_scenario_api_simulation_scenarios__scenario_id__run_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "scenario_id",
@@ -5956,22 +5174,6 @@
               "type": "boolean",
               "default": false,
               "title": "Sensitivity"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           },
           {
@@ -9098,6 +8300,19 @@
               }
             ],
             "title": "Purchase Batch Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4.611686018427388e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
           }
         },
         "additionalProperties": false,
@@ -9152,6 +8367,17 @@
             ],
             "title": "Purchase Batch Id"
           },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
           "target_animal_ids": {
             "items": {
               "type": "integer"
@@ -9181,6 +8407,7 @@
           "scope",
           "bucket",
           "purchase_batch_id",
+          "task_id",
           "target_animal_ids",
           "target_animals",
           "target_count"
@@ -14318,6 +13545,12 @@
           "is_active"
         ],
         "title": "WorkerStatusIn"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   }

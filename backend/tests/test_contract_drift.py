@@ -75,3 +75,23 @@ def test_openapi_paths_and_schemas_are_a_superset_of_the_committed_snapshot() ->
     live_schemas = schema_names(live)
     missing_schemas = committed_schemas - live_schemas
     assert not missing_schemas, f"schemas removed since snapshot: {sorted(missing_schemas)}"
+
+
+def test_openapi_declares_bearer_security_on_protected_operations() -> None:
+    schema = create_app().openapi()
+    bearer = schema["components"]["securitySchemes"]["HTTPBearer"]
+    assert bearer == {"type": "http", "scheme": "bearer"}
+
+    for path, method in [
+        ("/api/auth/me", "get"),
+        ("/api/auth/farms", "get"),
+        ("/api/team", "get"),
+    ]:
+        operation = schema["paths"][path][method]
+        assert operation["security"] == [{"HTTPBearer": []}]
+        assert all(
+            parameter["name"].lower() != "authorization"
+            for parameter in operation.get("parameters", [])
+        )
+
+    assert "security" not in schema["paths"]["/api/auth/login"]["post"]

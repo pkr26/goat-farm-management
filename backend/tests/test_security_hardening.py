@@ -734,11 +734,41 @@ def test_allowed_hosts_are_stored_the_way_trustedhost_compares_them(
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         allowed_hosts=[configured],
-        db_sslmode="require",
+        db_sslmode="verify-full",
         min_password_length=12,
         idempotency_request_hmac_secret=PRODUCTION_IDEMPOTENCY_HMAC_SECRET,
     )
     assert settings.allowed_hosts == [expected]
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        "*example.com",
+        "api*.example.com",
+        ".example.com",
+        "api..example.com",
+        "api.example.com..",
+        "-api.example.com",
+        "api-.example.com",
+        "api_example.com",
+        "api.example.com:443",
+        "https://api.example.com",
+        "*.192.0.2.1",
+        "999.999.999.999",
+        "2001:db8::1",
+    ],
+)
+def test_allowed_hosts_rejects_patterns_trustedhost_cannot_safely_match(
+    configured: str,
+) -> None:
+    with pytest.raises(ValidationError, match="GOATFARM_ALLOWED_HOSTS"):
+        Settings(allowed_hosts=[configured])
+
+
+def test_allowed_hosts_rejects_duplicates_after_canonicalization() -> None:
+    with pytest.raises(ValidationError, match="duplicate host patterns"):
+        Settings(allowed_hosts=["API.Example.com", "api.example.com."])
 
 
 async def test_uppercase_allowed_host_still_serves_browser_traffic(

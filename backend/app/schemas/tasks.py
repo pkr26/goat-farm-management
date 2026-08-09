@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..models import MAX_RECUR_DAYS, MAX_TASK_TITLE_LENGTH  # single source of truth
-from .common import BoundedId, StrictInputModel, StrictInt
+from .common import BoundedId, PostgresText, StrictInputModel, StrictInt
 
 TaskCategoryStr = Literal[
     "VACCINE",
@@ -29,7 +29,7 @@ ManualTaskCategoryStr = Literal["FEED", "CLEANING", "OTHER"]
 
 
 class TaskCreateIn(StrictInputModel):
-    title: str = Field(min_length=1, max_length=MAX_TASK_TITLE_LENGTH)
+    title: PostgresText = Field(min_length=1, max_length=MAX_TASK_TITLE_LENGTH)
     due_date: date
     category: ManualTaskCategoryStr = "OTHER"
     animal_id: BoundedId | None = None
@@ -81,11 +81,11 @@ class TaskOut(BaseModel):
 
 
 class TaskRejectIn(StrictInputModel):
-    note: str | None = Field(default=None, max_length=255)
+    note: PostgresText | None = Field(default=None, max_length=255)
 
 
 class TaskSkipIn(StrictInputModel):
-    reason: str | None = Field(default=None, max_length=255)
+    reason: PostgresText | None = Field(default=None, max_length=255)
 
 
 class TaskTabsOut(BaseModel):

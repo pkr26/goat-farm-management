@@ -88,7 +88,7 @@ async def animal_computed_facts(
     latest_weights = {animal_id: float(weight) for animal_id, weight in weight_rows.all()}
 
     move_rows = await db.execute(
-        select(BucketMove.animal_id, BucketMove.moved_at)
+        select(BucketMove.animal_id, BucketMove.effective_date)
         .where(BucketMove.animal_id.in_(animal_ids))
         .distinct(BucketMove.animal_id)
         .order_by(
@@ -97,8 +97,8 @@ async def animal_computed_facts(
             BucketMove.id.desc(),
         )
     )
-    latest_moves: dict[int, datetime] = {
-        animal_id: moved_at for animal_id, moved_at in move_rows.all()
+    latest_moves: dict[int, date] = {
+        animal_id: effective_date for animal_id, effective_date in move_rows.all()
     }
 
     pregnancy_rows = await db.execute(
@@ -123,12 +123,13 @@ async def animal_computed_facts(
                 if animal.birth_weight is not None and (dob is None or dob <= reference_date)
                 else None
             )
-        bucket_reference: datetime | None = latest_moves.get(animal.id) or animal.created_at
-        bucket_start = (
-            business_date(bucket_reference, timezone_name)
-            if bucket_reference is not None
-            else reference_date
-        )
+        bucket_reference: datetime | date | None = latest_moves.get(animal.id) or animal.created_at
+        if isinstance(bucket_reference, datetime):
+            bucket_start = business_date(bucket_reference, timezone_name)
+        elif isinstance(bucket_reference, date):
+            bucket_start = bucket_reference
+        else:
+            bucket_start = reference_date
         facts[animal.id] = AnimalComputedFacts(
             latest_weight_kg=latest_weight,
             days_in_current_bucket=max((reference_date - bucket_start).days, 0),

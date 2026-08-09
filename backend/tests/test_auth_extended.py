@@ -22,9 +22,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import Response
 from sqlalchemy import delete, func, select, update
 
-from app.core.config import get_settings
+import app.api.auth as auth_api
+from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
 from app.models import FarmMembership, RefreshSession, User
@@ -137,7 +139,10 @@ async def worker_login(
 
 def set_refresh_cookie(client: httpx.AsyncClient, token: str) -> None:
     client.cookies.clear()
-    client.cookies.set(COOKIE, token)
+    # httpx normalizes response cookies from the single-label test host to
+    # ``test.local``. Match that browser scope so a rotated Set-Cookie replaces
+    # this injected token instead of leaving two same-name Cookie pairs.
+    client.cookies.set(COOKIE, token, domain="test.local", path="/")
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +180,41 @@ async def test_register_sets_refresh_cookie(client: httpx.AsyncClient) -> None:
     assert f"{COOKIE}=" in set_cookie
     assert "HttpOnly" in set_cookie
     assert "SameSite=lax" in set_cookie
-    assert "Path=/api/auth" in set_cookie
+    assert "Path=/" in set_cookie
     assert f"Max-Age={get_settings().refresh_token_ttl_seconds}" in set_cookie
+
+
+def test_production_refresh_cookie_is_host_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(
+        environment="production",
+        cookie_secure=True,
+        cors_origins=["https://app.example.com"],
+        allowed_hosts=["api.example.com"],
+        db_sslmode="verify-full",
+        min_password_length=12,
+        idempotency_request_hmac_secret="independent-production-hmac-secret-123456789",
+    )
+    monkeypatch.setattr(auth_api, "get_settings", lambda: settings)
+    response = Response()
+
+    auth_api._set_refresh_cookie(response, "refresh-token")
+
+    set_cookie = response.headers["set-cookie"]
+    assert set_cookie.startswith("__Host-goatfarm_refresh=")
+    assert "Secure" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "Path=/" in set_cookie
+    assert "Domain=" not in set_cookie
+
+    deletion = Response()
+    auth_api._delete_refresh_cookie(deletion)
+    deleted_cookie = deletion.headers["set-cookie"]
+    assert deleted_cookie.startswith("__Host-goatfarm_refresh=")
+    assert "Max-Age=0" in deleted_cookie
+    assert "Secure" in deleted_cookie
+    assert "HttpOnly" in deleted_cookie
+    assert "Path=/" in deleted_cookie
+    assert "Domain=" not in deleted_cookie
 
 
 async def test_register_access_token_is_immediately_usable(client: httpx.AsyncClient) -> None:
@@ -865,18 +903,104 @@ def rate_limit_on(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("rate_limit_on")
-async def test_refresh_is_rate_limited_per_ip(client: httpx.AsyncClient) -> None:
-    """/refresh was unthrottled — token-grinding attempts from one
-    IP now trip the same sliding-window limiter as login/register."""
-    for _ in range(3):
+async def test_refresh_is_rate_limited_per_ip_before_repeated_jwt_work(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once the invalid threshold is full, even a valid token skips PyJWT."""
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "refresh-budget@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    valid_cookie = client.cookies.get(COOKIE)
+    assert valid_cookie
+    limit = get_settings().auth_rate_limit_max_attempts
+    broad_limit = auth_api._refresh_preverification_limit(limit)
+    real_decode = auth_api.decode_refresh_claims
+    decode_calls = 0
+
+    def counted_decode(token: str) -> object:
+        nonlocal decode_calls
+        decode_calls += 1
+        return real_decode(token)
+
+    monkeypatch.setattr(auth_api, "decode_refresh_claims", counted_decode)
+    for _ in range(limit):
         set_refresh_cookie(client, "garbage")
         resp = await client.post("/api/auth/refresh")
         assert resp.status_code == 401
-    set_refresh_cookie(client, "garbage")
+    window = get_settings().auth_rate_limit_window_seconds
+    assert auth_limiter.is_blocked("refresh-invalid", "127.0.0.1", limit, window)
+    assert not auth_limiter.is_blocked(
+        auth_api.REFRESH_PREVERIFY_SCOPE,
+        "127.0.0.1",
+        broad_limit,
+        window,
+    )
+    set_refresh_cookie(client, valid_cookie)
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 429
+    assert decode_calls == limit
     assert resp.headers["Retry-After"] == str(get_settings().auth_rate_limit_window_seconds)
     assert "Too many" in resp.json()["detail"]
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_refresh_preverification_ceiling_skips_jwt_work(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The broad all-refresh ceiling is checked before PyJWT work starts."""
+    settings = get_settings()
+    key = "127.0.0.1"
+    limit = auth_api._refresh_preverification_limit(settings.auth_rate_limit_max_attempts)
+    for _ in range(limit):
+        auth_limiter.record(
+            auth_api.REFRESH_PREVERIFY_SCOPE,
+            key,
+            settings.auth_rate_limit_window_seconds,
+        )
+
+    decode_calls = 0
+
+    def must_not_decode(_token: str) -> None:
+        nonlocal decode_calls
+        decode_calls += 1
+        return None
+
+    monkeypatch.setattr(auth_api, "decode_refresh_claims", must_not_decode)
+    set_refresh_cookie(client, "syntactically-valid-looking-cookie")
+    response = await client.post("/api/auth/refresh")
+
+    assert response.status_code == 429
+    assert decode_calls == 0
+
+
+async def test_refresh_rejects_duplicate_same_name_cookies(
+    client: httpx.AsyncClient,
+) -> None:
+    first = await client.post(
+        "/api/auth/register",
+        json={"email": "duplicate-cookie-a@farm.in", "password": OWNER_PW},
+    )
+    assert first.status_code == 201, first.text
+    first_cookie = client.cookies.get(COOKIE)
+    second = await client.post(
+        "/api/auth/register",
+        json={"email": "duplicate-cookie-b@farm.in", "password": OWNER_PW},
+    )
+    assert second.status_code == 201, second.text
+    second_cookie = client.cookies.get(COOKIE)
+    assert first_cookie and second_cookie and first_cookie != second_cookie
+
+    client.cookies.clear()
+    response = await client.post(
+        "/api/auth/refresh",
+        headers={"Cookie": f"{COOKIE}={first_cookie}; {COOKIE}={second_cookie}"},
+    )
+
+    assert response.status_code == 401
 
 
 @pytest.mark.usefixtures("rate_limit_on")
@@ -890,10 +1014,18 @@ async def test_successful_refreshes_do_not_consume_invalid_attempt_budget(
     valid_cookie = client.cookies.get(COOKIE)
     assert valid_cookie
 
-    # Fill the rejected-token budget for this shared IP.
-    for _ in range(3):
+    # Stay one below the rejected-token ceiling for this shared IP.
+    invalid_limit = get_settings().auth_rate_limit_max_attempts
+    for _ in range(invalid_limit - 1):
         set_refresh_cookie(client, "garbage")
         assert (await client.post("/api/auth/refresh")).status_code == 401
+    window = get_settings().auth_rate_limit_window_seconds
+    assert not auth_limiter.is_blocked(
+        "refresh-invalid",
+        "127.0.0.1",
+        invalid_limit,
+        window,
+    )
 
     # A legitimate page reload is still allowed and rotates normally; repeated
     # successes stay allowed rather than eventually forcing a login redirect.
@@ -901,6 +1033,12 @@ async def test_successful_refreshes_do_not_consume_invalid_attempt_budget(
     for _ in range(8):
         resp = await client.post("/api/auth/refresh")
         assert resp.status_code == 200, resp.text
+    assert not auth_limiter.is_blocked(
+        "refresh-invalid",
+        "127.0.0.1",
+        invalid_limit,
+        window,
+    )
 
 
 async def test_refresh_malformed_cookie_is_401(client: httpx.AsyncClient) -> None:
@@ -2074,7 +2212,7 @@ async def test_login_sets_refresh_cookie_with_same_attributes(
     assert f"{COOKIE}=" in set_cookie
     assert "HttpOnly" in set_cookie
     assert "SameSite=lax" in set_cookie
-    assert "Path=/api/auth" in set_cookie
+    assert "Path=/" in set_cookie
     # the login cookie is usable for refresh
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 200, resp.text

@@ -14,4 +14,5 @@ export interface HealthBulkTargetIn {
   scope: HealthBulkTargetInScope;
   bucket?: HealthBulkTargetInBucket;
   purchase_batch_id?: number | null;
+  task_id?: number | null;
 }

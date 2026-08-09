@@ -4,6 +4,7 @@ import secrets
 from datetime import date, timedelta
 from typing import TypedDict
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -25,11 +26,18 @@ from ..models import (
     KiddingRecord,
     KidEntry,
     KidStatus,
+    Task,
     TaskCategory,
     TaskStatus,
 )
 from ..utils import today, utcnow
-from ._common import _add_task, _kidding_record_of, _load_doe, _pending_tasks_for
+from ._common import (
+    _add_task,
+    _clear_task_rejection,
+    _kidding_record_of,
+    _load_doe,
+    _pending_tasks_for,
+)
 from .animals import _tag_exists, move_animal
 
 
@@ -130,9 +138,21 @@ async def record_kidding(
         """Fit a generated base and any collision suffix in VARCHAR(50)."""
         return f"{base[: MAX_ANIMAL_TAG_LENGTH - len(suffix)]}{suffix}"
 
+    async def exists(candidate: str) -> bool:
+        if await _tag_exists(db, farm.id, candidate):
+            return True
+        return (
+            await db.execute(
+                select(KidEntry.id).where(
+                    KidEntry.farm_id == farm.id,
+                    KidEntry.tag == candidate,
+                )
+            )
+        ).scalar_one_or_none() is not None
+
     async def _unique_tag(base: str) -> str:
         readable = _fit_tag(base)
-        if readable not in assigned_tags and not await _tag_exists(db, farm.id, readable):
+        if readable not in assigned_tags and not await exists(readable):
             assigned_tags.add(readable)
             return readable
         for _attempt in range(4):
@@ -140,7 +160,7 @@ async def record_kidding(
             candidate = _fit_tag(base, suffix)
             if candidate in assigned_tags:
                 continue
-            if not await _tag_exists(db, farm.id, candidate):
+            if not await exists(candidate):
                 assigned_tags.add(candidate)
                 return candidate
         raise ValueError("Could not allocate a unique kid tag; retry the kidding request")
@@ -150,12 +170,9 @@ async def record_kidding(
             tag = kid["tag"]
             if len(tag) > MAX_ANIMAL_TAG_LENGTH:
                 raise ValueError(f"Kid tags cannot exceed {MAX_ANIMAL_TAG_LENGTH} characters")
-            if kid["status"] != KidStatus.STILLBORN.value:
-                if tag in assigned_tags or await _tag_exists(db, farm.id, tag):
-                    raise ValueError("A kid tag already exists in this farm")
-                assigned_tags.add(tag)
-        elif kid["status"] == KidStatus.STILLBORN.value:
-            tag = _fit_tag(kid["tag"])
+            if tag in assigned_tags or await exists(tag):
+                raise ValueError("A kid tag already exists in this farm")
+            assigned_tags.add(tag)
         else:
             tag = await _unique_tag(kid["tag"])
 
@@ -206,6 +223,7 @@ async def record_kidding(
                     animal_id=animal.id,
                     from_bucket=None,
                     to_bucket=Bucket.RECOVERY.value,
+                    effective_date=kidding_date,
                     reason="Born",
                     created_by_id=created_by_id,
                 )
@@ -220,6 +238,7 @@ async def record_kidding(
         "Kidded",
         created_by_id=created_by_id,
         context="kidding",
+        reference_date=kidding_date,
         # Kidding is an authoritative lifecycle fact. A hold remains active,
         # but it must not leave the doe classified as pregnant after delivery.
         allow_restricted_reclassification=True,
@@ -239,6 +258,7 @@ async def record_kidding(
             task.status = TaskStatus.DONE.value
             task.completed_by_id = created_by_id
             task.completed_at = utcnow()
+            _clear_task_rejection(task)
     # Flush before the leftover query: sessions run autoflush=False, so this
     # keeps the DB row in step with the DONE stamped above (the re-check under
     # the lock below is the actual guard against clobbering it back to SKIPPED).
@@ -253,6 +273,7 @@ async def record_kidding(
             task.skipped_by_id = None
             task.skipped_at = utcnow()
             task.skip_reason = "Kidding recorded; remaining pregnancy duty no longer applies"
+            _clear_task_rejection(task)
 
     if alive_count:
         await _add_task(
@@ -281,3 +302,142 @@ async def record_kidding(
         )
     await db.flush()
     return record
+
+
+async def replan_dam_after_last_kid_death(
+    db: AsyncSession,
+    farm: Farm,
+    child: Animal,
+    death_date: date,
+) -> bool:
+    """Replace a stale weaning plan when a kidding's final survivor dies.
+
+    The animal status row and its KidEntry are two views of the same neonatal
+    outcome. Keep them aligned, then schedule the same 14-day no-survivor
+    recovery path used when a kidding starts with no live kids. Returns true
+    only when the dam was actually replanned.
+    """
+    entry = (
+        await db.execute(
+            select(KidEntry)
+            .where(KidEntry.farm_id == farm.id, KidEntry.animal_id == child.id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        return False
+    kidding = (
+        await db.execute(
+            select(KiddingRecord)
+            .where(
+                KiddingRecord.id == entry.kidding_record_id,
+                KiddingRecord.farm_id == farm.id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if kidding is None:
+        return False
+
+    entry.status = KidStatus.DIED.value
+    entry.mortality_reported_at = death_date
+
+    # Every sibling-death transaction takes the shared kidding mutex, then
+    # the dam, before asking whether a survivor remains. Two simultaneous
+    # final deaths therefore cannot each observe the other kid as ACTIVE and
+    # both leave the obsolete weaning plan behind.
+    dam = (
+        await db.execute(
+            select(Animal)
+            .where(Animal.id == kidding.doe_id, Animal.farm_id == farm.id)
+            # A dam-retirement request already owns this row and later locks
+            # her RECOVERY kids. This child-death request owns one such kid,
+            # so waiting here would invert the lock order and deadlock. Fail
+            # fast; the API maps PostgreSQL's lock-not-available to a retryable
+            # 409 and rolls this death transaction back intact.
+            .with_for_update(nowait=True)
+        )
+    ).scalar_one_or_none()
+
+    surviving_id = (
+        await db.execute(
+            select(Animal.id)
+            .join(KidEntry, KidEntry.animal_id == Animal.id)
+            .where(
+                KidEntry.farm_id == farm.id,
+                KidEntry.kidding_record_id == kidding.id,
+                Animal.farm_id == farm.id,
+                Animal.id != child.id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if surviving_id is not None:
+        return False
+
+    if (
+        dam is None
+        or dam.status != AnimalStatus.ACTIVE.value
+        or dam.current_bucket != Bucket.RECOVERY.value
+    ):
+        return False
+
+    now = utcnow()
+    for task in await _pending_tasks_for(
+        db,
+        farm.id,
+        for_update=True,
+        animal_id=dam.id,
+        category=TaskCategory.WEANING.value,
+    ):
+        task.status = TaskStatus.SKIPPED.value
+        task.skipped_by_id = None
+        task.skipped_at = now
+        task.skip_reason = "Final surviving kid died; weaning no longer applies"
+        _clear_task_rejection(task)
+
+    recorded_mortalities = [
+        value
+        for value in (
+            (
+                await db.execute(
+                    select(KidEntry.mortality_reported_at).where(
+                        KidEntry.farm_id == farm.id,
+                        KidEntry.kidding_record_id == kidding.id,
+                        KidEntry.mortality_reported_at.is_not(None),
+                    )
+                )
+            ).scalars()
+        )
+        if value is not None
+    ]
+    recovery_anchor: date = max([kidding.date, death_date, *recorded_mortalities])
+    due: date = recovery_anchor + timedelta(days=POSTPARTUM_RECOVERY_DAYS)
+    existing = (
+        await db.execute(
+            select(Task)
+            .where(
+                Task.farm_id == farm.id,
+                Task.animal_id == dam.id,
+                Task.breeding_record_id == kidding.breeding_record_id,
+                Task.category == TaskCategory.BUCKET_MOVE.value,
+                Task.status == TaskStatus.PENDING.value,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        await _add_task(
+            db,
+            farm.id,
+            f"Move {dam.tag_number} to RESTING after postpartum recovery",
+            due,
+            TaskCategory.BUCKET_MOVE,
+            animal_id=dam.id,
+            breeding_record_id=kidding.breeding_record_id,
+        )
+    else:
+        existing.due_date = due
+    await db.flush()
+    return True

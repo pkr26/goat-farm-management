@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import Animal, PurchaseBatch, Task, TaskStatus
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.purchases import (
     PurchaseBatchDetailOut,
     PurchaseBatchIn,
@@ -69,7 +69,7 @@ async def list_batches(
     db: DbSession,
     farm: CurrentFarm,
     perms: PurchasesView,
-    q: Annotated[str | None, Query(max_length=120)] = None,
+    q: Annotated[PostgresText | None, Query(max_length=120)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> PurchaseBatchListOut:

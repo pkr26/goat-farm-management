@@ -26,7 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
-from app.core.config import get_settings
+from app.core.config import get_migration_settings
 from app.db import Base
 from app.models import *  # noqa: F403 — register all tables on Base.metadata
 
@@ -42,7 +42,7 @@ LOCK_TIMEOUT = "10s"
 
 
 def run_migrations_offline() -> None:
-    settings = get_settings()
+    settings = get_migration_settings()
     context.configure(
         url=settings.migration_database_url or settings.database_url,
         target_metadata=target_metadata,
@@ -60,7 +60,7 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    settings = get_settings()
+    settings = get_migration_settings()
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = settings.migration_database_url or settings.database_url
     # Alembic is a separate engine from app.db. Carry the same wire-TLS

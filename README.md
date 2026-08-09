@@ -47,7 +47,7 @@ re-resolves it after changing `pyproject.toml`.
 Configuration is via `GOATFARM_*` env vars (`backend/app/core/config.py`; see
 `backend/.env.example` for the full list — `.env` is read relative to
 `backend/` regardless of the launch directory): `GOATFARM_DATABASE_URL`,
-`GOATFARM_DB_SSLMODE` (TLS to the DB; `require` for any remote database), JWT
+`GOATFARM_DB_SSLMODE` (TLS to the DB; production requires `verify-full`), JWT
 TTLs, Argon2 parameters, `GOATFARM_CORS_ORIGINS`, `GOATFARM_COOKIE_SECURE`
 (set `true` behind HTTPS), `GOATFARM_ENVIRONMENT`
 (`development`/`production`), `GOATFARM_AUTH_RATE_LIMIT_*` (login/register and
@@ -68,14 +68,25 @@ auto-generated into `backend/keys/` on first run in development only
 2048 bits); startup fails immediately if it is missing or invalid. With
 `GOATFARM_ENVIRONMENT=production` the app **refuses to boot** if
 `GOATFARM_COOKIE_SECURE` is false, the password minimum is below 12, database
-TLS is not required, or CORS contains anything other than exact non-loopback
-HTTPS origins, or the HTTP host allowlist is empty/wildcard/loopback;
+TLS does not verify both the certificate chain and hostname, or CORS contains
+anything other than exact non-loopback HTTPS origins, or the HTTP host
+allowlist is empty/wildcard/loopback, or a custom refresh-cookie name lacks the
+case-sensitive `__Host-` prefix. The development cookie default is upgraded to
+`__Host-goatfarm_refresh` automatically in production;
 `/docs`, `/redoc` and `/openapi.json` are not served. The auth rate limiter
 is in-memory and per process: run exactly **one** uvicorn worker / replica
 (with N workers the effective limit multiplies by N). Argon2 hashing and
 verification run off the event loop in a dedicated, queue-free pool bounded by
 `GOATFARM_ARGON2_WORKER_THREADS` (two by default); excess password work gets a
 retryable `429` instead of blocking readiness or allocating an unbounded queue.
+Rejected refresh tokens use the base
+`GOATFARM_AUTH_RATE_LIMIT_MAX_ATTEMPTS` per-IP ceiling, checked before the next
+JWT decode. A separate all-refresh predecode ceiling is ten times that value,
+so successful page loads do not consume the smaller invalid-only budget. Once
+an IP fills the invalid-only budget, every refresh from that IP—including a
+valid cookie behind the same NAT—is rejected until the window expires; this is
+the unavoidable fail-closed tradeoff when validity itself requires signature
+verification.
 Production must also apply a shared login/register rate limit at the edge/WAF
 before requests reach the process, especially if it is ever horizontally scaled.
 Production also requires a stable, independently generated (at least 32
@@ -83,13 +94,19 @@ characters) `GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET` on every replica. It
 keys fingerprints for idempotent operations whose request contains password
 material; the raw password and raw idempotency key are never stored. The known
 development fallback is rejected in production. Keep this secret distinct
-from JWT, database, and user-password secrets.
+from JWT, database, and user-password secrets. The same known fallback is also
+rejected from the verification-only previous-key list.
 
-Production releases may set `GOATFARM_MIGRATION_DATABASE_URL` to a separately
-privileged database identity used only by Alembic. The long-running API should
-use a credential without schema/DDL privileges. Migrations and libpq backup /
-restore tools inherit `GOATFARM_DB_SSLMODE`; remote production jobs must use
-`require`, `verify-ca`, or `verify-full`. Migrations do **not** inherit the
+Production releases should set `GOATFARM_MIGRATION_DATABASE_URL` to a
+separately privileged database identity used only by Alembic. The long-running
+API should use a credential without schema/DDL privileges. Compose supplies
+only that URL—not the API credential—to the migration job. Alembic uses a
+migration-only settings projection, so `GOATFARM_ENVIRONMENT=production`
+refuses every `GOATFARM_DB_SSLMODE` except `verify-full` before creating its
+engine, without requiring unrelated cookie/JWT/HMAC settings. Libpq backup and
+restore jobs enforce the same production mode. Modes such as `require` encrypt
+the wire but can leave the server unauthenticated when no trusted root is
+configured. Migrations do **not** inherit the
 request-path `GOATFARM_DB_STATEMENT_TIMEOUT_MS` budget: the Alembic connection
 applies `GOATFARM_MIGRATION_STATEMENT_TIMEOUT_MS` instead, `0` (unbounded) by
 default, because a table rewrite, a constraint validation, or a `CREATE INDEX
@@ -122,7 +139,8 @@ passes. Resume API replicas only after that succeeds.
 
 - Login/register issue an RS256 **access JWT** (30 min, `Authorization:
   Bearer`, held in memory only by the SPA) plus a rotating **refresh JWT**
-  (14 d, httpOnly `SameSite=Lax` cookie scoped to `/api/auth`). Every
+  (14 d, httpOnly `SameSite=Lax` cookie scoped to `/`; production uses the
+  host-bound `__Host-goatfarm_refresh` name). Every
   refresh token is backed by a server-side **session row**: refresh consumes
   the presented token and rotates it, presenting an already-consumed or
   revoked token is treated as theft and revokes the whole token family (with
@@ -229,18 +247,19 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 - Unauthenticated ops endpoints: `GET /healthz` (liveness: process up) and
   `GET /readyz` (readiness: `SELECT 1` against the pool, 503 when the DB is
   unreachable). Point load balancers / orchestrators at these.
-- Build and run the backend image from the repo root:
+- Build and run the backend image from the repo root on a private container
+  network behind the edge/load balancer. Do not publish port 8000 directly:
 
   ```bash
   docker build -t goatfarm-backend .
-  docker run -p 8000:8000 \
+  docker run --expose 8000 \
     -v /secure/goatfarm-jwt:/app/keys:ro \
     -e GOATFARM_DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/goatfarm \
     -e GOATFARM_ENVIRONMENT=production \
     -e GOATFARM_COOKIE_SECURE=true \
     -e GOATFARM_CORS_ORIGINS='["https://app.example.com"]' \
     -e GOATFARM_ALLOWED_HOSTS='["api.example.com","backend"]' \
-    -e GOATFARM_DB_SSLMODE=require \
+    -e GOATFARM_DB_SSLMODE=verify-full \
     -e GOATFARM_MIN_PASSWORD_LENGTH=12 \
     -e GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET="$GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET" \
     -e GOATFARM_JWT_PRIVATE_KEY_PATH=/app/keys/jwt_private.pem \
@@ -252,7 +271,13 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   starting or rolling API containers. The default API command never performs
   DDL and serves with uvicorn as a non-root user. `docker-compose.yml` models
   this explicitly with `db` → `migrate` → `backend`; its `jwtkeys` volume
-  keeps the generated development identity stable across restarts.
+  keeps the generated development identity stable across restarts. Copy the
+  repository-root `.env.example` to `.env` first. Compose passes complete,
+  separately configurable `GOATFARM_DATABASE_URL` and
+  `GOATFARM_MIGRATION_DATABASE_URL` values rather than concatenating raw
+  credentials. Percent-encode reserved characters in URL usernames/passwords;
+  production should use a DDL-free API role and a distinct DDL-capable
+  migration role. Only the edge port is host-published.
   The release that first applies security migration `f4e5f6a7b8c9` is a
   one-time exception to an ordinary rolling cutover: drain password-bearing
   worker-create traffic and stop every pre-HMAC API instance, apply the
@@ -284,7 +309,7 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   Next container's address for every client: the eleventh signup in five
   minutes — from anyone — 429s, and 100 bad logins lock the deployment out.
   `docker-compose.yml` therefore publishes a single `edge` (nginx) container on
-  port 3000, the only published entry point besides the API's own `8000`: it
+  port 3000; the API's `8000` and the frontend's `3000` remain internal-only. It
   proxies `/api/` straight to `backend:8000` and everything else to
   `frontend:3000`, preserves the browser's `Host`, appends
   `X-Forwarded-For`/`X-Forwarded-Proto`, and mirrors
@@ -598,7 +623,8 @@ frontend/
   genuinely future dates are still rejected.
 - Passkeys are a **future amendment**: neither `webauthn` nor
   `@simplewebauthn/browser` is installed in this release.
-- The refresh cookie is `Secure`-flaggable via `GOATFARM_COOKIE_SECURE=true`
-  in production; CORS is credentialed and pinned to the frontend origin.
+- The production refresh cookie is host-bound (`__Host-` prefix), `Secure`,
+  `HttpOnly`, `SameSite=Lax`, and `Path=/`, with no `Domain` attribute. CORS is
+  credentialed and pinned to the frontend origin.
 - The v1 Jinja app was removed after the rewrite; its behavioral contract
   lives on in `backend/tests/`.

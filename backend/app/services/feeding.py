@@ -256,21 +256,18 @@ async def feeding_plan(
     # animal. The previous selectinload hydrated every historical BucketMove,
     # so memory and wire volume grew with the farm's lifetime movement count.
     latest_move = (
-        select(BucketMove.moved_at)
+        select(BucketMove.effective_date)
         .where(BucketMove.animal_id == Animal.id)
         .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
         .limit(1)
         .correlate(Animal)
         .lateral("latest_bucket_move")
     )
-    bucket_started_at = func.coalesce(latest_move.c.moved_at, Animal.created_at)
-    bucket_started_date = cast(
-        func.timezone(
-            farm.timezone,
-            func.timezone("UTC", bucket_started_at),
-        ),
+    created_date = cast(
+        func.timezone(farm.timezone, func.timezone("UTC", Animal.created_at)),
         SqlDate,
     )
+    bucket_started_date = func.coalesce(latest_move.c.effective_date, created_date)
     bucket_days = func.greatest(ref - bucket_started_date, 0)
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
     age_days = func.coalesce(ref - effective_dob, 999)

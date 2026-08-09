@@ -452,6 +452,40 @@ describe("AuthProvider actions", () => {
     expect(pushMock).toHaveBeenCalledWith("/login");
   });
 
+  it("clears the displayed actor instead of replaying a mutation as another account", async () => {
+    let mutationCalls = 0;
+    server.use(
+      http.post("/api/tasks", () => {
+        mutationCalls += 1;
+        return HttpResponse.json({ detail: "Expired" }, { status: 401 });
+      }),
+    );
+
+    renderWithProviders(<Probe />);
+    await expectLoaded();
+    expect(screen.getByTestId("user")).toHaveTextContent(TEST_USER.email);
+
+    server.use(
+      http.post("/api/auth/refresh", () =>
+        HttpResponse.json({
+          access_token: "actor-two-token",
+          user: { id: 2, email: "actor-two@goatfarm.test", name: "Actor Two" },
+        }),
+      ),
+    );
+    pushMock.mockClear();
+    await act(async () => {
+      await apiFetch("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify({ title: "Must stay actor one" }),
+      }).catch(() => undefined);
+    });
+
+    expect(mutationCalls).toBe(1);
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
+    expect(pushMock).toHaveBeenCalledWith("/login");
+  });
+
   it("forced logout runs the same cleanup as signOut, once per transition", async () => {
     server.use(
       http.get("/api/animals", () =>

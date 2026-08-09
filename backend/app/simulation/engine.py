@@ -51,7 +51,13 @@ Documented v1 approximations:
 import math
 from dataclasses import dataclass, field
 
-from .assumptions import GrowthAssumptions, HerdEventAssumptions, SimulationAssumptions
+from .assumptions import (
+    MAX_MONEY,
+    GrowthAssumptions,
+    HerdEventAssumptions,
+    SalesAssumptions,
+    SimulationAssumptions,
+)
 from .feed import class_feed, combine_feed, cultivated_green_supply_kg
 from .finance import (
     AmortizationRow,
@@ -898,31 +904,38 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
 
 
 def break_even_meat_price(a: SimulationAssumptions) -> float | None:
-    """Meat price (₹/kg) at which NPV = 0, by bisection on a price multiplier.
+    """Meat price (₹/kg) at which NPV = 0, by bisection on the price.
 
     Only the meat price is scaled (cull/milk/manure prices are held at base).
-    Returns ``None`` when even 5x the base price cannot lift NPV to zero, and
-    0.0 when NPV is already non-negative with meat revenue zeroed out.
+    Returns ``None`` when the search ceiling cannot lift NPV to zero, and 0.0
+    when NPV is already non-negative with meat revenue zeroed out. Very small
+    base prices have no useful multiplier, so the ceiling is never lower than
+    five times the schema's documented default meat price.
     """
     base_price = a.sales.meat_price_per_kg
+    reference_price = SalesAssumptions().meat_price_per_kg
+    # Never report a break-even value the public assumptions schema would
+    # reject. At the price ceiling, a still-negative project has no usable
+    # meat-price-only break-even under this model.
+    upper_price = min(MAX_MONEY, 5.0 * max(base_price, reference_price))
 
-    def npv_at(multiplier: float) -> float:
+    def npv_at(price: float) -> float:
         variant = a.model_copy(deep=True)
-        variant.sales.meat_price_per_kg = base_price * multiplier
+        variant.sales.meat_price_per_kg = price
         return _run_core(variant).npv
 
     if npv_at(0.0) >= 0.0:
         return 0.0
-    if npv_at(5.0) < 0.0:
+    if npv_at(upper_price) < 0.0:
         return None
-    lo, hi = 0.0, 5.0
+    lo, hi = 0.0, upper_price
     for _ in range(50):
         mid = (lo + hi) / 2.0
         if npv_at(mid) >= 0.0:
             hi = mid
         else:
             lo = mid
-    return ((lo + hi) / 2.0) * base_price
+    return (lo + hi) / 2.0
 
 
 def run_simulation(

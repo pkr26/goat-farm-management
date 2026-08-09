@@ -220,6 +220,7 @@ def move_animal(
             animal_id=animal.id,
             from_bucket=animal.current_bucket,
             to_bucket=to_bucket,
+            effective_date=reference_date or today(),
             reason=reason or None,
             created_by_id=created_by_id,
         )
@@ -248,6 +249,9 @@ async def _skip_locked_pending_tasks(
             skipped_by_id=None,
             skipped_at=utcnow(),
             skip_reason=reason[:255],
+            verification_note=None,
+            rejected_by_id=None,
+            rejected_at=None,
         )
         .returning(Task.id)
     )

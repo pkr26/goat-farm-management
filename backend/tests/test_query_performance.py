@@ -1238,6 +1238,7 @@ async def test_feeding_plan_query_count_and_rows_stay_bounded_by_history(
             )
         ).scalar_one()
         current_move.moved_at = utcnow() - timedelta(days=11)
+        current_move.effective_date = today() - timedelta(days=11)
         await db.commit()
 
     baseline, baseline_statements = await captured_plan()
@@ -1253,6 +1254,7 @@ async def test_feeding_plan_query_count_and_rows_stay_bounded_by_history(
                     from_bucket=Bucket.RESTING.value,
                     to_bucket=Bucket.RESTING.value,
                     moved_at=utcnow() - timedelta(days=20 + index),
+                    effective_date=today() - timedelta(days=20 + index),
                     reason="historical query-bound fixture",
                 )
                 for index in range(300)

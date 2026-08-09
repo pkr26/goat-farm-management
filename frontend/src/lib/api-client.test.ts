@@ -22,6 +22,14 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+function actorToken(actorId: number): string {
+  const payload = btoa(JSON.stringify({ sub: actorId }))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return `header.${payload}.signature`;
+}
+
 /** Lets each microtask-scheduled refreshPromise reset (setTimeout 0) flush. */
 function flushMacrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -128,6 +136,38 @@ describe("apiFetch", () => {
       ([input]) => String(input) === "/api/animals",
     )?.[1];
     expect((animalsInit?.headers as Headers).get("X-Farm-Id")).toBe("1");
+  });
+
+  it("never replays a request when refresh resolves to a different actor", async () => {
+    const actorOne = actorToken(1);
+    const actorTwo = actorToken(2);
+    const onAuthFailure = vi.fn();
+    setAccessToken(actorOne, 1);
+    setOnAuthFailure(onAuthFailure);
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") {
+        return jsonResponse(200, {
+          access_token: actorTwo,
+          user: { id: 2, email: "actor-two@example.test", name: "Actor Two" },
+        });
+      }
+      return jsonResponse(401, { detail: "Expired" });
+    });
+
+    await expect(
+      apiFetch("/api/tasks", { method: "POST", body: JSON.stringify({ title: "Do it" }) }),
+    ).rejects.toMatchObject({ name: "AuthSessionChangedError" });
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.filter((url) => url === "/api/tasks")).toHaveLength(1);
+    expect(urls.filter((url) => url === "/api/auth/refresh")).toHaveLength(1);
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    await apiFetch("/api/buckets");
+    expect((fetchMock.mock.calls[0][1]?.headers as Headers).get("Authorization")).toBeNull();
   });
 
   it("calls onAuthFailure and clears the token when the refresh fails", async () => {

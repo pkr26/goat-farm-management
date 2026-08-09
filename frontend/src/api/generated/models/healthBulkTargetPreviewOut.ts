@@ -12,6 +12,7 @@ export interface HealthBulkTargetPreviewOut {
   scope: HealthBulkTargetPreviewOutScope;
   bucket: HealthBulkTargetPreviewOutBucket;
   purchase_batch_id: number | null;
+  task_id: number | null;
   target_animal_ids: number[];
   target_animals: AnimalIdentityOut[];
   target_count: number;

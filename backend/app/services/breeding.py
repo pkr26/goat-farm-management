@@ -30,7 +30,13 @@ from ..models import (
     planned_ultrasound_date,
 )
 from ..utils import add_months, today, utcnow
-from ._common import _add_task, _kidding_record_of, _load_doe, _pending_tasks_for
+from ._common import (
+    _add_task,
+    _clear_task_rejection,
+    _kidding_record_of,
+    _load_doe,
+    _pending_tasks_for,
+)
 from .animals import move_animal
 from .health import PRE_KIDDING_VACCINE_TITLE
 
@@ -483,6 +489,7 @@ async def record_ultrasound_result(
             task.status = TaskStatus.DONE.value
             task.completed_by_id = created_by_id
             task.completed_at = utcnow()
+            _clear_task_rejection(task)
 
     if pregnant:
         br.outcome = BreedingOutcome.CONFIRMED_PREGNANT.value
@@ -496,6 +503,7 @@ async def record_ultrasound_result(
             "Ultrasound confirmed pregnant",
             created_by_id=created_by_id,
             context="ultrasound",
+            reference_date=result_date or today(),
             # A disease hold prevents physical/manual transfer, but the
             # authoritative pregnancy fact and its feed/lifecycle cohort must
             # be committed atomically in the same transaction.
@@ -577,6 +585,7 @@ async def mark_unassessed(
             task.skipped_by_id = closed_by_id
             task.skipped_at = utcnow()
             task.skip_reason = "Doe left the herd before the pregnancy check"
+            _clear_task_rejection(task)
     await db.flush()
     return br
 
@@ -646,6 +655,7 @@ async def mark_aborted(
             "Pregnancy aborted",
             created_by_id=recorded_by_id,
             context="abortion",
+            reference_date=loss_date,
             # This is a domain reclassification caused by the recorded loss,
             # not a health clearance or an operator-requested movement.
             allow_restricted_reclassification=True,
@@ -658,5 +668,6 @@ async def mark_aborted(
             task.skipped_by_id = recorded_by_id
             task.skipped_at = utcnow()
             task.skip_reason = "Pregnancy aborted"
+            _clear_task_rejection(task)
     await db.flush()
     return br

@@ -13,7 +13,7 @@ import statistics
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .assumptions import SimulationAssumptions
+from .assumptions import MAX_MONEY, SimulationAssumptions
 from .engine import _run_core
 from .results import MonteCarloResult, PercentileBand, SensitivityItem
 
@@ -48,10 +48,18 @@ def percentile(values: list[float], p: float) -> float:
 def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> SimulationAssumptions:
     """Apply Monte Carlo multipliers to a deep copy of the assumptions."""
     variant = a.model_copy(deep=True)
-    variant.sales.meat_price_per_kg *= draws["meat_price"]
-    variant.feed.green_price_per_kg *= draws["feed_price"]
-    variant.feed.dry_price_per_kg *= draws["feed_price"]
-    variant.feed.concentrate_price_per_kg *= draws["feed_price"]
+    variant.sales.meat_price_per_kg = min(
+        MAX_MONEY, variant.sales.meat_price_per_kg * draws["meat_price"]
+    )
+    variant.feed.green_price_per_kg = min(
+        MAX_MONEY, variant.feed.green_price_per_kg * draws["feed_price"]
+    )
+    variant.feed.dry_price_per_kg = min(
+        MAX_MONEY, variant.feed.dry_price_per_kg * draws["feed_price"]
+    )
+    variant.feed.concentrate_price_per_kg = min(
+        MAX_MONEY, variant.feed.concentrate_price_per_kg * draws["feed_price"]
+    )
     # Kid mortality scales both pre- and post-weaning rates.
     variant.mortality.kid_pre_weaning = min(
         0.9, variant.mortality.kid_pre_weaning * draws["kid_mortality"]
@@ -60,16 +68,18 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
         0.9, variant.mortality.kid_post_weaning * draws["kid_mortality"]
     )
     variant.mortality.adult = min(0.9, variant.mortality.adult * draws["adult_mortality"])
-    # Litter size is capped at the schema maximum even under extreme draws.
-    variant.reproduction.litter_size = min(
-        4.0, variant.reproduction.litter_size * draws["litter_size"]
+    # Risk runs are executions of the same public model, not a second hidden
+    # model with wider bounds. Clamp both sides of every bounded perturbation.
+    variant.reproduction.litter_size = max(
+        0.5,
+        min(4.0, variant.reproduction.litter_size * draws["litter_size"]),
     )
     # Preserve a schema-valid base of 1.0 when this risk is disabled. The old
     # 0.98 cap changed deterministic assumptions even for a multiplier of 1.
     variant.reproduction.conception_rate = min(
         1.0, variant.reproduction.conception_rate * draws["conception_rate"]
     )
-    return variant
+    return SimulationAssumptions.model_validate(variant.model_dump())
 
 
 def _histogram(values: list[float], bins: int = 20) -> tuple[list[int], list[float]]:
@@ -181,7 +191,8 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
         """(NPV, value actually applied) for one perturbed variant."""
         variant = a.model_copy(deep=True)
         mutate(variant)
-        return _run_core(variant).npv, read(variant)
+        validated = SimulationAssumptions.model_validate(variant.model_dump())
+        return _run_core(validated).npv, read(validated)
 
     cases: list[_SensitivityCase] = [
         _SensitivityCase(
@@ -189,7 +200,11 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
             lambda v: v.sales.meat_price_per_kg,
             _pct_label,
             lambda v: setattr(v.sales, "meat_price_per_kg", v.sales.meat_price_per_kg * 0.8),
-            lambda v: setattr(v.sales, "meat_price_per_kg", v.sales.meat_price_per_kg * 1.2),
+            lambda v: setattr(
+                v.sales,
+                "meat_price_per_kg",
+                min(MAX_MONEY, v.sales.meat_price_per_kg * 1.2),
+            ),
         ),
         _SensitivityCase(
             "feed_prices",
@@ -213,7 +228,11 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
             "litter_size",
             lambda v: v.reproduction.litter_size,
             _pct_label,
-            lambda v: setattr(v.reproduction, "litter_size", v.reproduction.litter_size * 0.8),
+            lambda v: setattr(
+                v.reproduction,
+                "litter_size",
+                max(0.5, v.reproduction.litter_size * 0.8),
+            ),
             # Clamp at 4.0 (schema ceiling); mirrors _apply_draws' Monte Carlo clamp.
             lambda v: setattr(
                 v.reproduction, "litter_size", min(4.0, v.reproduction.litter_size * 1.2)
@@ -242,7 +261,11 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
             lambda v: v.costs.labour_per_month,
             _pct_label,
             lambda v: setattr(v.costs, "labour_per_month", v.costs.labour_per_month * 0.8),
-            lambda v: setattr(v.costs, "labour_per_month", v.costs.labour_per_month * 1.2),
+            lambda v: setattr(
+                v.costs,
+                "labour_per_month",
+                min(MAX_MONEY, v.costs.labour_per_month * 1.2),
+            ),
         ),
         _SensitivityCase(
             "interest_rate",
@@ -252,7 +275,9 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
                 v.finance, "interest_rate_annual", v.finance.interest_rate_annual * 0.8
             ),
             lambda v: setattr(
-                v.finance, "interest_rate_annual", v.finance.interest_rate_annual * 1.2
+                v.finance,
+                "interest_rate_annual",
+                min(0.5, v.finance.interest_rate_annual * 1.2),
             ),
         ),
     ]
@@ -278,6 +303,8 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
 
 
 def _scale_feed_prices(variant: SimulationAssumptions, factor: float) -> None:
-    variant.feed.green_price_per_kg *= factor
-    variant.feed.dry_price_per_kg *= factor
-    variant.feed.concentrate_price_per_kg *= factor
+    variant.feed.green_price_per_kg = min(MAX_MONEY, variant.feed.green_price_per_kg * factor)
+    variant.feed.dry_price_per_kg = min(MAX_MONEY, variant.feed.dry_price_per_kg * factor)
+    variant.feed.concentrate_price_per_kg = min(
+        MAX_MONEY, variant.feed.concentrate_price_per_kg * factor
+    )

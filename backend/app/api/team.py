@@ -2,8 +2,11 @@
 their roles, password resets, and the farm's custom/preset roles."""
 
 import asyncio
+import hashlib
 import json
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -37,6 +40,7 @@ from ..schemas.team import (
 )
 from ..security import PasswordWorkCapacityError, hash_password_async, password_policy_error
 from ..services import IdempotencyKey, execute_idempotent
+from ..services.idempotency import replay_idempotent_if_committed
 from ..utils import utcnow
 
 router = APIRouter(prefix="/api/team", tags=["team"])
@@ -65,16 +69,64 @@ ROLE_RESPONSE_OVERFLOW_REASON = (
 TEAM_PASSWORD_WORK_LIMIT_REASON = "Too many worker password operations — please try again later."
 TEAM_PASSWORD_WORK_SCOPE = "team-password-work"
 TEAM_PASSWORD_RESERVATION_SCOPE = "team-password-work-in-flight"
+MAX_WORKER_IDEMPOTENCY_GATES = 10_000
 
 # Namespace for the per-farm team/role provisioning mutex. Advisory lock keys
 # are global to the database, so every acquisition of it must pass this.
 TEAM_PROVISIONING_LOCK_NAMESPACE = 4712
 
 
+@dataclass
+class _WorkerIdempotencyGate:
+    lock: asyncio.Lock
+    users: int = 0
+
+
+_worker_idempotency_gates: dict[tuple[int, int, str], _WorkerIdempotencyGate] = {}
+
+
+@asynccontextmanager
+async def _serialize_worker_idempotency(
+    *,
+    farm_id: int,
+    actor_id: int,
+    key: str | None,
+) -> AsyncIterator[None]:
+    """Coalesce same-key preparation without retaining a DB connection.
+
+    The deployment runs one API worker because auth throttles are in-memory.
+    This small in-process gate therefore prevents simultaneous retries from
+    repeating Argon work. PostgreSQL idempotency remains authoritative across
+    restarts/processes, so correctness never depends on this optimization.
+    """
+    if key is None:
+        yield
+        return
+    identity = (farm_id, actor_id, hashlib.sha256(key.encode("ascii")).hexdigest())
+    gate = _worker_idempotency_gates.get(identity)
+    if gate is None:
+        if len(_worker_idempotency_gates) >= MAX_WORKER_IDEMPOTENCY_GATES:
+            # Correctness still comes from PostgreSQL; only the local
+            # duplicate-work optimization is skipped at the memory ceiling.
+            yield
+            return
+        gate = _WorkerIdempotencyGate(lock=asyncio.Lock())
+        _worker_idempotency_gates[identity] = gate
+    # No await occurs between lookup and increment; on the single event-loop
+    # thread this is an atomic reference acquisition.
+    gate.users += 1
+    try:
+        async with gate.lock:
+            yield
+    finally:
+        gate.users -= 1
+        if gate.users == 0 and _worker_idempotency_gates.get(identity) is gate:
+            _worker_idempotency_gates.pop(identity, None)
+
+
 @dataclass(frozen=True)
 class PreparedWorkerCreate:
     payload: WorkerCreateIn
-    password_hash: str
     actor_id: int
     actor_token_version: int
     farm_id: int
@@ -167,9 +219,9 @@ async def _hash_team_password(password: str, *, actor_id: int) -> str:
 async def _preflight_worker_create(db: AsyncSession, farm: Farm, payload: WorkerCreateIn) -> None:
     """Reject cheap farm-local failures before consuming an Argon slot.
 
-    These observations are deliberately rechecked under the Farm/Role locks in
-    the mutation. Global email existence stays after hashing so this preflight
-    does not create a timing-based account-enumeration oracle.
+    These observations are rechecked under the Farm/Role locks in the final
+    mutation. Global email existence stays after hashing so this preflight
+    does not create a timing-based account-enumeration signal.
     """
     settings = get_settings()
     count = (
@@ -197,25 +249,24 @@ async def _prepare_worker_create(
     farm: CurrentFarm,
     perms: TEAM_PERM,
 ) -> PreparedWorkerCreate:
-    """Authorize the owner, then hash without holding a DB connection."""
+    """Authorize and snapshot the owner before idempotency arbitration.
+
+    Mutable capacity/role checks and password work intentionally happen inside
+    the idempotent mutation.  An already-committed retry must be replayed before
+    those preconditions are re-evaluated, and simultaneous duplicates must let
+    PostgreSQL choose one claimant before either repeats Argon work.
+    """
     if user.id != farm.owner_id:
         raise HTTPException(status_code=403, detail=CREATE_WORKER_OWNER_ONLY_REASON)
-    password = payload.password or ""
-    error = password_policy_error(password)
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    await _preflight_worker_create(db, farm, payload)
     actor_id = user.id
     actor_token_version = user.token_version
     farm_id = farm.id
     # CurrentFarm pins the canonical owner authorization bundle on unsafe
-    # requests. End that transaction before Argon work so a slow hash neither
-    # occupies the DB pool nor blocks account revocation. The route
-    # reauthorizes this exact principal snapshot before any target lock.
+    # requests. End that transaction, then let the route reauthorize this exact
+    # principal snapshot immediately before idempotency/farm arbitration.
     await db.rollback()
     return PreparedWorkerCreate(
         payload=payload,
-        password_hash=await _hash_team_password(password, actor_id=actor_id),
         actor_id=actor_id,
         actor_token_version=actor_token_version,
         farm_id=farm_id,
@@ -266,7 +317,7 @@ async def _reauthorize_prepared_owner(
     actor_token_version: int,
     farm_id: int,
 ) -> tuple[User, Farm]:
-    """Revalidate the exact owner snapshot after off-transaction hashing."""
+    """Revalidate the exact owner snapshot after off-transaction preparation."""
     user = (
         await db.execute(
             select(User)
@@ -663,7 +714,70 @@ async def create_worker(
     account-takeover primitive because farm managers can reset provisioned
     worker passwords.
     """
+    async with _serialize_worker_idempotency(
+        farm_id=prepared.farm_id,
+        actor_id=prepared.actor_id,
+        key=idempotency_key,
+    ):
+        return await _create_worker_after_idempotency_gate(
+            prepared=prepared,
+            response=response,
+            db=db,
+            idempotency_key=idempotency_key,
+        )
+
+
+async def _create_worker_after_idempotency_gate(
+    *,
+    prepared: PreparedWorkerCreate,
+    response: Response,
+    db: AsyncSession,
+    idempotency_key: str | None,
+) -> MembershipOut:
     payload = prepared.payload
+    replay: MembershipOut | None = None
+    try:
+        user, farm = await _reauthorize_prepared_owner(
+            db,
+            actor_id=prepared.actor_id,
+            actor_token_version=prepared.actor_token_version,
+            farm_id=prepared.farm_id,
+        )
+        # Resolve an already-committed response before mutable password,
+        # capacity, or role policy. The lookup is read-only and the enclosing
+        # authorization transaction is rolled back before Argon work.
+        if idempotency_key is not None:
+            replay = await replay_idempotent_if_committed(
+                db,
+                http_response=response,
+                key=idempotency_key,
+                farm_id=farm.id,
+                actor_id=user.id,
+                operation="team.workers.create",
+                payload=payload,
+                path_identity={},
+                response_type=MembershipOut,
+            )
+        if replay is None:
+            password = payload.password or ""
+            error = password_policy_error(password)
+            if error:
+                raise HTTPException(status_code=400, detail=error)
+            await _preflight_worker_create(db, farm, payload)
+    finally:
+        # Releases the User FOR SHARE pin and every connection before the
+        # memory-hard password operation starts, including on replay/conflict.
+        await db.rollback()
+
+    if replay is not None:
+        return replay
+
+    password_hash = await _hash_team_password(
+        payload.password or "",
+        actor_id=prepared.actor_id,
+    )
+    # Revocation, ownership transfer, role deletion, and capacity are all
+    # rechecked after off-transaction preparation before mutation.
     user, farm = await _reauthorize_prepared_owner(
         db,
         actor_id=prepared.actor_id,
@@ -702,7 +816,7 @@ async def create_worker(
         worker = User(
             email=email,
             name=(payload.name or "").strip() or None,
-            password_hash=prepared.password_hash,
+            password_hash=password_hash,
         )
         db.add(worker)
         try:
@@ -736,8 +850,7 @@ async def create_worker(
 
     # Only a keyed HMAC-SHA-256 request fingerprint is persisted; neither the
     # raw password nor its Argon hash enters the idempotency record/response.
-    # Take the capacity serialization lock before the claim insert so distinct
-    # idempotency keys enter mutate() in a defined order.
+    # PostgreSQL still arbitrates a cross-process race after preparation.
     await _lock_farm_provisioning(db, farm)
     return await execute_idempotent(
         db,

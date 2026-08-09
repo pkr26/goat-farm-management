@@ -373,12 +373,15 @@ def _legacy_event_matches(
     if schedule_template_name:
         return _normalize(schedule_template_name) == _normalize(template_name)
     haystack = _normalize(f"{product_name or ''} {disease_target or ''}")
+    words = _words(haystack)
     key = _normalize(template_name.split("(")[0])
     if key.startswith("deworm"):
-        return event_type == HealthEventType.DEWORMING.value or "deworm" in haystack
-    if key and key in haystack:
+        return event_type == HealthEventType.DEWORMING.value or any(
+            word.startswith("deworm") for word in words
+        )
+    if key and _has_alias(words, key):
         return True
-    if any(alias in haystack for alias in _TEMPLATE_ALIASES.get(key, ())):
+    if any(_has_alias(words, alias) for alias in _TEMPLATE_ALIASES.get(key, ())):
         return True
     abbrev_match = re.search(r"\(([^)]+)\)", template_name)
     abbrev = abbrev_match.group(1).strip().lower() if abbrev_match else ""
@@ -520,25 +523,29 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
             if dob and template.first_dose_age_months is not None
             else None
         )
-        booster_due = (
-            first_due + timedelta(weeks=template.booster_weeks)
-            if first_due and template.booster_weeks
-            else None
-        )
         done = events_by_template[template.id]
         last_event = done[0] if done else None
         last_done = last_event.event_date if last_event is not None else None
+        # Before any dose, show the planned DOB-derived booster date. Once the
+        # first real dose exists, its actual administration date becomes the
+        # anchor; otherwise a late primary dose can make its booster appear to
+        # have happened in the past and jump straight to the repeat cadence.
+        if template.booster_weeks and len(done) == 1 and last_done is not None:
+            booster_due = last_done + timedelta(weeks=template.booster_weeks)
+        else:
+            booster_due = (
+                first_due + timedelta(weeks=template.booster_weeks)
+                if first_due and template.booster_weeks
+                else None
+            )
         next_due = None
         if last_event and last_event.next_due_date and last_event.next_due_authority:
             next_due = last_event.next_due_date
+        elif len(done) == 1 and booster_due is not None:
+            next_due = booster_due
         elif last_done and template.repeat_months:
             next_due = add_months(last_done, int(template.repeat_months))
-        booster_missed = (
-            len(done) == 1
-            and bool(template.booster_weeks)
-            and last_done is not None
-            and last_done + timedelta(weeks=template.booster_weeks or 0) < reference_date
-        )
+        booster_missed = len(done) == 1 and booster_due is not None and booster_due < reference_date
         if booster_missed:
             # First dose recorded but the booster window lapsed with no second
             # matching event — DONE would hide the missed booster.

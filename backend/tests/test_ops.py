@@ -23,7 +23,13 @@ from sqlalchemy import delete, event, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 import app.main as main_module
-from app.core.config import Settings, get_settings
+from app.core.config import (
+    DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET,
+    PRODUCTION_REFRESH_COOKIE_NAME,
+    MigrationSettings,
+    Settings,
+    get_settings,
+)
 from app.db import get_engine, get_sessionmaker
 from app.main import create_app, lifespan
 from app.models import (
@@ -183,7 +189,7 @@ def test_production_refuses_insecure_cookie() -> None:
             environment="production",
             cookie_secure=False,
             cors_origins=["https://app.example.com"],
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=12,
         )
 
@@ -194,7 +200,7 @@ def test_production_refuses_localhost_cors() -> None:
             environment="production",
             cookie_secure=True,
             cors_origins=["http://localhost:3000"],
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=12,
         )
 
@@ -205,20 +211,40 @@ def test_production_refuses_empty_cors() -> None:
             environment="production",
             cookie_secure=True,
             cors_origins=[],
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=12,
         )
 
 
-def test_production_refuses_plaintext_db_sslmode() -> None:
+@pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer", "require", "verify-ca"])
+def test_production_refuses_db_sslmode_without_hostname_verification(sslmode: str) -> None:
     with pytest.raises(ValidationError, match="GOATFARM_DB_SSLMODE"):
         Settings(
             environment="production",
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
-            db_sslmode="disable",
+            db_sslmode=sslmode,  # type: ignore[arg-type]
             min_password_length=12,
         )
+
+
+@pytest.mark.parametrize("sslmode", ["disable", "allow", "prefer", "require", "verify-ca"])
+def test_production_migration_refuses_db_without_hostname_verification(sslmode: str) -> None:
+    with pytest.raises(ValidationError, match=r"Refusing migration.*GOATFARM_DB_SSLMODE"):
+        MigrationSettings(
+            environment="production",
+            migration_database_url="postgresql+asyncpg://migrator@db:5432/goatfarm",
+            db_sslmode=sslmode,  # type: ignore[arg-type]
+        )
+
+
+def test_production_migration_accepts_tls_without_api_secrets() -> None:
+    settings = MigrationSettings(
+        environment="production",
+        migration_database_url="postgresql+asyncpg://migrator@db:5432/goatfarm",
+        db_sslmode="verify-full",
+    )
+    assert settings.environment == "production"
 
 
 @pytest.mark.parametrize(
@@ -238,7 +264,7 @@ def test_production_refuses_non_exact_https_cors(origin: str) -> None:
             environment="production",
             cookie_secure=True,
             cors_origins=[origin],
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=12,
         )
 
@@ -249,7 +275,7 @@ def test_production_requires_twelve_character_password_minimum() -> None:
             environment="production",
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=11,
         )
 
@@ -273,7 +299,7 @@ def test_production_refuses_weak_argon2_profile(
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             allowed_hosts=["api.example.com"],
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=12,
             **{field: value},  # type: ignore[arg-type]
         )
@@ -285,12 +311,38 @@ def test_production_accepts_valid_config() -> None:
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         allowed_hosts=["api.example.com"],
-        db_sslmode="require",
+        db_sslmode="verify-full",
         min_password_length=12,
         idempotency_request_hmac_secret=VALID_IDEMPOTENCY_HMAC_SECRET,
         idempotency_request_hmac_previous_secrets=[VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET],
     )
     assert settings.environment == "production"
+    assert settings.refresh_cookie_name == PRODUCTION_REFRESH_COOKIE_NAME
+
+
+def test_production_rejects_refresh_cookie_without_host_prefix() -> None:
+    with pytest.raises(ValidationError, match="GOATFARM_REFRESH_COOKIE_NAME"):
+        Settings(
+            environment="production",
+            cookie_secure=True,
+            refresh_cookie_name="legacy_refresh",
+            cors_origins=["https://app.example.com"],
+            allowed_hosts=["api.example.com"],
+            db_sslmode="verify-full",
+            min_password_length=12,
+            idempotency_request_hmac_secret=VALID_IDEMPOTENCY_HMAC_SECRET,
+        )
+
+
+@pytest.mark.parametrize("name", ["", "refresh cookie", "refresh;legacy", "refresh=legacy"])
+def test_settings_rejects_invalid_refresh_cookie_name(name: str) -> None:
+    with pytest.raises(ValidationError, match="valid cookie token"):
+        Settings(refresh_cookie_name=name)
+
+
+def test_host_prefixed_refresh_cookie_requires_secure_transport() -> None:
+    with pytest.raises(ValidationError, match="GOATFARM_COOKIE_SECURE"):
+        Settings(refresh_cookie_name="__Host-goatfarm_refresh", cookie_secure=False)
 
 
 @pytest.mark.parametrize(
@@ -308,6 +360,11 @@ def test_production_accepts_valid_config() -> None:
             [VALID_IDEMPOTENCY_HMAC_SECRET],
             "must not also appear",
         ),
+        (
+            VALID_IDEMPOTENCY_HMAC_SECRET,
+            [DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET],
+            "known development fallback",
+        ),
     ],
 )
 def test_production_rejects_invalid_idempotency_hmac_keyring(
@@ -320,7 +377,7 @@ def test_production_rejects_invalid_idempotency_hmac_keyring(
         "cookie_secure": True,
         "cors_origins": ["https://app.example.com"],
         "allowed_hosts": ["api.example.com"],
-        "db_sslmode": "require",
+        "db_sslmode": "verify-full",
         "min_password_length": 12,
         "idempotency_request_hmac_previous_secrets": previous,
     }
@@ -347,7 +404,7 @@ def test_production_refuses_unsafe_allowed_hosts(host: list[str]) -> None:
             cookie_secure=True,
             cors_origins=["https://app.example.com"],
             allowed_hosts=host,
-            db_sslmode="require",
+            db_sslmode="verify-full",
             min_password_length=12,
         )
 
@@ -393,7 +450,7 @@ def test_docs_gated_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
     monkeypatch.setenv("GOATFARM_ALLOWED_HOSTS", '["api.example.com"]')
-    monkeypatch.setenv("GOATFARM_DB_SSLMODE", "require")
+    monkeypatch.setenv("GOATFARM_DB_SSLMODE", "verify-full")
     monkeypatch.setenv("GOATFARM_MIN_PASSWORD_LENGTH", "12")
     monkeypatch.setenv(
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
@@ -431,7 +488,7 @@ def _production_key_env(monkeypatch: pytest.MonkeyPatch, private: Path, public: 
     monkeypatch.setenv("GOATFARM_COOKIE_SECURE", "true")
     monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["https://app.example.com"]')
     monkeypatch.setenv("GOATFARM_ALLOWED_HOSTS", '["api.example.com"]')
-    monkeypatch.setenv("GOATFARM_DB_SSLMODE", "require")
+    monkeypatch.setenv("GOATFARM_DB_SSLMODE", "verify-full")
     monkeypatch.setenv("GOATFARM_MIN_PASSWORD_LENGTH", "12")
     monkeypatch.setenv(
         "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET",
@@ -931,7 +988,13 @@ async def test_unhandled_errors_keep_the_request_id_and_security_headers(
     caplog.handler.addFilter(main_module._RequestIdFilter())
     with caplog.at_level("ERROR", logger="goatfarm"):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
-            response = await failing.get("/api/_boom", headers={"X-Request-ID": "trace-500"})
+            response = await failing.get(
+                "/api/_boom",
+                headers={
+                    "X-Request-ID": "trace-500",
+                    "Origin": "http://localhost:3000",
+                },
+            )
 
     # The traceback is logged while the id is still bound, not as `[-]`.
     traceback_record = next(
@@ -945,3 +1008,25 @@ async def test_unhandled_errors_keep_the_request_id_and_security_headers(
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Access-Control-Allow-Origin"] == "http://localhost:3000"
+    assert response.headers["Access-Control-Allow-Credentials"] == "true"
+    assert "X-Request-ID" in response.headers["Access-Control-Expose-Headers"]
+    assert "Origin" in response.headers["Vary"]
+
+
+async def test_unhandled_error_does_not_reflect_untrusted_cors_origin() -> None:
+    app = create_app()
+
+    @app.get("/api/_cors-boom")
+    async def boom() -> None:  # pragma: no cover - raises by design
+        raise RuntimeError("kaboom")
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
+        response = await failing.get(
+            "/api/_cors-boom",
+            headers={"Origin": "https://untrusted.example"},
+        )
+
+    assert response.status_code == 500
+    assert "Access-Control-Allow-Origin" not in response.headers

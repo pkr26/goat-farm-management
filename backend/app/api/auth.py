@@ -80,6 +80,21 @@ UNTRUSTED_COOKIE_ORIGIN = "Untrusted origin for cookie-authenticated request."
 EMAIL_LIMIT_MULTIPLIER = 3
 IP_LIMIT_MULTIPLIER = 10
 
+# Refresh signature checks are much cheaper than Argon2, but they still need an
+# admission ceiling *before* untrusted JWT material reaches PyJWT.  This wider
+# all-request budget is deliberately wider than ``refresh-invalid`` so normal
+# page-load refreshes have shared-NAT headroom. Both buckets are checked before
+# PyJWT: once the smaller rejected-token budget is full, later requests do not
+# repeat signature work merely to return 429.
+REFRESH_PREVERIFY_SCOPE = "refresh-preverify"
+REFRESH_PREVERIFY_LIMIT_MULTIPLIER = 10
+
+
+def _refresh_preverification_limit(max_attempts: int) -> int:
+    """Return the wider all-refresh admission ceiling."""
+    return max_attempts * REFRESH_PREVERIFY_LIMIT_MULTIPLIER
+
+
 # Current-password confirmation is what stops a stolen access token from
 # becoming a permanent account takeover, so it gets the same two-layer budget:
 # a composite (IP, account) counter plus an IP-agnostic per-account ceiling
@@ -280,8 +295,70 @@ def _set_refresh_cookie(response: Response, token: str, *, max_age: int | None =
         httponly=True,
         samesite="lax",
         secure=s.cookie_secure,
-        path="/api/auth",
+        # ``__Host-`` cookies require Path=/ and no Domain.  Keeping the same
+        # path in development makes cookie identity/deletion consistent across
+        # environments and prevents a deployment-only behavior change.
+        path="/",
     )
+
+
+def _delete_refresh_cookie(response: Response) -> None:
+    """Expire the refresh cookie using the same identity/security attributes."""
+    settings = get_settings()
+    response.delete_cookie(
+        settings.refresh_cookie_name,
+        path="/",
+        secure=settings.cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def _refresh_cookie(request: Request) -> str | None:
+    """Return exactly one refresh cookie, rejecting ambiguous duplicates.
+
+    ``Request.cookies`` is a mapping, so duplicate names have already been
+    collapsed by the time a route reads it.  Count the raw Cookie fields first;
+    this closes parent-domain/host-only ambiguity on legacy deployments while
+    the production ``__Host-`` prefix prevents such duplicates being created.
+    Refresh JWTs contain no semicolons, so a simple RFC cookie-pair split is
+    sufficient and fails closed for malformed input.
+    """
+    name = get_settings().refresh_cookie_name
+    count = 0
+    for header in request.headers.getlist("cookie"):
+        for pair in header.split(";"):
+            cookie_name, separator, _value = pair.strip().partition("=")
+            if separator and cookie_name == name:
+                count += 1
+                if count > 1:
+                    return None
+    if count != 1:
+        return None
+    return request.cookies.get(name)
+
+
+def _check_refresh_preverification_budget(request: Request) -> None:
+    """Bound JWT verification work before decoding the supplied cookie."""
+    settings = get_settings()
+    if not settings.auth_rate_limit_enabled:
+        return
+    key = _client_key(request)
+    invalid_limit = settings.auth_rate_limit_max_attempts
+    preverification_limit = _refresh_preverification_limit(invalid_limit)
+    window = settings.auth_rate_limit_window_seconds
+    if auth_limiter.is_blocked("refresh-invalid", key, invalid_limit, window):
+        logger.info("refresh-invalid throttled before verification (ip=%s)", key)
+        raise _too_many_attempts()
+    if auth_limiter.is_blocked(
+        REFRESH_PREVERIFY_SCOPE,
+        key,
+        preverification_limit,
+        window,
+    ):
+        logger.info("refresh pre-verification throttled (ip=%s)", key)
+        raise _too_many_attempts()
+    auth_limiter.record(REFRESH_PREVERIFY_SCOPE, key, window)
 
 
 async def _make_refresh_session_slot(
@@ -407,16 +484,29 @@ async def _issue_tokens(
 
 
 def _raise_invalid_refresh(request: Request) -> NoReturn:
-    """Charge only rejected refreshes to the abuse budget.
+    """Track only rejected refreshes at the base auth ceiling.
 
-    A normal page reload performs a successful refresh because the access
-    token is intentionally memory-only. Charging successes lets ordinary
-    navigation exhaust a shared NAT/proxy IP bucket and log users out.
+    The wider predecode counter necessarily sees all requests because validity
+    is unknowable until after signature checking. This smaller bucket is also
+    checked before decoding the next request.
     """
+    settings = get_settings()
     rate_key = _client_key(request)
-    if _rate_limited("refresh-invalid", rate_key):
-        raise _too_many_attempts()
-    _record_attempt("refresh-invalid", rate_key)
+    limit = settings.auth_rate_limit_max_attempts
+    if settings.auth_rate_limit_enabled:
+        if auth_limiter.is_blocked(
+            "refresh-invalid",
+            rate_key,
+            limit,
+            settings.auth_rate_limit_window_seconds,
+        ):
+            logger.info("refresh-invalid throttled (key=%s)", rate_key)
+            raise _too_many_attempts()
+        auth_limiter.record(
+            "refresh-invalid",
+            rate_key,
+            settings.auth_rate_limit_window_seconds,
+        )
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
 
@@ -531,7 +621,8 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
 @router.post("/refresh")
 async def refresh(request: Request, response: Response, db: DbSession) -> TokenOut:
     _guard_cookie_request_origin(request)
-    token = request.cookies.get(get_settings().refresh_cookie_name)
+    _check_refresh_preverification_budget(request)
+    token = _refresh_cookie(request)
     claims = decode_refresh_claims(token) if token else None
     if claims is None:
         _raise_invalid_refresh(request)
@@ -637,7 +728,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     _guard_cookie_request_origin(request)
     # Revoke the presented session server-side — deleting the
     # cookie alone leaves an exfiltrated token fully usable.
-    token = request.cookies.get(get_settings().refresh_cookie_name)
+    token = _refresh_cookie(request)
     claims = decode_refresh_claims(token) if token else None
     authorization = request.headers.get("Authorization")
     access_claims = (
@@ -706,7 +797,7 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                 await revoke_user_sessions(db, logged_out_user.id)
             logged_out_user.token_version += 1
     await db.commit()
-    response.delete_cookie(get_settings().refresh_cookie_name, path="/api/auth")
+    _delete_refresh_cookie(response)
     response.status_code = 204
     return response
 
@@ -970,7 +1061,7 @@ async def delete_account(
         await db.commit()
         _reset_account_password_attempts(*scopes)
 
-        response.delete_cookie(get_settings().refresh_cookie_name, path="/api/auth")
+        _delete_refresh_cookie(response)
         response.status_code = 204
         return response
     finally:

@@ -3088,6 +3088,11 @@ async def test_reject_repairs_a_legacy_personal_duty_instead_of_500(
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "PENDING"
     assert response.json()["assigned_role_id"] == cleaner_role
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("ALTER TABLE tasks VALIDATE CONSTRAINT ck_tasks_user_assignment_has_role")
+        )
+        await db.commit()
 
 
 async def test_manual_queue_lock_does_not_deadlock_with_an_animal_first_sale(

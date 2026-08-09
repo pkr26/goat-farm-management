@@ -31,15 +31,22 @@ def planned_ultrasound_date(breeding_date: date) -> date:
 CONCEIVED_OUTCOMES = frozenset(
     {BreedingOutcome.CONFIRMED_PREGNANT.value, BreedingOutcome.ABORTED.value}
 )
+ASSESSED_OUTCOMES = frozenset(
+    {
+        BreedingOutcome.CONFIRMED_PREGNANT.value,
+        BreedingOutcome.ABORTED.value,
+        BreedingOutcome.FAILED.value,
+    }
+)
 
 
 def conception_rate(records: Iterable[BreedingRecord]) -> float | None:
-    """Conceived / total completed breedings (PENDING excluded). Percent or None.
+    """Conceived / assessed breedings. Percent or ``None`` when none were assessed.
 
     ``GET /api/dashboard/reports`` computes the same metric in SQL from
     ``CONCEIVED_OUTCOMES``; the two implementations must never drift.
     """
-    completed = [r for r in records if r.outcome != BreedingOutcome.PENDING.value]
+    completed = [r for r in records if r.outcome in ASSESSED_OUTCOMES]
     if not completed:
         return None
     conceived = sum(1 for r in completed if r.outcome in CONCEIVED_OUTCOMES)

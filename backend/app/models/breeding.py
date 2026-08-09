@@ -244,6 +244,13 @@ class KidEntry(Base):
             ["animals.farm_id", "animals.id"],
             name="fk_kid_entries_farm_animal",
         ),
+        Index(
+            "uq_kid_entries_farm_tag",
+            "farm_id",
+            "tag",
+            unique=True,
+            postgresql_where=text("tag IS NOT NULL AND btrim(tag) <> ''"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

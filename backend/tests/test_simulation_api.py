@@ -641,6 +641,32 @@ def test_run_cost_window_expires_and_keeps_scopes_apart() -> None:
     assert not window.is_over_budget("user", 1)
 
 
+def test_run_cost_window_checks_the_prospective_request_cost() -> None:
+    window = _RunCostWindow(window_seconds=60, budget=100, max_keys=10)
+    window.charge("user", 1, 99)
+    assert not window.would_exceed_budget("user", 1, 1)
+    assert window.would_exceed_budget("user", 1, 2)
+
+
+async def test_run_endpoint_rejects_a_request_that_would_cross_cpu_budget(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    farm_id = int(headers["X-Farm-Id"])
+    cost = _run_cost(SimulationAssumptions.model_validate(assumptions), False, False)
+    _run_budget.charge("farm", farm_id, _RUN_BUDGET_UNITS - cost + 1)
+    try:
+        response = await client.post(
+            "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
+        )
+        assert response.status_code == 429, response.text
+        assert "budget" in response.json()["detail"]
+    finally:
+        _run_budget.clear()
+
+
 async def test_run_endpoints_429_once_the_cpu_budget_is_spent(
     client: httpx.AsyncClient,
 ) -> None:

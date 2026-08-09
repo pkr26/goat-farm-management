@@ -1056,7 +1056,11 @@ async def test_worker_create_replays_and_deduplicates_without_persisting_passwor
 ) -> None:
     owner = await owner_with_farm(client)
 
+    hash_calls = 0
+
     async def immediate_hash(password: str, *, actor_id: int) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
         return f"prepared:{password}"
 
     # Keep this focused on the idempotency claim race. Actor-level password
@@ -1077,6 +1081,7 @@ async def test_worker_create_replays_and_deduplicates_without_persisting_passwor
     assert first.status_code == replay.status_code == 201
     assert replay.json() == first.json()
     assert replay.headers["Idempotency-Replayed"] == "true"
+    assert hash_calls == 1  # committed retries bypass password work
 
     conflict = await client.post(
         "/api/team/workers",
@@ -1095,6 +1100,7 @@ async def test_worker_create_replays_and_deduplicates_without_persisting_passwor
     )
     assert one.status_code == two.status_code == 201
     assert one.json() == two.json()
+    assert hash_calls == 2  # one sequential action + one concurrent winner
 
     async with get_sessionmaker()() as db:
         users = (
@@ -1142,6 +1148,41 @@ async def test_worker_create_replays_and_deduplicates_without_persisting_passwor
     ).encode("utf-8")
     candidate_sha = hashlib.sha256(canonical).hexdigest()
     assert sequential_record.request_hash != candidate_sha
+
+
+async def test_worker_create_replays_before_team_capacity_preflight(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = await owner_with_farm(client, email="worker-cap-replay-owner@farm.in")
+    monkeypatch.setattr(get_settings(), "max_team_members_per_farm", 1)
+    page = await client.get("/api/team", headers=owner)
+    cleaner = next(role["id"] for role in page.json()["roles"] if role["code"] == "CLEANER")
+    hash_calls = 0
+
+    async def immediate_hash(password: str, *, actor_id: int) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
+        return f"prepared:{password}"
+
+    monkeypatch.setattr(team_api, "_hash_team_password", immediate_hash)
+    body = {
+        "email": "worker-cap-replay@farm.in",
+        "password": WORKER_PASSWORD,
+        "role_id": cleaner,
+    }
+    headers = owner | {"Idempotency-Key": "worker-capacity-lost-response"}
+
+    first = await client.post("/api/team/workers", json=body, headers=headers)
+    # A committed result is authoritative even if mutable provisioning policy
+    # changes before the client retries a lost response.
+    monkeypatch.setattr(get_settings(), "min_password_length", 20)
+    replay = await client.post("/api/team/workers", json=body, headers=headers)
+
+    assert first.status_code == replay.status_code == 201
+    assert replay.json() == first.json()
+    assert replay.headers["Idempotency-Replayed"] == "true"
+    assert hash_calls == 1
 
 
 async def test_worker_create_replay_accepts_previous_hmac_key_during_rotation(

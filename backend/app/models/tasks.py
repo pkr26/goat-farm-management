@@ -101,6 +101,11 @@ class Task(Base):
             name="ck_tasks_rejection_attribution",
         ),
         CheckConstraint(
+            "status = 'PENDING' OR (verification_note IS NULL "
+            "AND rejected_by_id IS NULL AND rejected_at IS NULL)",
+            name="ck_tasks_rejection_current_state",
+        ),
+        CheckConstraint(
             "status <> 'PENDING' OR assigned_user_id IS NULL OR assigned_role_id IS NOT NULL",
             name="ck_tasks_user_assignment_has_role",
         ),
@@ -163,7 +168,10 @@ class Task(Base):
     @property
     def needs_verification(self) -> bool:
         """DONE for these categories means 'awaiting verification', not final."""
-        return self.category in VERIFICATION_REQUIRED_CATEGORIES
+        return (
+            self.status == TaskStatus.DONE.value
+            and self.category in VERIFICATION_REQUIRED_CATEGORIES
+        )
 
 
 Index(

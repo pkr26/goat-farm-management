@@ -9,7 +9,7 @@ from sqlalchemy import false, func, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, Transaction, TransactionType
+from ..models import Animal, BucketMove, HealthEvent, PurchaseBatch, Transaction, TransactionType
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.finance import (
     FinanceOut,
@@ -20,7 +20,15 @@ from ..schemas.finance import (
     TransactionOut,
     TransactionTypeStr,
 )
-from ..services import IdempotencyKey, execute_idempotent, monthly_pnl, require_farm_not_future
+from ..services import (
+    IdempotencyKey,
+    execute_idempotent,
+    monthly_pnl,
+    require_animal_event_chronology,
+    require_farm_not_future,
+    require_purchase_before_recorded_facts,
+    require_status_after_recorded_facts,
+)
 from ..utils import add_months, money, utcnow
 
 router = APIRouter(prefix="/api/finance", tags=["finance"])
@@ -84,7 +92,7 @@ async def _reconcile_source_record(
     farm: CurrentFarm,
     txn: Transaction,
     payload: TransactionCorrectionIn,
-) -> None:
+) -> tuple[int | None, str | None] | None:
     """Keep a system-generated row and the record that produced it in step.
 
     A source-linked transaction is the ledger's copy of a domain event and the
@@ -97,7 +105,7 @@ async def _reconcile_source_record(
     diverged permanently.
     """
     if txn.source_type is None or txn.source_id is None:
-        return
+        return None
     if payload.type != txn.type or payload.category != txn.category:
         raise HTTPException(
             status_code=422,
@@ -107,27 +115,124 @@ async def _reconcile_source_record(
             ),
         )
     amount = money(payload.amount)
-    if amount == txn.amount:
-        return
+    canonical_related: tuple[int | None, str | None]
     if txn.source_type == "ANIMAL_SALE":
-        (await _locked_source_animal(db, farm, txn.source_id)).sale_price = amount
-        return
-    if txn.source_type == "ANIMAL_PURCHASE":
-        (await _locked_source_animal(db, farm, txn.source_id)).purchase_price = amount
-        return
-    # A PURCHASE_BATCH total is allocated across every animal of the batch and a
-    # HEALTH_EVENT total across every event of the submission. Pushing a new
-    # total back would have to re-allocate an unbounded number of rows inside
-    # this request, so refuse the amount change instead of leaving those
-    # records contradicting the ledger. Date, notes and the animal link stay
-    # correctable, and a compensating entry can still adjust the books.
-    raise HTTPException(
-        status_code=409,
-        detail=(
-            f"A {txn.source_type} amount is shared by the records it was booked from; "
-            "correct the date or notes here and book a compensating entry for the amount"
-        ),
-    )
+        animal = await _locked_source_animal(db, farm, txn.source_id)
+        try:
+            require_animal_event_chronology(animal, payload.date, "Sale date")
+            await require_status_after_recorded_facts(db, animal, payload.date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        withdrawal = (
+            await db.execute(
+                select(func.max(HealthEvent.withdrawal_until)).where(
+                    HealthEvent.farm_id == farm.id,
+                    HealthEvent.animal_id == animal.id,
+                    HealthEvent.withdrawal_until >= payload.date,
+                )
+            )
+        ).scalar_one_or_none()
+        if withdrawal is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
+            )
+        animal.sale_price = amount
+        animal.status_date = payload.date
+        canonical_related = (animal.id, animal.tag_number)
+    elif txn.source_type == "ANIMAL_PURCHASE":
+        animal = await _locked_source_animal(db, farm, txn.source_id)
+        if animal.effective_dob is not None and payload.date < animal.effective_dob:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Purchase date cannot predate {animal.tag_number}'s recorded birth date",
+            )
+        if animal.status_date is not None and payload.date > animal.status_date:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Purchase date cannot follow {animal.tag_number}'s terminal status date",
+            )
+        try:
+            await require_purchase_before_recorded_facts(db, animal, payload.date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        initial_move = (
+            await db.execute(
+                select(BucketMove)
+                .where(BucketMove.animal_id == animal.id, BucketMove.from_bucket.is_(None))
+                .order_by(BucketMove.id)
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if initial_move is not None:
+            initial_move.effective_date = payload.date
+        animal.purchase_price = amount
+        animal.purchase_date = payload.date
+        canonical_related = (animal.id, animal.tag_number)
+    elif txn.source_type == "PURCHASE_BATCH":
+        batch = (
+            await db.execute(
+                select(PurchaseBatch)
+                .where(PurchaseBatch.id == txn.source_id, PurchaseBatch.farm_id == farm.id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if batch is None:
+            raise HTTPException(
+                status_code=409,
+                detail="The purchase batch this transaction was booked from no longer exists",
+            )
+        allocated_count = (
+            await db.execute(
+                select(func.count(Animal.id)).where(
+                    Animal.farm_id == farm.id,
+                    Animal.purchase_batch_id == batch.id,
+                )
+            )
+        ).scalar_one()
+        if allocated_count:
+            if amount != txn.amount or payload.date != txn.date:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "A PURCHASE_BATCH amount and date are allocated across its animals; "
+                        "book a compensating entry instead"
+                    ),
+                )
+        else:
+            # No animal ever received a per-head allocation or purchase date,
+            # so this ledger-only batch can be corrected without fan-out.
+            batch.total_price = amount
+            batch.date = payload.date
+        canonical_related = (txn.related_animal_id, None)
+    elif txn.source_type == "FEED_PURCHASE":
+        # A feed restock currently has no independently allocated source row:
+        # the source pair identifies the audited ledger chain itself. Repricing
+        # it therefore cannot leave per-head/event amounts behind.
+        canonical_related = (txn.related_animal_id, None)
+    else:
+        # HEALTH_EVENT and any future shared sources may represent a bounded
+        # submission fan-out. Notes are ledger narrative, but changing money or
+        # date without a source-specific reconciler would create two versions
+        # of the same event.
+        if amount != txn.amount or payload.date != txn.date:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A {txn.source_type} amount and date are shared by the records it was "
+                    "booked from; book a compensating entry instead"
+                ),
+            )
+        canonical_related = (txn.related_animal_id, None)
+
+    canonical_id, canonical_tag = canonical_related
+    if payload.related_animal_id not in (None, canonical_id):
+        raise HTTPException(
+            status_code=422,
+            detail="A source-linked transaction cannot be moved to a different animal",
+        )
+    return canonical_id, canonical_tag
 
 
 @router.get("")
@@ -296,9 +401,14 @@ async def correct_transaction(
             raise HTTPException(status_code=404, detail="Transaction not found")
         if txn.voided_at is not None:
             raise HTTPException(status_code=409, detail="Transaction has already been corrected")
-        await _reconcile_source_record(db, farm, txn, payload)
+        source_related = await _reconcile_source_record(db, farm, txn, payload)
 
-        animal_pk, animal_tag = await _resolve_related_animal(db, farm, payload.related_animal_id)
+        if source_related is None:
+            animal_pk, animal_tag = await _resolve_related_animal(
+                db, farm, payload.related_animal_id
+            )
+        else:
+            animal_pk, animal_tag = source_related
 
         txn.voided_at = utcnow()
         txn.voided_by_id = user.id

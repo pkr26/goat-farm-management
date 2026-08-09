@@ -131,11 +131,8 @@ case "${DB_SSLMODE}" in
         exit 2
         ;;
 esac
-if [[ "${ENVIRONMENT}" == "production" \
-    && "${DB_SSLMODE}" != "require" \
-    && "${DB_SSLMODE}" != "verify-ca" \
-    && "${DB_SSLMODE}" != "verify-full" ]]; then
-    echo "Production restores require GOATFARM_DB_SSLMODE=require, verify-ca, or verify-full" >&2
+if [[ "${ENVIRONMENT}" == "production" && "${DB_SSLMODE}" != "verify-full" ]]; then
+    echo "Production restores require GOATFARM_DB_SSLMODE=verify-full" >&2
     exit 2
 fi
 if [[ ! -f "${BACKUP_SOURCE}" || -L "${BACKUP_SOURCE}" ]]; then

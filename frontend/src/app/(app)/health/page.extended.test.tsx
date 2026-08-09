@@ -229,6 +229,7 @@ describe("HealthPage", () => {
           scope: target.scope,
           bucket: target.bucket ?? null,
           purchase_batch_id: target.purchase_batch_id ?? null,
+          task_id: target.task_id ?? null,
           target_animal_ids: [3, 4],
           target_animals: [
             { id: 3, tag_number: "G-003", name: "Kaveri" },
@@ -265,6 +266,12 @@ describe("HealthPage", () => {
         }),
       ),
       http.get("/api/tasks", () => HttpResponse.json(tasksPayload(tasks))),
+      http.get("/api/tasks/:taskId", ({ params }) => {
+        const task = tasks.find((candidate) => String(candidate.id) === params.taskId);
+        return task
+          ? HttpResponse.json(task)
+          : HttpResponse.json({ detail: "Task not found" }, { status: 404 });
+      }),
     );
   });
 
@@ -747,6 +754,74 @@ describe("HealthPage", () => {
     expect(previewBodies).toEqual([{ scope: "batch", purchase_batch_id: 2 }]);
   });
 
+  it("discards a deferred preview when the linked duty changes for the same batch", async () => {
+    const followUpTask = makeTask({
+      id: 16,
+      title: "Follow-up deworming for batch #2",
+      category: "DEWORMING",
+      purchase_batch_id: 2,
+    });
+    tasks = [DEWORM_BATCH_TASK, followUpTask];
+
+    let releaseFirstPreview!: () => void;
+    let markFirstPreviewStarted!: () => void;
+    const firstPreviewGate = new Promise<void>((resolve) => {
+      releaseFirstPreview = resolve;
+    });
+    const firstPreviewStarted = new Promise<void>((resolve) => {
+      markFirstPreviewStarted = resolve;
+    });
+    const deferredBodies: Record<string, unknown>[] = [];
+    server.use(
+      http.post("/api/health/events/preview", async ({ request }) => {
+        const target = (await request.json()) as Record<string, unknown>;
+        deferredBodies.push(target);
+        if (deferredBodies.length === 1) {
+          markFirstPreviewStarted();
+          await firstPreviewGate;
+        }
+        return HttpResponse.json({
+          scope: target.scope,
+          bucket: target.bucket ?? null,
+          purchase_batch_id: target.purchase_batch_id ?? null,
+          task_id: target.task_id ?? null,
+          target_animal_ids: [3, 4],
+          target_animals: [
+            { id: 3, tag_number: "G-003", name: "Kaveri" },
+            { id: 4, tag_number: "G-004", name: null },
+          ],
+          target_count: 2,
+          max_targets: 1000,
+        });
+      }),
+    );
+
+    const { user, dialog } = await openDialog();
+    const linkedDuty = within(dialog).getByLabelText(/Linked duty/);
+    await pickOption(user, linkedDuty, /Deworm batch #2/);
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    await firstPreviewStarted;
+
+    await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Follow-up deworming/);
+    releaseFirstPreview();
+
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Review target animals" }),
+      ).toBeEnabled(),
+    );
+    expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Reviewed target snapshot: 2 active animals",
+    );
+    expect(deferredBodies).toEqual([
+      { scope: "batch", purchase_batch_id: 2, task_id: 6 },
+      { scope: "batch", purchase_batch_id: 2, task_id: 16 },
+    ]);
+  });
+
   it("requires a fresh review after the server rejects a stale bulk snapshot", async () => {
     let recordAttempts = 0;
     server.use(
@@ -890,6 +965,31 @@ describe("HealthPage", () => {
     expect(postBody!.task_id ?? null).toBeNull();
   });
 
+  it("resolves a deep-linked duty that is outside the bounded task tabs", async () => {
+    const exactTask = makeTask({
+      id: 734,
+      title: "PPR vaccination outside current tab window",
+      category: "VACCINE",
+      animal_id: 3,
+    });
+    window.history.replaceState({}, "", "/health?task_id=734");
+    tasks = [VACCINE_TASK];
+    server.use(
+      http.get("/api/tasks/734", () => HttpResponse.json(exactTask)),
+    );
+
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+
+    expect(await within(dialog).findByLabelText(/Linked duty/)).toHaveTextContent(
+      "PPR vaccination outside current tab window",
+    );
+    expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
+    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ animal_id: 3, type: "VACCINE", task_id: 734 });
+  });
+
   it("hides the linked-duty select when no health duties are pending", async () => {
     tasks = [];
     const { dialog } = await openDialog();
@@ -952,6 +1052,9 @@ describe("HealthPage", () => {
       type: "DEWORMING",
       task_id: 6,
     });
+    expect(previewBodies).toEqual([
+      { scope: "batch", purchase_batch_id: 2, task_id: 6 },
+    ]);
   });
 
   it("prefills the disease target from a vaccine duty's title", async () => {

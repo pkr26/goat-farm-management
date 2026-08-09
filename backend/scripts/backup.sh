@@ -101,11 +101,8 @@ case "${DB_SSLMODE}" in
         exit 2
         ;;
 esac
-if [[ "${ENVIRONMENT}" == "production" \
-    && "${DB_SSLMODE}" != "require" \
-    && "${DB_SSLMODE}" != "verify-ca" \
-    && "${DB_SSLMODE}" != "verify-full" ]]; then
-    echo "Production backups require GOATFARM_DB_SSLMODE=require, verify-ca, or verify-full" >&2
+if [[ "${ENVIRONMENT}" == "production" && "${DB_SSLMODE}" != "verify-full" ]]; then
+    echo "Production backups require GOATFARM_DB_SSLMODE=verify-full" >&2
     exit 2
 fi
 if [[ -n "${S3_URI}" && ! "${S3_URI}" =~ ^s3://[^/]+(/.*)?$ ]]; then

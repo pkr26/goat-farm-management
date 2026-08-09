@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
+  useGetTaskApiTasksTaskIdGet,
   useListEventsApiHealthEventsGet,
   useListTasksApiTasksGet,
   usePreviewBulkEventTargetsApiHealthEventsPreviewPost,
@@ -315,8 +316,22 @@ function HealthPageContent() {
   const eventPayload = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
 
   const [open, setOpen] = useState(false);
+  const deepLinkedTaskIdParam = searchParams.get("task_id");
+  const parsedDeepLinkedTaskId = deepLinkedTaskIdParam
+    ? Number(deepLinkedTaskIdParam)
+    : Number.NaN;
+  const deepLinkedTaskId =
+    Number.isSafeInteger(parsedDeepLinkedTaskId) && parsedDeepLinkedTaskId > 0
+      ? parsedDeepLinkedTaskId
+      : null;
   const tasksQuery = useListTasksApiTasksGet(undefined, {
     query: { enabled: canManage && canViewTasks && open },
+  });
+  const exactTaskQuery = useGetTaskApiTasksTaskIdGet(deepLinkedTaskId ?? 0, {
+    query: {
+      enabled: canManage && canViewTasks && open && deepLinkedTaskId !== null,
+      retry: false,
+    },
   });
   const tabs = tasksQuery.data?.status === 200 ? tasksQuery.data.data : undefined;
   const pendingHealthTasks: TaskOut[] = tabs
@@ -330,6 +345,20 @@ function HealthPageContent() {
           t.due_date <= localToday(),
       )
     : [];
+  const exactTask =
+    exactTaskQuery.data?.status === 200 &&
+    exactTaskQuery.data.data.status === "PENDING" &&
+    (exactTaskQuery.data.data.category === "VACCINE" ||
+      exactTaskQuery.data.data.category === "DEWORMING")
+      ? exactTaskQuery.data.data
+      : undefined;
+  // The tab response is intentionally bounded. Keep an eligible task fetched
+  // by its exact deep-link id even when it is outside that window (or not due
+  // yet); the writer will enforce due-date and assignment rules fail-closed.
+  const linkableHealthTasks =
+    exactTask && !pendingHealthTasks.some((task) => task.id === exactTask.id)
+      ? [exactTask, ...pendingHealthTasks]
+      : pendingHealthTasks;
 
   const recordMutation = useRecordEventApiHealthEventsPost();
   const previewMutation = usePreviewBulkEventTargetsApiHealthEventsPreviewPost();
@@ -347,7 +376,7 @@ function HealthPageContent() {
   const taskItems: Record<string, string> = {
     [NONE]: "— none —",
     ...Object.fromEntries(
-      pendingHealthTasks.map((t) => [String(t.id), `${t.title} (due ${formatDate(t.due_date)})`]),
+      linkableHealthTasks.map((t) => [String(t.id), `${t.title} (due ${formatDate(t.due_date)})`]),
     ),
   };
 
@@ -389,6 +418,7 @@ function HealthPageContent() {
   /** Prefill scope/target/type/product from a linked VACCINE/DEWORMING duty
    *  (v1 behaviour + product/disease hints). */
   function applyTask(taskIdStr: string) {
+    setBulkPreview(null);
     setValue("task_id", taskIdStr);
     if (taskIdStr === NONE) {
       const prev = appliedPrefillRef.current;
@@ -411,7 +441,7 @@ function HealthPageContent() {
       appliedPrefillRef.current = null;
       return;
     }
-    const task = pendingHealthTasks.find((t) => String(t.id) === taskIdStr);
+    const task = linkableHealthTasks.find((t) => String(t.id) === taskIdStr);
     if (!task) return;
     const applied: NonNullable<typeof appliedPrefillRef.current> = {};
     if (task.animal_id) {
@@ -493,21 +523,37 @@ function HealthPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage]);
 
-  // Once the linked tasks load, finish prefilling from the task itself. The
-  // duty list is a bounded window, so a deep-linked id may not be in it — drop
-  // the link rather than leaving an unlabeled id in the select with none of
-  // the scope/type/product prefill applied.
+  // Resolve the deep link through the exact task endpoint. The tab response is
+  // only a fallback because it is a bounded window and cannot establish that
+  // an absent id is inaccessible or stale.
   useEffect(() => {
     if (!prefillTaskId) return;
-    if (canViewTasks && !tasksQuery.isError && !tabs) return;
-    const known = pendingHealthTasks.some((t) => String(t.id) === prefillTaskId);
+    const known = linkableHealthTasks.some((t) => String(t.id) === prefillTaskId);
+    if (
+      !known &&
+      canViewTasks &&
+      deepLinkedTaskId !== null &&
+      !exactTaskQuery.isError &&
+      !exactTaskQuery.data
+    ) {
+      return;
+    }
+    if (!known && canViewTasks && !tasksQuery.isError && !tabs) return;
+    // Intentional one-shot URL hydration after the exact task lookup settles.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     applyTask(known ? prefillTaskId : NONE);
     // Intentional one-shot cleanup after applying the prefill (see above).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefillTaskId(null);
     setUnresolvedPrefillTask(known ? null : prefillTaskId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefillTaskId, tasksQuery.data, tasksQuery.isError, canViewTasks]);
+  }, [
+    prefillTaskId,
+    tasksQuery.data,
+    tasksQuery.isError,
+    exactTaskQuery.data,
+    exactTaskQuery.isError,
+    canViewTasks,
+  ]);
 
   async function onSubmit(values: EventValues) {
     let reviewedAnimalIds: number[] | undefined;
@@ -515,8 +561,11 @@ function HealthPageContent() {
       const selectedBatchId = values.purchase_batch_id
         ? Number(values.purchase_batch_id)
         : null;
+      const selectedTaskId =
+        values.task_id && values.task_id !== NONE ? Number(values.task_id) : null;
       const previewMatchesSelection =
         bulkPreview?.scope === values.scope &&
+        bulkPreview.task_id === selectedTaskId &&
         (values.scope === "bucket"
           ? bulkPreview.bucket === values.bucket
           : bulkPreview.purchase_batch_id === selectedBatchId);
@@ -526,15 +575,27 @@ function HealthPageContent() {
             ? {
                 scope: "bucket",
                 bucket: values.bucket as HealthBulkTargetIn["bucket"],
+                ...(selectedTaskId !== null ? { task_id: selectedTaskId } : {}),
               }
-            : { scope: "batch", purchase_batch_id: selectedBatchId };
+            : {
+                scope: "batch",
+                purchase_batch_id: selectedBatchId,
+                ...(selectedTaskId !== null ? { task_id: selectedTaskId } : {}),
+              };
         setRecordError(null);
         try {
           const response = await previewMutation.mutateAsync({ data: target });
           if (response.status !== 200) return;
           const currentScope = getValues("scope");
+          const currentTaskIdValue = getValues("task_id");
+          const currentTaskId =
+            currentTaskIdValue && currentTaskIdValue !== NONE
+              ? Number(currentTaskIdValue)
+              : null;
           const stillCurrent =
             currentScope === target.scope &&
+            currentTaskId === selectedTaskId &&
+            response.data.task_id === selectedTaskId &&
             (target.scope === "bucket"
               ? getValues("bucket") === target.bucket
               : Number(getValues("purchase_batch_id")) === target.purchase_batch_id);
@@ -1138,11 +1199,11 @@ function HealthPageContent() {
               )}
               {unresolvedPrefillTask && (
                 <p role="alert" className="text-sm text-destructive sm:col-span-2">
-                  Could not link duty #{unresolvedPrefillTask} — it may not be due yet.
-                  Record the event without it.
+                  Could not link duty #{unresolvedPrefillTask} — it is unavailable or no
+                  longer a pending health duty. Record the event without it.
                 </p>
               )}
-              {canViewTasks && !tasksQuery.isError && pendingHealthTasks.length > 0 && (
+              {canViewTasks && linkableHealthTasks.length > 0 && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-task">Linked duty (completes it)</Label>
                   <Select
@@ -1155,7 +1216,7 @@ function HealthPageContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>— none —</SelectItem>
-                      {pendingHealthTasks.map((t) => (
+                      {linkableHealthTasks.map((t) => (
                         <SelectItem key={t.id} value={String(t.id)}>
                           {t.title} (due {formatDate(t.due_date)})
                         </SelectItem>

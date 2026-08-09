@@ -247,7 +247,7 @@ def build_metric_explanations(
     assumed = a.sales.meat_price_per_kg
     if be is None:
         be_text = (
-            "Even at five times the assumed meat price the project cannot reach NPV = 0 — "
+            "Even at the break-even search ceiling the project cannot reach NPV = 0 — "
             "the economics need structural changes (costs, herd size, financing), not just "
             "a better market price."
         )
@@ -258,6 +258,12 @@ def build_metric_explanations(
             "meat price is effectively ₹0/kg."
         )
         margin = 1.0
+    elif assumed <= 0.0:
+        margin = None
+        be_text = (
+            f"Meat must rise to ₹{be:,.0f}/kg for the project to break even; the current "
+            "assumption is ₹0/kg, so a percentage safety margin is not defined."
+        )
     else:
         margin = (assumed - be) / assumed
         be_text = (

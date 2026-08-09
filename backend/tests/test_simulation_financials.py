@@ -38,7 +38,7 @@ from app.simulation import (
     run_sensitivity,
     run_simulation,
 )
-from app.simulation.assumptions import FinanceAssumptions, HerdEventAssumptions
+from app.simulation.assumptions import MAX_MONEY, FinanceAssumptions, HerdEventAssumptions
 from app.simulation.montecarlo import _DRAW_ORDER, _apply_draws
 
 from .conftest import owner_with_farm
@@ -541,6 +541,49 @@ def test_break_even_price_zeroes_npv() -> None:
     assert run_simulation(variant, with_break_even=False).metrics.npv == pytest.approx(0.0, abs=1.0)
 
 
+def test_break_even_price_can_recover_from_a_zero_base_price() -> None:
+    a = SimulationAssumptions()
+    a.sales.meat_price_per_kg = 0.0
+    result = run_simulation(a)
+    break_even = result.metrics.break_even_meat_price_per_kg
+    assert break_even is not None and break_even > 0.0
+    explanation = next(
+        item for item in result.metric_explanations if item.key == "break_even_meat_price_per_kg"
+    )
+    assert explanation.figures["safety_margin"] is None
+    variant = a.model_copy(deep=True)
+    variant.sales.meat_price_per_kg = break_even
+    assert run_simulation(variant, with_break_even=False).metrics.npv == pytest.approx(0.0, abs=1.0)
+
+
+def test_break_even_price_can_recover_from_a_tiny_base_price() -> None:
+    a = SimulationAssumptions()
+    a.sales.meat_price_per_kg = 0.01
+
+    break_even = run_simulation(a).metrics.break_even_meat_price_per_kg
+
+    assert break_even is not None
+    assert break_even > a.sales.meat_price_per_kg * 5.0
+    variant = a.model_copy(deep=True)
+    variant.sales.meat_price_per_kg = break_even
+    assert run_simulation(variant, with_break_even=False).metrics.npv == pytest.approx(0.0, abs=1.0)
+
+
+def test_break_even_price_never_exceeds_the_public_schema_ceiling() -> None:
+    a = SimulationAssumptions()
+    a.herd.does = 1
+    a.herd.bucks = 1
+    a.herd.max_breeding_does = 1
+    a.costs.labour_per_month = MAX_MONEY
+    a.costs.misc_overhead_per_month = MAX_MONEY
+    a.feed.green_price_per_kg = 1_000_000.0
+    a.feed.dry_price_per_kg = 1_000_000.0
+    a.feed.concentrate_price_per_kg = 1_000_000.0
+    a.sales.meat_price_per_kg = MAX_MONEY
+
+    assert run_simulation(a).metrics.break_even_meat_price_per_kg is None
+
+
 def test_break_even_none_when_5x_price_cannot_save() -> None:
     a = SimulationAssumptions()
     a.costs.labour_per_month = 1_000_000.0  # structural loss, price cannot fix it
@@ -878,6 +921,16 @@ def test_mc_litter_size_capped_at_schema_max() -> None:
     draws["litter_size"] = 2.0  # 3.9 x 2 = 7.8 without the cap
     variant = _apply_draws(a, draws)
     assert variant.reproduction.litter_size == 4.0
+
+
+def test_mc_litter_size_clamped_at_schema_min() -> None:
+    a = SimulationAssumptions()
+    a.reproduction.litter_size = 0.5
+    draws = dict.fromkeys(_DRAW_ORDER, 1.0)
+    draws["litter_size"] = 0.85
+    variant = _apply_draws(a, draws)
+    assert variant.reproduction.litter_size == 0.5
+    assert SimulationAssumptions.model_validate(variant.model_dump()) == variant
 
 
 def test_disabled_conception_risk_preserves_schema_valid_base() -> None:

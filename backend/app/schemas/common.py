@@ -88,6 +88,20 @@ def _money_precision(value: float) -> float:
     return float(rounded)
 
 
+def _postgres_text(value: str) -> str:
+    """Reject text bytes PostgreSQL cannot store before they reach asyncpg.
+
+    Tabs, newlines and carriage returns remain valid narrative text. Other C0
+    controls have no useful representation in these JSON forms and PostgreSQL
+    rejects NUL outright, so accepting them only turns a validation mistake
+    into an opaque database 500.
+    """
+    allowed = "\t\n\r"
+    if any(char < " " and char not in allowed for char in value):
+        raise ValueError("cannot contain control characters")
+    return value
+
+
 # JSON booleans are Python ints and Pydantic's default coercion also accepts
 # numeric strings. Neither is a safe wire representation for money, weights,
 # quantities, or primary keys: `true` must never silently become animal/role
@@ -102,6 +116,7 @@ PositiveFloat = Annotated[FiniteFloat, AfterValidator(_positive)]
 # hours when it is still tomorrow in UTC.
 PastOrTodayDate = Annotated[date, AfterValidator(_not_future)]
 BoundedId = Annotated[int, Field(strict=True, ge=1, le=MAX_ID)]
+PostgresText = Annotated[str, AfterValidator(_postgres_text)]
 
 # Bounded money/quantity variants. Unbounded positives let `1e308 * 1e308`
 # overflow to inf in derived values (feed-purchase qty × price) and poison

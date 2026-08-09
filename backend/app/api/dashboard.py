@@ -31,7 +31,7 @@ from ..models import (
     TaskCategory,
     WeightRecord,
 )
-from ..models.helpers import CONCEIVED_OUTCOMES
+from ..models.helpers import ASSESSED_OUTCOMES, CONCEIVED_OUTCOMES
 from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
@@ -418,7 +418,7 @@ async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> Rep
 
     # --- breeding performance ----------------------------------------------
     # Mirrors models.helpers.conception_rate — same predicates, same result.
-    completed = BreedingRecord.outcome != BreedingOutcome.PENDING.value
+    completed = BreedingRecord.outcome.in_(sorted(ASSESSED_OUTCOMES))
     conceived = BreedingRecord.outcome.in_(sorted(CONCEIVED_OUTCOMES))
     first_cycle = BreedingRecord.heat_cycle_number == 1
     (

@@ -31,6 +31,7 @@ from ..models import (
     quarantine_schedule,
 )
 from ..utils import today, utcnow
+from ._common import _clear_task_rejection
 from .animals import bucket_transition_error, move_animal
 
 
@@ -200,24 +201,13 @@ async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> None:
         raise ValueError("The weaning duty does not match a recorded kidding milestone")
 
 
-def _clear_rejection(task: Task) -> None:
-    """Drop the rejection trail once the duty leaves the rejected state.
-
-    ``verification_note`` and ``rejected_by_id``/``rejected_at`` describe the
-    rejection a row is currently carrying, exactly as ``skipped_by_id``/
-    ``skipped_at`` describe a SKIPPED one — they are never stale history.
-    """
-    task.verification_note = None
-    task.rejected_by_id = None
-    task.rejected_at = None
-
-
 async def complete_task(
     db: AsyncSession,
     task: Task,
     user: User | None = None,
     *,
     locked_animals: list[Animal] | None = None,
+    reference_date: date | None = None,
 ) -> Task:
     """Mark done (attributed) and apply side effects:
     - Day-45 quarantine BUCKET_MOVE (batch-linked) → release batch animals to FOUNDATION
@@ -242,6 +232,16 @@ async def complete_task(
     postpartum_doe: Animal | None = None
     weaning_kids: list[Animal] | None = None
     weaning_doe: Animal | None = None
+    movement_date = reference_date
+    if task.category in (TaskCategory.BUCKET_MOVE.value, TaskCategory.WEANING.value):
+        # Task completion is an event on the farm's business calendar. Never
+        # let move_animal's legacy/default timezone decide whether an evening
+        # completion belongs to today or tomorrow for this particular farm.
+        if movement_date is None:
+            movement_farm = await db.get(Farm, task.farm_id)
+            if movement_farm is None:  # pragma: no cover - FK boundary
+                raise ValueError("The duty's farm no longer exists")
+            movement_date = today(movement_farm.timezone)
     if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
         if locked_animals is None:
             raise ValueError("Task completion animals were not pre-locked")
@@ -258,7 +258,10 @@ async def complete_task(
             if kidding is None or any(kid.status == "ALIVE" for kid in kids):  # pragma: no cover
                 raise ValueError("Postpartum recovery duty is invalid while a kid survives")
             if error := bucket_transition_error(
-                linked_animal, Bucket.RESTING.value, context="postpartum"
+                linked_animal,
+                Bucket.RESTING.value,
+                context="postpartum",
+                reference_date=movement_date,
             ):
                 raise ValueError(error)
             postpartum_doe = linked_animal
@@ -269,7 +272,10 @@ async def complete_task(
             ):
                 raise ValueError("The linked animal is not in a pregnancy bucket")
             if error := bucket_transition_error(
-                linked_animal, Bucket.DELIVERY.value, context="delivery"
+                linked_animal,
+                Bucket.DELIVERY.value,
+                context="delivery",
+                reference_date=movement_date,
             ):
                 raise ValueError(error)
     elif task.category == TaskCategory.WEANING.value:
@@ -294,6 +300,7 @@ async def complete_task(
                 if animal.id == weaning_doe.id
                 else (Bucket.MALE_KIDS.value if animal.sex == "M" else Bucket.FEMALE_KIDS.value),
                 context="weaning",
+                reference_date=movement_date,
             )
             for animal in candidates
         ):
@@ -301,7 +308,7 @@ async def complete_task(
     task.status = TaskStatus.DONE.value
     task.completed_by_id = user.id if user else None
     task.completed_at = utcnow()
-    _clear_rejection(task)
+    _clear_task_rejection(task)
 
     if task.category == TaskCategory.BUCKET_MOVE.value and task.purchase_batch_id:
         for animal in release_animals or []:
@@ -312,6 +319,7 @@ async def complete_task(
                 "45-day quarantine complete",
                 created_by_id=user.id if user else None,
                 context="quarantine_release",
+                reference_date=movement_date,
             )
 
     elif (
@@ -329,6 +337,7 @@ async def complete_task(
                 "Postpartum recovery complete; no surviving kids",
                 created_by_id=user.id if user else None,
                 context="postpartum",
+                reference_date=movement_date,
             )
         # EARLY is accepted too: the EARLY→LATE transition is only a dashboard
         # suggestion, so a doe whose owner skipped it would otherwise see this
@@ -349,6 +358,7 @@ async def complete_task(
                 "~2 weeks before due date",
                 created_by_id=user.id if user else None,
                 context="delivery",
+                reference_date=movement_date,
             )
 
     elif task.category == TaskCategory.WEANING.value and task.animal_id:
@@ -363,6 +373,7 @@ async def complete_task(
                     "Weaned (day 60)",
                     created_by_id=user.id if user else None,
                     context="weaning",
+                    reference_date=movement_date,
                 )
             if doe.current_bucket in (Bucket.DELIVERY.value, Bucket.RECOVERY.value):
                 move_animal(
@@ -372,6 +383,7 @@ async def complete_task(
                     "Kids weaned",
                     created_by_id=user.id if user else None,
                     context="weaning",
+                    reference_date=movement_date,
                 )
 
     if task.recur_days:
@@ -482,6 +494,7 @@ async def skip_task(db: AsyncSession, task: Task, user: User, reason: str | None
     task.skipped_by_id = user.id
     task.skipped_at = utcnow()
     task.skip_reason = (reason or "").strip() or None
+    _clear_task_rejection(task)
     if task.recur_days:
         # A skipped occurrence must not kill the series.
         await spawn_next_occurrence(db, task)
@@ -494,7 +507,7 @@ async def verify_task(db: AsyncSession, task: Task, user: User) -> Task:
     task.status = TaskStatus.VERIFIED.value
     task.verified_by_id = user.id
     task.verified_at = utcnow()
-    _clear_rejection(task)
+    _clear_task_rejection(task)
     await db.flush()
     return task
 

@@ -73,7 +73,7 @@ async def make_doe(
     client: httpx.AsyncClient, headers: dict, tag: str = "D-1", age_days: int = 800
 ) -> int:
     """A breeding-ready doe (>=10 months old, 26 kg entry weight, FOUNDATION)."""
-    dob = date.today() - timedelta(days=age_days)
+    dob = today() - timedelta(days=age_days)
     return await make_animal(
         client,
         headers,
@@ -86,7 +86,7 @@ async def make_doe(
 
 
 async def make_buck(client: httpx.AsyncClient, headers: dict, tag: str = "B-1") -> int:
-    dob = date.today() - timedelta(days=800)
+    dob = today() - timedelta(days=800)
     return await make_animal(
         client,
         headers,
@@ -105,7 +105,7 @@ async def post_breeding(
     payload = {
         "doe_id": doe_id,
         "buck_id": buck_id,
-        "breeding_date": iso(date.today()),
+        "breeding_date": iso(today()),
     } | overrides
     return await client.post("/api/breeding", json=payload, headers=headers)
 
@@ -115,7 +115,7 @@ async def make_breeding(
 ) -> int:
     # This helper is used by outcome-flow tests.  A default observation date
     # must not predate the mandatory +32-day ultrasound check.
-    overrides = {"breeding_date": iso(date.today() - timedelta(days=35))} | overrides
+    overrides = {"breeding_date": iso(today() - timedelta(days=35))} | overrides
     resp = await post_breeding(client, headers, doe_id, buck_id, **overrides)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
@@ -131,7 +131,7 @@ async def breed_doe(
     buck_id = await make_buck(client, headers, tag=f"{tag}-BUCK")
     overrides: dict[str, object] = {}
     if bred_days_ago:
-        overrides["breeding_date"] = iso(date.today() - timedelta(days=bred_days_ago))
+        overrides["breeding_date"] = iso(today() - timedelta(days=bred_days_ago))
     br_id = await make_breeding(client, headers, doe_id, buck_id, **overrides)
     return doe_id, buck_id, br_id
 
@@ -165,7 +165,7 @@ async def post_kidding(
 ) -> httpx.Response:
     payload = {
         "breeding_record_id": br_id,
-        "date": date_str or iso(date.today()),
+        "date": date_str or iso(today()),
         "ease": "NORMAL",
         "kids": kids if kids is not None else [{"sex": "M"}, {"sex": "F"}],
     }
@@ -332,10 +332,10 @@ async def test_breeding_rejects_ineligible_doe_and_buck(client: httpx.AsyncClien
 async def test_purchase_batch_zero_count_and_garbage(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     for payload in [
-        {"date": iso(date.today()), "count": 0, "total_price": 1000, "create_animals": True},
-        {"date": iso(date.today()), "count": -3, "create_animals": True},
+        {"date": iso(today()), "count": 0, "total_price": 1000, "create_animals": True},
+        {"date": iso(today()), "count": -3, "create_animals": True},
         {"date": "garbage", "count": 5},
-        {"date": iso(date.today()), "count": 5, "avg_age_months": "abc"},
+        {"date": iso(today()), "count": 5, "avg_age_months": "abc"},
     ]:
         resp = await client.post("/api/purchases/new", json=payload, headers=owner)
         assert resp.status_code == 422, payload
@@ -345,7 +345,7 @@ async def test_purchase_batch_zero_count_and_garbage(client: httpx.AsyncClient) 
 async def test_health_event_garbage_ids_and_cost(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
-    base = {"scope": "animal", "animal_id": aid, "date": iso(date.today()), "type": "TREATMENT"}
+    base = {"scope": "animal", "animal_id": aid, "date": iso(today()), "type": "TREATMENT"}
     for override in [
         {"animal_id": "abc"},
         {"date": "garbage"},
@@ -396,7 +396,7 @@ async def test_finance_garbage_and_cross_farm_animal(client: httpx.AsyncClient) 
     resp = await client.post(
         "/api/finance/new",
         json={
-            "date": iso(date.today()),
+            "date": iso(today()),
             "type": "INCOME",
             "category": "OTHER",
             "amount": 100,
@@ -411,7 +411,7 @@ async def test_finance_garbage_and_cross_farm_animal(client: httpx.AsyncClient) 
 
 async def test_manual_task_garbage_inputs(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    base = {"title": "X", "due_date": iso(date.today())}
+    base = {"title": "X", "due_date": iso(today())}
     for override in [
         {"due_date": "garbage"},
         {"recur_days": "abc"},
@@ -433,7 +433,7 @@ async def test_next_redirect_stays_local(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await client.post(
         "/api/tasks",
-        json={"title": "Clean", "due_date": iso(date.today()), "category": "CLEANING"},
+        json={"title": "Clean", "due_date": iso(today()), "category": "CLEANING"},
         headers=owner,
     )
     task_id = resp.json()["id"]
@@ -450,7 +450,7 @@ async def test_next_redirect_stays_local(client: httpx.AsyncClient) -> None:
 async def test_cannot_resell_a_sold_animal(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
-    payload = {"new_status": "SOLD", "date": iso(date.today()), "sale_price": 5000}
+    payload = {"new_status": "SOLD", "date": iso(today()), "sale_price": 5000}
     resp = await client.post(f"/api/animals/{aid}/status", json=payload, headers=owner)
     assert resp.status_code == 200, resp.text
     # replay the sale (e.g. double-click / forged request)
@@ -496,7 +496,7 @@ async def test_recurring_reject_loop_spawns_one_occurrence(client: httpx.AsyncCl
         "/api/tasks",
         json={
             "title": "Daily sweep",
-            "due_date": iso(date.today()),
+            "due_date": iso(today()),
             "category": "CLEANING",
             "recur_days": 1,
         },
@@ -527,7 +527,7 @@ async def test_complete_task_is_idempotent(client: httpx.AsyncClient) -> None:
         "/api/tasks",
         json={
             "title": "Daily sweep",
-            "due_date": iso(date.today()),
+            "due_date": iso(today()),
             "category": "CLEANING",
             "recur_days": 1,
         },
@@ -555,14 +555,14 @@ async def test_cull_flag_cleared_on_later_confirmed_pregnancy(client: httpx.Asyn
             owner,
             doe,
             buck,
-            breeding_date=iso(date.today() - timedelta(days=bred_days_ago)),
+            breeding_date=iso(today() - timedelta(days=bred_days_ago)),
         )
         resp = await ultrasound(
             client,
             owner,
             br_id,
             pregnant=False,
-            date_str=iso(date.today() - timedelta(days=bred_days_ago - 32)),
+            date_str=iso(today() - timedelta(days=bred_days_ago - 32)),
         )
         assert resp.status_code == 200, resp.text
     assert (await get_animal(client, owner, doe))["cull_candidate"] is True
@@ -571,7 +571,7 @@ async def test_cull_flag_cleared_on_later_confirmed_pregnancy(client: httpx.Asyn
         owner,
         doe,
         buck,
-        breeding_date=iso(date.today() - timedelta(days=35)),
+        breeding_date=iso(today() - timedelta(days=35)),
     )
     resp = await ultrasound(client, owner, br_id, pregnant=True, kid_count=1)
     assert resp.status_code == 200, resp.text
@@ -588,14 +588,14 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
             owner,
             br1,
             kid_count=1,
-            date_str=iso(date.today() - timedelta(days=278)),
+            date_str=iso(today() - timedelta(days=278)),
         )
     ).status_code == 200
     resp = await post_kidding(
         client,
         owner,
         br1,
-        date_str=iso(date.today() - timedelta(days=160)),
+        date_str=iso(today() - timedelta(days=160)),
         kids=[{"sex": "M"}],
     )
     assert resp.status_code == 201, resp.text
@@ -613,7 +613,7 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
     )
     assert resp.status_code == 200, resp.text
     br2 = await make_breeding(
-        client, owner, doe, buck, breeding_date=iso(date.today() - timedelta(days=150))
+        client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=150))
     )
     assert (
         await ultrasound(
@@ -621,7 +621,7 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
             owner,
             br2,
             kid_count=1,
-            date_str=iso(date.today() - timedelta(days=118)),
+            date_str=iso(today() - timedelta(days=118)),
         )
     ).status_code == 200
     resp = await post_kidding(client, owner, br2, kids=[{"sex": "M"}])
@@ -648,7 +648,7 @@ async def test_kidding_closes_leftover_pregnancy_tasks(client: httpx.AsyncClient
 async def test_deworming_appears_in_vaccination_schedule(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     aid = await make_animal(
-        client, owner, tag="D-1", date_of_birth=iso(date.today() - timedelta(days=200))
+        client, owner, tag="D-1", date_of_birth=iso(today() - timedelta(days=200))
     )
     resp = await client.get(f"/api/health/schedule/{aid}", headers=owner)
     assert resp.status_code == 200, resp.text
@@ -732,7 +732,7 @@ async def test_sale_price_nonfinite_and_negative_rejected(client: httpx.AsyncCli
         aid = await make_animal(client, owner, tag=f"P-{i}")
         resp = await client.post(
             f"/api/animals/{aid}/status",
-            json={"new_status": "SOLD", "date": iso(date.today()), "sale_price": bad_price},
+            json={"new_status": "SOLD", "date": iso(today()), "sale_price": bad_price},
             headers=owner,
         )
         assert resp.status_code == 422, bad_price
@@ -744,7 +744,7 @@ async def test_sale_price_nonfinite_and_negative_rejected(client: httpx.AsyncCli
     aid = await make_animal(client, owner, tag="OK-1")
     resp = await client.post(
         f"/api/animals/{aid}/status",
-        json={"new_status": "SOLD", "date": iso(date.today()), "sale_price": 5000},
+        json={"new_status": "SOLD", "date": iso(today()), "sale_price": 5000},
         headers=owner,
     )
     assert resp.status_code == 200, resp.text
@@ -754,7 +754,7 @@ async def test_sale_price_nonfinite_and_negative_rejected(client: httpx.AsyncCli
 async def test_weight_nonfinite_future_and_dead_animal_rejected(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
-    future = iso(date.today() + timedelta(days=30))
+    future = iso(today() + timedelta(days=30))
     for payload in [{"weight_kg": "nan"}, {"weight_kg": "inf"}, {"date": future, "weight_kg": 10}]:
         resp = await client.post(f"/api/animals/{aid}/weight", json=payload, headers=owner)
         assert resp.status_code == 422, payload
@@ -795,7 +795,7 @@ async def test_death_skips_pending_tasks_and_clears_cull_flag(client: httpx.Asyn
             owner,
             doe,
             buck,
-            breeding_date=iso(date.today() - timedelta(days=bred_days_ago)),
+            breeding_date=iso(today() - timedelta(days=bred_days_ago)),
         )
         assert (
             await ultrasound(
@@ -803,7 +803,7 @@ async def test_death_skips_pending_tasks_and_clears_cull_flag(client: httpx.Asyn
                 owner,
                 br_id,
                 pregnant=False,
-                date_str=iso(date.today() - timedelta(days=bred_days_ago - 32)),
+                date_str=iso(today() - timedelta(days=bred_days_ago - 32)),
             )
         ).status_code == 200
     assert (await get_animal(client, owner, doe))["cull_candidate"] is True
@@ -812,7 +812,7 @@ async def test_death_skips_pending_tasks_and_clears_cull_flag(client: httpx.Asyn
         owner,
         doe,
         buck,
-        breeding_date=iso(date.today() - timedelta(days=20)),
+        breeding_date=iso(today() - timedelta(days=20)),
     )  # fresh PENDING ultrasound task
     resp = await client.post(
         f"/api/animals/{doe}/status", json={"new_status": "DEAD"}, headers=owner
@@ -865,7 +865,7 @@ async def test_cull_flag_after_two_failed_cycles_route_level(client: httpx.Async
             owner,
             br1,
             pregnant=False,
-            date_str=iso(date.today() - timedelta(days=68)),
+            date_str=iso(today() - timedelta(days=68)),
         )
     ).status_code == 200
     assert (await get_animal(client, owner, doe))["cull_candidate"] is False
@@ -897,7 +897,7 @@ async def test_kidding_rejects_bad_dates_caps_and_weights(client: httpx.AsyncCli
     assert (await ultrasound(client, owner, br_id)).status_code == 200
     bred_on = date.fromisoformat((await get_breeding(client, owner, br_id))["breeding_date"])
     too_early = iso(bred_on - timedelta(days=1))
-    future = iso(date.today() + timedelta(days=10))
+    future = iso(today() + timedelta(days=10))
     resp = await post_kidding(client, owner, br_id, date_str=too_early)
     assert resp.status_code == 400
     resp = await post_kidding(client, owner, br_id, date_str=future)
@@ -941,14 +941,14 @@ async def test_second_kidding_blank_tags_succeeds_and_uniquifies(client: httpx.A
             client,
             owner,
             br1,
-            date_str=iso(date.today() - timedelta(days=278)),
+            date_str=iso(today() - timedelta(days=278)),
         )
     ).status_code == 200
     resp = await post_kidding(
         client,
         owner,
         br1,
-        date_str=iso(date.today() - timedelta(days=160)),
+        date_str=iso(today() - timedelta(days=160)),
     )  # blank tags → D-1-K1/K2
     assert resp.status_code == 201, resp.text
     # Wean: the API blocks early auto tasks by design, so move the doe back to
@@ -964,14 +964,14 @@ async def test_second_kidding_blank_tags_succeeds_and_uniquifies(client: httpx.A
     )
     assert resp.status_code == 200, resp.text
     br2 = await make_breeding(  # doe is back in RESTING, ready again
-        client, owner, doe, buck, breeding_date=iso(date.today() - timedelta(days=150))
+        client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=150))
     )
     assert (
         await ultrasound(
             client,
             owner,
             br2,
-            date_str=iso(date.today() - timedelta(days=118)),
+            date_str=iso(today() - timedelta(days=118)),
         )
     ).status_code == 200
     resp = await post_kidding(client, owner, br2)  # must NOT silently fail
@@ -1010,8 +1010,8 @@ async def test_health_nonfinite_cost_future_date_and_smuggled_task(
 ) -> None:
     owner = await owner_with_farm(client)
     aid = await make_animal(client, owner)
-    future = iso(date.today() + timedelta(days=30))
-    base = {"scope": "animal", "animal_id": aid, "date": iso(date.today()), "type": "TREATMENT"}
+    future = iso(today() + timedelta(days=30))
+    base = {"scope": "animal", "animal_id": aid, "date": iso(today()), "type": "TREATMENT"}
     for override in [{"cost": "inf"}, {"cost": "1e999"}, {"cost": "nan"}, {"date": future}]:
         resp = await client.post("/api/health/events", json=base | override, headers=owner)
         assert resp.status_code == 422, override
@@ -1046,7 +1046,7 @@ async def test_form_linked_and_early_auto_task_completion_blocked(
     # Auto-generated protocol duties unlock on their due date; manual ones don't care.
     resp = await client.post(
         "/api/purchases/new",
-        json={"date": iso(date.today()), "count": 1, "create_animals": True},
+        json={"date": iso(today()), "count": 1, "create_animals": True},
         headers=owner,
     )
     assert resp.status_code == 201, resp.text
@@ -1054,14 +1054,14 @@ async def test_form_linked_and_early_auto_task_completion_blocked(
     auto = find_tasks(
         await task_tabs(client, owner), category="BUCKET_MOVE", purchase_batch_id=batch_id
     )[0]
-    assert auto["due_date"] == iso(date.today() + timedelta(days=44))
+    assert auto["due_date"] == iso(today() + timedelta(days=44))
     resp = await client.post(f"/api/tasks/{auto['id']}/complete", headers=owner)
     assert resp.status_code == 409
     resp = await client.post(
         "/api/tasks",
         json={
             "title": "Paint fence",
-            "due_date": iso(date.today() + timedelta(days=44)),
+            "due_date": iso(today() + timedelta(days=44)),
             "category": "OTHER",
         },
         headers=owner,
@@ -1078,14 +1078,14 @@ async def test_recur_days_cap_and_skip_spawns_next(client: httpx.AsyncClient) ->
     owner = await owner_with_farm(client)
     resp = await client.post(
         "/api/tasks",
-        json={"title": "Daily", "due_date": iso(date.today()), "recur_days": 999999999},
+        json={"title": "Daily", "due_date": iso(today()), "recur_days": 999999999},
         headers=owner,
     )
     assert resp.status_code == 422  # capped — the series stays usable
     assert all_tasks(await task_tabs(client, owner)) == []
     resp = await client.post(
         "/api/tasks",
-        json={"title": "Daily", "due_date": iso(date.today()), "recur_days": 7},
+        json={"title": "Daily", "due_date": iso(today()), "recur_days": 7},
         headers=owner,
     )
     task_id = resp.json()["id"]
@@ -1117,7 +1117,7 @@ async def test_self_verification_blocked_for_worker(client: httpx.AsyncClient) -
         "/api/tasks",
         json={
             "title": "Scrub",
-            "due_date": iso(date.today()),
+            "due_date": iso(today()),
             "category": "CLEANING",
             "assigned_role_id": cm_id,
         },
@@ -1141,7 +1141,7 @@ async def test_finance_and_feed_nonfinite_rejected(client: httpx.AsyncClient) ->
         resp = await client.post(
             "/api/finance/new",
             json={
-                "date": iso(date.today()),
+                "date": iso(today()),
                 "type": "INCOME",
                 "category": "OTHER",
                 "amount": bad_amount,
@@ -1168,13 +1168,13 @@ async def test_finance_and_feed_nonfinite_rejected(client: httpx.AsyncClient) ->
 
 async def test_purchase_batch_bounds_validated(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    future = iso(date.today() + timedelta(days=10))
+    future = iso(today() + timedelta(days=10))
     for payload in [
-        {"date": iso(date.today()), "count": 4, "total_price": "-5000"},
-        {"date": iso(date.today()), "count": 1001},
-        {"date": iso(date.today()), "count": 4, "avg_age_months": 100000},
-        {"date": iso(date.today()), "count": 4, "avg_age_months": "-3"},
-        {"date": iso(date.today()), "count": 4, "avg_weight_kg": "-1"},
+        {"date": iso(today()), "count": 4, "total_price": "-5000"},
+        {"date": iso(today()), "count": 1001},
+        {"date": iso(today()), "count": 4, "avg_age_months": 100000},
+        {"date": iso(today()), "count": 4, "avg_age_months": "-3"},
+        {"date": iso(today()), "count": 4, "avg_weight_kg": "-1"},
         {"date": future, "count": 4},
         {"date": "9999-12-01", "count": 4},
     ]:
@@ -1184,7 +1184,7 @@ async def test_purchase_batch_bounds_validated(client: httpx.AsyncClient) -> Non
     assert await transactions(client, owner) == []  # no negative expense booked
     resp = await client.post(
         "/api/purchases/new",
-        json={"date": iso(date.today()), "count": 4, "total_price": 20000, "create_animals": True},
+        json={"date": iso(today()), "count": 4, "total_price": 20000, "create_animals": True},
         headers=owner,
     )
     assert resp.status_code == 201, resp.text

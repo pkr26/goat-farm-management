@@ -13,6 +13,7 @@ from .common import (
     NonNegativeMoneyFloat,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
+    PostgresText,
     StrictBool,
     StrictInputModel,
     StrictInt,
@@ -23,13 +24,13 @@ from .tasks import TaskOut
 
 class PurchaseBatchIn(StrictInputModel):
     date: PastOrTodayDate
-    supplier: str | None = Field(default=None, max_length=120)
+    supplier: PostgresText | None = Field(default=None, max_length=120)
     count: StrictInt = Field(ge=1, le=MAX_BATCH_COUNT)
     sex: Literal["M", "F"] = "F"  # stub-animal sex (a bought buck is not a doe)
     avg_age_months: NonNegativeFloat | None = Field(default=None, le=MAX_AGE_MONTHS)
     avg_weight_kg: NonNegativeWeightKgFloat | None = None
     total_price: NonNegativeMoneyFloat | None = None
-    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
     create_animals: StrictBool = True
 
     @field_validator("date")

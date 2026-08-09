@@ -374,6 +374,32 @@ async def _bulk_target_snapshot(
         filters.append(Animal.current_bucket == target.bucket)
     else:
         filters.append(Animal.purchase_batch_id == target.purchase_batch_id)
+        if target.task_id is not None:
+            if target.task_id > MAX_INT32_ID:
+                raise HTTPException(status_code=409, detail="Linked health task is unavailable")
+            task = (
+                await db.execute(
+                    select(Task).where(
+                        Task.id == target.task_id,
+                        Task.farm_id == farm_id,
+                        Task.status == TaskStatus.PENDING.value,
+                        Task.category.in_(
+                            (TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)
+                        ),
+                    )
+                )
+            ).scalar_one_or_none()
+            if task is None:
+                raise HTTPException(
+                    status_code=409, detail="Linked health task is not pending or compatible"
+                )
+            if task.purchase_batch_id != target.purchase_batch_id:
+                raise HTTPException(
+                    status_code=422, detail="Health preview scope must match the linked batch"
+                )
+            # Match the writer's authoritative target predicate exactly so a
+            # reviewed preview can be submitted unchanged with this task id.
+            filters.append(Animal.current_bucket == Bucket.QUARANTINE.value)
     rows = list(
         (
             await db.execute(
@@ -413,6 +439,7 @@ async def preview_bulk_event_targets(
         scope=payload.scope,
         bucket=payload.bucket,
         purchase_batch_id=payload.purchase_batch_id,
+        task_id=payload.task_id,
         target_animal_ids=ids,
         target_animals=identities,
         target_count=len(ids),

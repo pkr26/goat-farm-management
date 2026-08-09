@@ -4,6 +4,7 @@ vars prefixed GOATFARM_, e.g. GOATFARM_DATABASE_URL."""
 from __future__ import annotations
 
 import ipaddress
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -17,9 +18,47 @@ MAX_PREVIOUS_JWT_PUBLIC_KEYS = 3
 MAX_PREVIOUS_IDEMPOTENCY_HMAC_SECRETS = 3
 MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH = 32
 DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET = "development-only-idempotency-hmac-secret-change-me"
+HOST_LABEL_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+COOKIE_NAME_PATTERN = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+DEVELOPMENT_REFRESH_COOKIE_NAME = "goatfarm_refresh"
+PRODUCTION_REFRESH_COOKIE_NAME = "__Host-goatfarm_refresh"
 
 # asyncpg `ssl` connect-arg values (same names as libpq's sslmode).
 DbSslMode = Literal["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]
+
+
+class MigrationSettings(BaseSettings):
+    """Minimal settings surface for the privileged Alembic release job.
+
+    A migration must enforce the production database transport invariant, but
+    it neither serves cookies/CORS nor signs tokens. Keeping this projection
+    separate avoids injecting unrelated API secrets into the one-shot DDL
+    container merely to make production validation run.
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GOATFARM_",
+        env_file=BACKEND_DIR / ".env",
+        # backend/.env also contains API-only GOATFARM_ fields. They are
+        # validated by Settings in the API process and intentionally ignored
+        # by this least-privilege projection.
+        extra="ignore",
+    )
+
+    environment: Literal["development", "production"] = "development"
+    database_url: str = "postgresql+asyncpg://localhost:5432/goatfarm"
+    migration_database_url: str | None = None
+    db_sslmode: DbSslMode = "disable"
+    migration_statement_timeout_ms: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _production_tls(self) -> MigrationSettings:
+        if self.environment == "production" and self.db_sslmode != "verify-full":
+            raise ValueError(
+                f"Refusing migration: GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe "
+                "in production — use 'verify-full'"
+            )
+        return self
 
 
 class Settings(BaseSettings):
@@ -45,7 +84,8 @@ class Settings(BaseSettings):
     migration_database_url: str | None = None
 
     # TLS for the database wire, mapped to asyncpg's `ssl` connect arg.
-    # "require" (or stricter) for any remote/production database.
+    # Production requires "verify-full": encryption without certificate and
+    # hostname verification does not authenticate the database server.
     db_sslmode: DbSslMode = "disable"
 
     # Connection pool + per-statement guardrails. The statement timeout is a
@@ -140,7 +180,7 @@ class Settings(BaseSettings):
     # Only simultaneous browser-tab replays get an idempotent successor.
     # Anything later remains a refresh-token theft signal.
     refresh_reuse_grace_seconds: int = Field(default=3, ge=0, le=30)
-    refresh_cookie_name: str = "goatfarm_refresh"
+    refresh_cookie_name: str = DEVELOPMENT_REFRESH_COOKIE_NAME
 
     # Argon2id parameters (protected: only changeable via env, never at runtime).
     argon2_time_cost: int = Field(default=3, ge=1, le=6)
@@ -213,7 +253,7 @@ class Settings(BaseSettings):
     @field_validator("allowed_hosts")
     @classmethod
     def _canonical_allowed_hosts(cls, value: list[str]) -> list[str]:
-        """Store the form TrustedHostMiddleware actually compares against.
+        """Validate and store the form TrustedHostMiddleware compares against.
 
         Starlette matches the Host header byte-exactly, while browsers and
         proxies always send a lower-cased, dot-free authority. Validating a
@@ -221,8 +261,73 @@ class Settings(BaseSettings):
         pass the fail-closed production gate and then reject 100% of traffic —
         including through a container probe that sends the same raw value and
         therefore keeps reporting healthy. Normalize once, here.
+        Starlette also asserts at middleware construction when a wildcard is
+        not exactly ``*.domain``. Mirror that grammar here and validate the
+        underlying DNS/IP name so a configuration that passes Settings cannot
+        later crash application construction or reject every normal Host.
         """
-        return [host.strip().lower().rstrip(".") for host in value]
+        canonical: list[str] = []
+        invalid: list[str] = []
+        for raw_host in value:
+            host = raw_host.strip().lower()
+            # A single final dot is the DNS absolute-name spelling. Browsers
+            # omit it, so store the byte form Starlette will receive. More than
+            # one final dot remains invalid instead of being normalized away.
+            if host.endswith("."):
+                host = host[:-1]
+
+            if host == "*":
+                canonical.append(host)
+                continue
+
+            wildcard = host.startswith("*.")
+            if "*" in host and (not wildcard or "*" in host[2:]):
+                invalid.append(raw_host)
+                continue
+            candidate = host[2:] if wildcard else host
+
+            # TrustedHostMiddleware splits the authority on ':', so IPv6 and
+            # port-bearing patterns cannot be represented safely in its
+            # allowlist. Exact IPv4 addresses and ordinary DNS names are fine.
+            valid = bool(candidate) and ":" not in candidate and len(candidate) <= 253
+            is_ip = False
+            if valid:
+                try:
+                    address = ipaddress.ip_address(candidate)
+                except ValueError:
+                    labels = candidate.split(".")
+                    valid = all(HOST_LABEL_PATTERN.fullmatch(label) for label in labels)
+                    # A dotted all-numeric value that is not a canonical IPv4
+                    # address is ambiguous across clients/proxies; reject it.
+                    if valid and len(labels) > 1 and all(label.isdigit() for label in labels):
+                        valid = False
+                else:
+                    is_ip = True
+                    valid = address.version == 4
+            if wildcard and is_ip:
+                valid = False
+            if not valid:
+                invalid.append(raw_host)
+                continue
+            canonical.append(host)
+
+        if invalid:
+            raise ValueError(
+                "GOATFARM_ALLOWED_HOSTS entries must be IPv4 addresses or valid DNS names "
+                "with an optional leading '*.' wildcard (never a URL, port, or partial "
+                f"wildcard): {invalid}"
+            )
+        if len(set(canonical)) != len(canonical):
+            raise ValueError("GOATFARM_ALLOWED_HOSTS must not contain duplicate host patterns")
+        return canonical
+
+    @field_validator("refresh_cookie_name")
+    @classmethod
+    def _valid_refresh_cookie_name(cls, value: str) -> str:
+        """Reject names that a browser or Cookie header parser can reinterpret."""
+        if not COOKIE_NAME_PATTERN.fullmatch(value):
+            raise ValueError("GOATFARM_REFRESH_COOKIE_NAME must be a valid cookie token")
+        return value
 
     @field_validator("cors_origins")
     @classmethod
@@ -309,6 +414,20 @@ class Settings(BaseSettings):
             raise ValueError(
                 "GOATFARM_ARGON2_MEMORY_COST must be at least 8 * GOATFARM_ARGON2_PARALLELISM"
             )
+        # Keep local HTTP development ergonomic, but make the production
+        # default host-bound. A __Host- cookie cannot carry Domain, must be
+        # Secure and must use Path=/; the response helper enforces the latter
+        # two attributes. Custom production names must retain that guarantee.
+        if (
+            self.environment == "production"
+            and self.refresh_cookie_name == DEVELOPMENT_REFRESH_COOKIE_NAME
+        ):
+            self.refresh_cookie_name = PRODUCTION_REFRESH_COOKIE_NAME
+        if self.refresh_cookie_name.startswith("__Host-") and not self.cookie_secure:
+            raise ValueError(
+                "GOATFARM_COOKIE_SECURE must be true when GOATFARM_REFRESH_COOKIE_NAME "
+                "uses the '__Host-' prefix"
+            )
         if self.environment != "production":
             return self
         problems: list[str] = []
@@ -331,6 +450,11 @@ class Settings(BaseSettings):
                 "every GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS entry must be "
                 f"at least {MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH} characters"
             )
+        if DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET in previous_hmac_secrets:
+            problems.append(
+                "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS must not contain "
+                "the known development fallback in production"
+            )
         if len(set(previous_hmac_secrets)) != len(previous_hmac_secrets):
             problems.append(
                 "GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS must not contain duplicates"
@@ -345,6 +469,8 @@ class Settings(BaseSettings):
                 "GOATFARM_COOKIE_SECURE must be true in production "
                 "(the refresh JWT travels in a cookie; over plain HTTP it leaks)"
             )
+        if not self.refresh_cookie_name.startswith("__Host-"):
+            problems.append("GOATFARM_REFRESH_COOKIE_NAME must start with '__Host-' in production")
         if not self.cors_origins:
             problems.append(
                 "GOATFARM_CORS_ORIGINS must not be empty in production "
@@ -413,10 +539,10 @@ class Settings(BaseSettings):
             problems.append("GOATFARM_ARGON2_MEMORY_COST must be at least 19456 KiB in production")
         if self.argon2_hash_len < 32:
             problems.append("GOATFARM_ARGON2_HASH_LEN must be at least 32 in production")
-        if self.db_sslmode in {"disable", "allow", "prefer"}:
+        if self.db_sslmode != "verify-full":
             problems.append(
                 f"GOATFARM_DB_SSLMODE={self.db_sslmode!r} is unsafe in production — "
-                "use 'require', 'verify-ca', or 'verify-full'"
+                "use 'verify-full' so both the certificate chain and database hostname are verified"
             )
         if problems:
             raise ValueError("Refusing to boot: " + "; ".join(problems))
@@ -426,3 +552,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_migration_settings() -> MigrationSettings:
+    return MigrationSettings()

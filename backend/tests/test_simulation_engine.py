@@ -198,6 +198,63 @@ def test_irr_is_none_when_the_series_has_several_roots() -> None:
     assert irr(flows, times) is None
 
 
+def test_irr_finds_close_root_pair_between_old_scan_samples() -> None:
+    """Derivative isolation must not hide two crossings in one scan interval."""
+    flows = [-1_000_000.0, 3_750_000.0, -4_640_600.0, 1_898_400.0]
+    times = [0.0, 1.0, 2.0, 3.0]
+    roots = irr_roots(flows, times)
+    assert roots == pytest.approx([0.12, 0.13, 0.50], abs=1e-9)
+    assert all(npv(root, flows, times) == pytest.approx(0.0, abs=1e-6) for root in roots)
+    assert irr(flows, times) is None
+
+
+def test_irr_does_not_promote_a_near_zero_stationary_point_to_a_root() -> None:
+    # ((x - 1/1.12)^2 + 1e-12) * (x - 1/1.5) has only the 50% real
+    # crossing.  The shallow minimum around 12% is positive, not an IRR.
+    shallow_rate_x = 1.0 / 1.12
+    crossing_x = 1.0 / 1.5
+    epsilon = 1e-12
+    scale = 1_000_000.0
+    flows = [
+        -(shallow_rate_x**2 * crossing_x + epsilon * crossing_x) * scale,
+        (shallow_rate_x**2 + 2.0 * shallow_rate_x * crossing_x + epsilon) * scale,
+        -(2.0 * shallow_rate_x + crossing_x) * scale,
+        scale,
+    ]
+    times = [0.0, 1.0, 2.0, 3.0]
+
+    roots = irr_roots(flows, times)
+
+    assert roots == pytest.approx([0.5], abs=1e-8)
+    assert npv(roots[0], flows, times) == pytest.approx(0.0, abs=1e-6)
+    assert irr(flows, times) == pytest.approx(0.5, abs=1e-8)
+
+
+def test_irr_retains_a_flat_crossing_when_deciding_ambiguity() -> None:
+    # In x = 1 / (1 + rate), these binary-float coefficients are the expanded
+    # form of (x - 0.2)^3 * (x - 0.4).  The triple crossing at x ~= 0.2 is a
+    # tangent root of the derivative.  Dropping derivative tangencies merges
+    # both parent crossings into one same-sign interval and used to report the
+    # 150% IRR as unique instead of also finding the crossing near 400%.
+    flows = [
+        0.003200000000000001,
+        -0.056000000000000015,
+        0.3600000000000001,
+        -1.0,
+        1.0,
+    ]
+    times = [0.0, 1.0, 2.0, 3.0, 4.0]
+
+    roots = irr_roots(flows, times)
+
+    # The decimal solver preserves the supplied binary floats exactly; their
+    # second crossing is near, but not identically at, 400%.
+    assert roots == pytest.approx([1.5, 4.0], abs=1e-4)
+    for root in roots:
+        assert npv(root - 1e-3, flows, times) * npv(root + 1e-3, flows, times) < 0.0
+    assert irr(flows, times) is None
+
+
 def test_irr_survives_sign_reversals_with_a_single_root() -> None:
     """Sign reversals alone must not disqualify an IRR — only genuinely
     multiple roots do, otherwise ordinary projects with a lumpy year lose the
@@ -558,6 +615,17 @@ def test_sensitivity_high_conception_never_reduces_a_valid_one_hundred_percent_b
     # The +20% case clamps at the schema/domain ceiling (1.0). The old 0.98
     # clamp mislabeled a two-point reduction as the optimistic scenario.
     assert item.delta_npv_high == pytest.approx(0.0)
+
+
+def test_sensitivity_clamps_low_litter_and_high_interest_to_schema_bounds() -> None:
+    assumptions = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
+    assumptions.reproduction.litter_size = 0.5
+    assumptions.finance.interest_rate_annual = 0.5
+    by_name = {item.parameter: item for item in run_sensitivity(assumptions)}
+    assert by_name["litter_size"].label_low == "+0.0%"
+    assert by_name["litter_size"].delta_npv_low == pytest.approx(0.0)
+    assert by_name["interest_rate"].label_high == "+0.0%"
+    assert by_name["interest_rate"].delta_npv_high == pytest.approx(0.0)
 
 
 def test_run_simulation_optional_blocks() -> None:

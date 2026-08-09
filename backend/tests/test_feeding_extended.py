@@ -52,7 +52,7 @@ from app.services import (
     get_daily_kg_per_head,
     recipe_for_animal,
 )
-from app.utils import today, utcnow
+from app.utils import today
 
 from .conftest import login, owner_with_farm
 
@@ -647,8 +647,8 @@ async def test_plan_resting_flush_switch_is_day_10(
 ) -> None:
     """The flush rule is implemented twice — recipe_for_animal in Python and a
     SQL CASE inside feeding_plan. Pin the plan's own day-10 boundary too; the
-    two screens must not disagree by a day. (The API cannot backdate a
-    BucketMove, so the move is aged directly.)"""
+    two screens must not disagree by a day. The authoritative effective date
+    is aged directly; ``moved_at`` remains the immutable audit timestamp."""
     headers = await owner_with_farm(client)
     animal = await make_animal(client, headers, "R-FLUSH", bucket="RESTING")
     async with get_sessionmaker()() as db:
@@ -660,7 +660,7 @@ async def test_plan_resting_flush_switch_is_day_10(
                 .limit(1)
             )
         ).scalar_one()
-        move.moved_at = utcnow() - timedelta(days=days_in_bucket)
+        move.effective_date = today() - timedelta(days=days_in_bucket)
         await db.commit()
     line = (await get_plan(client, headers))["lines"][0]
     assert line["bucket"] == "RESTING"

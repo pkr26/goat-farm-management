@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -22,6 +23,10 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 logger = logging.getLogger("goatfarm.deps")
 
+# A real FastAPI security dependency keeps the runtime and OpenAPI contract in
+# agreement. ``auto_error=False`` preserves this module's stable JSON 401s.
+_bearer_scheme = HTTPBearer(auto_error=False)
+
 
 def _unauthenticated(detail: str = "Not authenticated") -> HTTPException:
     return HTTPException(status_code=401, detail=detail)
@@ -30,11 +35,21 @@ def _unauthenticated(detail: str = "Not authenticated") -> HTTPException:
 async def current_user(
     request: Request,
     db: DbSession,
-    authorization: Annotated[str | None, Header()] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)],
 ) -> User:
-    if not authorization or not authorization.startswith("Bearer "):
+    # Preserve the established runtime contract: this API accepts the
+    # canonical ``Bearer`` spelling only. HTTPBearer supplies the OpenAPI
+    # security scheme, while this explicit check avoids silently changing
+    # authorization behavior as part of that documentation fix.
+    authorization_values = request.headers.getlist("authorization")
+    authorization = authorization_values[0] if len(authorization_values) == 1 else None
+    if (
+        credentials is None
+        or credentials.scheme != "Bearer"
+        or authorization != f"Bearer {credentials.credentials}"
+    ):
         raise _unauthenticated("Missing bearer token")
-    claims = decode_access_claims(authorization.removeprefix("Bearer "))
+    claims = decode_access_claims(credentials.credentials)
     if claims is None:
         raise _unauthenticated("Invalid or expired token")
     statement = select(User).where(User.id == claims.user_id)

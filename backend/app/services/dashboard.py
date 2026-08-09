@@ -81,7 +81,7 @@ async def ready_to_move_suggestions(
         else_=None,
     )
     latest_move = (
-        select(BucketMove.moved_at)
+        select(BucketMove.effective_date)
         .where(BucketMove.animal_id == Animal.id)
         .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
         .limit(1)
@@ -127,7 +127,7 @@ async def ready_to_move_suggestions(
             effective_dob.label("effective_dob"),
             func.coalesce(latest_weight_recorded, Animal.birth_weight).label("latest_weight"),
             func.coalesce(latest_weight_as_of, birth_weight_as_of).label("latest_weight_as_of"),
-            latest_move.label("latest_moved_at"),
+            latest_move.label("latest_effective_date"),
             latest_open_pregnancy.label("open_pregnancy_date"),
             active_withdrawal.label("has_active_withdrawal"),
         )
@@ -137,15 +137,16 @@ async def ready_to_move_suggestions(
 
     age_cutoff = add_months(reference_date, -MIN_BREEDING_AGE_MONTHS)
     male_sale_age_cutoff = add_months(reference_date, -8)
-    bucket_started_local_date = cast(
+    created_local_date = cast(
         func.timezone(
             farm.timezone,
-            func.timezone(
-                "UTC",
-                func.coalesce(context.c.latest_moved_at, context.c.created_at),
-            ),
+            func.timezone("UTC", context.c.created_at),
         ),
         Date,
+    )
+    bucket_started_local_date = func.coalesce(
+        context.c.latest_effective_date,
+        created_local_date,
     )
     breeding_rules = [
         and_(
@@ -204,9 +205,14 @@ async def ready_to_move_suggestions(
             target = Bucket.BREEDING.value
             reason = "Breeding-ready (≥10 mo, ≥22 kg)"
         elif bucket == Bucket.RESTING.value:
-            started_at = row.latest_moved_at or row.created_at
+            started_at = row.latest_effective_date
+            started_date = (
+                started_at
+                if started_at is not None
+                else business_date(row.created_at, farm.timezone)
+            )
             bucket_days = max(
-                (reference_date - business_date(started_at, farm.timezone)).days,
+                (reference_date - started_date).days,
                 0,
             )
             target = Bucket.BREEDING.value

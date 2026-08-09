@@ -304,7 +304,9 @@ class Animal(Base):
     ) -> int:
         """Elapsed bucket days on an explicit farm-local business date."""
         move = self.last_bucket_move
-        ref: datetime | date | None = move.moved_at if move else self.created_at
+        ref: datetime | date | None = (
+            (move.effective_date or move.moved_at) if move else self.created_at
+        )
         if ref is None:
             return 0
         moved_date = business_date(ref, timezone_name) if isinstance(ref, datetime) else ref
@@ -450,6 +452,14 @@ class BucketMove(Base):
     from_bucket: Mapped[str | None] = mapped_column(String(20))  # None = initial placement
     to_bucket: Mapped[str] = mapped_column(String(20))
     moved_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Business-effective date of the lifecycle fact. ``moved_at`` remains the
+    # immutable audit insertion instant; backdated purchases, kiddings and
+    # pregnancy losses must not reset feeding age to the time they were typed.
+    effective_date: Mapped[date] = mapped_column(
+        Date,
+        default=today,
+        server_default=text("CURRENT_DATE"),
+    )
     reason: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

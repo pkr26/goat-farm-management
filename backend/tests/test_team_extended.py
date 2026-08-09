@@ -894,7 +894,7 @@ async def test_password_hashing_is_never_admitted_before_owner_authorization(
 
 
 @pytest.mark.parametrize("operation", ["create", "reset"])
-async def test_owner_password_hashing_releases_database_and_caller_lock(
+async def test_owner_password_hashing_keeps_only_required_claim_transaction(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
@@ -933,8 +933,8 @@ async def test_owner_password_hashing_releases_database_and_caller_lock(
     try:
         await asyncio.wait_for(started.wait(), timeout=2)
         assert get_engine().sync_engine.pool.checkedout() == 0
-        # The caller SHARE pin from CurrentUser must also be gone. The route
-        # reacquires and revalidates it only after hashing finishes.
+        # Both paths release the caller SHARE pin before hashing, so account
+        # revocation remains immediately writable throughout Argon work.
         async with get_sessionmaker()() as probe:
             locked_id = (
                 await probe.execute(
@@ -1965,7 +1965,7 @@ async def test_reset_password_revokes_worker_sessions(client: httpx.AsyncClient)
     assert resp.status_code == 200, resp.text
 
     client.cookies.clear()
-    client.cookies.set(COOKIE, worker_cookie)
+    client.cookies.set(COOKIE, worker_cookie, domain="test.local", path="/")
     assert (await client.post("/api/auth/refresh")).status_code == 401
     # the worker signs in with the new password and gets a working session
     client.cookies.clear()
@@ -1988,7 +1988,7 @@ async def test_toggle_deactivation_preserves_global_refresh_session(
     assert resp.json()["is_active"] is False
 
     client.cookies.clear()
-    client.cookies.set(COOKIE, worker_cookie)
+    client.cookies.set(COOKIE, worker_cookie, domain="test.local", path="/")
     assert (await client.post("/api/auth/refresh")).status_code == 200
 
     resp = await set_worker_active(client, owner, mid, True)

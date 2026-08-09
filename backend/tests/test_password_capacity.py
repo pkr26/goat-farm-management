@@ -211,7 +211,7 @@ async def test_replacement_hashing_holds_no_database_connection(
     assert response.status_code == 200, response.text
 
 
-async def test_team_password_hashing_releases_authorization_transaction(
+async def test_team_password_hashing_uses_only_the_required_transaction(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -263,6 +263,8 @@ async def test_team_password_hashing_releases_authorization_transaction(
         request = asyncio.create_task(client.post(path, json=payload, headers=owner))
         try:
             await asyncio.wait_for(started.wait(), timeout=2)
+            # Both creation and reset release their read-only authorization /
+            # replay-preflight transaction before memory-hard password work.
             assert get_engine().sync_engine.pool.checkedout() == 0
         finally:
             release.set()

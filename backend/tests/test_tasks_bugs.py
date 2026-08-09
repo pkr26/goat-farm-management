@@ -84,3 +84,7 @@ async def test_reject_task_service_repairs_a_legacy_personal_duty(
         assert stored.assigned_role_id == cleaner_role
         assert stored.rejected_by_id == verifier_id
         assert stored.rejected_at is not None
+        await db.execute(
+            text("ALTER TABLE tasks VALIDATE CONSTRAINT ck_tasks_user_assignment_has_role")
+        )
+        await db.commit()

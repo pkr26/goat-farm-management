@@ -145,6 +145,79 @@ def _request_hash_matches(
     return bool(matched)
 
 
+async def replay_idempotent_if_committed[ResponseT: BaseModel](
+    db: AsyncSession,
+    *,
+    http_response: Response,
+    key: str,
+    farm_id: int | None,
+    actor_id: int,
+    operation: str,
+    payload: BaseModel,
+    path_identity: Mapping[str, object],
+    response_type: type[ResponseT],
+) -> ResponseT | None:
+    """Read an already-committed result without creating a claim.
+
+    This is a read-only fast path for workflows that must release their
+    authorization transaction before expensive off-thread preparation. A
+    miss is only a hint: the caller must still use ``execute_idempotent``
+    after preparation because another process can commit the same key in the
+    meantime. Transaction cleanup deliberately remains the caller's job so it
+    can combine this lookup with other cheap read-only preflight checks.
+    """
+    actor_scoped = farm_id is None
+    if actor_scoped != (operation == CREATE_FARM_IDEMPOTENCY_OPERATION):
+        raise ValueError(
+            "farm_id may be omitted only for the actor-scoped "
+            f"{CREATE_FARM_IDEMPOTENCY_OPERATION!r} operation"
+        )
+    if not 1 <= len(key) <= MAX_IDEMPOTENCY_KEY_LENGTH or any(
+        not 0x21 <= ord(char) <= 0x7E for char in key
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Idempotency-Key must be 1-128 printable non-whitespace ASCII characters",
+        )
+
+    now = utcnow()
+    _current_hash, accepted_request_hashes = _request_hashes(
+        operation,
+        payload,
+        path_identity,
+    )
+    key_digest = _sha256(key.encode("ascii"))
+    existing = (
+        await db.execute(
+            select(IdempotencyRecord).where(
+                IdempotencyRecord.farm_id == farm_id,
+                IdempotencyRecord.actor_id == actor_id,
+                IdempotencyRecord.operation == operation,
+                IdempotencyRecord.key_digest == key_digest,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is None or existing.expires_at <= now:
+        return None
+    if not _request_hash_matches(operation, existing.request_hash, accepted_request_hashes):
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency-Key was already used with a different request",
+        )
+    if (
+        existing.response_body is None
+        or existing.response_status is None
+        or existing.completed_at is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Idempotency result is incomplete; retry with a new key",
+        )
+    http_response.status_code = existing.response_status
+    http_response.headers["Idempotency-Replayed"] = "true"
+    return response_type.model_validate(existing.response_body)
+
+
 async def execute_idempotent[ResponseT: BaseModel](
     db: AsyncSession,
     *,

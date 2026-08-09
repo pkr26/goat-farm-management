@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, literal, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -56,6 +56,7 @@ from ..services import (
     mark_aborted,
     move_animal,
     place_movement_restriction,
+    replan_dam_after_last_kid_death,
     require_animal_event_chronology,
     require_bucket_transition,
     require_farm_not_future,
@@ -393,6 +394,12 @@ async def create_animal(
                             animal_id=animal.id,
                             from_bucket=None,
                             to_bucket=initial_bucket,
+                            effective_date=(
+                                animal.purchase_date
+                                or animal.date_of_birth
+                                or animal.estimated_dob
+                                or farm_date
+                            ),
                             reason=(
                                 f"Historical import: {historical_import_reason}"[:255]
                                 if historical_import_reason
@@ -809,6 +816,9 @@ async def change_status(
                 raise ValueError("mortality_reported_at cannot predate the death date")
         if payload.authority_notified_at is not None:
             require_farm_not_future(payload.authority_notified_at, farm, "authority_notified_at")
+            require_animal_event_chronology(
+                animal, payload.authority_notified_at, "Authority notification"
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     if payload.new_status in (AnimalStatus.SOLD.value, AnimalStatus.CULLED.value):
@@ -842,6 +852,16 @@ async def change_status(
                 acted_by_id=user.id,
             )
             animal.authority_notified_at = payload.authority_notified_at
+        try:
+            await replan_dam_after_last_kid_death(db, farm, animal, status_date)
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) != "55P03":
+                raise
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="The dam's lifecycle is changing; retry the kid death update",
+            ) from None
     # new_status is never ACTIVE here: clear the cull flag and stop the
     # animal's pending tasks (a dead/sold animal must not generate work).
     animal.cull_candidate = False
@@ -912,6 +932,7 @@ async def change_status(
                         animal_id=animal.id,
                         from_bucket=animal.current_bucket,
                         to_bucket=animal.current_bucket,
+                        effective_date=status_date,
                         reason=f"Pregnancy auto-aborted — doe marked {payload.new_status.lower()}",
                         created_by_id=user.id,
                     )
@@ -944,6 +965,7 @@ async def change_status(
                 orphan_reason,
                 created_by_id=user.id,
                 context="weaning",
+                reference_date=status_date,
             )
 
     await skip_pending_tasks_for_animal(db, farm.id, animal.id)
