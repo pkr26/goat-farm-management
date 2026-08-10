@@ -11,6 +11,7 @@ from .common import (
     BoundedId,
     NonNegativeMoneyFloat,
     PastOrTodayDate,
+    PostgresText,
     StrictBool,
     StrictInputModel,
     StrictInt,
@@ -30,7 +31,7 @@ MAX_BULK_HEALTH_TARGETS = MAX_BATCH_COUNT
 class MovementRestrictionClearIn(StrictInputModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    clearance_reference: str = Field(min_length=1, max_length=255)
+    clearance_reference: PostgresText = Field(min_length=1, max_length=255)
     expected_restriction_version: Annotated[StrictInt, Field(ge=1, le=2_147_483_647)]
 
 
@@ -38,7 +39,9 @@ class HealthEventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    animal_id: int
+    # Batch-level legacy/import rows may target a purchase batch without an
+    # individual animal; the database explicitly permits that shape.
+    animal_id: int | None
     purchase_batch_id: int | None
     date: dt.date
     type: str
@@ -204,29 +207,31 @@ class HealthEventIn(StrictInputModel):
     purchase_batch_id: BoundedId | None = None
     date: PastOrTodayDate | None = None  # v1: a blank date meant "today"
     type: HealthEventTypeStr
-    product_name: str | None = Field(default=None, max_length=120)
-    disease_target: str | None = Field(default=None, max_length=120)
-    dose: str | None = Field(default=None, max_length=60)
-    route: str | None = Field(default=None, max_length=20)  # health_events.route is String(20)
-    vet_name: str | None = Field(default=None, max_length=120)
+    product_name: PostgresText | None = Field(default=None, max_length=120)
+    disease_target: PostgresText | None = Field(default=None, max_length=120)
+    dose: PostgresText | None = Field(default=None, max_length=60)
+    route: PostgresText | None = Field(
+        default=None, max_length=20
+    )  # health_events.route is String(20)
+    vet_name: PostgresText | None = Field(default=None, max_length=120)
     cost: NonNegativeMoneyFloat | None = None
     next_due_date: dt.date | None = None
-    schedule_template_name: str | None = Field(default=None, max_length=120)
+    schedule_template_name: PostgresText | None = Field(default=None, max_length=120)
     # A date manually supplied by a user is only allowed to override the
     # template cadence when they also state the record that authorises it.
-    next_due_authority: str | None = Field(default=None, max_length=120)
-    product_lot: str | None = Field(default=None, max_length=120)
+    next_due_authority: PostgresText | None = Field(default=None, max_length=120)
+    product_lot: PostgresText | None = Field(default=None, max_length=120)
     product_manufactured_on: PastOrTodayDate | None = None
     product_expires_on: dt.date | None = None
     vaccine_valid_until: dt.date | None = None
-    certificate_number: str | None = Field(default=None, max_length=120)
-    official_tag_number: str | None = Field(default=None, max_length=80)
-    administered_by: str | None = Field(default=None, max_length=120)
+    certificate_number: PostgresText | None = Field(default=None, max_length=120)
+    official_tag_number: PostgresText | None = Field(default=None, max_length=80)
+    administered_by: PostgresText | None = Field(default=None, max_length=120)
     withdrawal_until: dt.date | None = None
     suspected_scheduled_disease: StrictBool = False
     authority_notified_at: PastOrTodayDate | None = None
     isolation_started_at: PastOrTodayDate | None = None
-    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
     task_id: BoundedId | None = None  # complete a linked VACCINE/DEWORMING task
     # Required by the route for bucket/batch writes. It is intentionally not
     # schema-required so a missing/stale review snapshot is a domain 409.

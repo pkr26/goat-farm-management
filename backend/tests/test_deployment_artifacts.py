@@ -12,6 +12,7 @@ import ipaddress
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -23,7 +24,7 @@ import yaml
 from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
-from scripts import healthcheck
+from scripts import backup_legacy_lock, healthcheck
 
 from .conftest import _admin_sql
 
@@ -31,6 +32,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKUP = REPO_ROOT / "backend" / "scripts" / "backup.sh"
 RESTORE = REPO_ROOT / "backend" / "scripts" / "restore.sh"
 URL_HELPER = REPO_ROOT / "backend" / "scripts" / "libpq_url.py"
+DOTENV_HELPER = REPO_ROOT / "backend" / "scripts" / "dotenv_value.py"
+FLOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_flock.py"
+LEGACY_LOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_legacy_lock.py"
 SIGNER_A = "A" * 40
 SIGNER_B = "B" * 40
 
@@ -268,6 +272,15 @@ def _log_text(env: dict[str, str]) -> str:
     return path.read_text() if path.exists() else ""
 
 
+def _ephemeral_backup_state(destination: Path) -> list[Path]:
+    """Private work products must vanish; the kernel-lock inode persists."""
+    return [
+        path
+        for path in destination.glob(".goatfarm-backup.*")
+        if path.name != ".goatfarm-backup.flock"
+    ]
+
+
 def test_backup_restore_and_url_helper_parse() -> None:
     for script in (BACKUP, RESTORE):
         result = subprocess.run(
@@ -275,6 +288,9 @@ def test_backup_restore_and_url_helper_parse() -> None:
         )
         assert result.returncode == 0, result.stderr
     compile(URL_HELPER.read_text(), str(URL_HELPER), "exec")
+    compile(DOTENV_HELPER.read_text(), str(DOTENV_HELPER), "exec")
+    compile(FLOCK_HELPER.read_text(), str(FLOCK_HELPER), "exec")
+    compile(LEGACY_LOCK_HELPER.read_text(), str(LEGACY_LOCK_HELPER), "exec")
 
 
 def test_url_helper_uses_stdin_and_writes_escaped_private_passfile(tmp_path: Path) -> None:
@@ -323,8 +339,10 @@ def test_backup_failure_never_publishes_and_cleans_private_state(
 
     assert result.returncode != 0
     assert not list(destination.glob("goatfarm-*.dump*"))
-    assert not list(destination.glob(".goatfarm-backup.*"))
-    assert not (destination / ".goatfarm-backup.lock").exists()
+    assert not _ephemeral_backup_state(destination)
+    flock_path = destination / ".goatfarm-backup.flock"
+    assert flock_path.is_file() and not flock_path.is_symlink()
+    assert flock_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_backup_lock_serializes_concurrent_producers(tmp_path: Path) -> None:
@@ -345,6 +363,9 @@ def test_backup_lock_serializes_concurrent_producers(tmp_path: Path) -> None:
     while not ready.exists() and time.monotonic() < deadline:
         time.sleep(0.02)
     assert ready.exists(), first.communicate(timeout=1)
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    assert (legacy_lock / "pid").read_text() == f"{first.pid}\n"
+    assert (legacy_lock / ".flock-owner").is_file()
 
     second = _run_backup(destination, env)
     assert second.returncode == 3
@@ -354,8 +375,391 @@ def test_backup_lock_serializes_concurrent_producers(tmp_path: Path) -> None:
     first_stdout, first_stderr = first.communicate(timeout=10)
     assert first.returncode == 0, first_stdout + first_stderr
     assert len(list(destination.glob("goatfarm-*.dump"))) == 1
-    assert not (destination / ".goatfarm-backup.lock").exists()
+    assert not legacy_lock.exists()
+    flock_path = destination / ".goatfarm-backup.flock"
+    lock_inode = flock_path.stat().st_ino
+
+    # The named inode is permanent and reusable; successful cleanup releases
+    # only the kernel lock. Remove timestamped test artifacts so an immediate
+    # second producer cannot collide on the same one-second archive name.
+    for artifact in destination.glob("goatfarm-*.dump*"):
+        artifact.unlink()
+    third = _run_backup(destination, env)
+    assert third.returncode == 0, third.stderr
+    assert flock_path.stat().st_ino == lock_inode
+    assert _log_text(env).count('"tool": "pg_dump"') == 2
+
+
+def test_backup_kernel_lock_releases_after_crashed_process_group(tmp_path: Path) -> None:
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    ready = tmp_path / "crash-dump-ready"
+    never_release = tmp_path / "crash-dump-release"
+    env.update({"MOCK_DUMP_READY": str(ready), "MOCK_DUMP_RELEASE": str(never_release)})
+    destination = tmp_path / "backups"
+    first = subprocess.Popen(
+        ["bash", str(BACKUP), str(destination)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 5
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ready.exists(), first.communicate(timeout=1)
+    flock_path = destination / ".goatfarm-backup.flock"
+    lock_inode = flock_path.stat().st_ino
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    assert (legacy_lock / "pid").read_text() == f"{first.pid}\n"
+
+    os.killpg(first.pid, signal.SIGKILL)
+    first.communicate(timeout=5)
+    assert legacy_lock.is_dir()
+
+    retry_env = _base_env(tmp_path, mock_bin)
+    result = _run_backup(destination, retry_env)
+
+    assert result.returncode == 0, result.stderr
+    assert flock_path.stat().st_ino == lock_inode
+    assert len(list(destination.glob("goatfarm-*.dump"))) == 1
+    assert not legacy_lock.exists()
+
+
+@pytest.mark.parametrize(
+    ("pid_record", "expected_returncode", "message", "legacy_lock_remains"),
+    [
+        ("999999999\n", 3, "requires manual verification", True),
+        (f"{os.getpid()}\n", 3, "live legacy lock", True),
+        ("not-a-pid\n", 3, "malformed or has untrusted identity", True),
+    ],
+    ids=["dead", "live", "malformed"],
+)
+def test_backup_handles_legacy_directory_only_after_kernel_lock(
+    tmp_path: Path,
+    pid_record: str,
+    expected_returncode: int,
+    message: str,
+    legacy_lock_remains: bool,
+) -> None:
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    destination = tmp_path / "backups"
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    legacy_lock.mkdir(parents=True)
+    (legacy_lock / "pid").write_text(pid_record)
+
+    result = _run_backup(destination, env)
+
+    assert result.returncode == expected_returncode, result.stderr
+    assert message in result.stderr
+    assert (destination / ".goatfarm-backup.flock").is_file()
+    assert legacy_lock.exists() is legacy_lock_remains
+    assert _log_text(env).count('"tool": "pg_dump"') == (1 if expected_returncode == 0 else 0)
+
+
+def test_backup_fails_if_late_old_producer_wins_legacy_claim(tmp_path: Path) -> None:
+    """A pre-flock snapshot cannot admit an old mkdir-lock-only producer."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    destination = tmp_path / "backups"
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    legacy_lock.mkdir(parents=True)
+    (legacy_lock / "pid").write_text("999999999\n")
+    (legacy_lock / ".flock-owner").write_text("999999999-1-2\n")
+
+    claim_ready = tmp_path / "new-producer-at-mkdir"
+    old_ready = tmp_path / "old-producer-holds-lock"
+    old_release = tmp_path / "release-old-producer"
+    staged = _stage_scripts(tmp_path, None)
+    env.update(
+        {
+            "MOCK_LEGACY_LOCK_DIR": str(legacy_lock),
+            "MOCK_LEGACY_CLAIM_READY": str(claim_ready),
+            "MOCK_LEGACY_OLD_READY": str(old_ready),
+        }
+    )
+    _write_executable(
+        staged / LEGACY_LOCK_HELPER.name,
+        f"""#!/usr/bin/env python3
+import os
+import sys
+import time
+from pathlib import Path
+
+if (
+    sys.argv[1] == "move-verified"
+    and ".legacy-claim." in Path(sys.argv[2]).name
+    and Path(sys.argv[3]) == Path(os.environ["MOCK_LEGACY_LOCK_DIR"])
+):
+    Path(os.environ["MOCK_LEGACY_CLAIM_READY"]).touch()
+    deadline = time.monotonic() + 5
+    old_ready = Path(os.environ["MOCK_LEGACY_OLD_READY"])
+    while not old_ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+os.execv(
+    sys.executable,
+    [sys.executable, {str(LEGACY_LOCK_HELPER)!r}, *sys.argv[1:]],
+)
+""",
+    )
+    old_producer = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            """
+import os
+import sys
+import time
+from pathlib import Path
+
+claim_ready, old_ready, release, lock_dir = map(Path, sys.argv[1:])
+deadline = time.monotonic() + 5
+while not claim_ready.exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+if not claim_ready.exists():
+    raise SystemExit(90)
+lock_dir.mkdir()
+(lock_dir / "pid").write_text(f"{os.getpid()}\\n")
+old_ready.touch()
+deadline = time.monotonic() + 10
+while not release.exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
+if not release.exists():
+    raise SystemExit(91)
+(lock_dir / "pid").unlink()
+lock_dir.rmdir()
+""",
+            str(claim_ready),
+            str(old_ready),
+            str(old_release),
+            str(legacy_lock),
+        ]
+    )
+    try:
+        result = subprocess.run(
+            ["bash", str(staged / BACKUP.name), str(destination)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+
+        assert result.returncode == 3, result.stderr
+        assert "legacy lock claim was won concurrently" in result.stderr
+        assert (legacy_lock / "pid").read_text() == f"{old_producer.pid}\n"
+        assert old_producer.poll() is None
+        assert '"tool": "pg_dump"' not in _log_text(env)
+        assert (destination / ".goatfarm-backup.flock").is_file()
+        assert not list(destination.glob(".goatfarm-backup.legacy-stale.*"))
+    finally:
+        old_release.touch()
+        old_producer.wait(timeout=5)
+
+
+def test_backup_rejects_legacy_identity_replacement_before_quarantine(
+    tmp_path: Path,
+) -> None:
+    """The moved lock must be the exact dead inode/content that was checked."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    destination = tmp_path / "backups"
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    legacy_lock.mkdir(parents=True)
+    (legacy_lock / "pid").write_text("999999999\n")
+    (legacy_lock / ".flock-owner").write_text("999999999-1-2\n")
+
+    staged = _stage_scripts(tmp_path, None)
+    injected = tmp_path / "legacy-replacement-injected"
+    displaced_dead_lock = tmp_path / "original-dead-legacy-lock"
+    env.update(
+        {
+            "MOCK_LEGACY_REPLACEMENT_INJECTED": str(injected),
+            "MOCK_DISPLACED_DEAD_LOCK": str(displaced_dead_lock),
+            "MOCK_LIVE_REPLACEMENT_PID": str(os.getpid()),
+        }
+    )
+    _write_executable(
+        staged / LEGACY_LOCK_HELPER.name,
+        f"""#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+injected = Path(os.environ["MOCK_LEGACY_REPLACEMENT_INJECTED"])
+if (
+    sys.argv[1] == "move-verified"
+    and Path(sys.argv[2]).name == ".goatfarm-backup.lock"
+    and not injected.exists()
+):
+    source = Path(sys.argv[2])
+    source.rename(Path(os.environ["MOCK_DISPLACED_DEAD_LOCK"]))
+    source.mkdir()
+    (source / "pid").write_text(os.environ["MOCK_LIVE_REPLACEMENT_PID"] + "\\n")
+    injected.touch()
+os.execv(
+    sys.executable,
+    [sys.executable, {str(LEGACY_LOCK_HELPER)!r}, *sys.argv[1:]],
+)
+""",
+    )
+
+    result = subprocess.run(
+        ["bash", str(staged / BACKUP.name), str(destination)],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 3, result.stderr
+    assert "identity changed during verified quarantine" in result.stderr
+    assert (legacy_lock / "pid").read_text() == f"{os.getpid()}\n"
+    assert displaced_dead_lock.is_dir()
+    assert '"tool": "pg_dump"' not in _log_text(env)
+    assert not list(destination.glob(".goatfarm-backup.legacy-stale.*"))
+    assert (destination / ".goatfarm-backup.flock").is_file()
+
+
+def test_legacy_helper_restores_replacement_raced_after_final_lstat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / ".goatfarm-backup.lock"
+    quarantine = tmp_path / ".goatfarm-backup.legacy-stale"
+    displaced = tmp_path / "verified-dead-lock"
+    source.mkdir()
+    (source / "pid").write_text("999999999\n")
+    (source / ".flock-owner").write_text("999999999-1-2\n")
+    token = backup_legacy_lock.encode_snapshot(backup_legacy_lock.snapshot(source))
+    real_rename = backup_legacy_lock._platform_rename_noreplace
+    replacement_injected = False
+
+    def replace_after_lstat(move_source: Path, move_destination: Path) -> None:
+        nonlocal replacement_injected
+        if not replacement_injected:
+            replacement_injected = True
+            source.rename(displaced)
+            source.mkdir()
+            (source / "pid").write_text(f"{os.getpid()}\n")
+        real_rename(move_source, move_destination)
+
+    monkeypatch.setattr(
+        backup_legacy_lock,
+        "_platform_rename_noreplace",
+        replace_after_lstat,
+    )
+
+    with pytest.raises(
+        backup_legacy_lock.LegacyLockError,
+        match="restored unexpected lock",
+    ):
+        backup_legacy_lock.move_verified(source, quarantine, token)
+
+    assert (source / "pid").read_text() == f"{os.getpid()}\n"
+    assert displaced.is_dir()
+    assert not quarantine.exists()
+
+
+def test_backup_killed_while_private_claim_is_complete_never_publishes_partial(
+    tmp_path: Path,
+) -> None:
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    destination = tmp_path / "backups"
+    staged = _stage_scripts(tmp_path, None)
+    publish_ready = tmp_path / "private-claim-complete"
+    env["MOCK_PRIVATE_CLAIM_READY"] = str(publish_ready)
+    _write_executable(
+        staged / LEGACY_LOCK_HELPER.name,
+        f"""#!/usr/bin/env python3
+import os
+import sys
+import time
+from pathlib import Path
+
+if sys.argv[1] == "move-verified" and ".legacy-claim." in Path(sys.argv[2]).name:
+    Path(os.environ["MOCK_PRIVATE_CLAIM_READY"]).touch()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+    raise SystemExit(98)
+os.execv(
+    sys.executable,
+    [sys.executable, {str(LEGACY_LOCK_HELPER)!r}, *sys.argv[1:]],
+)
+""",
+    )
+    producer = subprocess.Popen(
+        ["bash", str(staged / BACKUP.name), str(destination)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 5
+    while not publish_ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert publish_ready.exists(), producer.communicate(timeout=1)
+    canonical = destination / ".goatfarm-backup.lock"
+    private_claims = list(destination.glob(".goatfarm-backup.legacy-claim.*"))
+    assert not canonical.exists()
+    assert len(private_claims) == 1
+    assert (private_claims[0] / "pid").read_text() == f"{producer.pid}\n"
+    assert (private_claims[0] / "pid").stat().st_mode & 0o777 == 0o600
+    assert (private_claims[0] / ".flock-owner").stat().st_mode & 0o777 == 0o600
+    flock_path = destination / ".goatfarm-backup.flock"
+    flock_inode = flock_path.stat().st_ino
+
+    os.killpg(producer.pid, signal.SIGKILL)
+    producer.communicate(timeout=5)
+    assert not canonical.exists()
+
+    retry = _run_backup(destination, _base_env(tmp_path, mock_bin))
+
+    assert retry.returncode == 0, retry.stderr
+    assert not canonical.exists()
+    assert flock_path.stat().st_ino == flock_inode
     assert _log_text(env).count('"tool": "pg_dump"') == 1
+
+
+def test_backup_cleanup_does_not_remove_replaced_legacy_claim(tmp_path: Path) -> None:
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    ready = tmp_path / "cleanup-dump-ready"
+    release = tmp_path / "cleanup-dump-release"
+    env.update({"MOCK_DUMP_READY": str(ready), "MOCK_DUMP_RELEASE": str(release)})
+    destination = tmp_path / "backups"
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    displaced_lock = destination / ".goatfarm-backup.displaced-claim"
+    producer = subprocess.Popen(
+        ["bash", str(BACKUP), str(destination)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 5
+    while not ready.exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert ready.exists(), producer.communicate(timeout=1)
+
+    legacy_lock.rename(displaced_lock)
+    legacy_lock.mkdir()
+    (legacy_lock / "pid").write_text(f"{os.getpid()}\n")
+    (legacy_lock / ".flock-owner").write_text("replacement-owner\n")
+    release.touch()
+    stdout, stderr = producer.communicate(timeout=10)
+
+    assert producer.returncode == 0, stdout + stderr
+    assert "Refusing to clean a legacy lock not owned by this run" in stderr
+    assert (legacy_lock / "pid").read_text() == f"{os.getpid()}\n"
+    assert (legacy_lock / ".flock-owner").read_text() == "replacement-owner\n"
+    assert displaced_lock.is_dir()
 
 
 def test_backup_is_validated_signed_encrypted_and_hides_database_password(
@@ -750,6 +1154,7 @@ def test_backend_container_separates_migration_and_readiness() -> None:
     assert "alembic upgrade head &&" not in dockerfile
 
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    parsed_compose = yaml.safe_load(compose)
     for setting in (
         "GOATFARM_DATABASE_URL",
         "GOATFARM_MIGRATION_DATABASE_URL",
@@ -762,6 +1167,11 @@ def test_backend_container_separates_migration_and_readiness() -> None:
         "GOATFARM_TRUSTED_PROXY_HOSTS",
     ):
         assert setting in compose
+
+    db_probe = parsed_compose["services"]["db"]["healthcheck"]["test"]
+    assert db_probe[0] == "CMD-SHELL"
+    assert "pg_isready -h 127.0.0.1" in db_probe[1]
+    assert parsed_compose["services"]["backend"]["stop_grace_period"] == "40s"
 
     # Next's external rewrite sets changeOrigin, so the upstream Host is the
     # BACKEND_URL hostname. The Compose default must admit that internal name;
@@ -836,14 +1246,36 @@ def _stage_scripts(tmp_path: Path, env_file: str | None) -> Path:
     backend/.env they read without touching the repository's own file."""
     staged = tmp_path / "staged-backend" / "scripts"
     staged.mkdir(parents=True)
-    for source in (BACKUP, RESTORE, URL_HELPER):
+    for source in (
+        BACKUP,
+        RESTORE,
+        URL_HELPER,
+        DOTENV_HELPER,
+        FLOCK_HELPER,
+        LEGACY_LOCK_HELPER,
+    ):
         shutil.copy(source, staged / source.name)
     if env_file is not None:
         (staged.parent / ".env").write_text(env_file)
     return staged
 
 
-def test_backup_reads_the_application_env_file_for_its_safety_gates(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "env_file",
+    [
+        "export GOATFARM_ENVIRONMENT=production\nexport GOATFARM_DB_SSLMODE=verify-full\n",
+        'GOATFARM_ENVIRONMENT="production" # deployment mode\n'
+        "GOATFARM_DB_SSLMODE='verify-full' # authenticated TLS\n",
+        "GOATFARM_ENVIRONMENT=production # deployment mode\n"
+        "GOATFARM_DB_SSLMODE=verify-full # authenticated TLS\n",
+        "goatfarm_environment=production\ngoatfarm_db_sslmode=verify-full\n",
+    ],
+    ids=["export", "quoted-and-commented", "unquoted-comments", "case-insensitive"],
+)
+def test_backup_reads_the_application_env_file_for_its_safety_gates(
+    tmp_path: Path,
+    env_file: str,
+) -> None:
     """The TLS and mandatory-GPG gates key off GOATFARM_ENVIRONMENT and
     GOATFARM_DB_SSLMODE, which config.py reads from backend/.env. A cron entry
     that exports only GOATFARM_DATABASE_URL used to silently degrade a
@@ -853,9 +1285,7 @@ def test_backup_reads_the_application_env_file_for_its_safety_gates(tmp_path: Pa
     env = _base_env(tmp_path, mock_bin)
     env.pop("GOATFARM_ENVIRONMENT")
     env.pop("GOATFARM_DB_SSLMODE")
-    staged = _stage_scripts(
-        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=verify-full\n"
-    )
+    staged = _stage_scripts(tmp_path, env_file)
 
     result = subprocess.run(
         ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")],
@@ -871,14 +1301,27 @@ def test_backup_reads_the_application_env_file_for_its_safety_gates(tmp_path: Pa
     assert _log_text(env) == ""  # never connected to the database
 
 
-def test_restore_reads_the_application_env_file_for_its_safety_gates(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "env_file",
+    [
+        "export GOATFARM_ENVIRONMENT=production\nexport GOATFARM_DB_SSLMODE=verify-full\n",
+        'GOATFARM_ENVIRONMENT="production" # deployment mode\n'
+        "GOATFARM_DB_SSLMODE='verify-full' # authenticated TLS\n",
+        "GOATFARM_ENVIRONMENT=production # deployment mode\n"
+        "GOATFARM_DB_SSLMODE=verify-full # authenticated TLS\n",
+        "goatfarm_environment=production\ngoatfarm_db_sslmode=verify-full\n",
+    ],
+    ids=["export", "quoted-and-commented", "unquoted-comments", "case-insensitive"],
+)
+def test_restore_reads_the_application_env_file_for_its_safety_gates(
+    tmp_path: Path,
+    env_file: str,
+) -> None:
     mock_bin = _install_mock_tools(tmp_path)
     env = _base_env(tmp_path, mock_bin)
     env.pop("GOATFARM_ENVIRONMENT")
     env.pop("GOATFARM_DB_SSLMODE")
-    staged = _stage_scripts(
-        tmp_path, "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=verify-full\n"
-    )
+    staged = _stage_scripts(tmp_path, env_file)
     archive = tmp_path / "goatfarm.dump"
     archive.write_bytes(b"archive")
     _write_checksum(archive)
@@ -926,12 +1369,28 @@ def test_exported_environment_still_wins_over_the_env_file(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
+def _render_compose_network(
+    *,
+    subnet: str = "198.18.243.0/24",
+    edge_address: str = "198.18.243.10",
+) -> dict:
+    compose = (REPO_ROOT / "docker-compose.yml").read_text()
+    compose = compose.replace(
+        "${GOATFARM_DOCKER_SUBNET:-198.18.243.0/24}",
+        subnet,
+    ).replace(
+        "${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}",
+        edge_address,
+    )
+    return yaml.safe_load(compose)
+
+
 def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address() -> None:
     """Next's rewrite proxy never emits X-Forwarded-For, so routing browser
     /api traffic through the SPA container made every client share the Next
     container's address: the 11th signup in five minutes — from anyone — got
     429, and 100 bad logins locked the whole deployment out."""
-    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text())
+    compose = _render_compose_network()
     services = compose["services"]
 
     # The SPA and API containers are internal-only entry points.
@@ -952,11 +1411,42 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
     # range, which also covers the docker gateway and other containers.
     edge_address = edge["networks"]["default"]["ipv4_address"]
     trusted = services["backend"]["environment"]["GOATFARM_TRUSTED_PROXY_HOSTS"]
-    assert trusted.endswith(f":-{edge_address}}}"), trusted
+    assert trusted == edge_address
     subnet = compose["networks"]["default"]["ipam"]["config"][0]["subnet"]
     assert ipaddress.ip_address(edge_address) in ipaddress.ip_network(subnet)
     # And the value the compose file ships must satisfy the settings contract.
     assert Settings(trusted_proxy_hosts=edge_address).trusted_proxy_hosts == edge_address
+
+
+def test_compose_network_override_avoids_collision_without_weakening_proxy_trust() -> None:
+    default = _render_compose_network()
+    overridden = _render_compose_network(
+        subnet="198.19.88.0/24",
+        edge_address="198.19.88.37",
+    )
+
+    default_network = ipaddress.ip_network(
+        default["networks"]["default"]["ipam"]["config"][0]["subnet"]
+    )
+    override_network = ipaddress.ip_network(
+        overridden["networks"]["default"]["ipam"]["config"][0]["subnet"]
+    )
+    override_edge = overridden["services"]["edge"]["networks"]["default"]["ipv4_address"]
+    override_trust = overridden["services"]["backend"]["environment"][
+        "GOATFARM_TRUSTED_PROXY_HOSTS"
+    ]
+
+    assert not default_network.overlaps(override_network)
+    assert ipaddress.ip_address(override_edge) in override_network
+    assert override_trust == override_edge
+    assert Settings(trusted_proxy_hosts=override_trust).trusted_proxy_hosts == override_edge
+
+
+def test_ci_cancels_only_superseded_pull_requests() -> None:
+    for workflow_name in ("ci.yml", "security.yml"):
+        workflow = (REPO_ROOT / ".github" / "workflows" / workflow_name).read_text()
+        assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
+        assert "cancel-in-progress: true" not in workflow
 
 
 def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> None:

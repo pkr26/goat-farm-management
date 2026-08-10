@@ -311,6 +311,29 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
     assert gone.status_code == 404
 
 
+async def test_scenario_text_rejects_postgres_control_characters(
+    client: httpx.AsyncClient,
+) -> None:
+    """NUL cannot be stored in PostgreSQL text and must be a 422, never a 500."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+
+    bad_create = await client.post(
+        "/api/simulation/scenarios",
+        json={"name": "Unsafe\u0000plan", "assumptions": assumptions},
+        headers=headers,
+    )
+    assert bad_create.status_code == 422, bad_create.text
+
+    created = await create_scenario(client, headers, "Safe plan", assumptions)
+    bad_update = await client.patch(
+        f"/api/simulation/scenarios/{created['id']}",
+        json={"notes": "Unsafe\u0000notes"},
+        headers=headers,
+    )
+    assert bad_update.status_code == 422, bad_update.text
+
+
 async def test_saved_scenario_limit_is_concurrency_safe(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

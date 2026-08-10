@@ -249,7 +249,11 @@ class CostsAssumptions(_Group):
     vet_per_animal_per_year: FiniteFloat = Field(default=250.0, ge=0.0, le=MAX_MONEY)
     labour_per_month: FiniteFloat = Field(default=10000.0, ge=0.0, le=MAX_MONEY)
     # One labourer per this many head; labour count scales up with herd size.
-    labour_per_head_threshold: int = Field(default=75, ge=1)
+    # Keep the denominator bounded like every other head-count input: Python
+    # converts it to float for ``total_herd / threshold``, and an arbitrary-size
+    # JSON integer otherwise raises OverflowError in the engine instead of a
+    # clean validation error.
+    labour_per_head_threshold: int = Field(default=75, ge=1, le=MAX_HEAD)
     insurance_pct_stock_value_annual: FiniteFloat = Field(default=0.04, ge=0.0, le=0.25)
     misc_overhead_per_month: FiniteFloat = Field(default=2000.0, ge=0.0, le=MAX_MONEY)
     # NABARD unit costs.

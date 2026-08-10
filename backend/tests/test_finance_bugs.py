@@ -24,11 +24,61 @@
 #   missing cap on TransactionIn.notes was an oversight, not a choice.
 """Finance bugs — REGRESSION SUITE, all fixed (see header comment)."""
 
+from datetime import timedelta
+from decimal import Decimal
+
 import httpx
 import pytest
 
+from app.db import get_sessionmaker
+from app.models import FeedInventory, Transaction
+from app.utils import today
+
 from .conftest import owner_with_farm
 from .test_finance_extended import txn_payload
+
+
+async def _inventory_item(client: httpx.AsyncClient, owner: dict, item_id: int) -> dict:
+    response = await client.get("/api/feeding/inventory", headers=owner)
+    assert response.status_code == 200, response.text
+    return next(item for item in response.json() if item["id"] == item_id)
+
+
+async def _restock(
+    client: httpx.AsyncClient,
+    owner: dict,
+    item_id: int,
+    *,
+    qty_kg: float,
+    price_per_kg: float,
+) -> dict:
+    response = await client.post(
+        f"/api/feeding/inventory/{item_id}/add",
+        json={"qty_kg": qty_kg, "price_per_kg": price_per_kg},
+        headers=owner,
+    )
+    assert response.status_code == 200, response.text
+    rows = (await client.get("/api/finance", headers=owner)).json()["transactions"]
+    return max(
+        (row for row in rows if row["source_type"] == "FEED_PURCHASE"),
+        key=lambda row: row["id"],
+    )
+
+
+def test_feed_purchase_model_metadata_matches_migration_contract() -> None:
+    table = Transaction.__table__
+    assert table.c.feed_inventory_id.nullable
+    assert table.c.feed_quantity_kg.type.precision == 15
+    assert table.c.feed_quantity_kg.type.scale == 3
+    assert table.c.feed_unit_price_per_kg.type.precision == 14
+    assert table.c.feed_unit_price_per_kg.type.scale == 2
+    names = {constraint.name for constraint in table.constraints}
+    assert "fk_transactions_farm_feed_inventory" in names
+    assert "ck_transactions_feed_purchase_provenance" in names
+    assert "ix_transactions_feed_inventory_id" in {index.name for index in table.indexes}
+    assert "uq_feed_inventory_farm_id_id" in {
+        constraint.name for constraint in FeedInventory.__table__.constraints
+    }
 
 
 async def test_create_notes_over_255_chars_should_not_500(client: httpx.AsyncClient) -> None:
@@ -121,6 +171,12 @@ async def test_feed_restock_provenance_survives_an_audited_correction(
     (booked,) = (await client.get("/api/finance", headers=owner)).json()["transactions"]
     assert booked["source_type"] == "FEED_PURCHASE"
     assert booked["source_id"] == booked["id"]
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Transaction, booked["id"])
+        assert stored is not None
+        assert stored.feed_inventory_id == item["id"]
+        assert stored.feed_quantity_kg == Decimal("10.000")
+        assert stored.feed_unit_price_per_kg == Decimal("20.00")
 
     correction = txn_payload(
         date=booked["date"],
@@ -147,3 +203,130 @@ async def test_feed_restock_provenance_survives_an_audited_correction(
     assert repriced.json()["amount"] == 250.0
     assert repriced.json()["source_type"] == "FEED_PURCHASE"
     assert repriced.json()["source_id"] == booked["source_id"]
+    inventory = await _inventory_item(client, owner, item["id"])
+    assert inventory["last_purchase_price_per_kg"] == 25.0
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Transaction, repriced.json()["id"])
+        assert stored is not None
+        assert stored.feed_quantity_kg == Decimal("10.000")
+        assert stored.feed_unit_price_per_kg == Decimal("25.00")
+
+
+async def test_correcting_older_feed_chain_does_not_clobber_latest_price(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    item = (await client.get("/api/feeding/inventory", headers=owner)).json()[0]
+    older = await _restock(client, owner, item["id"], qty_kg=10.0, price_per_kg=20.0)
+    await _restock(client, owner, item["id"], qty_kg=5.0, price_per_kg=30.0)
+
+    corrected = await client.post(
+        f"/api/finance/transactions/{older['id']}/correct",
+        json=txn_payload(
+            date=older["date"],
+            amount=250.0,
+            reason="Older supplier invoice was repriced",
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 30.0
+
+
+async def test_feed_correction_rejects_positive_total_that_rounds_unit_price_to_zero(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    item = (await client.get("/api/feeding/inventory", headers=owner)).json()[0]
+    booked = await _restock(client, owner, item["id"], qty_kg=10.0, price_per_kg=20.0)
+
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=txn_payload(
+            date=booked["date"],
+            amount=0.01,
+            reason="Incorrect total",
+        ),
+        headers=owner,
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "at least ₹0.01 per kg" in refused.json()["detail"]
+    assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 20.0
+
+
+async def test_feed_date_reorder_uses_exact_structured_unit_price(
+    client: httpx.AsyncClient,
+) -> None:
+    """₹0.33 / 0.333 kg is lossy; the stored ₹1.00 unit price must win."""
+    owner = await owner_with_farm(client)
+    item = (await client.get("/api/feeding/inventory", headers=owner)).json()[0]
+    await _restock(client, owner, item["id"], qty_kg=0.333, price_per_kg=1.0)
+    latest = await _restock(client, owner, item["id"], qty_kg=1.0, price_per_kg=2.0)
+
+    moved_back = await client.post(
+        f"/api/finance/transactions/{latest['id']}/correct",
+        json=txn_payload(
+            date=(today() - timedelta(days=1)).isoformat(),
+            amount=latest["amount"],
+            reason="Invoice belongs to yesterday",
+        ),
+        headers=owner,
+    )
+    assert moved_back.status_code == 201, moved_back.text
+    assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 1.0
+
+
+async def test_legacy_feed_purchase_refuses_unreconcilable_changes_and_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    item = (await client.get("/api/feeding/inventory", headers=owner)).json()[0]
+    structured = await _restock(client, owner, item["id"], qty_kg=10.0, price_per_kg=20.0)
+    legacy = await _restock(client, owner, item["id"], qty_kg=5.0, price_per_kg=30.0)
+    async with get_sessionmaker()() as db:
+        row = await db.get(Transaction, legacy["id"], with_for_update=True)
+        assert row is not None
+        row.feed_inventory_id = None
+        row.feed_quantity_kg = None
+        row.feed_unit_price_per_kg = None
+        await db.commit()
+
+    legacy_amount = await client.post(
+        f"/api/finance/transactions/{legacy['id']}/correct",
+        json=txn_payload(
+            date=legacy["date"],
+            amount=legacy["amount"] + 1,
+            reason="Legacy invoice repriced",
+        ),
+        headers=owner,
+    )
+    assert legacy_amount.status_code == 409, legacy_amount.text
+    assert "only its notes" in legacy_amount.json()["detail"]
+
+    # The newer legacy key could belong to this item, so repricing the older
+    # structured chain must not guess and overwrite the displayed last price.
+    ambiguous = await client.post(
+        f"/api/finance/transactions/{structured['id']}/correct",
+        json=txn_payload(
+            date=structured["date"],
+            amount=250.0,
+            reason="Structured invoice repriced",
+        ),
+        headers=owner,
+    )
+    assert ambiguous.status_code == 409, ambiguous.text
+    assert "legacy feed purchase may be the latest" in ambiguous.json()["detail"].lower()
+    assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 30.0
+
+    notes_only = await client.post(
+        f"/api/finance/transactions/{legacy['id']}/correct",
+        json=txn_payload(
+            date=legacy["date"],
+            amount=legacy["amount"],
+            notes="Legacy invoice reference",
+            reason="Attach invoice reference",
+        ),
+        headers=owner,
+    )
+    assert notes_only.status_code == 201, notes_only.text

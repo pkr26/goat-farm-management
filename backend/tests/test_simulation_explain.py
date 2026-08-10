@@ -284,6 +284,25 @@ def test_revenue_and_cost_mix_totals_match_annual_pl() -> None:
     assert cost["total_opex"] == pytest.approx(sum(r.total_opex for r in res.annual_pl))
 
 
+def test_fodder_deficit_narrative_matches_engine_costing() -> None:
+    """A land-balance deficit is reported but does not trigger extra purchases.
+
+    The engine values every required kg of green fodder at the configured
+    green-feed price regardless of cultivated acres.  The narrative must not
+    claim a separate purchased-feed cost that the cash flows never apply.
+    """
+    assumptions = SimulationAssumptions()
+    result = run_simulation(assumptions, with_break_even=False)
+    assert result.feed_summary.fodder_deficit_months > 0
+
+    cost_mix = next(section for section in result.narrative_report if section.key == "cost_mix")
+    land_paragraph = cost_mix.paragraphs[1]
+
+    assert "costed as purchased feed" not in land_paragraph
+    assert "does not add a separate shortfall purchase charge" in land_paragraph
+    assert f"₹{assumptions.feed.green_price_per_kg:,.0f}/kg" in land_paragraph
+
+
 def test_payback_explanation_says_never_covers_when_no_payback() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     assert res.metrics.payback_month is None

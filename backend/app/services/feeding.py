@@ -513,11 +513,16 @@ async def add_feed_stock(
         # pair (farm_id, source_type, source_id) would reject the second time.
         # The ledger row is therefore its own source: unique by construction,
         # and an audited correction still inherits the pair once the original is
-        # voided. Both columns are set after the insert because the source-pair
-        # CHECK forbids a half-populated pair.
+        # voided. Provenance is set after the insert because the source-pair
+        # CHECK forbids a half-populated pair and the stable id is not yet known.
         await db.flush()
         purchase.source_type = "FEED_PURCHASE"
         purchase.source_id = purchase.id
+        purchase.feed_inventory_id = item.id
+        purchase.feed_quantity_kg = Decimal(str(qty_kg)).quantize(
+            KG_QUANTUM, rounding=ROUND_HALF_UP
+        )
+        purchase.feed_unit_price_per_kg = exact_price
     await db.flush()
 
 

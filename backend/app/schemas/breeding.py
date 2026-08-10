@@ -9,6 +9,7 @@ from .common import (
     MAX_FREE_TEXT_LENGTH,
     BoundedId,
     PastOrTodayDate,
+    PostgresText,
     StrictBool,
     StrictInputModel,
     StrictInt,
@@ -61,7 +62,7 @@ class PregnancyLossIn(StrictInputModel):
 
     loss_date: PastOrTodayDate
     cause: PregnancyLossCause
-    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
 
 
 class BreedingRecordOut(BaseModel):

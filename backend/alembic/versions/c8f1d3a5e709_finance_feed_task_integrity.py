@@ -25,9 +25,66 @@ _MONEY_COLUMNS = (
     ("purchase_batches", "total_price", True),
     ("feed_inventory", "last_purchase_price_per_kg", True),
 )
+_MAX_NUMERIC_14_2 = "999999999999.99"
+
+
+def _sample_ids(table: str, column: str, predicate: str) -> list[int]:
+    """Return a deterministic sample so an operator can repair and retry."""
+    rows = op.get_bind().execute(
+        sa.text(
+            f'SELECT id FROM "{table}" '
+            f'WHERE "{column}" IS NOT NULL AND ({predicate}) ORDER BY id LIMIT 10'
+        )
+    )
+    return [int(row.id) for row in rows]
+
+
+def _preflight_money(table: str, column: str) -> None:
+    special_ids = _sample_ids(
+        table,
+        column,
+        f"\"{column}\"::text IN ('NaN', 'Infinity', '-Infinity')",
+    )
+    if special_ids:
+        raise RuntimeError(
+            f"Refusing exact-money migration: {table}.{column} contains "
+            f"non-finite values at row ids {special_ids}; correct them explicitly before retrying"
+        )
+
+    overflow_ids = _sample_ids(
+        table,
+        column,
+        f'abs("{column}"::numeric) > {_MAX_NUMERIC_14_2}',
+    )
+    if overflow_ids:
+        raise RuntimeError(
+            f"Refusing exact-money migration: {table}.{column} exceeds "
+            f"numeric(14,2) at row ids {overflow_ids}; correct them explicitly before retrying"
+        )
+
+    # float8 -> numeric canonicalizes ordinary binary representation noise.
+    # Any remaining difference is meaningful legacy sub-cent information and
+    # must not be silently rounded into a different ledger value.
+    subcent_ids = _sample_ids(
+        table,
+        column,
+        f'"{column}"::numeric <> round("{column}"::numeric, 2)',
+    )
+    if subcent_ids:
+        raise RuntimeError(
+            f"Refusing exact-money migration: {table}.{column} contains "
+            f"sub-cent values at row ids {subcent_ids}; correct them explicitly before retrying"
+        )
 
 
 def upgrade() -> None:
+    # This one-time type conversion is the only point at which the original
+    # float value is still available. A later corrective revision could report
+    # that rounding occurred but could never recover what was discarded, so
+    # fail before any DDL/data mutation and leave the whole revision retryable.
+    for table, column, _nullable in _MONEY_COLUMNS:
+        _preflight_money(table, column)
+
     op.add_column(
         "farms",
         sa.Column(
@@ -37,19 +94,6 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    # PostgreSQL floating-point columns can contain non-finite legacy values.
-    # They cannot become money; preserve the row but neutralize a required
-    # transaction amount and clear optional price fields before the cast.
-    op.execute(
-        "UPDATE transactions SET amount = 0 WHERE amount::text IN ('NaN', 'Infinity', '-Infinity')"
-    )
-    for table, column, nullable in _MONEY_COLUMNS[1:]:
-        if nullable:
-            op.execute(
-                f"UPDATE {table} SET {column} = NULL "
-                f"WHERE {column}::text IN ('NaN', 'Infinity', '-Infinity')"
-            )
-
     op.drop_constraint("ck_transactions_amount_nonneg", "transactions", type_="check")
     for table, column, nullable in _MONEY_COLUMNS:
         op.alter_column(
@@ -146,7 +190,7 @@ def upgrade() -> None:
         "WHERE recur_days IS NOT NULL AND recurring_series_id IS NULL"
     )
     op.execute(
-        "UPDATE tasks SET skipped_at = COALESCE(completed_at, CURRENT_TIMESTAMP), "
+        "UPDATE tasks SET skipped_at = COALESCE(completed_at, timezone('UTC', now())), "
         "skip_reason = COALESCE(skip_reason, 'Skipped before audit timestamps were enabled') "
         "WHERE status = 'SKIPPED' AND skipped_at IS NULL"
     )

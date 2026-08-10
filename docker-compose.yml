@@ -20,7 +20,10 @@ services:
     healthcheck:
       # Expand the already-injected container variables at runtime and quote
       # them, rather than splicing raw .env values into a shell command.
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      # The official image's initdb bootstrap server listens on a Unix socket
+      # before the real TCP server starts. Probe TCP explicitly so migrations
+      # cannot race that socket-only bootstrap phase.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -44,6 +47,9 @@ services:
   backend:
     build: .
     restart: unless-stopped
+    # Uvicorn drains in-flight requests for up to 30 seconds (Dockerfile CMD).
+    # Compose otherwise sends SIGKILL after its 10-second default.
+    stop_grace_period: 40s
     depends_on:
       db:
         condition: service_healthy
@@ -69,12 +75,11 @@ services:
       GOATFARM_MIN_PASSWORD_LENGTH: ${GOATFARM_MIN_PASSWORD_LENGTH:-8}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-development-only-idempotency-hmac-secret-change-me}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
-      # Exactly the edge container's fixed address (see the `default` network
-      # below) — never the whole bridge range, which would also cover other
-      # containers and let them spoof X-Forwarded-For. Without this every
-      # per-IP auth ceiling would count all clients as one address and become
-      # a product-wide lockout.
-      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-172.31.243.10}
+      # Exactly the edge container's configurable address (see the `default`
+      # network below) — never the whole bridge range, which would also cover
+      # other containers and let them spoof X-Forwarded-For. One interpolation
+      # variable supplies both sides so an override cannot make them drift.
+      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}
       GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
       GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
     volumes:
@@ -112,8 +117,10 @@ services:
         target: /etc/nginx/conf.d/default.conf
     networks:
       default:
-        # Fixed so GOATFARM_TRUSTED_PROXY_HOSTS can name this one address.
-        ipv4_address: 172.31.243.10
+        # Fixed within an operator-selectable subnet so the backend can trust
+        # this one peer without pinning every deployment to a collision-prone
+        # Docker/AWS range.
+        ipv4_address: ${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}
     ports:
       - "3000:3000"
 
@@ -148,7 +155,7 @@ networks:
   default:
     ipam:
       config:
-        - subnet: 172.31.243.0/24
+        - subnet: ${GOATFARM_DOCKER_SUBNET:-198.18.243.0/24}
 
 volumes:
   pgdata:

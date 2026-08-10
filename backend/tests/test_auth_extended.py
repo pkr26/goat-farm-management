@@ -620,7 +620,9 @@ async def test_garbage_argon2_hash_login_is_401_not_500(client: httpx.AsyncClien
 async def test_legacy_pbkdf2_high_iteration_count_still_verifies(
     client: httpx.AsyncClient,
 ) -> None:
-    user_id = await insert_user("legacy3@farm.in", make_pbkdf2_hash(OWNER_PW, iterations=50000))
+    # Regression: the rejection-timing work budget must not accidentally
+    # become a 100,000-iteration compatibility ceiling for imported hashes.
+    user_id = await insert_user("legacy3@farm.in", make_pbkdf2_hash(OWNER_PW, iterations=100_001))
     resp = await client.post(
         "/api/auth/login", json={"email": "legacy3@farm.in", "password": OWNER_PW}
     )

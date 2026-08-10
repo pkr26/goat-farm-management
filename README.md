@@ -177,8 +177,30 @@ passes. Resume API replicas only after that succeeds.
   (presets: Animal Mover, Veterinarian, Cleaner, Cleaner Manager, Feeder —
   editable, plus custom roles). `GET /api/auth/permissions` returns the
   caller's effective set for the active farm; the nav and buttons mirror it.
-- Legacy pbkdf2 password hashes (pre-migration users) verify transparently
-  and are upgraded to Argon2id on first login.
+- Legacy `pbkdf2_sha256$iterations$salt_hex$digest_hex` password hashes
+  (pre-migration users) verify transparently and are upgraded to Argon2id on
+  first login. The supported import range is a canonical decimal iteration
+  count from 1 through 1,000,000; the hard ceiling bounds login CPU. Before
+  importing an external user table or deploying this boundary over existing
+  rows, audit accounts that need an offline rehash/password reset:
+
+  ```sql
+  WITH legacy AS (
+      SELECT id, email, split_part(password_hash, '$', 2) AS iteration_text
+      FROM users
+      WHERE password_hash LIKE 'pbkdf2_sha256$%'
+  )
+  SELECT id, email, iteration_text
+  FROM legacy
+  WHERE CASE
+      WHEN iteration_text ~ '^[0-9]+$'
+      THEN iteration_text::numeric NOT BETWEEN 1 AND 1000000
+      ELSE TRUE
+  END;
+  ```
+
+  Any returned row cannot log in through the legacy verifier; review it before
+  rollout rather than raising the per-request work ceiling ad hoc.
 - Login and register are rate-limited (failed attempts for login, keyed per
   client IP + email; all register attempts per client IP) and farm ownership
   is capped per user. Behind a reverse proxy, set
@@ -314,10 +336,15 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   `frontend:3000`, preserves the browser's `Host`, appends
   `X-Forwarded-For`/`X-Forwarded-Proto`, and mirrors
   `GOATFARM_MAX_REQUEST_BODY_BYTES` with `client_max_body_size 1m`. The `edge`
-  holds a fixed address on a pinned `172.31.243.0/24` network so
+  holds one fixed address inside the operator-selectable
+  `GOATFARM_DOCKER_SUBNET` network so
   `GOATFARM_TRUSTED_PROXY_HOSTS` can name exactly that one host
-  (`172.31.243.10`) rather than the bridge range, which would also cover the
-  docker gateway. The `frontend` service is only `expose`d, never published.
+  (`GOATFARM_EDGE_PROXY_IP`) rather than the bridge range, which would also
+  cover the docker gateway. Compose uses the same edge-IP interpolation for
+  both the nginx address and backend trust configuration. If the documented
+  default conflicts with a host, VPN, or cloud route, override the subnet and
+  an address inside it in `.env`; no Compose-file edit is required. The
+  `frontend` service is only `expose`d, never published.
   Next's server-side rewrite still uses changeOrigin and sends
   `Host: backend:8000` for anything it does proxy, so every Compose
   `GOATFARM_ALLOWED_HOSTS` override must retain the exact `backend` service
@@ -406,17 +433,38 @@ application settings that gate TLS and the signed/encrypted-artifact
 requirement — from `backend/.env` when the job did not export them, so a host
 whose `.env` says `production` cannot be degraded to an unsigned plaintext dump
 by an incomplete cron environment. An explicit export still wins, which is why
-the invocations in this section pass both explicitly.
+the invocations in this section pass both explicitly. They use the same pinned
+`python-dotenv` grammar as the application, including `export` declarations,
+quotes, inline comments, case-insensitive keys, and interpolation; install the
+backend environment before running either script.
 
 The database password is supplied to libpq through a mode-`0600` temporary
 passfile; `pg_dump`, `psql`, and `pg_restore` receive only a password-free URL
 built by `backend/scripts/libpq_url.py`, which reads the URL from stdin so it
 never appears in any process's arguments.
-The directory lock is deliberately not auto-stolen: after a host crash, verify
-that the recorded PID/job is no longer active before manually removing the
-stale `.goatfarm-backup.lock` directory. Alert on any non-zero backup exit and
-on a missing daily artifact; an upload failure keeps the complete local backup
-and makes a best-effort removal of any remote partial.
+The destination keeps one mode-`0600` `.goatfarm-backup.flock` regular file.
+Never delete, rename, or rotate that inode: the script opens it on inherited FD
+9 and takes a non-blocking kernel `flock` for the producer's complete process
+tree. Concurrent producers fail closed, while process/host crashes release the
+lock in the kernel without stale-lock takeover. During transition, a live
+legacy `.goatfarm-backup.lock/pid` still blocks a run. After taking the kernel
+lock, each new producer also atomically claims and holds that legacy directory
+for its complete run, so a still-deployed old script cannot run beside it. The
+claim is prepared completely under a private name, then published with an
+exclusive atomic rename; the canonical name is therefore either absent or a
+complete claim even if initialization is killed or encounters an I/O error.
+
+During this transition, a dead old-format PID is deliberately not reclaimed:
+the old shell may have died while its `pg_dump` child remains active and holds
+no kernel lock. Verify the PID and every child are stopped, then remove that old
+directory manually. A stale new-format ownership-marked claim can be reclaimed
+after acquiring the flock because its descendants inherited FD 9. Directory,
+PID-file, ownership-file, and exact-content snapshots are checked across every
+quarantine move; a raced replacement is restored only with an exclusive
+no-overwrite rename, and the new run fails closed. Cleanup similarly removes
+only the exact directory identity it published. Alert on any non-zero backup
+exit and on a missing daily artifact; an upload failure keeps the complete local
+backup and makes a best-effort removal of any remote partial.
 
 The baseline target is a 24-hour recovery-point objective (nightly full
 backup) and recovery within four hours. Enable PostgreSQL WAL archiving and

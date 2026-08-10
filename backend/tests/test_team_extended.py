@@ -2345,10 +2345,31 @@ async def test_delete_custom_role_rejects_pending_assigned_duties(
     blocked = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["detail"] == (
-        "Role still has pending duties — complete or skip them first."
+        "Role still has actionable duties — complete, verify, reject, or skip them first."
     )
     skipped = await client.post(f"/api/tasks/{duty.json()['id']}/skip", headers=owner)
     assert skipped.status_code == 200, skipped.text
+    removed = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
+    assert removed.status_code == 204, removed.text
+
+
+async def test_delete_custom_role_rejects_done_duty_awaiting_verification(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #6: DONE cleaning is actionable until it is verified."""
+    owner = await owner_with_farm(client)
+    role = await create_custom_role(client, owner, "Verification Anchor", ["tasks.view"])
+    duty = await create_duty(client, owner, "Verify this pen", rid=role["id"])
+    completed = await client.post(f"/api/tasks/{duty['id']}/complete", headers=owner)
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "DONE"
+
+    blocked = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
+    assert blocked.status_code == 409, blocked.text
+    assert "actionable duties" in blocked.json()["detail"]
+
+    verified = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
+    assert verified.status_code == 200, verified.text
     removed = await client.delete(f"/api/team/roles/{role['id']}", headers=owner)
     assert removed.status_code == 204, removed.text
 

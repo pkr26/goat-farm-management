@@ -130,6 +130,9 @@ async def test_herd_counts_are_capped(client: httpx.AsyncClient) -> None:
         ("herd", "does", 10**9),
         ("herd", "female_growers", 100_001),
         ("herd", "max_breeding_does", 10**12),
+        # This denominator is converted to float by the engine.  Arbitrary-size
+        # Pydantic integers used to pass validation and raise OverflowError.
+        ("costs", "labour_per_head_threshold", 10**1000),
     ]:
         assumptions = await default_assumptions(client, headers)
         assumptions[group][field] = value

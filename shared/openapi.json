@@ -7007,6 +7007,7 @@
           },
           "labour_per_head_threshold": {
             "type": "integer",
+            "maximum": 100000.0,
             "minimum": 1.0,
             "title": "Labour Per Head Threshold",
             "default": 75
@@ -8828,7 +8829,14 @@
             "title": "Id"
           },
           "animal_id": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Animal Id"
           },
           "purchase_batch_id": {

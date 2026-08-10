@@ -4,17 +4,29 @@ import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw-server";
-import { renderWithProviders } from "@/test/render";
+import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
 
 const nav = vi.hoisted(() => {
-  const state = { search: "" };
+  const state = {
+    search: "",
+    deferReplace: false,
+    deferPush: false,
+    deferredReplacements: [] as string[],
+    deferredPushes: [] as string[],
+  };
   const applyUrl = (url: string) => {
     state.search = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
   };
-  const push = vi.fn((url: string) => applyUrl(url));
-  const replace = vi.fn((url: string) => applyUrl(url));
+  const push = vi.fn((url: string) => {
+    if (state.deferPush) state.deferredPushes.push(url);
+    else applyUrl(url);
+  });
+  const replace = vi.fn((url: string) => {
+    if (state.deferReplace) state.deferredReplacements.push(url);
+    else applyUrl(url);
+  });
   return {
     state,
     push,
@@ -76,6 +88,11 @@ function hrefParams(mock: ReturnType<typeof vi.fn>): URLSearchParams {
   return new URL(href, "https://goatfarm.invalid").searchParams;
 }
 
+function paramsKeyFromHref(href: string): string {
+  const questionMark = href.indexOf("?");
+  return questionMark === -1 ? "" : href.slice(questionMark + 1);
+}
+
 async function chooseOption(user: ReturnType<typeof userEvent.setup>, label: string, option: string) {
   await user.click(screen.getByRole("combobox", { name: label }));
   await user.click(await screen.findByRole("option", { name: option }));
@@ -86,6 +103,10 @@ describe("AnimalsPage finite pagination", () => {
 
   beforeEach(() => {
     nav.state.search = "";
+    nav.state.deferReplace = false;
+    nav.state.deferPush = false;
+    nav.state.deferredReplacements = [];
+    nav.state.deferredPushes = [];
     nav.push.mockClear();
     nav.replace.mockClear();
     seenParams = [];
@@ -134,6 +155,31 @@ describe("AnimalsPage finite pagination", () => {
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
     expect(nav.push).toHaveBeenLastCalledWith("/animals?page=2");
     expect(nav.push).toHaveBeenCalledTimes(1);
+  });
+
+  it("unlocks pagination when a destination page is already fresh in the cache", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    const queryClient = createTestQueryClient();
+    queryClient.setDefaultOptions({
+      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 60_000 },
+      mutations: { retry: false },
+    });
+    renderWithProviders(<AnimalsPage />, queryClient);
+
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Page 2 of 2 · Showing 51–55 of 55");
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    // Page 2 is still fresh, so React Query does not toggle isFetching while
+    // restoring it. The local double-click latch must nevertheless release.
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(
+      await screen.findByText("Page 2 of 2 · Showing 51–55 of 55"),
+    ).toBeInTheDocument();
+    expect(nav.push).toHaveBeenCalledTimes(3);
   });
 
   it("restores a filtered page from a deep link and browser history", async () => {
@@ -207,6 +253,88 @@ describe("AnimalsPage finite pagination", () => {
     expect(nextUrl.get("bucket")).toBe("RESTING");
     expect(nextUrl.get("q")).toBe("G-9");
     expect(nextUrl.get("page")).toBeNull();
+  });
+
+  it("does not let an older URL replacement overwrite newer search typing", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    nav.state.deferReplace = true;
+    const view = renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    const search = screen.getByRole("searchbox", { name: "Search animals by tag" });
+
+    await user.type(search, "G");
+    await waitFor(() => expect(nav.state.deferredReplacements).toHaveLength(1));
+    await user.type(search, "-9");
+    expect(search).toHaveValue("G-9");
+
+    // Commit the older q=G navigation after the operator has continued
+    // typing, matching a slow same-route Next.js replacement.
+    const olderUrl = nav.state.deferredReplacements[0];
+    nav.state.search = olderUrl.includes("?")
+      ? olderUrl.slice(olderUrl.indexOf("?") + 1)
+      : "";
+    view.rerender(<AnimalsPage />);
+
+    await waitFor(() => expect(search).toHaveValue("G-9"));
+  });
+
+  it("does not let a filter replacement that commits during typing overwrite the edit", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    nav.state.deferReplace = true;
+    const view = renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    expect(nav.state.deferredReplacements).toHaveLength(1);
+    const delayedFilterUrl = nav.state.deferredReplacements[0];
+
+    const search = screen.getByRole("searchbox", { name: "Search animals by tag" });
+    fireEvent.change(search, { target: { value: "G-9" } });
+    expect(search).toHaveValue("G-9");
+
+    // The filter URL commits after typing starts but before the debounce sends
+    // a newer navigation. This is the real stale-commit window in Next 16;
+    // once a newer navigation is dispatched, Next discards this pending one.
+    nav.state.search = paramsKeyFromHref(delayedFilterUrl);
+    view.rerender(<AnimalsPage />);
+
+    await waitFor(() => expect(search).toHaveValue("G-9"));
+    nav.state.deferReplace = false;
+    await waitFor(() => {
+      const latest = new URLSearchParams(nav.state.search);
+      expect(latest.get("bucket")).toBe("FEMALE_KIDS");
+      expect(latest.get("q")).toBe("G-9");
+    });
+  });
+
+  it("does not let a page push that commits during typing overwrite the edit", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    nav.state.deferPush = true;
+    const view = renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(nav.state.deferredPushes).toHaveLength(1);
+    const delayedPageUrl = nav.state.deferredPushes[0];
+
+    const search = screen.getByRole("searchbox", { name: "Search animals by tag" });
+    fireEvent.change(search, { target: { value: "G-9" } });
+    expect(search).toHaveValue("G-9");
+
+    // The page URL commits after typing starts but before the debounced search
+    // replacement supersedes it. Preserve q and then canonicalize page one.
+    nav.state.search = paramsKeyFromHref(delayedPageUrl);
+    view.rerender(<AnimalsPage />);
+
+    await waitFor(() => expect(search).toHaveValue("G-9"));
+    await waitFor(() => {
+      const latest = new URLSearchParams(nav.state.search);
+      expect(latest.get("q")).toBe("G-9");
+      expect(latest.get("page")).toBeNull();
+    });
   });
 
   it("recovers an empty out-of-range filtered deep link to page one", async () => {

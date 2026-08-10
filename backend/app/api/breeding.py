@@ -20,7 +20,7 @@ from ..schemas.breeding import (
     PregnancyLossIn,
     UltrasoundIn,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..services import (
     breeding_candidate_counts,
     breeding_candidate_page,
@@ -161,7 +161,7 @@ async def breeding_candidates(
     farm: CurrentFarm,
     _perms: Annotated[set[str], Depends(require_perm("breeding.manage"))],
     kind: Literal["doe", "buck"],
-    q: Annotated[str | None, Query(max_length=60)] = None,
+    q: Annotated[PostgresText | None, Query(max_length=60)] = None,
     limit: Annotated[int, Query(ge=1, le=BREEDING_CANDIDATE_MAX_LIMIT)] = (
         BREEDING_CANDIDATE_DEFAULT_LIMIT
     ),

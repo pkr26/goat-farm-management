@@ -11,7 +11,9 @@ from datetime import timedelta
 
 import httpx
 
+from app.db import get_sessionmaker
 from app.main import create_app
+from app.models import HealthEvent
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -19,6 +21,7 @@ from .test_health_extended import (
     get_schedule,
     iso,
     make_animal,
+    make_batch,
     record_event,
     row_by_name,
 )
@@ -236,6 +239,83 @@ async def test_booster_given_shows_done(client: httpx.AsyncClient) -> None:
     )
     fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
     assert fmd["status"] == "DONE"  # repeat due 6 months after the last dose
+
+
+async def test_authoritative_future_next_due_overrides_stale_booster_alarm(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #11: a vet's future date is authoritative, not OVERDUE."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    future_due = today() + timedelta(days=45)
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(today() - timedelta(days=60)),
+        next_due_date=iso(future_due),
+        schedule_template_name="FMD",
+        next_due_authority="Veterinarian instruction VET-2026-08",
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["booster_due"] < iso(today())  # the ordinary booster window did lapse
+    assert fmd["next_due"] == iso(future_due)
+    assert fmd["status"] == "DONE"
+
+
+async def test_booster_due_keeps_actual_primary_anchor_after_second_dose(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #33: recording a booster must not revert to the DOB plan."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    primary_date = today() - timedelta(days=60)
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(primary_date),
+    )
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(today() - timedelta(days=30)),
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["booster_due"] == iso(primary_date + timedelta(weeks=3.5))
+
+
+async def test_batch_only_health_event_serializes_null_animal_id(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #30: the response mirrors the DB's valid batch-only shape."""
+    headers = await owner_with_farm(client)
+    batch = await make_batch(client, headers, count=1, create_animals=False)
+    async with get_sessionmaker()() as db:
+        event = HealthEvent(
+            farm_id=int(headers["X-Farm-Id"]),
+            animal_id=None,
+            purchase_batch_id=batch["id"],
+            date=today(),
+            type="VACCINE",
+            product_name="Batch certificate import",
+        )
+        db.add(event)
+        await db.commit()
+        event_id = event.id
+
+    listed = await client.get("/api/health/events", headers=headers)
+    assert listed.status_code == 200, listed.text
+    row = next(item for item in listed.json()["events"] if item["id"] == event_id)
+    assert row["animal_id"] is None
+    assert row["animal_tag"] is None
 
 
 async def test_recent_first_dose_booster_not_yet_due_stays_done(

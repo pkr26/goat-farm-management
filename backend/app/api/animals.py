@@ -45,7 +45,7 @@ from ..schemas.animals import (
     WeightIn,
     WeightRecordOut,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.health import HealthEventOut
 from ..services import (
     IdempotencyKey,
@@ -159,7 +159,7 @@ async def list_animals(
     sex: Sex | None = None,
     status: AnimalStatusStr | None = None,
     include_all_statuses: bool = False,
-    q: Annotated[str | None, Query(max_length=60)] = None,
+    q: Annotated[PostgresText | None, Query(max_length=60)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> AnimalListOut:

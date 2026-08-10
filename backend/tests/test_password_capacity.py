@@ -66,10 +66,10 @@ async def test_password_work_is_off_loop_and_has_no_waiting_queue(
 async def test_password_capacity_error_maps_to_retryable_429(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def saturated_verify(password: str, stored: str) -> tuple[bool, bool]:
+    async def saturated_verify(password: str, stored: str) -> tuple[bool, bool, bool]:
         raise security.PasswordWorkCapacityError("busy")
 
-    monkeypatch.setattr(auth_api, "verify_password_async", saturated_verify)
+    monkeypatch.setattr(auth_api, "verify_password_with_work_async", saturated_verify)
     response = await client.post(
         "/api/auth/login",
         json={"email": "nobody@example.com", "password": "not-the-password"},
@@ -87,14 +87,14 @@ async def test_same_email_burst_is_reserved_before_password_work(
     release = asyncio.Event()
     calls = 0
 
-    async def stalled_verify(password: str, stored: str) -> tuple[bool, bool]:
+    async def stalled_verify(password: str, stored: str) -> tuple[bool, bool, bool]:
         nonlocal calls
         calls += 1
         started.set()
         await release.wait()
-        return False, False
+        return False, False, False
 
-    monkeypatch.setattr(auth_api, "verify_password_async", stalled_verify)
+    monkeypatch.setattr(auth_api, "verify_password_with_work_async", stalled_verify)
     first = asyncio.create_task(
         client.post(
             "/api/auth/login",
@@ -158,7 +158,22 @@ async def test_current_password_verification_holds_no_database_connection(
             await release_signal.wait()
             return False, False
 
-        monkeypatch.setattr(auth_api, "verify_password_async", stalled_verify)
+        async def stalled_verify_with_work(
+            password: str,
+            stored: str,
+            started_signal: asyncio.Event = started,
+            release_signal: asyncio.Event = release,
+        ) -> tuple[bool, bool, bool]:
+            started_signal.set()
+            await release_signal.wait()
+            return False, False, False
+
+        if path == "/api/auth/login":
+            monkeypatch.setattr(
+                auth_api, "verify_password_with_work_async", stalled_verify_with_work
+            )
+        else:
+            monkeypatch.setattr(auth_api, "verify_password_async", stalled_verify)
         request = asyncio.create_task(
             client.request(
                 "DELETE" if path == "/api/auth/account" else "POST",

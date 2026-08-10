@@ -40,7 +40,7 @@ interface AuthState {
   farms: FarmEntry[];
   farmId: number | null;
   loading: boolean;
-  selectFarm: (farmId: number) => void;
+  selectFarm: (farmId: number, timezone?: string) => void;
   signIn: (accessToken: string, user: SessionUser) => Promise<void>;
   signOut: () => Promise<void>;
   refreshFarms: () => Promise<void>;
@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initialRefreshStarted = useRef(false);
 
   const selectFarm = useCallback(
-    (id: number) => {
+    (id: number, timezone?: string) => {
       // Cancel in-flight queries BEFORE clearing: cache keys are URL-only
       // (no farm id), so any request that was already on the wire with the
       // OLD X-Farm-Id header would otherwise resolve into the fresh cache
@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const selected = farmsRef.current.find((farm) => farm.id === id) as
         | (FarmEntry & { timezone?: string })
         | undefined;
-      setActiveFarmTimezone(selected?.timezone);
+      setActiveFarmTimezone(timezone ?? selected?.timezone);
       writeStoredFarmId(id);
     },
     [queryClient],
@@ -153,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setFarms(list);
     const stored = readStoredFarmId();
     const valid = list.find((f) => f.id === stored) ?? list[0];
-    if (valid) selectFarm(valid.id);
+    if (valid) selectFarm(valid.id, valid.timezone);
     else {
       setFarmIdState(null);
       setCurrentFarmId(null);

@@ -14,6 +14,7 @@ from app.main import create_app
 from app.models import Farm, RefreshSession, User
 from app.schemas.auth import FarmCreateIn
 from app.security import verify_password_async as real_verify_password_async
+from app.security import verify_password_with_work_async as real_verify_password_with_work_async
 
 from .conftest import owner_with_farm
 
@@ -224,7 +225,13 @@ async def test_reset_winning_during_argon_rejects_exact_stale_snapshot(
         await release.wait()
         return await real_verify_password_async(password, stored)
 
+    async def stalled_verify_with_work(password: str, stored: str) -> tuple[bool, bool, bool]:
+        started.set()
+        await release.wait()
+        return await real_verify_password_with_work_async(password, stored)
+
     monkeypatch.setattr(auth_api, "verify_password_async", stalled_verify)
+    monkeypatch.setattr(auth_api, "verify_password_with_work_async", stalled_verify_with_work)
     if operation == "login":
         method = "POST"
         path = "/api/auth/login"

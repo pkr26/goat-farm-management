@@ -733,6 +733,25 @@ describe("HealthPage", () => {
     expect(previewBodies).toEqual([{ scope: "bucket", bucket: "BREEDING" }]);
   });
 
+  it("clears a linked animal duty before previewing a bucket scope", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(
+      user,
+      within(dialog).getByLabelText(/Linked duty/),
+      /PPR vaccination/,
+    );
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+
+    expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Review target animals" }),
+    );
+
+    await waitFor(() => expect(previewBodies).toHaveLength(1));
+    expect(previewBodies[0]).toEqual({ scope: "bucket", bucket: "BREEDING" });
+  });
+
   it("posts a batch-scoped event with the batch id", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Purchase batch" }));
@@ -1055,6 +1074,104 @@ describe("HealthPage", () => {
     expect(previewBodies).toEqual([
       { scope: "batch", purchase_batch_id: 2, task_id: 6 },
     ]);
+  });
+
+  it("unlinks an animal duty and reverts its prefills when the animal changes", async () => {
+    tasks = [
+      makeTask({
+        id: 8,
+        title: "Deworm Kaveri",
+        category: "DEWORMING",
+        animal_id: 3,
+      }),
+    ];
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm Kaveri/);
+
+    expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("Deworm Kaveri");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("DEWORMING");
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      /G-004/,
+    );
+
+    expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("VACCINE");
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ animal_id: 4, type: "VACCINE", task_id: null });
+  });
+
+  it("unlinks a batch duty and reverts its prefills when the batch changes", async () => {
+    tasks = [DEWORM_BATCH_TASK];
+    server.use(
+      http.get("/api/health/purchase-batches", () =>
+        HttpResponse.json({
+          batches: [
+            { id: 2, active_quarantine_animal_count: 12 },
+            { id: 3, active_quarantine_animal_count: 7 },
+          ],
+          total: 2,
+          limit: 50,
+          offset: 0,
+        }),
+      ),
+    );
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm batch #2/);
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Purchase batch *" }),
+      /Batch #3/,
+    );
+
+    expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("VACCINE");
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
+    await reviewAndConfirmBulk(user, dialog);
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({
+      scope: "batch",
+      purchase_batch_id: 3,
+      type: "VACCINE",
+      task_id: null,
+    });
+    expect(previewBodies).toEqual([{ scope: "batch", purchase_batch_id: 3 }]);
+  });
+
+  it("forgets duty-prefill metadata when a dialog is closed and reopened", async () => {
+    tasks = [VACCINE_TASK];
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /PPR vaccination/);
+    expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue(
+      "PPR vaccination",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    const reopened = await screen.findByRole("dialog");
+
+    // This happens to equal the previous duty's inferred value, but it belongs
+    // to a fresh form and must be treated as a manual edit rather than stale
+    // prefill metadata when the target changes.
+    fireEvent.change(within(reopened).getByLabelText(/disease target/i), {
+      target: { value: "PPR vaccination" },
+    });
+    await pickOption(
+      user,
+      within(reopened).getByRole("combobox", { name: "Animal *" }),
+      /G-004/,
+    );
+
+    expect(within(reopened).getByLabelText(/disease target/i)).toHaveValue(
+      "PPR vaccination",
+    );
+    expect(within(reopened).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
   });
 
   it("prefills the disease target from a vaccine duty's title", async () => {

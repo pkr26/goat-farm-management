@@ -9,7 +9,17 @@ from sqlalchemy import false, func, select
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, BucketMove, HealthEvent, PurchaseBatch, Transaction, TransactionType
+from ..models import (
+    Animal,
+    BreedingOutcome,
+    BreedingRecord,
+    BucketMove,
+    FeedInventory,
+    HealthEvent,
+    PurchaseBatch,
+    Transaction,
+    TransactionType,
+)
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.finance import (
     FinanceOut,
@@ -35,6 +45,8 @@ router = APIRouter(prefix="/api/finance", tags=["finance"])
 
 FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 FinanceManage = Annotated[set[str], Depends(require_perm("finance.manage"))]
+
+_MAX_FEED_UNIT_PRICE = Decimal("1000000000.00")
 
 
 # Free text reaches PostgreSQL as a bind parameter, and a text/varchar column
@@ -87,6 +99,167 @@ async def _locked_source_animal(db: DbSession, farm: CurrentFarm, animal_id: int
     return animal
 
 
+def _corrected_feed_unit_price(txn: Transaction, amount: Decimal) -> Decimal | None:
+    if txn.feed_quantity_kg is None or txn.feed_unit_price_per_kg is None:
+        return None
+    if amount == txn.amount:
+        # Total cost was rounded to paise when the restock was booked; dividing
+        # it back by quantity can lose the actual unit price (0.333 kg @ ₹1.00
+        # stores a ₹0.33 total, whose quotient rounds to ₹0.99).
+        return txn.feed_unit_price_per_kg
+    unit_price = money(amount / txn.feed_quantity_kg)
+    if amount > 0 and unit_price < Decimal("0.01"):
+        raise HTTPException(
+            status_code=422,
+            detail="A positive corrected feed purchase must be at least ₹0.01 per kg",
+        )
+    if unit_price > _MAX_FEED_UNIT_PRICE:
+        raise HTTPException(
+            status_code=422,
+            detail="Corrected feed purchase implies a price above ₹1,000,000,000.00 per kg",
+        )
+    return unit_price
+
+
+async def _reconcile_feed_purchase(
+    db: DbSession,
+    farm: CurrentFarm,
+    txn: Transaction,
+    payload: TransactionCorrectionIn,
+) -> tuple[int | None, str | None]:
+    """Reprice the stock item's latest active, durably identified purchase.
+
+    ``source_id`` is the stable chain id: replacement transaction ids change,
+    but every audited correction inherits its source pair. Date plus that id
+    therefore provides a deterministic latest-purchase ordering even when two
+    restocks share the same business date.
+    """
+    amount = money(payload.amount)
+    if (
+        txn.feed_inventory_id is None
+        and txn.feed_quantity_kg is None
+        and txn.feed_unit_price_per_kg is None
+    ):
+        # Historical rows predate durable inventory/quantity provenance. Their
+        # narrative may be corrected, but changing date or money would require
+        # guessing which balance and unit price to reconcile.
+        if amount != txn.amount or payload.date != txn.date:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This legacy feed purchase has no structured inventory/quantity "
+                    "provenance; only its notes can be corrected"
+                ),
+            )
+        return await _resolve_related_animal(db, farm, txn.related_animal_id)
+    if (
+        txn.feed_inventory_id is None
+        or txn.feed_quantity_kg is None
+        or txn.feed_unit_price_per_kg is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This feed purchase has incomplete inventory provenance",
+        )
+    if txn.source_id is None:
+        raise HTTPException(status_code=409, detail="This feed purchase has no stable source id")
+
+    inventory = (
+        await db.execute(
+            select(FeedInventory)
+            .where(
+                FeedInventory.id == txn.feed_inventory_id,
+                FeedInventory.farm_id == farm.id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if inventory is None:
+        raise HTTPException(
+            status_code=409,
+            detail="The feed inventory item this purchase updated no longer exists",
+        )
+
+    other_latest = (
+        await db.execute(
+            select(Transaction)
+            .where(
+                Transaction.farm_id == farm.id,
+                Transaction.source_type == "FEED_PURCHASE",
+                Transaction.feed_inventory_id == inventory.id,
+                Transaction.voided_at.is_(None),
+                Transaction.id != txn.id,
+            )
+            .order_by(Transaction.date.desc(), Transaction.source_id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    corrected_unit_price = _corrected_feed_unit_price(txn, amount)
+    if corrected_unit_price is None:  # guarded above; keeps the invariant explicit to mypy
+        raise HTTPException(status_code=409, detail="This feed purchase has incomplete pricing")
+
+    other_key = (
+        (other_latest.date, other_latest.source_id)
+        if other_latest is not None and other_latest.source_id is not None
+        else None
+    )
+    old_key = (txn.date, txn.source_id)
+    corrected_key = (payload.date, txn.source_id)
+    old_is_latest = other_key is None or old_key >= other_key
+    corrected_is_latest = other_key is None or corrected_key >= other_key
+    changed = amount != txn.amount or payload.date != txn.date
+    if not changed or not (old_is_latest or corrected_is_latest):
+        # Correcting an older chain cannot change the inventory's displayed
+        # last-purchase price. Its replacement still retains its own unit price.
+        return await _resolve_related_animal(db, farm, txn.related_animal_id)
+
+    if corrected_is_latest:
+        latest_key = corrected_key
+        latest_unit_price = corrected_unit_price
+    else:
+        if other_latest is None or other_key is None or other_latest.feed_unit_price_per_kg is None:
+            raise HTTPException(
+                status_code=409,
+                detail="The latest feed purchase has incomplete inventory provenance",
+            )
+        latest_key = other_key
+        latest_unit_price = other_latest.feed_unit_price_per_kg
+
+    # A pre-provenance row cannot be associated with a particular inventory
+    # item. If it is at least as recent as our chosen structured winner, we
+    # cannot truthfully assert which purchase should supply this item's price.
+    legacy_latest = (
+        await db.execute(
+            select(Transaction.date, Transaction.source_id)
+            .where(
+                Transaction.farm_id == farm.id,
+                Transaction.source_type == "FEED_PURCHASE",
+                Transaction.feed_inventory_id.is_(None),
+                Transaction.feed_quantity_kg.is_(None),
+                Transaction.feed_unit_price_per_kg.is_(None),
+                Transaction.voided_at.is_(None),
+            )
+            .order_by(Transaction.date.desc(), Transaction.source_id.desc())
+            .limit(1)
+        )
+    ).one_or_none()
+    if (
+        legacy_latest is not None
+        and legacy_latest.source_id is not None
+        and latest_key <= (legacy_latest.date, legacy_latest.source_id)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A legacy feed purchase may be the latest purchase for this inventory; "
+                "its unit price cannot be reconciled safely"
+            ),
+        )
+    inventory.last_purchase_price_per_kg = latest_unit_price
+    return await _resolve_related_animal(db, farm, txn.related_animal_id)
+
+
 async def _reconcile_source_record(
     db: DbSession,
     farm: CurrentFarm,
@@ -118,6 +291,31 @@ async def _reconcile_source_record(
     canonical_related: tuple[int | None, str | None]
     if txn.source_type == "ANIMAL_SALE":
         animal = await _locked_source_animal(db, farm, txn.source_id)
+        auto_aborted = (
+            await db.execute(
+                select(BreedingRecord.id)
+                .where(
+                    BreedingRecord.farm_id == farm.id,
+                    BreedingRecord.doe_id == animal.id,
+                    BreedingRecord.outcome == BreedingOutcome.ABORTED.value,
+                    BreedingRecord.loss_cause == "ANIMAL_STATUS_CHANGE",
+                )
+                .order_by(BreedingRecord.id)
+                .limit(1)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if auto_aborted is not None and payload.date != animal.status_date:
+            # Pregnancy-loss attribution is an immutable audit fact at the DB
+            # layer. Letting only the sale date move would split the one status
+            # event into contradictory dates, so date correction is unsafe.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This sale date also anchors an immutable pregnancy auto-abort; "
+                    "book a compensating entry instead"
+                ),
+            )
         try:
             require_animal_event_chronology(animal, payload.date, "Sale date")
             await require_status_after_recorded_facts(db, animal, payload.date)
@@ -207,10 +405,7 @@ async def _reconcile_source_record(
             batch.date = payload.date
         canonical_related = (txn.related_animal_id, None)
     elif txn.source_type == "FEED_PURCHASE":
-        # A feed restock currently has no independently allocated source row:
-        # the source pair identifies the audited ledger chain itself. Repricing
-        # it therefore cannot leave per-head/event amounts behind.
-        canonical_related = (txn.related_animal_id, None)
+        canonical_related = await _reconcile_feed_purchase(db, farm, txn, payload)
     else:
         # HEALTH_EVENT and any future shared sources may represent a bounded
         # submission fan-out. Notes are ledger narrative, but changing money or
@@ -224,7 +419,7 @@ async def _reconcile_source_record(
                     "booked from; book a compensating entry instead"
                 ),
             )
-        canonical_related = (txn.related_animal_id, None)
+        canonical_related = await _resolve_related_animal(db, farm, txn.related_animal_id)
 
     canonical_id, canonical_tag = canonical_related
     if payload.related_animal_id not in (None, canonical_id):
@@ -416,6 +611,9 @@ async def correct_transaction(
         # Flush the void first so the active-source partial unique index permits
         # the corrected replacement for a system-generated source.
         await db.flush()
+        replacement_feed_unit_price = txn.feed_unit_price_per_kg
+        if txn.source_type == "FEED_PURCHASE":
+            replacement_feed_unit_price = _corrected_feed_unit_price(txn, money(payload.amount))
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,
@@ -427,6 +625,9 @@ async def correct_transaction(
             created_by_id=user.id,
             source_type=txn.source_type,
             source_id=txn.source_id,
+            feed_inventory_id=txn.feed_inventory_id,
+            feed_quantity_kg=txn.feed_quantity_kg,
+            feed_unit_price_per_kg=replacement_feed_unit_price,
             correction_of_id=txn.id,
         )
         db.add(replacement)

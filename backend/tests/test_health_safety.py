@@ -415,10 +415,12 @@ async def test_schedule_query_work_is_bounded_by_templates_not_event_history(
         for statement in health_event_queries
         if "health_events.schedule_template_id IS NULL" in statement
     )
-    assert canonical_query.count("LIMIT") == len(expanded.json()["rows"])
-    assert canonical_query.count("health_events.schedule_template_id =") == len(
-        expanded.json()["rows"]
-    )
+    # Each template uses two bounded probes: newest-two for current status and
+    # earliest-one for the permanent primary-dose booster anchor. Work scales
+    # with template count, never with the animal's lifetime event volume.
+    expected_template_probes = 2 * len(expanded.json()["rows"])
+    assert canonical_query.count("LIMIT") == expected_template_probes
+    assert canonical_query.count("health_events.schedule_template_id =") == expected_template_probes
     assert legacy_query.count("LIMIT") == 1
 
 

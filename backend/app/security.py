@@ -49,6 +49,20 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from .core.config import get_settings
 
 LEGACY_PBKDF2_PREFIX = "pbkdf2_sha256"
+# Explicit compatibility boundary for hashes copied verbatim from the retired
+# SQLite application. The old verifier had no ceiling, while the history that
+# remains in this repository exercises 2,600 and 50,000 iterations. One million
+# keeps higher-cost external imports usable (and covers modern PBKDF2 costs)
+# without allowing a corrupt/hostile database value to choose unbounded CPU.
+# Deployers must audit imported hashes above this ceiling before rollout.
+LEGACY_PBKDF2_MAX_ITERATIONS = 1_000_000
+
+# Every rejected login pays this fixed PBKDF2 budget in addition to one Argon2
+# verification. Legacy accounts spend part of it checking their real hash and
+# the remainder on padding; Argon2/unknown/malformed accounts spend the whole
+# budget on padding. It must cover every supported legacy verification so the
+# aggregate work cannot reveal which kind of account was looked up.
+REJECTED_LOGIN_PBKDF2_WORK_BUDGET = LEGACY_PBKDF2_MAX_ITERATIONS
 REQUIRED_JWT_CLAIMS = ("sub", "kind", "jti", "iat", "exp", "iss", "aud")
 RESERVED_JWT_CLAIMS = frozenset(REQUIRED_JWT_CLAIMS)
 
@@ -125,36 +139,105 @@ def prime_dummy_password_hash() -> str:
     return hash_password("dummy-password-for-timing-equalization")
 
 
+def _legacy_pbkdf2_parts(stored: str) -> tuple[int, bytes, str] | None:
+    try:
+        algo, raw_iterations, salt_hex, digest_hex = stored.split("$")
+        if not raw_iterations.isascii() or not raw_iterations.isdecimal():
+            return None
+        iterations = int(raw_iterations)
+        salt = bytes.fromhex(salt_hex)
+        bytes.fromhex(digest_hex)
+    except (ValueError, TypeError):
+        return None
+    if (
+        algo != LEGACY_PBKDF2_PREFIX
+        or not 1 <= iterations <= LEGACY_PBKDF2_MAX_ITERATIONS
+        or not salt
+        or not digest_hex
+    ):
+        return None
+    return iterations, salt, digest_hex
+
+
 def _verify_legacy_pbkdf2(password: str, stored: str) -> bool:
     """v1 hashes: 'pbkdf2_sha256$iterations$salt_hex$digest_hex'."""
-    try:
-        _algo, iterations, salt_hex, digest_hex = stored.split("$")
-        digest = hashlib.pbkdf2_hmac(
-            "sha256", password.encode(), bytes.fromhex(salt_hex), int(iterations)
-        )
-        return hmac.compare_digest(digest.hex(), digest_hex)
-    except (ValueError, TypeError):
+    parts = _legacy_pbkdf2_parts(stored)
+    if parts is None:
         return False
+    iterations, salt, digest_hex = parts
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+    return hmac.compare_digest(digest.hex(), digest_hex)
 
 
-def verify_password(password: str, stored: str) -> tuple[bool, bool]:
-    """(verified, needs_rehash). Legacy pbkdf2 hashes verify but flag for
-    upgrade so callers can store a fresh Argon2id hash."""
+def _pad_rejected_login_pbkdf2(password: str, stored: str) -> None:
+    parts = _legacy_pbkdf2_parts(stored)
+    used_iterations = parts[0] if parts is not None else 0
+    remaining = REJECTED_LOGIN_PBKDF2_WORK_BUDGET - used_iterations
+    if remaining:
+        hashlib.pbkdf2_hmac(
+            "sha256",
+            password.encode(),
+            b"goatfarm-login-timing-padding",
+            remaining,
+        )
+
+
+def _complete_rejected_login_timing(
+    password: str, stored: str, dummy_hash: str, did_argon_work: bool
+) -> None:
+    if not did_argon_work:
+        # The initial legacy/malformed verification did no Argon2 work.
+        verify_password(password, dummy_hash)
+    _pad_rejected_login_pbkdf2(password, stored)
+
+
+async def complete_rejected_login_timing_async(
+    password: str, stored: str, dummy_hash: str, did_argon_work: bool
+) -> None:
+    """Finish one rejected login's fixed work in one executor submission.
+
+    The initial real/dummy verification is submission one. This is always
+    submission two, including legacy rows, so executor contention cannot
+    reveal an account's hash generation through a 2-vs-3 scheduling pattern.
+    """
+    await _run_password_work(
+        lambda: _complete_rejected_login_timing(password, stored, dummy_hash, did_argon_work)
+    )
+
+
+def _verify_password_with_work(password: str, stored: str) -> tuple[bool, bool, bool]:
+    """Return verified, needs-rehash, and whether real Argon2 work ran."""
     if stored.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-        return _verify_legacy_pbkdf2(password, stored), True
+        return _verify_legacy_pbkdf2(password, stored), True, False
+    hasher = _password_hasher()
     try:
-        ok = _password_hasher().verify(stored, password)
-    except (VerifyMismatchError, VerificationError, Argon2Error, InvalidHashError):
+        ok = hasher.verify(stored, password)
+    except VerifyMismatchError:
+        # Reaching the password comparison proves libargon2 paid the encoded
+        # memory/time cost, even though the credentials did not match.
+        return False, False, True
+    except (VerificationError, Argon2Error, InvalidHashError):
         # InvalidHashError (not an Argon2Error subclass) covers stored hashes
         # that aren't recognizable Argon2 at all — botched migrations, manual
         # DB edits, bcrypt leftovers. Unverifiable means invalid credentials,
         # never a 500.
-        return False, False
-    return ok, ok and _password_hasher().check_needs_rehash(stored)
+        return False, False, False
+    return ok, ok and hasher.check_needs_rehash(stored), True
+
+
+def verify_password(password: str, stored: str) -> tuple[bool, bool]:
+    """(verified, needs_rehash). Legacy hashes flag for an Argon2 upgrade."""
+    verified, needs_rehash, _did_argon_work = _verify_password_with_work(password, stored)
+    return verified, needs_rehash
 
 
 async def verify_password_async(password: str, stored: str) -> tuple[bool, bool]:
     return await _run_password_work(lambda: verify_password(password, stored))
+
+
+async def verify_password_with_work_async(password: str, stored: str) -> tuple[bool, bool, bool]:
+    """Login-only verification with timing-work evidence."""
+    return await _run_password_work(lambda: _verify_password_with_work(password, stored))
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from .common import (
     NonNegativeMoneyFloat,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
+    PostgresText,
     StrictBool,
     StrictInputModel,
     StrictInt,
@@ -35,27 +36,29 @@ BucketStr = Literal[
 
 
 class AnimalCreateIn(StrictInputModel):
-    tag_number: str | None = Field(default=None, min_length=1, max_length=50)
-    name: str | None = Field(default=None, max_length=80)
+    tag_number: PostgresText | None = Field(default=None, min_length=1, max_length=50)
+    name: PostgresText | None = Field(default=None, max_length=80)
     sex: Sex
     source: AnimalSourceStr
     current_bucket: BucketStr
-    breed: str = Field(default="Osmanabadi", max_length=60)
+    breed: PostgresText = Field(default="Osmanabadi", max_length=60)
     date_of_birth: PastOrTodayDate | None = None
     estimated_dob: PastOrTodayDate | None = None
     birth_type: BirthTypeStr | None = None
     birth_weight: NonNegativeWeightKgFloat | None = None
     purchase_date: PastOrTodayDate | None = None
     purchase_price: NonNegativeMoneyFloat | None = None
-    seller_name: str | None = Field(default=None, max_length=120)
+    seller_name: PostgresText | None = Field(default=None, max_length=120)
     weight_kg: WeightKgFloat | None = None  # optional entry weight record
     weight_date: PastOrTodayDate | None = None
-    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
     # Existing-herd migration only. Normal PURCHASED registrations are
     # server-forced into a managed one-head quarantine batch, while BORN rows
     # normally come only from the kidding workflow. Supplying a reason marks a
     # deliberate, owner-only, attributed historical entry instead.
-    historical_import_reason: str | None = Field(default=None, min_length=1, max_length=255)
+    historical_import_reason: PostgresText | None = Field(
+        default=None, min_length=1, max_length=255
+    )
 
     @model_validator(mode="after")
     def _source_fields_are_coherent(self) -> "AnimalCreateIn":
@@ -149,7 +152,9 @@ class WeightIn(StrictInputModel):
     date: PastOrTodayDate | None = None  # defaults to today
     weight_kg: WeightKgFloat
     bcs: StrictInt | None = Field(default=None, ge=1, le=5)
-    notes: str | None = Field(default=None, max_length=255)  # weight_records.notes String(255)
+    notes: PostgresText | None = Field(
+        default=None, max_length=255
+    )  # weight_records.notes String(255)
 
 
 class WeightRecordOut(BaseModel):
@@ -164,7 +169,9 @@ class WeightRecordOut(BaseModel):
 
 class MoveIn(StrictInputModel):
     to_bucket: BucketStr
-    reason: str | None = Field(default=None, max_length=255)  # bucket_moves.reason String(255)
+    reason: PostgresText | None = Field(
+        default=None, max_length=255
+    )  # bucket_moves.reason String(255)
     history_override: StrictBool = False
 
     @model_validator(mode="after")
@@ -204,12 +211,14 @@ class StatusChangeIn(StrictInputModel):
     new_status: Literal["SOLD", "DEAD", "CULLED"]
     date: PastOrTodayDate | None = None  # defaults to today
     sale_price: NonNegativeMoneyFloat | None = None
-    buyer_name: str | None = Field(default=None, max_length=120)
-    notes: str | None = Field(default=None, max_length=255)  # animals.status_notes String(255)
-    mortality_cause: str | None = Field(default=None, max_length=120)
+    buyer_name: PostgresText | None = Field(default=None, max_length=120)
+    notes: PostgresText | None = Field(
+        default=None, max_length=255
+    )  # animals.status_notes String(255)
+    mortality_cause: PostgresText | None = Field(default=None, max_length=120)
     mortality_reported_at: PastOrTodayDate | None = None
     suspected_scheduled_disease: StrictBool = False
-    suspected_disease: str | None = Field(default=None, max_length=120)
+    suspected_disease: PostgresText | None = Field(default=None, max_length=120)
     authority_notified_at: PastOrTodayDate | None = None
 
     @model_validator(mode="after")

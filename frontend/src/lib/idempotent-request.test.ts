@@ -188,6 +188,41 @@ describe("protected mutation idempotency transport", () => {
       .toHaveLength(1);
   });
 
+  it("retains an ambiguous key when the automatic retry ends in an auth failure", async () => {
+    setAccessToken(ACTOR_ONE_TOKEN);
+    const keys: string[] = [];
+    let protectedCalls = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input) === "/api/auth/refresh") {
+        return new Response(null, { status: 401 });
+      }
+      protectedCalls += 1;
+      keys.push(requestKey(init)!);
+      if (protectedCalls === 1) {
+        throw new TypeError("response lost after the mutation may have committed");
+      }
+      if (protectedCalls === 2) {
+        return jsonResponse(401, { detail: "Session expired" });
+      }
+      return jsonResponse(201, { id: 71 });
+    });
+    const init = { method: "POST", body: JSON.stringify({ amount: 500 }) };
+
+    expect(await catchError(apiFetch("/api/finance/new", init))).toBeInstanceOf(
+      ApiError,
+    );
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+
+    // The same actor signs in again and explicitly retries the still-
+    // ambiguous logical submission. It must recover the original key.
+    setAccessToken(ACTOR_ONE_TOKEN);
+    await apiFetch("/api/finance/new", init);
+
+    expect(keys).toHaveLength(3);
+    expect(keys[2]).toBe(keys[0]);
+  });
+
   it("automatically retries one network failure with the same key", async () => {
     const keys: string[] = [];
     const farms: Array<string | null> = [];

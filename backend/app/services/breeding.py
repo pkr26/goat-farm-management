@@ -10,6 +10,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from ..models import (
     BREEDING_READY_BUCKETS,
     MAX_FAILED_CYCLES_BEFORE_CULL,
+    MAX_GESTATION_DAYS,
     MIN_BREEDING_AGE_MONTHS,
     MIN_BREEDING_WEIGHT_KG,
     MIN_BUCK_BREEDING_AGE_MONTHS,
@@ -21,6 +22,7 @@ from ..models import (
     BreedingOutcome,
     BreedingRecord,
     Bucket,
+    BucketMove,
     Farm,
     KiddingRecord,
     TaskCategory,
@@ -389,6 +391,22 @@ async def create_breeding_record(
             f"Breeding date must be after {doe.tag_number}'s latest reproductive "
             f"event on {latest_boundary.isoformat()}"
         )
+    latest_move_date = (
+        await db.execute(
+            select(func.max(BucketMove.effective_date)).where(
+                BucketMove.animal_id == doe.id,
+                # Initial placement can be a later historical import marker;
+                # subsequent moves are actual lifecycle facts whose ordering
+                # a newly recorded breeding must preserve.
+                BucketMove.from_bucket.is_not(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if latest_move_date is not None and breeding_date < latest_move_date:
+        raise ValueError(
+            f"Breeding date cannot predate {doe.tag_number}'s latest bucket move "
+            f"on {latest_move_date.isoformat()}"
+        )
     ultrasound_date = planned_ultrasound_date(breeding_date)
     br = BreedingRecord(
         farm_id=farm.id,
@@ -455,6 +473,19 @@ async def record_ultrasound_result(
         )
     if result_date is not None and result_date < br.breeding_date:
         raise ValueError("Pregnancy check result cannot predate the breeding date")
+    if (
+        pregnant
+        and result_date is not None
+        and result_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS)
+    ):
+        # Kidding is deliberately bounded to the same maximum gestation and
+        # cannot predate its confirmation. Accepting a positive scan after that
+        # boundary creates no possible kidding date and permanently strands the
+        # doe in an unresolved pregnancy.
+        raise ValueError(
+            "A positive pregnancy check cannot be recorded after the maximum "
+            f"{MAX_GESTATION_DAYS}-day gestation window"
+        )
     if (
         result_date is not None
         and br.ultrasound_date is not None

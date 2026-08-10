@@ -283,7 +283,16 @@ function isAbortError(error: unknown): boolean {
 
 function shouldRetainForExplicitRetry(error: unknown): boolean {
   if (!hasHttpStatus(error)) return true;
-  return error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
+  // A 401 can be the second attempt after a response-losing network failure.
+  // It proves only that the replay was not authenticated, not that the first
+  // send failed to commit, so retain the logical key for the same actor.
+  return (
+    error.status === 401 ||
+    error.status === 408 ||
+    error.status === 409 ||
+    error.status === 429 ||
+    error.status >= 500
+  );
 }
 
 function cleanup(now: number): void {

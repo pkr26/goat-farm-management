@@ -48,7 +48,7 @@ test.describe("health flow", () => {
     await expect(logRow).toBeVisible();
     await expect(logRow.getByText("VACCINE")).toBeVisible();
     await expect(logRow.getByText(product)).toBeVisible();
-    await expect(logRow.getByText("SC")).toBeVisible();
+    await expect(logRow.getByRole("cell", { name: "SC", exact: true })).toBeVisible();
 
     // And on the animal's profile health card.
     await openAnimalProfile(page, tag);

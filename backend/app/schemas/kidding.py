@@ -11,6 +11,7 @@ from .common import (
     BoundedId,
     NonNegativeWeightKgFloat,
     PastOrTodayDate,
+    PostgresText,
     StrictInputModel,
 )
 
@@ -22,7 +23,7 @@ KiddingEaseStr = Literal["NORMAL", "ASSISTED", "DIFFICULT"]
 class KidIn(StrictInputModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    tag: str | None = Field(default=None, max_length=50)  # blank → auto tag
+    tag: PostgresText | None = Field(default=None, max_length=50)  # blank → auto tag
     sex: Literal["M", "F"]
     birth_weight: NonNegativeWeightKgFloat | None = None
     status: KidStatusStr = "ALIVE"
@@ -43,7 +44,7 @@ class KiddingCreateIn(StrictInputModel):
     # headroom; >= the breeding date is checked in the router.
     date: PastOrTodayDate
     ease: KiddingEaseStr = "NORMAL"
-    notes: str | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
+    notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)
     kids: list[KidIn] = Field(min_length=1, max_length=10)
 
 

@@ -23,6 +23,10 @@ unset GOATFARM_RESTORE_DATABASE_URL GOATFARM_DATABASE_URL
 unset GOATFARM_MIGRATION_DATABASE_URL PGPASSWORD PGSERVICE PGSERVICEFILE
 EXPECTED_SIGNER="${GOATFARM_RESTORE_GPG_SIGNER_FINGERPRINT:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PYTHON_BIN="python3"
+if [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]]; then
+    PYTHON_BIN="${SCRIPT_DIR}/../.venv/bin/python"
+fi
 
 # GOATFARM_ENVIRONMENT and GOATFARM_DB_SSLMODE are *application* settings that
 # gate TLS and the signed-and-encrypted artifact requirement below.  A job that
@@ -32,19 +36,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # same file the application reads — for any value the caller did not export;
 # an explicit export still wins.
 app_setting() {
-    local key="$1" env_file="${SCRIPT_DIR}/../.env" value=""
-    if [[ -r "${env_file}" ]]; then
-        value="$(sed -n "s/^[[:space:]]*${key}=//p" "${env_file}" | tail -n 1 | tr -d '\r')"
-        value="${value%\"}"
-        value="${value#\"}"
-    fi
-    printf '%s' "${value}"
+    local key="$1" env_file="${SCRIPT_DIR}/../.env"
+    [[ -r "${env_file}" ]] || return 3
+    "${PYTHON_BIN}" "${SCRIPT_DIR}/dotenv_value.py" "${env_file}" "${key}"
 }
 
-DB_SSLMODE="${GOATFARM_DB_SSLMODE:-$(app_setting GOATFARM_DB_SSLMODE)}"
-DB_SSLMODE="${DB_SSLMODE:-disable}"
-ENVIRONMENT="${GOATFARM_ENVIRONMENT:-$(app_setting GOATFARM_ENVIRONMENT)}"
-ENVIRONMENT="${ENVIRONMENT:-development}"
+if [[ ${GOATFARM_DB_SSLMODE+defined} == defined ]]; then
+    DB_SSLMODE="${GOATFARM_DB_SSLMODE}"
+elif DB_SSLMODE="$(app_setting GOATFARM_DB_SSLMODE)"; then
+    :
+elif (( $? == 3 )); then
+    DB_SSLMODE="disable"
+else
+    echo "Cannot safely load GOATFARM_DB_SSLMODE from backend/.env" >&2
+    exit 2
+fi
+if [[ ${GOATFARM_ENVIRONMENT+defined} == defined ]]; then
+    ENVIRONMENT="${GOATFARM_ENVIRONMENT}"
+elif ENVIRONMENT="$(app_setting GOATFARM_ENVIRONMENT)"; then
+    :
+elif (( $? == 3 )); then
+    ENVIRONMENT="development"
+else
+    echo "Cannot safely load GOATFARM_ENVIRONMENT from backend/.env" >&2
+    exit 2
+fi
 TMP_ROOT="${TMPDIR:-/tmp}"
 TMP_DIR=""
 
@@ -131,6 +147,13 @@ case "${DB_SSLMODE}" in
         exit 2
         ;;
 esac
+case "${ENVIRONMENT}" in
+    development|production) ;;
+    *)
+        echo "GOATFARM_ENVIRONMENT is invalid: ${ENVIRONMENT}" >&2
+        exit 2
+        ;;
+esac
 if [[ "${ENVIRONMENT}" == "production" && "${DB_SSLMODE}" != "verify-full" ]]; then
     echo "Production restores require GOATFARM_DB_SSLMODE=verify-full" >&2
     exit 2
@@ -180,7 +203,7 @@ chmod 0600 "${BACKUP_PATH}" "${BACKUP_PATH}.sha256"
 # The URL travels over stdin to keep its password out of helper and libpq-tool
 # arguments.  Also remove any application URL inherited from the caller before
 # spawning database tools.
-DB_METADATA="$(printf '%s' "${RAW_TARGET_URL}" | python3 "${SCRIPT_DIR}/libpq_url.py" "${PGPASSFILE}")"
+DB_METADATA="$(printf '%s' "${RAW_TARGET_URL}" | "${PYTHON_BIN}" "${SCRIPT_DIR}/libpq_url.py" "${PGPASSFILE}")"
 unset RAW_TARGET_URL
 TARGET_URL="${DB_METADATA%%$'\n'*}"
 TARGET_DB="${DB_METADATA#*$'\n'}"

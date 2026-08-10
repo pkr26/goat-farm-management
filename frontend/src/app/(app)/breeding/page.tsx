@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useRef, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -107,6 +107,10 @@ const breedingSchema = z.object({
 });
 type BreedingValues = z.infer<typeof breedingSchema>;
 
+function breedingDefaults(): BreedingValues {
+  return { doe_id: "", buck_id: "", breeding_date: localToday() };
+}
+
 function NewBreedingDialog({
   open,
   onOpenChange,
@@ -132,8 +136,12 @@ function NewBreedingDialog({
     formState: { errors, isSubmitting },
   } = useForm<BreedingValues>({
     resolver: zodResolver(breedingSchema),
-    defaultValues: { doe_id: "", buck_id: "", breeding_date: localToday() },
+    defaultValues: breedingDefaults(),
   });
+
+  useEffect(() => {
+    if (open) reset(breedingDefaults());
+  }, [open, reset]);
 
   async function onSubmit(values: BreedingValues) {
     await createFlight.run(async () => {
@@ -147,7 +155,7 @@ function NewBreedingDialog({
           },
         });
         toast.success("Breeding saved.");
-        reset({ doe_id: "", buck_id: "", breeding_date: localToday() });
+        reset(breedingDefaults());
         onOpenChange(false);
         onSaved();
       } catch (err) {

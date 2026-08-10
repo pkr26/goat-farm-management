@@ -897,6 +897,55 @@ async def test_correcting_a_sale_updates_the_animals_recorded_price(
     assert (await animal_profile(client, owner, animal["id"]))["sale_price"] == 4500.0
 
 
+async def test_sale_date_correction_cannot_desync_immutable_auto_abort(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #5: sale, pregnancy loss, and marker remain one dated event."""
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner, tag="SALE-ABORT-DATE")
+    buck = await make_buck(client, owner, tag="SALE-ABORT-BUCK")
+    breeding = await make_breeding(
+        client, owner, doe["id"], buck["id"], today() - timedelta(days=40)
+    )
+    await ultrasound(client, owner, breeding["id"], pregnant=True)
+    await change_status(client, owner, doe["id"], "SOLD", sale_price=5000.0)
+    booked = await sale_transaction(client, owner)
+
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=iso(today() - timedelta(days=1)),
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+            reason="Sale date was transcribed incorrectly",
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "immutable pregnancy auto-abort" in refused.json()["detail"]
+    loss = await client.get(f"/api/breeding/{breeding['id']}", headers=owner)
+    assert loss.status_code == 200, loss.text
+    assert loss.json()["loss_date"] == iso(today())
+    unchanged = await animal_profile(client, owner, doe["id"])
+    assert unchanged["status_date"] == iso(today())
+    assert unchanged["sale_price"] == 5000.0
+
+    # A same-date money correction does not split the shared lifecycle fact.
+    repriced = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+            reason="Buyer paid less",
+        ),
+        headers=owner,
+    )
+    assert repriced.status_code == 201, repriced.text
+    assert (await animal_profile(client, owner, doe["id"]))["sale_price"] == 4500.0
+
+
 async def test_correction_cannot_rebook_a_sale_as_an_expense(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, tag="SALE-RETYPE")
@@ -953,6 +1002,45 @@ async def test_correcting_a_batch_expense_amount_is_refused(client: httpx.AsyncC
     assert amended.status_code == 201, amended.text
     data = await get_finance(client, owner)
     assert data["total_expense"] == 1000.0
+
+
+async def test_health_event_correction_response_keeps_animal_tag(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #29: canonical source reconciliation also returns identity."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="HEALTH-CORRECTION-TAG")
+    event = await client.post(
+        "/api/health/events",
+        json={
+            "animal_id": animal["id"],
+            "type": "VACCINE",
+            "product_name": "PPR vaccine",
+            "cost": 125.0,
+        },
+        headers=owner,
+    )
+    assert event.status_code == 201, event.text
+    booked = next(
+        row
+        for row in (await get_finance(client, owner))["transactions"]
+        if row["source_type"] == "HEALTH_EVENT"
+    )
+
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            type="EXPENSE",
+            category="MEDICINE",
+            amount=booked["amount"],
+            notes="Attach vaccination certificate",
+            reason="Add certificate narrative",
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    assert corrected.json()["related_animal_id"] == animal["id"]
+    assert corrected.json()["animal_tag"] == animal["tag_number"]
 
 
 async def test_totals_hand_computed(client: httpx.AsyncClient) -> None:
@@ -2516,10 +2604,10 @@ async def test_reports_worker_with_permission_allowed(client: httpx.AsyncClient)
     assert (await client.get("/api/dashboard/reports", headers=worker)).status_code == 200
 
 
-async def test_reports_only_cull_rows_expose_identity_not_animal_profile(
+async def test_reports_cull_identities_require_breeding_view(
     client: httpx.AsyncClient,
 ) -> None:
-    """reports.view permits aggregates and labels, not full cull-animal records."""
+    """Finding #27: reports.view alone permits aggregates, not breeding identities."""
     owner = await owner_with_farm(client)
     doe = await make_animal(
         client,
@@ -2568,16 +2656,13 @@ async def test_reports_only_cull_rows_expose_identity_not_animal_profile(
     analyst_role = await custom_role_id(client, owner, "Reports Only", ["reports.view"])
     analyst = await worker_headers(client, owner, analyst_role, "reports-only@farm.in")
     delegated_reports = await get_reports(client, analyst)
-    delegated_cull = next(
-        row for row in delegated_reports["breeding"]["cull_candidates"] if row["id"] == doe["id"]
-    )
-    assert set(delegated_cull) == {"id", "tag_number", "name"}
-    assert delegated_cull["tag_number"] == "REPORT-PRIVATE"
+    assert delegated_reports["breeding"]["cull_candidates"] == []
+    assert delegated_reports["breeding"]["cull_candidates_total"] == 0
 
     authorized_role = await custom_role_id(
-        client, owner, "Reports and Animals", ["reports.view", "animals.view"]
+        client, owner, "Reports and Breeding", ["reports.view", "breeding.view"]
     )
-    authorized = await worker_headers(client, owner, authorized_role, "reports-animals@farm.in")
+    authorized = await worker_headers(client, owner, authorized_role, "reports-breeding@farm.in")
     authorized_cull = next(
         row
         for row in (await get_reports(client, authorized))["breeding"]["cull_candidates"]

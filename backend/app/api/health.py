@@ -24,7 +24,7 @@ from ..models import (
     TaskCategory,
     TaskStatus,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.health import (
     MAX_BULK_BUCKET_TARGETS,
     MAX_BULK_HEALTH_TARGETS,
@@ -89,7 +89,7 @@ async def health_animal_options(
     db: DbSession,
     farm: CurrentFarm,
     _perms: VIEW,
-    q: Annotated[str | None, Query(max_length=60)] = None,
+    q: Annotated[PostgresText | None, Query(max_length=60)] = None,
     limit: Annotated[int, Query(ge=1, le=HEALTH_LOOKUP_MAX_LIMIT)] = (HEALTH_LOOKUP_DEFAULT_LIMIT),
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> HealthAnimalOptionListOut:
@@ -151,7 +151,7 @@ async def health_purchase_batch_options(
     db: DbSession,
     farm: CurrentFarm,
     _perms: MANAGE,
-    q: Annotated[str | None, Query(max_length=20)] = None,
+    q: Annotated[PostgresText | None, Query(max_length=20)] = None,
     limit: Annotated[int, Query(ge=1, le=HEALTH_LOOKUP_MAX_LIMIT)] = (HEALTH_LOOKUP_DEFAULT_LIMIT),
     offset: Annotated[int, Query(ge=0, le=MAX_PAGE_OFFSET)] = 0,
 ) -> HealthPurchaseBatchOptionListOut:

@@ -48,6 +48,16 @@ class Transaction(Base):
             name="ck_transactions_source_pair",
         ),
         CheckConstraint(
+            "(feed_inventory_id IS NULL AND feed_quantity_kg IS NULL "
+            "AND feed_unit_price_per_kg IS NULL) OR "
+            "(source_type = 'FEED_PURCHASE' AND feed_inventory_id IS NOT NULL "
+            "AND feed_quantity_kg IS NOT NULL "
+            "AND feed_unit_price_per_kg IS NOT NULL "
+            "AND feed_quantity_kg BETWEEN 0.001 AND 1000000 "
+            "AND feed_unit_price_per_kg BETWEEN 0 AND 1000000000)",
+            name="ck_transactions_feed_purchase_provenance",
+        ),
+        CheckConstraint(
             "correction_of_id IS NULL OR correction_of_id <> id",
             name="ck_transactions_not_self_correction",
         ),
@@ -67,6 +77,11 @@ class Transaction(Base):
             ["transactions.farm_id", "transactions.id"],
             name="fk_transactions_farm_correction",
         ),
+        ForeignKeyConstraint(
+            ["farm_id", "feed_inventory_id"],
+            ["feed_inventory.farm_id", "feed_inventory.id"],
+            name="fk_transactions_farm_feed_inventory",
+        ),
         Index(
             "uq_transactions_active_source",
             "farm_id",
@@ -78,6 +93,7 @@ class Transaction(Base):
             ),
         ),
         Index("ix_transactions_correction_of_id", "correction_of_id"),
+        Index("ix_transactions_feed_inventory_id", "feed_inventory_id"),
         Index("ix_transactions_related_animal_id", "related_animal_id"),
     )
 
@@ -97,6 +113,9 @@ class Transaction(Base):
     # still allowing an audited correction to replace a voided row.
     source_type: Mapped[str | None] = mapped_column(String(40))
     source_id: Mapped[int | None]
+    feed_inventory_id: Mapped[int | None]
+    feed_quantity_kg: Mapped[Decimal | None] = mapped_column(Numeric(15, 3))
+    feed_unit_price_per_kg: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     correction_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("transactions.id", ondelete="RESTRICT")
     )

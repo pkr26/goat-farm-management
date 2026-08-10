@@ -61,6 +61,8 @@ describe("formatMoney — decimals, rounding and sign", () => {
   it("treats fractions that round to zero as zero", () => {
     expect(formatMoney(0.001)).toBe("₹0");
     expect(formatMoney(0.004)).toBe("₹0");
+    expect(formatMoney(-0.001)).toBe("₹0");
+    expect(formatMoney(-0.004)).toBe("₹0");
   });
 
   it("formats negative zero without a minus sign", () => {

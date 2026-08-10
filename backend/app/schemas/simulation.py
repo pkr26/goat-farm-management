@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.results import MonteCarloResult, SensitivityItem, SimulationResult
-from .common import StrictBool, StrictInputModel
+from .common import PostgresText, StrictBool, StrictInputModel
 
 __all__ = [
     "BreedsOut",
@@ -30,14 +30,16 @@ __all__ = [
 
 
 class ScenarioCreateIn(StrictInputModel):
-    name: str = Field(min_length=1, max_length=120)  # simulation_scenarios.name String(120)
-    notes: str = Field(default="", max_length=2000)
+    name: PostgresText = Field(
+        min_length=1, max_length=120
+    )  # simulation_scenarios.name String(120)
+    notes: PostgresText = Field(default="", max_length=2000)
     assumptions: SimulationAssumptions
 
 
 class ScenarioUpdateIn(StrictInputModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    notes: str | None = Field(default=None, max_length=2000)
+    name: PostgresText | None = Field(default=None, min_length=1, max_length=120)
+    notes: PostgresText | None = Field(default=None, max_length=2000)
     assumptions: SimulationAssumptions | None = None
 
 

@@ -3,13 +3,13 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import MAX_EMAIL_LENGTH, EmailMixin
-from .common import BoundedId, StrictInputModel
+from .common import BoundedId, PostgresText, StrictInputModel
 
 
 class WorkerCreateIn(EmailMixin):
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
     password: str | None = Field(default=None, max_length=128)  # required for a new account
-    name: str | None = Field(default=None, max_length=120)
+    name: PostgresText | None = Field(default=None, max_length=120)
     role_id: BoundedId
 
 
@@ -38,8 +38,8 @@ class MembershipOut(BaseModel):
 
 
 class RoleIn(StrictInputModel):
-    name: str = Field(min_length=1, max_length=80)
-    description: str | None = Field(default=None, max_length=255)
+    name: PostgresText = Field(min_length=1, max_length=80)
+    description: PostgresText | None = Field(default=None, max_length=255)
     permissions: list[str] = Field(default_factory=list, max_length=100)
 
 

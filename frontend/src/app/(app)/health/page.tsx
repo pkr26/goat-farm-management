@@ -415,42 +415,36 @@ function HealthPageContent() {
     disease_target?: string;
   } | null>(null);
 
+  function resetEventForm() {
+    // The visible form and this metadata form one lifecycle. Leaving the
+    // previous duty metadata behind can make a later, manually entered value
+    // look like an unchanged prefill and be cleared incorrectly.
+    appliedPrefillRef.current = null;
+    reset(eventDefaults());
+  }
+
   /** Prefill scope/target/type/product from a linked VACCINE/DEWORMING duty
    *  (v1 behaviour + product/disease hints). */
   function applyTask(taskIdStr: string) {
     setBulkPreview(null);
-    setValue("task_id", taskIdStr);
     if (taskIdStr === NONE) {
-      const prev = appliedPrefillRef.current;
-      if (prev) {
-        if (prev.scope && getValues("scope") === prev.scope) changeScope("animal");
-        if (prev.type && getValues("type") === prev.type) setValue("type", "VACCINE");
-        if (
-          prev.product_name !== undefined &&
-          (getValues("product_name") ?? "") === prev.product_name
-        ) {
-          setValue("product_name", "");
-        }
-        if (
-          prev.disease_target !== undefined &&
-          (getValues("disease_target") ?? "") === prev.disease_target
-        ) {
-          setValue("disease_target", "");
-        }
-      }
-      appliedPrefillRef.current = null;
+      clearLinkedTaskPrefill(true);
       return;
     }
+    // Switching directly from one duty to another must not leave the first
+    // duty's inferred product or disease attached to the second one.
+    if (appliedPrefillRef.current) clearLinkedTaskPrefill();
+    setValue("task_id", taskIdStr);
     const task = linkableHealthTasks.find((t) => String(t.id) === taskIdStr);
     if (!task) return;
     const applied: NonNullable<typeof appliedPrefillRef.current> = {};
     if (task.animal_id) {
       applied.scope = "animal";
-      changeScope("animal");
+      changeScope("animal", true);
       setValue("animal_id", String(task.animal_id));
     } else if (task.purchase_batch_id) {
       applied.scope = "batch";
-      changeScope("batch");
+      changeScope("batch", true);
       setValue("purchase_batch_id", String(task.purchase_batch_id));
     }
     if (task.category === "VACCINE" || task.category === "DEWORMING") {
@@ -472,9 +466,41 @@ function HealthPageContent() {
     appliedPrefillRef.current = applied;
   }
 
-  function changeScope(nextScope: EventValues["scope"]) {
+  function clearLinkedTaskPrefill(resetTaskScope = false) {
+    setBulkPreview(null);
+    setValue("task_id", NONE);
+    const prev = appliedPrefillRef.current;
+    // Clear before changing scope so changeScope cannot process this prefill a
+    // second time. User-edited values remain untouched below.
+    appliedPrefillRef.current = null;
+    if (!prev) return;
+    if (resetTaskScope && prev.scope && getValues("scope") === prev.scope) {
+      changeScope("animal", true);
+    }
+    if (prev.type && getValues("type") === prev.type) setValue("type", "VACCINE");
+    if (
+      prev.product_name !== undefined &&
+      (getValues("product_name") ?? "") === prev.product_name
+    ) {
+      setValue("product_name", "");
+    }
+    if (
+      prev.disease_target !== undefined &&
+      (getValues("disease_target") ?? "") === prev.disease_target
+    ) {
+      setValue("disease_target", "");
+    }
+  }
+
+  function changeScope(nextScope: EventValues["scope"], preserveLinkedTask = false) {
     setBulkPreview(null);
     setRecordError(null);
+    if (!preserveLinkedTask) {
+      // A linked duty has an exact animal or purchase-batch scope. Keeping it
+      // while the operator chooses another target makes the preview/write a
+      // guaranteed 422 rather than a valid unlinked health event.
+      clearLinkedTaskPrefill();
+    }
     setValue("scope", nextScope, { shouldValidate: true });
     for (const [field, fieldScope] of [
       ["animal_id", "animal"],
@@ -664,7 +690,7 @@ function HealthPageContent() {
       invalidateFarmData(queryClient);
       setOpen(false);
       setBulkPreview(null);
-      reset(eventDefaults());
+      resetEventForm();
       if (returnTo) router.push(returnTo);
       else if (hasDeepLink) router.replace("/health");
     } catch (err) {
@@ -717,7 +743,7 @@ function HealthPageContent() {
           canManage && (
             <Button
               onClick={() => {
-                reset(eventDefaults());
+                resetEventForm();
                 setRecordError(null);
                 setOpen(true);
               }}
@@ -893,6 +919,7 @@ function HealthPageContent() {
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
+          if (!nextOpen) resetEventForm();
           setOpen(nextOpen);
           if (!nextOpen) closeDeepLinkedDialog();
         }}
@@ -941,7 +968,8 @@ function HealthPageContent() {
                     id="event-animal"
                     value={wAnimalId || ""}
                     onValueChange={(v) => {
-                      setBulkPreview(null);
+                      clearLinkedTaskPrefill();
+                      setRecordError(null);
                       setValue("animal_id", v, { shouldValidate: true });
                     }}
                     placeholder="Pick an animal"
@@ -989,7 +1017,7 @@ function HealthPageContent() {
                     id="event-batch"
                     value={wPurchaseBatchId || ""}
                     onValueChange={(v) => {
-                      setBulkPreview(null);
+                      clearLinkedTaskPrefill();
                       setRecordError(null);
                       setValue("purchase_batch_id", v, { shouldValidate: true });
                     }}

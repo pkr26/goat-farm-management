@@ -62,6 +62,9 @@ class FeedInventory(Base):
     # look the row up by that pair, so a duplicate would split the balance.
     __table_args__ = (
         UniqueConstraint("farm_id", "ingredient", name="uq_feed_inventory_farm_ingredient"),
+        # Transaction provenance uses a composite farm/id FK so a ledger row
+        # can never point at another farm's stock item.
+        UniqueConstraint("farm_id", "id", name="uq_feed_inventory_farm_id_id"),
         CheckConstraint(
             "category IN ('ROUGHAGE_WET', 'ROUGHAGE_DRY', 'CONCENTRATE')",
             name="ck_feed_inventory_category",

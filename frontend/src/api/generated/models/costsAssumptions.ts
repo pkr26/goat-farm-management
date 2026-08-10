@@ -19,7 +19,10 @@ export interface CostsAssumptions {
      * @maximum 1000000000
      */
   labour_per_month?: number;
-  /** @minimum 1 */
+  /**
+     * @minimum 1
+     * @maximum 100000
+     */
   labour_per_head_threshold?: number;
   /**
      * @minimum 0

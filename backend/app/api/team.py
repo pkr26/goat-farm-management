@@ -11,14 +11,22 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import func, literal, select
+from sqlalchemy import and_, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_user_sessions
-from ..models import Farm, FarmMembership, Role, Task, TaskStatus, User
+from ..models import (
+    VERIFICATION_REQUIRED_CATEGORIES,
+    Farm,
+    FarmMembership,
+    Role,
+    Task,
+    TaskStatus,
+    User,
+)
 from ..permissions import (
     ALL_PERMISSIONS,
     PERMISSION_DEPENDENCIES,
@@ -1152,21 +1160,29 @@ async def delete_role(
         raise HTTPException(
             status_code=400, detail="Role still has workers assigned — reassign them first."
         )
-    pending_task = (
+    actionable_task = (
         await db.execute(
             select(Task.id)
             .where(
                 Task.farm_id == farm.id,
                 Task.assigned_role_id == role.id,
-                Task.status == TaskStatus.PENDING.value,
+                or_(
+                    Task.status == TaskStatus.PENDING.value,
+                    and_(
+                        Task.status == TaskStatus.DONE.value,
+                        Task.category.in_(VERIFICATION_REQUIRED_CATEGORIES),
+                    ),
+                ),
             )
             .limit(1)
         )
     ).scalar_one_or_none()
-    if pending_task is not None:
+    if actionable_task is not None:
         raise HTTPException(
             status_code=409,
-            detail="Role still has pending duties — complete or skip them first.",
+            detail=(
+                "Role still has actionable duties — complete, verify, reject, or skip them first."
+            ),
         )
     role.deleted_at = utcnow()
     await db.commit()

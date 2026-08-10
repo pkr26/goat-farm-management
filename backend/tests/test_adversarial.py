@@ -34,8 +34,11 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.db import get_sessionmaker
+from app.models import BucketMove
 from app.utils import today
 
 from .conftest import login, owner_with_farm
@@ -134,6 +137,26 @@ async def breed_doe(
         overrides["breeding_date"] = iso(today() - timedelta(days=bred_days_ago))
     br_id = await make_breeding(client, headers, doe_id, buck_id, **overrides)
     return doe_id, buck_id, br_id
+
+
+async def backdate_latest_bucket_move(animal_id: int, effective_date: date) -> None:
+    """Make an API-created move a coherent historical test fixture.
+
+    The public move endpoint intentionally records today's business date. Tests
+    that reconstruct two completed historical breeding cycles therefore age
+    the intervening move directly while retaining its real audit timestamp.
+    """
+    async with get_sessionmaker()() as db:
+        move = (
+            await db.execute(
+                select(BucketMove)
+                .where(BucketMove.animal_id == animal_id)
+                .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        move.effective_date = effective_date
+        await db.commit()
 
 
 async def ultrasound(
@@ -612,6 +635,7 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
         headers=owner,
     )
     assert resp.status_code == 200, resp.text
+    await backdate_latest_bucket_move(doe, today() - timedelta(days=155))
     br2 = await make_breeding(
         client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=150))
     )
@@ -925,7 +949,11 @@ async def test_kidding_gestation_window(
 ) -> None:
     owner = await owner_with_farm(client)
     _, _, br_id = await breed_doe(client, owner, bred_days_ago=gestation_days)
-    assert (await ultrasound(client, owner, br_id)).status_code == 200
+    breeding_date = today() - timedelta(days=gestation_days)
+    valid_scan_date = breeding_date + timedelta(days=32)
+    assert (
+        await ultrasound(client, owner, br_id, date_str=iso(valid_scan_date))
+    ).status_code == 200
     resp = await post_kidding(client, owner, br_id, kids=[{"sex": "M"}])
     assert resp.status_code == expected, resp.text
     if expected != 201:
@@ -963,6 +991,7 @@ async def test_second_kidding_blank_tags_succeeds_and_uniquifies(client: httpx.A
         headers=owner,
     )
     assert resp.status_code == 200, resp.text
+    await backdate_latest_bucket_move(doe, today() - timedelta(days=155))
     br2 = await make_breeding(  # doe is back in RESTING, ready again
         client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=150))
     )

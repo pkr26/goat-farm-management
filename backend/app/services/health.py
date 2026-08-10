@@ -430,10 +430,10 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
     """Per-animal vaccination schedule from seeded VaccineTemplates.
     Status: DONE (event recorded) / OVERDUE (due date passed) / UPCOMING.
 
-    Only the newest two matching facts per template are selected. Two rows are
-    sufficient to distinguish a lone first dose from a completed booster and
-    to derive the latest repeat/authority date; lifetime event volume therefore
-    cannot inflate ORM memory or Python scan time.
+    The newest two matching facts plus the earliest (primary) fact per template
+    are selected. That bounded set distinguishes a lone first dose from a
+    completed booster, preserves the actual booster anchor, and derives the
+    latest repeat/authority date without lifetime-volume memory growth.
     """
     farm = await db.get(Farm, animal.farm_id)
     reference_date = today(farm.timezone) if farm is not None else today()
@@ -445,7 +445,7 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
         if template.first_dose_age_months is not None or template.repeat_months
     ]
 
-    limited_event_queries = []
+    limited_event_queries: list[Any] = []
     for template in templates:
         latest = (
             select(
@@ -454,6 +454,7 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
                 HealthEvent.date.label("event_date"),
                 HealthEvent.next_due_date,
                 HealthEvent.next_due_authority,
+                literal(False).label("is_primary"),
             )
             .where(
                 HealthEvent.animal_id == animal.id,
@@ -466,13 +467,42 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
             .limit(2)
             .subquery()
         )
-        limited_event_queries.append(select(latest))
+        primary_query = (
+            select(
+                literal(template.id).label("template_id"),
+                HealthEvent.id.label("event_id"),
+                HealthEvent.date.label("event_date"),
+                HealthEvent.next_due_date,
+                HealthEvent.next_due_authority,
+                literal(True).label("is_primary"),
+            )
+            .where(
+                HealthEvent.animal_id == animal.id,
+                HealthEvent.schedule_template_id == template.id,
+                HealthEvent.type.in_(
+                    [HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value]
+                ),
+            )
+            .order_by(HealthEvent.date, HealthEvent.id)
+            .limit(1)
+            .subquery()
+        )
+        # Two bounded index probes (at most three rows) per programme item: the
+        # newest two facts determine current status, while the earliest fact
+        # permanently anchors the primary-dose booster date even after repeats
+        # push it out of the newest-two window.
+        limited_event_queries.extend((select(latest), select(primary_query)))
 
     events_by_template: dict[int, list[Any]] = {template.id: [] for template in templates}
+    primary_event_by_template: dict[int, Any] = {}
     if limited_event_queries:
         event_rows = (await db.execute(union_all(*limited_event_queries))).all()
         for event_row in event_rows:
-            events_by_template[int(event_row.template_id)].append(event_row)
+            template_id = int(event_row.template_id)
+            if event_row.is_primary:
+                primary_event_by_template[template_id] = event_row
+            else:
+                events_by_template[template_id].append(event_row)
 
         # Rows written before the immutable template FK are scanned once, in a
         # fixed newest-first window. D7 backfills every unambiguous historical
@@ -511,6 +541,15 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
                     disease_target=legacy_event.disease_target,
                 ):
                     events_by_template[template.id].append(legacy_event)
+                    legacy_primary = primary_event_by_template.get(template.id)
+                    if legacy_primary is None or (
+                        legacy_event.event_date,
+                        legacy_event.event_id,
+                    ) < (
+                        legacy_primary.event_date,
+                        legacy_primary.event_id,
+                    ):
+                        primary_event_by_template[template.id] = legacy_event
 
         for matches in events_by_template.values():
             matches.sort(key=lambda row: (row.event_date, row.event_id), reverse=True)
@@ -530,8 +569,10 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
         # first real dose exists, its actual administration date becomes the
         # anchor; otherwise a late primary dose can make its booster appear to
         # have happened in the past and jump straight to the repeat cadence.
-        if template.booster_weeks and len(done) == 1 and last_done is not None:
-            booster_due = last_done + timedelta(weeks=template.booster_weeks)
+        primary_event = primary_event_by_template.get(template.id)
+        first_administered = primary_event.event_date if primary_event is not None else None
+        if template.booster_weeks and first_administered is not None:
+            booster_due = first_administered + timedelta(weeks=template.booster_weeks)
         else:
             booster_due = (
                 first_due + timedelta(weeks=template.booster_weeks)
@@ -539,13 +580,25 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
                 else None
             )
         next_due = None
-        if last_event and last_event.next_due_date and last_event.next_due_authority:
-            next_due = last_event.next_due_date
+        authoritative_next_due = (
+            last_event.next_due_date
+            if last_event is not None
+            and last_event.next_due_date is not None
+            and last_event.next_due_authority
+            else None
+        )
+        if authoritative_next_due is not None:
+            next_due = authoritative_next_due
         elif len(done) == 1 and booster_due is not None:
             next_due = booster_due
         elif last_done and template.repeat_months:
             next_due = add_months(last_done, int(template.repeat_months))
-        booster_missed = len(done) == 1 and booster_due is not None and booster_due < reference_date
+        booster_missed = (
+            authoritative_next_due is None
+            and len(done) == 1
+            and booster_due is not None
+            and booster_due < reference_date
+        )
         if booster_missed:
             # First dose recorded but the booster window lapsed with no second
             # matching event — DONE would hide the missed booster.

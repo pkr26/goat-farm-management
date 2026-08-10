@@ -455,8 +455,10 @@ def build_narrative_report(
                 f"{result.feed_summary.land_requirement_acres:.2f} acre(s) on average"
                 + (
                     f"; your cultivated area falls short in "
-                    f"{result.feed_summary.fodder_deficit_months} month(s), which is costed "
-                    f"as purchased feed."
+                    f"{result.feed_summary.fodder_deficit_months} month(s). This is a "
+                    f"land-planning indicator: feed cost still values all required green "
+                    f"fodder at {_inr(a.feed.green_price_per_kg)}/kg and does not add a "
+                    f"separate shortfall purchase charge."
                     if result.feed_summary.fodder_deficit_months > 0
                     else "."
                 ),

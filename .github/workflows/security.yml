@@ -9,7 +9,9 @@ on:
 
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only stale PR revisions are disposable. Main and scheduled scans must
+  # finish so every shipped commit/run retains a conclusive security result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

@@ -8,7 +8,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
@@ -32,6 +32,8 @@ beforeAll(() => {
     scrollIntoView: () => {},
   });
 });
+
+afterEach(() => vi.useRealTimers());
 
 function localToday(): string {
   return farmToday();
@@ -484,6 +486,19 @@ describe("FeedingPage dispense dialog", () => {
     const dialog = await screen.findByRole("dialog");
     return { user, dialog };
   }
+
+  it("refreshes the dispensing date when a long-lived tab crosses midnight", async () => {
+    vi.setSystemTime(new Date("2026-08-09T12:30:00Z")); // 18:00 IST
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    vi.setSystemTime(new Date("2026-08-10T12:30:00Z")); // 18:00 IST, next day
+    await user.click(screen.getByRole("button", { name: "Record dispensing" }));
+
+    const dateInput = await screen.findByLabelText("Date");
+    expect(dateInput).toHaveValue("2026-08-10");
+    expect(dateInput).toHaveAttribute("max", "2026-08-10");
+  });
 
   it("validates quantity: zero/blank blocks the POST", async () => {
     const { user, dialog } = await openDialog();

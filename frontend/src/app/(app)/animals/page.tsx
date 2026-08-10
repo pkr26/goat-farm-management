@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Search, SearchX } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -266,6 +266,11 @@ function animalListUrl({
   else params.delete("page");
   const rest = params.toString();
   return rest ? `${pathname}?${rest}` : pathname;
+}
+
+function paramsKeyFromUrl(url: string): string {
+  const questionMark = url.indexOf("?");
+  return questionMark === -1 ? "" : url.slice(questionMark + 1);
 }
 
 function CreateAnimalDialog({
@@ -636,22 +641,67 @@ function AnimalsPageContent() {
   const [q, setQ] = useState(clampSearch(searchParams.get("q") ?? ""));
   const [debouncedQ, setDebouncedQ] = useState(q.trim());
   const [searchNavigationPending, setSearchNavigationPending] = useState(false);
+  const searchEditRevision = useRef(0);
+  const pendingComponentNavigations = useRef<Map<string, number>>(new Map());
   const [page, setPage] = useState(() => pageFromSearchParams(searchParams));
   const pageNavigationPending = useRef(false);
+  const recordComponentNavigation = useCallback((url: string) => {
+    // Next 16 gives a newly dispatched navigation priority over the currently
+    // pending one and discards the older result. Keep only the destination
+    // that can still commit; otherwise a canceled target can linger here and
+    // later make a real browser/history navigation look component-owned.
+    pendingComponentNavigations.current.clear();
+    pendingComponentNavigations.current.set(
+      paramsKeyFromUrl(url),
+      searchEditRevision.current,
+    );
+  }, []);
+  const replaceListUrl = useCallback(
+    (url: string) => {
+      recordComponentNavigation(url);
+      router.replace(url);
+    },
+    [recordComponentNavigation, router],
+  );
+  const pushListUrl = useCallback(
+    (url: string) => {
+      recordComponentNavigation(url);
+      router.push(url);
+    },
+    [recordComponentNavigation, router],
+  );
   // Same-route client navigations (e.g. a dashboard bucket link while already
   // on /animals) change the params — re-sync the filters. Keyed
   // off the param STRING: useSearchParams' object identity isn't stable.
   const paramsKey = searchParams.toString();
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
+    const committedSearchRevision = pendingComponentNavigations.current.get(paramsKey);
+    const hasNewerSearchEdit =
+      committedSearchRevision !== undefined &&
+      searchEditRevision.current > committedSearchRevision;
+    if (committedSearchRevision !== undefined) {
+      // `recordComponentNavigation` retains only Next's latest navigation, so
+      // a matching commit consumes the complete component-owned destination.
+      pendingComponentNavigations.current.delete(paramsKey);
+    } else if (pendingComponentNavigations.current.size > 0) {
+      // A URL that was not initiated by this list is browser/app
+      // navigation and remains authoritative.
+      pendingComponentNavigations.current.clear();
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBucket(params.get("bucket") ?? ALL);
     setSex(params.get("sex") ?? ALL);
     setStatus(params.get("status") ?? ALL);
     const nextQ = clampSearch(params.get("q") ?? "");
-    setQ(nextQ);
-    setDebouncedQ(nextQ.trim());
-    setSearchNavigationPending(false);
+    // A slow q=A replacement can commit after the operator has already typed
+    // q=AB. Preserve the newer edit and let its debounce issue the next URL;
+    // external/history navigations still rehydrate the input normally.
+    if (!hasNewerSearchEdit) {
+      setQ(nextQ);
+      setDebouncedQ(nextQ.trim());
+    }
+    setSearchNavigationPending(hasNewerSearchEdit);
     setPage(pageFromSearchParams(params));
   }, [paramsKey]);
   // ?new=1 opens the create dialog once; strip it so a reload doesn't reopen
@@ -665,8 +715,8 @@ function AnimalsPageContent() {
     if (params.get("new") !== "1") return;
     params.delete("new");
     const rest = params.toString();
-    router.replace(rest ? `${pathname}?${rest}` : pathname);
-  }, [paramsKey, pathname, router]);
+    replaceListUrl(rest ? `${pathname}?${rest}` : pathname);
+  }, [paramsKey, pathname, replaceListUrl]);
   // Debounce the search box (~300ms) so typing doesn't fire a request per
   // keystroke; the input itself stays instant.
   useEffect(() => {
@@ -683,20 +733,19 @@ function AnimalsPageContent() {
       // and be sent back from /animals/:id to the list query.
       setSearchNavigationPending(true);
       setPage(1);
-      router.replace(
-        animalListUrl({
-          pathname,
-          paramsKey,
-          bucket,
-          sex,
-          status,
-          q: normalizedQ,
-          page: 1,
-        }),
-      );
+      const url = animalListUrl({
+        pathname,
+        paramsKey,
+        bucket,
+        sex,
+        status,
+        q: normalizedQ,
+        page: 1,
+      });
+      replaceListUrl(url);
     }, 300);
     return () => clearTimeout(handle);
-  }, [bucket, paramsKey, pathname, q, router, sex, status]);
+  }, [bucket, paramsKey, pathname, q, replaceListUrl, sex, status]);
 
   const params: ListAnimalsApiAnimalsGetParams = {
     ...(bucket !== ALL && { bucket: bucket as ListAnimalsApiAnimalsGetBucket }),
@@ -718,12 +767,12 @@ function AnimalsPageContent() {
 
   useEffect(() => {
     if (!query.isFetching) pageNavigationPending.current = false;
-  }, [query.isFetching]);
+  }, [page, query.isFetching]);
 
   useEffect(() => {
     if (!pageOutOfRange) return;
     const handle = window.setTimeout(() => setPage(totalPages), 0);
-    router.replace(
+    replaceListUrl(
       animalListUrl({
         pathname,
         paramsKey,
@@ -735,7 +784,17 @@ function AnimalsPageContent() {
       }),
     );
     return () => window.clearTimeout(handle);
-  }, [bucket, debouncedQ, pageOutOfRange, paramsKey, pathname, router, sex, status, totalPages]);
+  }, [
+    bucket,
+    debouncedQ,
+    pageOutOfRange,
+    paramsKey,
+    pathname,
+    replaceListUrl,
+    sex,
+    status,
+    totalPages,
+  ]);
 
   function changeFilter(
     field: "bucket" | "sex" | "status",
@@ -747,7 +806,7 @@ function AnimalsPageContent() {
     else setStatus(value);
     setDebouncedQ(next.q);
     setPage(1);
-    router.replace(animalListUrl({ pathname, paramsKey, ...next }));
+    replaceListUrl(animalListUrl({ pathname, paramsKey, ...next }));
   }
 
   function changePage(nextPage: number) {
@@ -761,7 +820,7 @@ function AnimalsPageContent() {
     }
     pageNavigationPending.current = true;
     setPage(nextPage);
-    router.push(
+    pushListUrl(
       animalListUrl({
         pathname,
         paramsKey,
@@ -777,7 +836,7 @@ function AnimalsPageContent() {
   function refresh() {
     if (page !== 1) {
       setPage(1);
-      router.replace(
+      replaceListUrl(
         animalListUrl({
           pathname,
           paramsKey,
@@ -876,7 +935,10 @@ function AnimalsPageContent() {
           <Input
             type="search"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              searchEditRevision.current += 1;
+              setQ(e.target.value);
+            }}
             placeholder="Search by tag…"
             aria-label="Search animals by tag"
             maxLength={60}

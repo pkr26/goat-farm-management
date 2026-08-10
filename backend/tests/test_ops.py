@@ -909,6 +909,64 @@ async def test_task_backfill_reports_claimed_rows_not_repaired_rows() -> None:
     assert claimed == 1  # claimed, even though nothing could be assigned
 
 
+async def test_task_backfill_share_locks_membership_role_snapshot() -> None:
+    """Finding #31: startup repair uses the request path's parent-row lock."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="share-owner@farm.in", password_hash="argon2-placeholder")
+        worker = User(email="share-worker@farm.in", password_hash="argon2-placeholder")
+        db.add_all([owner, worker])
+        await db.flush()
+        farm = Farm(name="Share Lock Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        role = (
+            await db.execute(select(Role).where(Role.farm_id == farm.id, Role.code == "CLEANER"))
+        ).scalar_one()
+        db.add(FarmMembership(user_id=worker.id, farm_id=farm.id, role_id=role.id))
+        await db.flush()
+        db.add(
+            Task(
+                farm_id=farm.id,
+                title="Legacy personal cleaning",
+                due_date=date(2026, 1, 10),
+                category=TaskCategory.CLEANING.value,
+                status=TaskStatus.DONE.value,
+                assigned_user_id=worker.id,
+                assigned_role_id=None,
+                auto_generated=True,
+                completed_by_id=worker.id,
+                completed_at=utcnow(),
+            )
+        )
+        await db.commit()
+
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        async with get_sessionmaker()() as db:
+            claimed = await backfill_task_assignments_batch(db, batch_size=1)
+            await db.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert claimed == 1
+    membership_reads = [sql for sql in statements if "FROM farm_memberships" in sql]
+    assert len(membership_reads) == 1
+    assert "FOR SHARE" in membership_reads[0]
+
+
 async def test_non_pending_personal_duty_is_repaired_so_rejection_stays_possible() -> None:
     """ck_tasks_user_assignment_has_role also fires on an UPDATE that moves a
     row INTO PENDING, which is exactly what verification rejection does. The

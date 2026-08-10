@@ -212,6 +212,22 @@ def _draw(pool: list[float], requested: float) -> float:
     return take
 
 
+def _ceil_head_ratio(heads: float, heads_per_unit: int) -> int:
+    """Whole units needed for an expected (fractional) animal population.
+
+    Cohort arithmetic repeatedly partitions and recombines floats.  An exact
+    policy boundary such as 50 does can consequently arrive as
+    ``50.00000000000001``; applying ``ceil`` directly to 2.0000000000000004
+    buys a phantom third buck.  Snap only values within a few machine ULPs of
+    an integer, preserving ordinary fractional demand (50.01 still needs 3).
+    """
+    ratio = heads / heads_per_unit
+    nearest = round(ratio)
+    if abs(ratio - nearest) <= 8 * math.ulp(ratio):
+        return nearest
+    return math.ceil(ratio)
+
+
 def _run_core(a: SimulationAssumptions) -> _CoreResult:
     r = a.reproduction
     mort = a.mortality
@@ -538,7 +554,7 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
             cull_revenue += bucks * sales.cull_buck_price_per_kg * buck_w
             bucks = 0.0
         does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
-        needed_bucks = math.ceil(does_now / cull.buck_doe_ratio) if does_now > 0.0 else 0
+        needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
             purchases_head += buy
@@ -628,7 +644,9 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         )
         manure_revenue = (does_now + bucks) * sales.manure_income_per_adult_per_year / 12.0
         vet_cost = total_herd * costs.vet_per_animal_per_year / 12.0
-        labourers = math.ceil(total_herd / costs.labour_per_head_threshold) if total_herd > 0 else 0
+        labourers = (
+            _ceil_head_ratio(total_herd, costs.labour_per_head_threshold) if total_herd > 0 else 0
+        )
         labour_cost = max(1, labourers) * costs.labour_per_month if total_herd > 0 else 0.0
         young_value_kg = (
             (f_kid_total + m_kid_total) * weight_at_age(1, g, doe_w)

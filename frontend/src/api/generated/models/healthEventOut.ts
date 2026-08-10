@@ -7,7 +7,7 @@
 
 export interface HealthEventOut {
   id: number;
-  animal_id: number;
+  animal_id: number | null;
   purchase_batch_id: number | null;
   date: string;
   type: string;

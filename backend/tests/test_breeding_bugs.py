@@ -20,9 +20,10 @@ it is actionable for planning: expected_kidding_date = breeding_date + 150
 from datetime import timedelta
 
 import httpx
+from sqlalchemy import select
 
 from app.db import get_sessionmaker
-from app.models import BreedingOutcome, BreedingRecord
+from app.models import BreedingOutcome, BreedingRecord, BucketMove
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -35,10 +36,86 @@ from .test_breeding_extended import (
     iso,
     kid_on_ekd_raw,
     kidding_list,
+    make_buck,
+    make_doe,
     pregnant_doe,
     set_status,
     ultrasound,
 )
+
+
+async def test_positive_ultrasound_after_maximum_gestation_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #1: never create a pregnancy with no legal kidding date."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=201)
+    _doe, _buck, breeding = await bred_doe(client, headers, breeding_date=breeding_date)
+
+    late = await client.post(
+        f"/api/breeding/{breeding['id']}/ultrasound",
+        json={"pregnant": True, "kid_count": 2, "date": iso(today())},
+        headers=headers,
+    )
+    assert late.status_code == 409, late.text
+    assert "200-day gestation window" in late.json()["detail"]
+    unchanged = await get_breeding(client, headers, breeding["id"])
+    assert unchanged["outcome"] == "PENDING"
+    assert unchanged["ultrasound_done"] is False
+
+    # The inclusive boundary still leaves one valid kidding date: day 200.
+    boundary = await client.post(
+        f"/api/breeding/{breeding['id']}/ultrasound",
+        json={
+            "pregnant": True,
+            "kid_count": 2,
+            "date": iso(breeding_date + timedelta(days=200)),
+        },
+        headers=headers,
+    )
+    assert boundary.status_code == 200, boundary.text
+    assert boundary.json()["outcome"] == "CONFIRMED_PREGNANT"
+
+
+async def test_backdated_breeding_cannot_predate_a_real_bucket_move(
+    client: httpx.AsyncClient,
+) -> None:
+    """Finding #32: a service cannot append an earlier lifecycle move."""
+    headers = await owner_with_farm(client)
+    doe = await make_doe(client, headers, tag="MOVE-ORDER-DOE")
+    buck = await make_buck(client, headers, tag="MOVE-ORDER-BUCK")
+    moved = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={"to_bucket": "BREEDING", "reason": "Moved after inspection"},
+        headers=headers,
+    )
+    assert moved.status_code == 200, moved.text
+
+    refused = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe["id"],
+            "buck_id": buck["id"],
+            "breeding_date": iso(today() - timedelta(days=1)),
+        },
+        headers=headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "latest bucket move" in refused.json()["detail"]
+
+    async with get_sessionmaker()() as db:
+        breedings = list(
+            (
+                await db.execute(select(BreedingRecord).where(BreedingRecord.doe_id == doe["id"]))
+            ).scalars()
+        )
+        moves = list(
+            (
+                await db.execute(select(BucketMove).where(BucketMove.animal_id == doe["id"]))
+            ).scalars()
+        )
+    assert breedings == []
+    assert len(moves) == 2  # initial placement plus the explicit move; no backdated service move
 
 
 # Boundary acceptance: a kidding at exactly breeding + 100 days (the floor of

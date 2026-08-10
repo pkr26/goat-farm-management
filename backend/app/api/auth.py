@@ -51,6 +51,7 @@ from ..schemas.auth import (
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
     PasswordWorkCapacityError,
+    complete_rejected_login_timing_async,
     decode_access_claims,
     decode_refresh_claims,
     hash_password_async,
@@ -59,6 +60,7 @@ from ..security import (
     password_policy_error,
     prime_dummy_password_hash,
     verify_password_async,
+    verify_password_with_work_async,
 )
 from ..seed import seed_new_farm
 from ..services.idempotency import IdempotencyKey, execute_idempotent
@@ -575,13 +577,19 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
 
         invalid = HTTPException(status_code=401, detail="Invalid email or password.")
         stored_hash = snapshot.password_hash if snapshot is not None else _dummy_password_hash()
-        ok, needs_rehash = await verify_password_async(payload.password, stored_hash)
+        ok, needs_rehash, did_argon_work = await verify_password_with_work_async(
+            payload.password, stored_hash
+        )
         if snapshot is None or not ok:
-            if snapshot is not None and stored_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-                # A failed legacy pbkdf2 verify is far cheaper than Argon2,
-                # which would distinguish a migrated account from an unknown
-                # one. Top up both rejected paths to equivalent Argon2 work.
-                await verify_password_async(payload.password, _dummy_password_hash())
+            # Every rejection has exactly two bounded executor submissions and
+            # pays one Argon2 plus one fixed PBKDF2 budget. A legacy hash spent
+            # part of the latter above; completion adds only the remainder.
+            await complete_rejected_login_timing_async(
+                payload.password,
+                stored_hash,
+                _dummy_password_hash(),
+                did_argon_work,
+            )
             _record_login_failure(request, payload.email)
             raise invalid
 

@@ -5,10 +5,11 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same PR so we don't burn minutes on stale commits.
+# Cancel superseded runs on the same PR so we don't burn minutes on stale
+# commits. Every merged main commit still gets a complete, uncancelled run.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

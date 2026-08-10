@@ -43,6 +43,8 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
+afterEach(() => vi.useRealTimers());
+
 const TODAY = farmToday();
 
 function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
@@ -490,6 +492,19 @@ describe("BreedingPage", () => {
     const dateInput = within(dialog).getByLabelText(/breeding date/i);
     expect(dateInput).toHaveValue(TODAY);
     expect(dateInput).toHaveAttribute("max", TODAY);
+  });
+
+  it("refreshes the breeding-date default when a long-lived tab crosses midnight", async () => {
+    vi.setSystemTime(new Date("2026-08-09T12:30:00Z")); // 18:00 IST
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    vi.setSystemTime(new Date("2026-08-10T12:30:00Z")); // 18:00 IST, next day
+    await user.click(screen.getByRole("button", { name: "Add breeding" }));
+
+    const dateInput = await screen.findByLabelText(/breeding date/i);
+    expect(dateInput).toHaveValue("2026-08-10");
+    expect(dateInput).toHaveAttribute("max", "2026-08-10");
   });
 
   it("shows the no-candidates guidance when no does are breeding-ready", async () => {

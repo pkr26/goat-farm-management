@@ -56,9 +56,16 @@ export function daysAgo(days: number): string {
 
 /** Sign in through the login page and land on the dashboard. */
 export async function signIn(page: Page): Promise<void> {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill(E2E_EMAIL);
-  await page.getByLabel("Password").fill(E2E_PASSWORD);
+  // The login form is server-rendered before its React handlers are attached.
+  // Waiting for the initial network to settle prevents a slow first WebKit
+  // hydration from resetting values typed into that inert markup.
+  await page.goto("/login", { waitUntil: "networkidle" });
+  const email = page.getByLabel("Email");
+  const password = page.getByLabel("Password");
+  await email.fill(E2E_EMAIL);
+  await password.fill(E2E_PASSWORD);
+  await expect(email).toHaveValue(E2E_EMAIL);
+  await expect(password).toHaveValue(E2E_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/, { timeout: 20_000 });
   // Farm is auto-selected and nav only renders once permissions load.

@@ -39,6 +39,7 @@ from app.simulation import (
     run_simulation,
 )
 from app.simulation.assumptions import MAX_MONEY, FinanceAssumptions, HerdEventAssumptions
+from app.simulation.engine import _ceil_head_ratio
 from app.simulation.montecarlo import _DRAW_ORDER, _apply_draws
 
 from .conftest import owner_with_farm
@@ -791,6 +792,40 @@ def test_auto_buck_purchase_scales_with_doe_count() -> None:
     assert m1.purchases_head == pytest.approx(3.0)
     assert m1.purchase_cost == pytest.approx(3.0 * 12000.0)
     assert m1.bucks == pytest.approx(3.0)
+
+
+def test_auto_buck_purchase_ignores_ulp_noise_at_exact_ratio_boundary() -> None:
+    """Capping a partitioned cohort at 50 can recombine to 50.00000000000001.
+
+    That one-ULP representation error used to make ``ceil(does / 25)`` buy a
+    third buck even though the herd is exactly at the two-buck policy boundary.
+    """
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        herd=HerdAssumptions(
+            does=43,
+            bucks=0,
+            female_growers=14,
+            max_breeding_does=50,
+        ),
+    )
+    a.reproduction.age_at_first_breeding_months = 6
+    a.mortality.adult = 0.0
+    a.mortality.grower = 0.0
+    a.culling.doe_cull_rate_annual = 0.0
+
+    month1 = run_simulation(a, with_break_even=False).months[0]
+
+    does = month1.open_does + month1.pregnant_does + month1.lactating_does
+    assert does == pytest.approx(50.0, abs=1e-12)
+    assert month1.purchases_head == 2.0
+    assert month1.bucks == 2.0
+
+
+def test_whole_unit_policy_ceil_preserves_real_fractional_demand() -> None:
+    """The shared buck/labour boundary helper snaps noise, not real headcount."""
+    assert _ceil_head_ratio(75.00000000000001, 75) == 1
+    assert _ceil_head_ratio(75.001, 75) == 2
 
 
 def test_steady_state_kidding_cadence() -> None:

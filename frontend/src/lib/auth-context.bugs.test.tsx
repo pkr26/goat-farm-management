@@ -25,6 +25,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { farmToday } from "@/lib/format";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -44,6 +45,9 @@ function Probe() {
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="user">{auth.user ? auth.user.email : "none"}</span>
       <button onClick={() => auth.selectFarm(2)}>select-2</button>
+      <button onClick={() => auth.selectFarm(99, "America/Phoenix")}>
+        select-unlisted-phoenix
+      </button>
       <button onClick={() => void auth.signOut()}>sign-out</button>
     </div>
   );
@@ -133,6 +137,22 @@ describe("AuthProvider — query cache cleared on farm switch / sign-out", () =>
     await user.click(screen.getByRole("button", { name: "select-2" }));
 
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("uses caller-provided timezone data when the selected farm is not in the cached list", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+    const instant = new Date("2026-08-10T02:00:00Z");
+    expect(farmToday(instant)).toBe("2026-08-10");
+
+    await user.click(
+      screen.getByRole("button", { name: "select-unlisted-phoenix" }),
+    );
+
+    expect(farmToday(instant)).toBe("2026-08-09");
   });
 
   it("signOut leaves the query cache empty for the next user", async () => {

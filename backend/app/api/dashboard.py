@@ -343,7 +343,7 @@ async def dashboard(
 
 
 @router.get("/reports")
-async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> ReportsOut:
+async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> ReportsOut:
     """Herd summary, breeding performance, mortality — all aggregated in SQL;
     only a 100-row purpose-specific cull preview is hydrated as ORM rows and
     its exact count is returned separately."""
@@ -463,7 +463,10 @@ async def reports(db: DbSession, farm: CurrentFarm, _perms: REPORTS_PERM) -> Rep
         )
     ).one()
 
-    cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
+    cull_candidates: list[Animal] = []
+    cull_candidates_total = 0
+    if "breeding.view" in perms:
+        cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
 
     breeding_stats = BreedingStatsOut(
         total_records=total_records,

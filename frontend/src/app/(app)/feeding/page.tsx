@@ -415,7 +415,7 @@ export default function FeedingPage() {
                   shift: "MORNING",
                   recipe_code: firstRecipe,
                   qty_kg: undefined,
-                  date: today,
+                  date: localToday(),
                 });
                 setDispenseOpen(true);
               }}

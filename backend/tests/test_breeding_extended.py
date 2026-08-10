@@ -137,6 +137,21 @@ async def place_legacy_animal_in_breeding(animal_id: int) -> None:
         await db.commit()
 
 
+async def backdate_latest_bucket_move(animal_id: int, effective_date: date) -> None:
+    """Age an API-created move for a coherent multi-cycle history fixture."""
+    async with get_sessionmaker()() as db:
+        move = (
+            await db.execute(
+                select(BucketMove)
+                .where(BucketMove.animal_id == animal_id)
+                .order_by(BucketMove.moved_at.desc(), BucketMove.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        move.effective_date = effective_date
+        await db.commit()
+
+
 async def post_breeding(
     client: httpx.AsyncClient, headers: dict, doe_id: int, buck_id: int, **overrides: object
 ) -> httpx.Response:
@@ -2559,6 +2574,7 @@ async def test_kidding_auto_tags_uniquified_on_second_kidding(client: httpx.Asyn
     record1 = await kid_on_ekd(client, headers, br1, kids=[{"sex": "M"}, {"sex": "F"}])
     assert [k["tag"] for k in record1["kids"]] == ["D-2ND-K1", "D-2ND-K2"]
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=160))
     br2 = await make_breeding(
         client,
         headers,

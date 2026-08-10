@@ -20,7 +20,7 @@ farm cap serializes concurrent creations on the user row.
 
 import asyncio
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -232,13 +232,13 @@ async def test_login_unknown_email_takes_the_hashing_path(
     from app.api import auth as auth_api
 
     calls: list[tuple[str, str]] = []
-    real_verify = security.verify_password_async
+    real_verify = security.verify_password_with_work_async
 
-    async def spy(password: str, stored: str) -> tuple[bool, bool]:
+    async def spy(password: str, stored: str) -> tuple[bool, bool, bool]:
         calls.append((password, stored))
         return await real_verify(password, stored)
 
-    monkeypatch.setattr(auth_api, "verify_password_async", spy)
+    monkeypatch.setattr(auth_api, "verify_password_with_work_async", spy)
     resp = await client.post(
         "/api/auth/login", json={"email": "ghost@farm.in", "password": "whatever123"}
     )
@@ -257,29 +257,171 @@ async def test_login_unknown_email_takes_the_hashing_path(
 async def test_login_legacy_hash_wrong_password_still_pays_argon2_cost(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A legacy pbkdf2 account with a wrong password returns after a
-    fast pbkdf2 verify — measurably earlier than both the unknown-email and
-    Argon2 paths, exposing "email exists, pre-migration". A failed legacy
-    verify is now topped up with dummy Argon2 work."""
+    """A legacy rejection pays Argon2 plus the same fixed PBKDF2 budget."""
     from app import security
     from app.api import auth as auth_api
 
     calls: list[tuple[str, str]] = []
-    real_verify = security.verify_password_async
+    completions: list[tuple[str, str, bool]] = []
+    real_verify = security.verify_password_with_work_async
+    real_complete = security.complete_rejected_login_timing_async
 
-    async def spy(password: str, stored: str) -> tuple[bool, bool]:
+    async def spy(password: str, stored: str) -> tuple[bool, bool, bool]:
         calls.append((password, stored))
         return await real_verify(password, stored)
 
+    async def complete_spy(
+        password: str, stored: str, dummy_hash: str, did_argon_work: bool
+    ) -> None:
+        completions.append((stored, dummy_hash, did_argon_work))
+        await real_complete(password, stored, dummy_hash, did_argon_work)
+
     await insert_user("legacy-timing@farm.in", make_pbkdf2_hash("realpass123"))
-    monkeypatch.setattr(auth_api, "verify_password_async", spy)
+    monkeypatch.setattr(auth_api, "verify_password_with_work_async", spy)
+    monkeypatch.setattr(auth_api, "complete_rejected_login_timing_async", complete_spy)
     resp = await client.post(
         "/api/auth/login", json={"email": "legacy-timing@farm.in", "password": "wrongpass1"}
     )
     assert resp.status_code == 401
-    assert len(calls) == 2  # the fast legacy verify plus dummy Argon2 work
+    assert len(calls) == 1  # initial verification is executor submission one
     assert calls[0][1].startswith("pbkdf2_sha256$")
-    assert calls[1][1].startswith("$argon2")
+    assert len(completions) == 1  # Argon2 top-up + PBKDF remainder share submission two
+    assert completions[0][0].startswith("pbkdf2_sha256$")
+    assert completions[0][1].startswith("$argon2")
+    assert completions[0][2] is False
+
+
+async def test_malformed_encoded_argon_hash_gets_real_argon_top_up(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parsing parameters is not proof that libargon2 performed its work."""
+    from app import security
+    from app.api import auth as auth_api
+
+    # Structurally parseable parameters, but salt/digest payloads that native
+    # verification rejects immediately with VerificationError.
+    malformed = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$AA"
+    await insert_user("malformed-argon-timing@farm.in", malformed)
+    observed: list[bool] = []
+    real_complete = security.complete_rejected_login_timing_async
+
+    async def complete_spy(
+        password: str, stored: str, dummy_hash: str, did_argon_work: bool
+    ) -> None:
+        observed.append(did_argon_work)
+        await real_complete(password, stored, dummy_hash, did_argon_work)
+
+    monkeypatch.setattr(auth_api, "complete_rejected_login_timing_async", complete_spy)
+    response = await client.post(
+        "/api/auth/login",
+        json={"email": "malformed-argon-timing@farm.in", "password": "wrongpass1"},
+    )
+    assert response.status_code == 401, response.text
+    assert observed == [False]
+
+
+def test_rejected_login_pbkdf2_work_is_account_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Finding #26: legacy verification consumes, rather than adds to, padding."""
+    from app import security
+
+    legacy_iterations = 100_001
+    legacy = make_pbkdf2_hash("realpass123", iterations=legacy_iterations)
+    calls: list[int] = []
+
+    def fake_pbkdf2(_name: str, _password: bytes, _salt: bytes, iterations: int) -> bytes:
+        calls.append(iterations)
+        return b"\x00" * 32
+
+    monkeypatch.setattr(security.hashlib, "pbkdf2_hmac", fake_pbkdf2)
+    assert security._verify_legacy_pbkdf2("wrongpass1", legacy) is False
+    security._pad_rejected_login_pbkdf2("wrongpass1", legacy)
+    assert calls == [
+        legacy_iterations,
+        security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET - legacy_iterations,
+    ]
+    assert sum(calls) == security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET
+
+    calls.clear()
+    security._pad_rejected_login_pbkdf2("wrongpass1", "$argon2id$stored")
+    assert calls == [security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET]
+
+
+def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The compatibility ceiling is separate from, and covered by, timing work."""
+    from app import security
+
+    calls: list[int] = []
+
+    def fake_pbkdf2(_name: str, _password: bytes, _salt: bytes, iterations: int) -> bytes:
+        calls.append(iterations)
+        return b"\x00" * 32
+
+    monkeypatch.setattr(security.hashlib, "pbkdf2_hmac", fake_pbkdf2)
+    assert security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET >= security.LEGACY_PBKDF2_MAX_ITERATIONS
+
+    def encoded(iterations: str) -> str:
+        return f"pbkdf2_sha256${iterations}$00${'00' * 32}"
+
+    # The published maximum remains a supported hash, not just a padding cap.
+    assert security._verify_legacy_pbkdf2(
+        "password", encoded(str(security.LEGACY_PBKDF2_MAX_ITERATIONS))
+    )
+    assert calls == [security.LEGACY_PBKDF2_MAX_ITERATIONS]
+
+    calls.clear()
+    unsupported = [
+        str(security.LEGACY_PBKDF2_MAX_ITERATIONS + 1),
+        "9" * 180,
+        "100_001",
+        "-1",
+        "not-a-number",
+    ]
+    for raw_iterations in unsupported:
+        stored = encoded(raw_iterations)
+        assert security._verify_legacy_pbkdf2("password", stored) is False
+        assert calls == []  # never pass the stored count into OpenSSL
+        security._pad_rejected_login_pbkdf2("password", stored)
+        assert calls == [security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET]
+        calls.clear()
+
+
+async def test_each_rejected_login_uses_exactly_two_password_work_submissions(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unknown, legacy, and malformed rows have the same executor shape."""
+    from app import security
+
+    real_run = security._run_password_work
+    submissions = 0
+
+    async def counted_run(work: Callable[[], object]) -> object:
+        nonlocal submissions
+        submissions += 1
+        return await real_run(work)
+
+    monkeypatch.setattr(security, "_run_password_work", counted_run)
+    cases: list[tuple[str, str | None]] = [
+        ("two-submit-unknown@farm.in", None),
+        ("two-submit-legacy@farm.in", make_pbkdf2_hash("right-password")),
+        (
+            "two-submit-malformed@farm.in",
+            "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$AA",
+        ),
+    ]
+    for email, stored in cases:
+        if stored is not None:
+            await insert_user(email, stored)
+        before = submissions
+        response = await client.post(
+            "/api/auth/login",
+            json={"email": email, "password": "wrong-password"},
+        )
+        assert response.status_code == 401, response.text
+        assert submissions - before == 2
 
 
 async def test_password_max_length_128(client: httpx.AsyncClient) -> None:

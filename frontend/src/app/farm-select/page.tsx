@@ -55,7 +55,10 @@ function FarmSelectPageContent() {
   async function pick(farm: FarmEntry) {
     setServerError(null);
     setSelectingFarmId(farm.id);
-    selectFarm(farm.id);
+    // A just-created farm may not be in AuthProvider's cached list when the
+    // best-effort refresh fails, but the creation response already carries
+    // the authoritative timezone.
+    selectFarm(farm.id, farm.timezone);
     try {
       const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
       const requestedPath = permittedAppPathFromList(

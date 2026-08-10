@@ -3,8 +3,10 @@
 /** ₹ with Indian digit grouping (12,34,567.50); non-finite → "—". */
 export function formatMoney(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  const negative = value < 0;
   const [intPart, fracPart] = Math.abs(value).toFixed(2).split(".");
+  // Determine the sign after display rounding so tiny negative floats do not
+  // render as the impossible accounting value "-₹0".
+  const negative = value < 0 && (intPart !== "0" || fracPart !== "00");
   const lastThree = intPart.slice(-3);
   const rest = intPart.slice(0, -3);
   const grouped = rest ? rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + lastThree : lastThree;

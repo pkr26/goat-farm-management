@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import StrictInputModel
+from .common import PostgresText, StrictInputModel
 
 MAX_EMAIL_LENGTH = 254
 
@@ -47,7 +47,7 @@ class RegisterIn(EmailMixin):
     email: str = Field(max_length=MAX_EMAIL_LENGTH)
     # max_length: no unbounded input into the (deliberately expensive) Argon2 hasher.
     password: str = Field(min_length=1, max_length=128)
-    name: str | None = Field(default=None, max_length=120)  # users.name is String(120)
+    name: PostgresText | None = Field(default=None, max_length=120)  # users.name String(120)
 
 
 class LoginIn(EmailMixin):
@@ -120,8 +120,10 @@ class FarmOut(BaseModel):
 
 
 class FarmCreateIn(StrictInputModel):
-    name: str = Field(min_length=1, max_length=120)
-    location: str | None = Field(default=None, max_length=120)  # farms.location is String(120)
+    name: PostgresText = Field(min_length=1, max_length=120)
+    location: PostgresText | None = Field(
+        default=None, max_length=120
+    )  # farms.location is String(120)
     timezone: str = Field(default="Asia/Kolkata", min_length=1, max_length=64)
 
     @field_validator("timezone")

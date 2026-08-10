@@ -601,7 +601,12 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
                 FarmMembership.farm_id,
                 FarmMembership.user_id,
                 FarmMembership.role_id,
-            ).where(tuple_(FarmMembership.farm_id, FarmMembership.user_id).in_(personal_pairs))
+            )
+            .where(tuple_(FarmMembership.farm_id, FarmMembership.user_id).in_(personal_pairs))
+            .order_by(FarmMembership.farm_id, FarmMembership.user_id)
+            # Match the request/lazy-repair path: the role fallback must not
+            # change after we read it but before the task FK is written.
+            .with_for_update(read=True)
         )
         membership_roles = {
             (farm_id, user_id): role_id for farm_id, user_id, role_id in membership_rows.all()
