@@ -290,7 +290,9 @@ async def test_booster_due_keeps_actual_primary_anchor_after_second_dose(
         date=iso(today() - timedelta(days=30)),
     )
     fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
-    assert fmd["booster_due"] == iso(primary_date + timedelta(weeks=3.5))
+    # FMD's booster_weeks (3.5) rounds half-up to a 25-day interval; date
+    # arithmetic would otherwise truncate timedelta(weeks=3.5) down to 24.
+    assert fmd["booster_due"] == iso(primary_date + timedelta(days=25))
 
 
 async def test_batch_only_health_event_serializes_null_animal_id(
@@ -329,6 +331,31 @@ async def test_recent_first_dose_booster_not_yet_due_stays_done(
     )
     fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
     assert fmd["status"] == "DONE"  # booster window is still open
+
+
+# FIXED — regression test
+# `date + timedelta(weeks=template.booster_weeks)` silently drops the
+# timedelta's sub-day remainder (date arithmetic only reads whole days), so
+# every seeded fractional booster_weeks (FMD/ET/HS/Goat Pox all use 3.5)
+# always resolved to a flat 24 days instead of the true 24.5-day interval
+# rounded half-up to 25.
+async def test_fractional_booster_weeks_rounds_half_up_not_truncated(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, date_of_birth=iso(today() - timedelta(days=400)))
+    primary_date = today() - timedelta(days=60)
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="FMD vaccine",
+        date=iso(primary_date),
+    )
+    fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
+    assert fmd["booster_due"] == iso(primary_date + timedelta(days=25))
+    assert fmd["booster_due"] != iso(primary_date + timedelta(weeks=3.5))
 
 
 # ---------------------------------------------------------------------------

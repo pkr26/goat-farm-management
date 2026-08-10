@@ -75,6 +75,15 @@ const RESTRICTION_HISTORY_LIMIT = 25;
 const BUCKET_ITEMS: Record<string, string> = Object.fromEntries(
   BUCKETS.map((b) => [b, b.replace(/_/g, " ")]),
 );
+/** Sex each bucket is reserved for, mirroring backend/app/schemas/animals.py
+ * (and the ck_animals_bucket_sex CHECK). Buckets absent here take both. */
+const BUCKET_REQUIRED_SEX: Record<string, string> = {
+  [MoveInToBucket.MALE_KIDS]: "M",
+  [MoveInToBucket.FEMALE_KIDS]: "F",
+  [MoveInToBucket.RESTING]: "F",
+};
+const bucketAllowsSex = (bucket: string, sex: string) =>
+  (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
 
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
@@ -223,10 +232,12 @@ type MoveValues = z.infer<typeof moveSchema>;
 function MoveBucketDialog({
   animalId,
   currentBucket,
+  sex,
   onDone,
 }: {
   animalId: number;
   currentBucket: string;
+  sex: string;
   onDone: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -283,7 +294,9 @@ function MoveBucketDialog({
                     <SelectValue placeholder="Choose bucket…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {BUCKETS.filter((b) => b !== currentBucket).map((b) => (
+                    {BUCKETS.filter(
+                      (b) => b !== currentBucket && bucketAllowsSex(b, sex),
+                    ).map((b) => (
                       <SelectItem key={b} value={b}>
                         {b.replace(/_/g, " ")}
                       </SelectItem>
@@ -322,7 +335,11 @@ const statusSchema = z
     ]),
     date: z.string().optional(),
     sale_price: optNum(
-      z.number().nonnegative().refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+      z
+        .number()
+        .nonnegative()
+        .max(1_000_000_000, "Sale price cannot exceed ₹1,000,000,000")
+        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     buyer_name: z.string().max(120).optional(),
     notes: z.string().max(255).optional(),
@@ -809,6 +826,7 @@ function ProfileBody({
                   <MoveBucketDialog
                     animalId={a.id}
                     currentBucket={a.current_bucket}
+                    sex={a.sex}
                     onDone={refresh}
                   />
                 )}
@@ -1140,7 +1158,7 @@ function ProfileBody({
         </DataTableCard>
         )}
 
-        {a.sex === "F" && (
+        {(a.sex === "F" || profile.kids_total > 0) && (
           <DataTableCard title={`Kids (${profile.kids_total})`}>
             {profile.kids.length === 0 ? (
               <p className="text-muted-foreground">No kids recorded.</p>

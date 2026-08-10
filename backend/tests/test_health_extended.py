@@ -1250,8 +1250,8 @@ async def test_schedule_young_animal_upcoming(client: httpx.AsyncClient) -> None
     expected_first = add_months(dob, 3)
     assert fmd["first_due"] == iso(expected_first)
     assert fmd["status"] == "UPCOMING"
-    # FMD booster is 3.5 weeks after the first dose
-    assert fmd["booster_due"] == iso(expected_first + timedelta(weeks=3.5))
+    # FMD booster is 3.5 weeks (24.5 days, rounded half-up to 25) after the first dose
+    assert fmd["booster_due"] == iso(expected_first + timedelta(days=25))
     assert fmd["last_done"] is None
     assert fmd["next_due"] is None
 

@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from app.db import get_engine
+from app.models import Farm
 from app.utils import today
 
 from .conftest import BACKEND_DIR, TEST_DB, owner_with_farm
@@ -507,3 +508,33 @@ async def test_exact_money_migration_preflights_the_amount_business_cap() -> Non
         assert stored_amount == "1000000000.00"
     finally:
         await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+async def test_farms_timezone_server_default_and_not_valid_checks_are_installed() -> None:
+    """c8's farms.timezone server_default is permanent (unlike a4d9's
+    temporary migration-safety booleans), so the ORM must declare it too or
+    compare_server_default drift goes uncaught. Likewise the two-phase
+    NOT VALID + VALIDATE checks from e3 and a6 must land as fully validated
+    constraints, not silently skip the validate step.
+    """
+    assert Farm.__table__.columns["timezone"].server_default is not None
+    connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")
+    try:
+        rows = await connection.fetch(
+            """
+            SELECT conname, convalidated FROM pg_constraint
+            WHERE contype = 'c'
+              AND conname = ANY($1::text[])
+            """,
+            [
+                "ck_tasks_rejection_current_state",
+                "ck_transactions_feed_purchase_provenance",
+            ],
+        )
+    finally:
+        await connection.close()
+    validated = {row["conname"]: row["convalidated"] for row in rows}
+    assert validated == {
+        "ck_tasks_rejection_current_state": True,
+        "ck_transactions_feed_purchase_provenance": True,
+    }

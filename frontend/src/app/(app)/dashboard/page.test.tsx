@@ -621,6 +621,35 @@ describe("DashboardPage — empty farm", () => {
   });
 });
 
+describe("DashboardPage — recent weights withheld vs. empty", () => {
+  // REGRESSION — a caller without animals.view got recent_weights_total:
+  // null (withheld), but the page rendered the same "No weight records yet"
+  // copy a genuinely empty farm gets, misrepresenting a permission gate as
+  // verified-empty data.
+  it("shows a permission notice, not the empty-state copy, when recent_weights_total is withheld (null)", async () => {
+    server.use(
+      permissionsHandler(["dashboard.view"]),
+      dashboardHandler({ ...makePayload(), recent_weights_total: null }),
+    );
+    renderWithProviders(<DashboardPage />);
+
+    expect(
+      await screen.findByText("Weight records require animal access."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No weight records yet/)).not.toBeInTheDocument();
+  });
+
+  it("shows the genuine empty-state copy when recent_weights_total is a real 0", async () => {
+    server.use(dashboardHandler(makePayload({ recent_weights_total: 0 })));
+    renderWithProviders(<DashboardPage />);
+
+    expect(await screen.findByText(/No weight records yet/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Weight records require animal access."),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("DashboardPage — loading, error and permission states", () => {
   it("shows 'Loading…' while the dashboard request is in flight", async () => {
     server.use(http.get("/api/dashboard", () => new Promise<Response>(() => {})));

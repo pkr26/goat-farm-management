@@ -73,7 +73,9 @@ class Farm(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     location: Mapped[str | None] = mapped_column(String(120))
-    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Kolkata")
+    timezone: Mapped[str] = mapped_column(
+        String(64), default="Asia/Kolkata", server_default="Asia/Kolkata"
+    )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 

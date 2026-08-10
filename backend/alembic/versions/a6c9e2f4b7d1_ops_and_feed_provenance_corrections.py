@@ -104,6 +104,10 @@ def upgrade() -> None:
         "AND feed_unit_price_per_kg IS NOT NULL "
         "AND feed_quantity_kg BETWEEN 0.001 AND 1000000 "
         "AND feed_unit_price_per_kg BETWEEN 0 AND 1000000000)",
+        postgresql_not_valid=True,
+    )
+    op.execute(
+        "ALTER TABLE transactions VALIDATE CONSTRAINT ck_transactions_feed_purchase_provenance"
     )
 
     # The exact note was written only by b9's legacy backfill. Requiring the

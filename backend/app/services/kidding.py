@@ -327,9 +327,17 @@ async def replan_dam_after_last_kid_death(
     # on a later death silently corrupts twin-rate / kids-per-kidding stats.
     # The bucket alone is not enough — a farm-born doe who later kids returns
     # to RECOVERY as a dam while her own birth entry still exists — so also
-    # require that the child never left RECOVERY (weaning always records a
-    # from_bucket=RECOVERY move). Returning before any lock keeps non-kid
-    # deaths out of the entry/kidding/dam lock chain entirely.
+    # require that the child never left RECOVERY. A from_bucket=RECOVERY row
+    # by itself is not proof of that: history_override moves bypass
+    # LEGAL_BUCKET_TRANSITIONS entirely (bucket_transition_error returns None
+    # for that context), so an owner correcting a data-entry mistake can
+    # round-trip RECOVERY -> anything -> RECOVERY without the kid ever
+    # weaning. The WEANING task's own completion (complete_task in
+    # services/tasks.py) is the only writer of the "Weaned (day 60)" reason,
+    # and history_override always prefixes its reason with
+    # "[HISTORY OVERRIDE] ", so matching that exact reason is what actually
+    # proves a genuine weaning-flow departure. Returning before any lock
+    # keeps non-kid deaths out of the entry/kidding/dam lock chain entirely.
     if child.current_bucket != Bucket.RECOVERY.value:
         return False
     weaned_out = (
@@ -338,6 +346,7 @@ async def replan_dam_after_last_kid_death(
             .where(
                 BucketMove.animal_id == child.id,
                 BucketMove.from_bucket == Bucket.RECOVERY.value,
+                BucketMove.reason == "Weaned (day 60)",
             )
             .limit(1)
         )

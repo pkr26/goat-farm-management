@@ -18,18 +18,20 @@ export interface TaskActionState {
  *   batch animal is retired the backend sweeps those duties itself
  *   (`skip_pending_tasks_for_empty_batch`), so a PENDING one on screen
  *   implies a live batch — the skip can only 409.
- * - A generated WEANING duty is the only way out of the closed RECOVERY
- *   bucket, so while it is pending its doe/kids are still in RECOVERY (or the
- *   doe is inactive, which trips the linked-animal-active gate instead) —
- *   either branch is a guaranteed 409.
- * Generated animal-linked BUCKET_MOVE duties are NOT blocked here: the
- * pregnancy→DELIVERY flavor is legitimately skippable and TaskOut carries no
- * bucket state to tell it apart from the postpartum RECOVERY flavor, so that
- * rare case fails open to the server's own guard. */
+ * - A generated WEANING duty, and a generated animal-linked BUCKET_MOVE duty,
+ *   are each the only way out of the closed RECOVERY bucket for their doe/kids
+ *   while pending (or the doe is inactive, which trips the linked-animal-
+ *   active gate instead) — either branch is a guaranteed 409. BUCKET_MOVE also
+ *   covers the pregnancy→DELIVERY move, which is legitimately skippable, but
+ *   TaskOut carries no bucket state to tell the two flavors apart, and a
+ *   guaranteed-409 dead click on the RECOVERY flavor is worse than graying out
+ *   the rarer DELIVERY one, so both categories fail closed here. */
 export function taskSkipUnavailable(task: TaskActionState): boolean {
   if (!task.auto_generated) return false;
   if (task.purchase_batch_id !== null) return true;
-  return task.category === "WEANING" && task.animal_id !== null;
+  return (
+    (task.category === "WEANING" || task.category === "BUCKET_MOVE") && task.animal_id !== null
+  );
 }
 
 /** Mirror of the linked-duty due-date guard in backend

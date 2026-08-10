@@ -106,7 +106,9 @@ class Transaction(Base):
     related_animal_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"))
     notes: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        default=utcnow, server_default=text("timezone('UTC', now())")
+    )
 
     # Polymorphic provenance for system-generated ledger rows.  The partial
     # unique index guarantees one active ledger entry per source event while

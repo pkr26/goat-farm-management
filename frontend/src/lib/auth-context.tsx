@@ -81,6 +81,15 @@ function clearStoredFarmId(): void {
   }
 }
 
+function isAuthSessionChangedError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AuthSessionChangedError"
+  );
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [farms, setFarms] = useState<FarmEntry[]>([]);
@@ -180,6 +189,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(u);
         applyFarmList(list);
       } catch (error) {
+        if (isAuthSessionChangedError(error)) {
+          // A newer session already superseded this call's epoch (e.g. a
+          // second sign-in raced this one's farms fetch); that newer session
+          // owns clearSession/revoke, so tearing down here would destroy it.
+          throw error;
+        }
         if (revokeOnFailure) {
           // Login/register already rotated an httpOnly refresh cookie. Revoke
           // that server session before reporting failure; otherwise a reload

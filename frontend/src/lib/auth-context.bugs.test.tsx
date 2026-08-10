@@ -25,6 +25,15 @@
 // changed. The dialog now rotates through refreshSession(), the same
 // non-epoch-bumping path a 401 retry uses; the test holds a request in
 // flight across the password change and asserts it still resolves.
+//
+// Fourth bug pinned below: establishSession's catch handler unconditionally
+// called clearSession() (and, with revokeOnFailure, POSTed
+// /api/auth/logout) for ANY rejection, including AuthSessionChangedError —
+// the signal that a NEWER session already superseded this call's epoch. A
+// slow bootstrap /api/auth/farms fetch that resolved after a sign-in raced
+// it used to wipe out the session sign-in had just established. The catch
+// now re-throws AuthSessionChangedError untouched instead of tearing down
+// state it doesn't own.
 
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -53,11 +62,27 @@ function Probe() {
     <div>
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="user">{auth.user ? auth.user.email : "none"}</span>
+      <span data-testid="farmId">
+        {auth.farmId === null ? "none" : String(auth.farmId)}
+      </span>
       <button onClick={() => auth.selectFarm(2)}>select-2</button>
       <button onClick={() => auth.selectFarm(99, "America/Phoenix")}>
         select-unlisted-phoenix
       </button>
       <button onClick={() => void auth.signOut()}>sign-out</button>
+      <button
+        onClick={() =>
+          void auth
+            .signIn("signin-token", {
+              id: 9,
+              email: "worker@goatfarm.test",
+              name: "Worker",
+            })
+            .catch(() => undefined)
+        }
+      >
+        sign-in
+      </button>
     </div>
   );
 }
@@ -268,5 +293,61 @@ describe("AccountDialog — password change keeps the session's in-flight reques
       outcome: "resolved",
       data: [{ id: 1, tag_number: "G-001" }],
     });
+  });
+});
+
+describe("AuthProvider — establishSession must not tear down a newer session on a stale-request race", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("a stale bootstrap farms response arriving after sign-in leaves the new session intact", async () => {
+    let releaseBootstrapFarms: (() => void) | undefined;
+    const bootstrapFarmsGate = new Promise<void>((resolve) => {
+      releaseBootstrapFarms = resolve;
+    });
+    let bootstrapFarmsRequested = false;
+
+    server.use(
+      // Only the bootstrap's own call is held; the sign-in call that races
+      // it must resolve immediately, exactly like the real slow-GET race.
+      http.get("/api/auth/farms", async () => {
+        if (!bootstrapFarmsRequested) {
+          bootstrapFarmsRequested = true;
+          await bootstrapFarmsGate;
+        }
+        return HttpResponse.json([
+          { id: 5, name: "Worker Farm", location: null, role: "worker" },
+        ]);
+      }),
+    );
+
+    renderWithProviders(<Probe />);
+    await waitFor(() => expect(bootstrapFarmsRequested).toBe(true));
+
+    // Sign in while the bootstrap's farms fetch is still held: this bumps
+    // the auth epoch and commits the second session via its own farms call.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "sign-in" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "worker@goatfarm.test",
+      ),
+    );
+    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
+
+    // The stale bootstrap response now lands under a superseded epoch and
+    // must not clear the session sign-in just established.
+    releaseBootstrapFarms?.();
+    await waitFor(() =>
+      expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+    );
+
+    expect(screen.getByTestId("user")).toHaveTextContent(
+      "worker@goatfarm.test",
+    );
+    expect(screen.getByTestId("farmId")).toHaveTextContent("5");
   });
 });

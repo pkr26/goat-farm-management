@@ -22,6 +22,7 @@ const FARM_DATA_PATHS = [
   "/api/finance",
   "/api/purchases",
   "/api/dashboard",
+  "/api/team",
 ] as const;
 
 function isFarmDataQuery(query: Query): boolean {

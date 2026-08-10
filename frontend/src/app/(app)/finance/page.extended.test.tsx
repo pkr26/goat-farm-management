@@ -73,6 +73,15 @@ const TXN_EXPENSE = {
   void_reason: null,
 };
 
+const TXN_FEED_PURCHASE = {
+  ...TXN_EXPENSE,
+  id: 5,
+  notes: "restock maize",
+  source_type: "FEED_PURCHASE",
+  source_id: 5,
+  amount: 2000,
+};
+
 const PAYLOAD = {
   transactions: [TXN_INCOME, TXN_EXPENSE],
   transactions_total: 2,
@@ -570,6 +579,78 @@ describe("FinancePage correction dialog", () => {
     await user.dblClick(within(dialog).getByRole("button", { name: "Record correction" }));
     await waitFor(() => expect(correctionCalls).toBe(1));
   });
+
+  it("rejects a correction amount above the ₹1,000,000,000 cap", async () => {
+    const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
+    const amount = within(dialog).getByLabelText("Amount (₹) *");
+    await user.clear(amount);
+    await user.type(amount, "1000000001");
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Fix amount");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    expect(await within(dialog).findByText("Amount cannot exceed ₹1,000,000,000")).toBeInTheDocument();
+    expect(correctionCalls).toBe(0);
+  });
+
+  it("does not show a corrected-quantity field for a non-FEED_PURCHASE transaction", async () => {
+    const { dialog } = await openCorrection();
+    expect(within(dialog).queryByLabelText("Corrected quantity (kg)")).not.toBeInTheDocument();
+  });
+
+  it("shows a corrected-quantity field for a FEED_PURCHASE row and omits it from the payload when left blank", async () => {
+    let feedCorrectionBody: Record<string, unknown> | null = null;
+    server.use(
+      financeHandler({ ...PAYLOAD, transactions: [TXN_FEED_PURCHASE], transactions_total: 1 }),
+      http.post("/api/finance/transactions/5/correct", async ({ request }) => {
+        feedCorrectionBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { ...TXN_FEED_PURCHASE, id: 6, correction_of_id: 5 },
+          { status: 201 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = screen.getByText("restock maize").closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Correct" }));
+    const dialog = await screen.findByRole("dialog", { name: "Correct transaction #5" });
+    expect(within(dialog).getByLabelText("Corrected quantity (kg)")).toBeInTheDocument();
+
+    await confirmCorrection(user, dialog);
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Attach invoice");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    await waitFor(() => expect(feedCorrectionBody).not.toBeNull());
+    expect(feedCorrectionBody).not.toHaveProperty("feed_quantity_kg");
+  });
+
+  it("includes the corrected quantity in the payload when provided for a FEED_PURCHASE row", async () => {
+    let feedCorrectionBody: Record<string, unknown> | null = null;
+    server.use(
+      financeHandler({ ...PAYLOAD, transactions: [TXN_FEED_PURCHASE], transactions_total: 1 }),
+      http.post("/api/finance/transactions/5/correct", async ({ request }) => {
+        feedCorrectionBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(
+          { ...TXN_FEED_PURCHASE, id: 6, correction_of_id: 5 },
+          { status: 201 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = screen.getByText("restock maize").closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Correct" }));
+    const dialog = await screen.findByRole("dialog", { name: "Correct transaction #5" });
+
+    await confirmCorrection(user, dialog);
+    await user.type(within(dialog).getByLabelText("Corrected quantity (kg)"), "100");
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Quantity was mistyped");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    await waitFor(() => expect(feedCorrectionBody).not.toBeNull());
+    expect(feedCorrectionBody).toMatchObject({ feed_quantity_kg: 100 });
+  });
 });
 
 describe("FinancePage new-transaction dialog", () => {
@@ -654,6 +735,17 @@ describe("FinancePage new-transaction dialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
 
     expect(await within(dialog).findByText("Amount must be at least ₹0.005"))
+      .toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects an amount above the ₹1,000,000,000 cap", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Amount/), "1000000001");
+    await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
+
+    expect(await within(dialog).findByText("Amount cannot exceed ₹1,000,000,000"))
       .toBeInTheDocument();
     expect(postCalls).toBe(0);
   });

@@ -20,6 +20,7 @@ import {
   TransactionInCategory,
   TransactionInType,
   type ListTransactionsApiFinanceGetParams,
+  type TransactionCorrectionIn,
   type TransactionOut,
 } from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
@@ -61,6 +62,8 @@ import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
   isPersistableNonnegativeMoney,
+  MIN_PERSISTED_KG,
+  MIN_PERSISTED_KG_MESSAGE,
   MIN_PERSISTED_MONEY,
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
@@ -114,7 +117,8 @@ const txnSchema = z.object({
   amount: z.coerce
     .number()
     .positive("Amount must be greater than 0")
-    .min(MIN_PERSISTED_MONEY, "Amount must be at least ₹0.005"),
+    .min(MIN_PERSISTED_MONEY, "Amount must be at least ₹0.005")
+    .max(1_000_000_000, "Amount cannot exceed ₹1,000,000,000"),
   notes: z.string().max(255).optional(),
   related_animal_id: z.string().optional(),
 });
@@ -168,7 +172,18 @@ const correctionSchema = txnSchema.extend({
     z
       .number({ error: "Amount is required" })
       .nonnegative("Amount can't be negative")
+      .max(1_000_000_000, "Amount cannot exceed ₹1,000,000,000")
       .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+  ),
+  feed_quantity_kg: z.preprocess(
+    (value) =>
+      value === "" || value === null || value === undefined ? undefined : Number(value),
+    z
+      .number()
+      .positive("Quantity must be greater than 0")
+      .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
+      .max(1_000_000, "Quantity cannot exceed 1,000,000 kg")
+      .optional(),
   ),
   reason: z.string().trim().min(3, "Reason must be at least 3 characters").max(255),
 });
@@ -212,25 +227,30 @@ function CorrectionDialog({
   const type = useWatch({ control, name: "type" });
   const category = useWatch({ control, name: "category" });
   const animalId = useWatch({ control, name: "related_animal_id" });
+  const isFeedPurchase = transaction.source_type === "FEED_PURCHASE";
   async function submit(values: CorrectionValues) {
     if (!consequenceConfirmed) return;
     await correctionFlight.run(async () => {
       setFormError(null);
       try {
+        const correctionPayload: TransactionCorrectionIn & { feed_quantity_kg?: number } = {
+          date: values.date,
+          type: values.type,
+          category: values.category,
+          amount: values.amount,
+          notes: values.notes?.trim() || null,
+          related_animal_id:
+            values.related_animal_id && values.related_animal_id !== NONE
+              ? Number(values.related_animal_id)
+              : null,
+          reason: values.reason,
+          ...(isFeedPurchase && values.feed_quantity_kg !== undefined
+            ? { feed_quantity_kg: values.feed_quantity_kg }
+            : {}),
+        };
         await mutation.mutateAsync({
           transactionId: transaction.id,
-          data: {
-            date: values.date,
-            type: values.type,
-            category: values.category,
-            amount: values.amount,
-            notes: values.notes?.trim() || null,
-            related_animal_id:
-              values.related_animal_id && values.related_animal_id !== NONE
-                ? Number(values.related_animal_id)
-                : null,
-            reason: values.reason,
-          },
+          data: correctionPayload,
         });
         toast.success("Correction recorded. The original entry remains in the audit trail.");
         onSaved();
@@ -331,6 +351,36 @@ function CorrectionDialog({
                 </p>
               )}
             </div>
+            {isFeedPurchase && (
+              <div className="space-y-1.5">
+                <Label htmlFor={`correction-feed-quantity-${transaction.id}`}>
+                  Corrected quantity (kg)
+                </Label>
+                <Input
+                  id={`correction-feed-quantity-${transaction.id}`}
+                  type="number"
+                  step="0.001"
+                  min="0.0005"
+                  inputMode="decimal"
+                  aria-invalid={Boolean(errors.feed_quantity_kg) || undefined}
+                  aria-describedby={
+                    errors.feed_quantity_kg
+                      ? `correction-feed-quantity-${transaction.id}-error`
+                      : undefined
+                  }
+                  {...register("feed_quantity_kg")}
+                />
+                {errors.feed_quantity_kg && (
+                  <p
+                    id={`correction-feed-quantity-${transaction.id}-error`}
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {errors.feed_quantity_kg.message}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-1.5">
               {canViewAnimals ? (
                 <>

@@ -509,8 +509,13 @@ async def current_farm(
         return farm
 
     if not unsafe_request:
-        if await active_membership(db, user.id, farm.id) is None:
+        membership = await active_membership(db, user.id, farm.id)
+        if membership is None:
             raise HTTPException(status_code=404, detail="Farm not found")
+        # current_membership reuses this instead of re-issuing the identical
+        # unlocked SELECT (plus its Role sub-query) for the same request.
+        request.state.unlocked_membership = membership
+        request.state.unlocked_membership_farm_id = farm.id
         return farm
 
     # Canonical authorization order for a mutating worker request:
@@ -557,6 +562,10 @@ async def current_membership(
         # locked bundle or fails. Never fall back to an unlocked authorization
         # read if a future dependency refactor violates that invariant.
         raise _unauthenticated("Authorization could not be pinned")
+    cached = getattr(request.state, "unlocked_membership", None)
+    cached_farm_id = getattr(request.state, "unlocked_membership_farm_id", None)
+    if isinstance(cached, FarmMembership) and cached_farm_id == farm.id:
+        return cached
     return await active_membership(
         db,
         user.id,

@@ -277,6 +277,78 @@ async def test_feed_date_reorder_uses_exact_structured_unit_price(
     assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 1.0
 
 
+async def test_feed_purchase_quantity_correction_fixes_inventory_and_unit_price(
+    client: httpx.AsyncClient,
+) -> None:
+    """Bug 5 — TransactionCorrectionIn had no feed_quantity_kg field, so a
+    mistyped restock quantity permanently inflated FeedInventory.qty_on_hand
+    with no way to correct it, and _corrected_feed_unit_price always divided
+    the corrected amount by the ORIGINAL (wrong) quantity — repricing the
+    ledger to the true invoice total baked a wildly wrong unit price into
+    FeedInventory.last_purchase_price_per_kg. Fixed: a correction can now
+    also supply the true quantity, which reprices off the corrected quantity
+    and adjusts qty_on_hand by the delta.
+    """
+    owner = await owner_with_farm(client)
+    item = (await client.get("/api/feeding/inventory", headers=owner)).json()[0]
+    # Operator meant 100 kg @ ₹20/kg = ₹2000 but mistyped 1000 kg @ ₹2/kg —
+    # same invoice total, wrong split between quantity and unit price.
+    booked = await _restock(client, owner, item["id"], qty_kg=1000.0, price_per_kg=2.0)
+    assert booked["amount"] == 2000.0
+    assert (await _inventory_item(client, owner, item["id"]))["qty_on_hand"] == 1000.0
+
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=txn_payload(
+            date=booked["date"],
+            amount=2000.0,
+            feed_quantity_kg=100.0,
+            reason="Quantity was mistyped as 1000 kg instead of 100 kg",
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    assert corrected.json()["source_type"] == "FEED_PURCHASE"
+
+    inventory = await _inventory_item(client, owner, item["id"])
+    assert inventory["qty_on_hand"] == 100.0
+    assert inventory["last_purchase_price_per_kg"] == 20.0
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Transaction, corrected.json()["id"])
+        assert stored is not None
+        assert stored.feed_quantity_kg == Decimal("100.000")
+        assert stored.feed_unit_price_per_kg == Decimal("20.00")
+
+
+async def test_feed_purchase_quantity_correction_refuses_to_drive_stock_negative(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    item = (await client.get("/api/feeding/inventory", headers=owner)).json()[0]
+    booked = await _restock(client, owner, item["id"], qty_kg=100.0, price_per_kg=10.0)
+
+    async with get_sessionmaker()() as db:
+        inventory = await db.get(FeedInventory, item["id"], with_for_update=True)
+        assert inventory is not None
+        # 90 kg of this purchase has already been mixed/dispensed elsewhere.
+        inventory.qty_on_hand = 10.0
+        await db.commit()
+
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=txn_payload(
+            date=booked["date"],
+            amount=booked["amount"],
+            feed_quantity_kg=5.0,
+            reason="Quantity was overstated",
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "already been used" in refused.json()["detail"]
+    assert (await _inventory_item(client, owner, item["id"]))["qty_on_hand"] == 10.0
+
+
 async def test_legacy_feed_purchase_corrections_and_ambiguity_boundary(
     client: httpx.AsyncClient,
 ) -> None:

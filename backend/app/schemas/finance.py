@@ -11,6 +11,7 @@ from .common import (
     NonNegativeMoneyFloat,
     PastOrTodayDate,
     PostgresText,
+    QuantityKgFloat,
     StrictInputModel,
 )
 
@@ -75,6 +76,7 @@ class TransactionCorrectionIn(StrictInputModel):
     amount: NonNegativeMoneyFloat
     notes: PostgresText | None = Field(default=None, max_length=255)
     related_animal_id: BoundedId | None = None
+    feed_quantity_kg: QuantityKgFloat | None = None
     reason: PostgresText = Field(min_length=3, max_length=255)
 
 

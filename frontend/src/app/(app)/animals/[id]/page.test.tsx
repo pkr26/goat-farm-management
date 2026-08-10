@@ -662,17 +662,24 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByText("No kids recorded.")).toBeInTheDocument();
     });
 
-    it("hides the kids card entirely for a buck", async () => {
+    it("shows the kids card for a buck with sired offspring", async () => {
       useProfileHandler(profileWith({ sex: "M" }));
+      await renderProfile();
+      expect(screen.getByText("Kids (1)")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "G-021" })).toHaveAttribute("href", "/animals/21");
+    });
+
+    it("hides the kids card for a buck with no sired offspring", async () => {
+      useProfileHandler(profileWith({ sex: "M" }, { kids: [] }));
       await renderProfile();
       expect(screen.queryByText(/Kids \(/)).not.toBeInTheDocument();
     });
 
-    it("shows breeding history for a buck while keeping kids doe-only", async () => {
+    it("shows breeding history for a buck without a kids card when he has none", async () => {
       useProfileHandler(
         profileWith(
           { sex: "M" },
-          { breedings: [55], breedings_total: 1 },
+          { kids: [], breedings: [55], breedings_total: 1 },
         ),
       );
       await renderProfile();
@@ -1061,16 +1068,31 @@ describe("AnimalProfilePage", () => {
   });
 
   describe("move bucket dialog", () => {
-    it("offers every bucket except the current one", async () => {
+    it("offers every bucket except the current one and those the doe's sex may not enter", async () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
       await user.click(within(dialog).getByRole("combobox"));
       const options = await screen.findAllByRole("option");
       const names = options.map((o) => o.textContent);
-      expect(names).toHaveLength(9); // 10 buckets minus current
+      expect(names).toHaveLength(8); // 10 buckets minus current minus MALE_KIDS
       expect(names).not.toContain("PREGNANCY EARLY");
+      expect(names).not.toContain("MALE KIDS");
       expect(names).toContain("RESTING");
+      await user.keyboard("{Escape}");
+    });
+
+    it("excludes doe-only buckets when moving a buck", async () => {
+      useProfileHandler(profileWith({ sex: "M" }));
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Move bucket");
+      await user.click(within(dialog).getByRole("combobox"));
+      const options = await screen.findAllByRole("option");
+      const names = options.map((o) => o.textContent);
+      expect(names).not.toContain("FEMALE KIDS");
+      expect(names).not.toContain("RESTING");
+      expect(names).toContain("MALE KIDS");
       await user.keyboard("{Escape}");
     });
 
@@ -1304,6 +1326,18 @@ describe("AnimalProfilePage", () => {
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
         .toBeInTheDocument();
+      expect(statusBodies).toHaveLength(0);
+    });
+
+    it("rejects a sale price above the server's ₹1,000,000,000 ceiling", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      setInput(within(dialog).getByLabelText(/sale price/i), "1000000001");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      expect(
+        await within(dialog).findByText("Sale price cannot exceed ₹1,000,000,000"),
+      ).toBeInTheDocument();
       expect(statusBodies).toHaveLength(0);
     });
 

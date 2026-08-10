@@ -101,6 +101,7 @@ const batchSchema = z
       z
         .number()
         .min(0, "Cannot be negative")
+        .max(1_000_000_000, "Total price cannot exceed ₹1,000,000,000")
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     notes: z.string().optional(),
@@ -571,7 +572,9 @@ export default function PurchasesPage() {
                   {...register("avg_age_months")}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Fractional months use an average 30.44-day month for the estimated birth date.
+                  Fractional months are spread across the actual day span of the surrounding
+                  calendar month, not a fixed average, so the estimated birth date stays accurate
+                  even across February.
                 </p>
                 {errors.avg_age_months && (
                   <p className="text-sm text-destructive">{errors.avg_age_months.message}</p>

@@ -322,6 +322,9 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         culls_head = cull_revenue = 0.0
         purchases_head = purchase_cost = 0.0
         event_log: list[str] = []
+        # Bucks bought via a scheduled event this month, tracked separately so
+        # the rotation cull below (step 6) can spare them — see that step.
+        bucks_purchased_this_month = 0.0
 
         # Meat price with the seasonal (Eid) uplift for this calendar month.
         uplift = 1.0 + sales.eid_price_uplift if calendar_month == sales.eid_month else 1.0
@@ -342,6 +345,7 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
                     default_price = a.herd.doe_purchase_price
                 elif event.animal_class == "buck":
                     bucks += n
+                    bucks_purchased_this_month += n
                     default_price = a.herd.buck_purchase_price
                 elif event.animal_class == "female_kid":
                     f_kid[1] += n  # mid-class (age 1), like foundation kids
@@ -366,9 +370,11 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
                     default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
                     if m_grower:
                         m_grower[len(m_grower) // 2] += n  # mid-class
-                    else:  # sale_age == 6: already at sale age — resold at once
-                        sales_head += n
-                        sales_revenue += n * weight_at_age(sale_age, g, buck_w) * meat_price
+                    # else sale_age == 6: no grower chain to place him in —
+                    # booked as a purchase only (below), matching
+                    # female_grower's symmetric empty-chain handling instead
+                    # of also booking an immediate same-month resale at a
+                    # mismatched (mid-age vs sale-age) valuation.
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 purchases_head += n
                 purchase_cost += n * price
@@ -512,6 +518,7 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
         preg = _scale(preg, s_adult)
         lact = _scale(lact, s_adult)
         bucks *= s_adult
+        bucks_purchased_this_month *= s_adult
         doe_ages = _scale(doe_ages, s_adult)
         deaths += pre - (open_ready + sum(open_waiting) + sum(preg) + sum(lact) + bucks)
 
@@ -547,22 +554,27 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
                 culls_head += culled
                 cull_revenue += culled * sales.cull_doe_price_per_kg * doe_w
 
-        # Buck rotation: cull the whole sire battery, then re-staff per ratio.
-        # Cull-then-restaff is one atomic policy — the wholesale cull is only
-        # safe because the auto-purchase below rebuys sires the same month.
-        # With auto_purchase_bucks disabled there is no automatic replacement
-        # path (sires are the user's to manage via scheduled events), and
-        # since conception is gated on ``bucks > 0`` (step 4), firing the cull
-        # half alone would silently sterilize the projected herd for the rest
-        # of the horizon. Skip the rotation instead and keep the battery.
+        # Buck rotation: cull the standing sire battery, then re-staff per
+        # ratio. Cull-then-restaff is one atomic policy — the wholesale cull
+        # is only safe because the auto-purchase below rebuys sires the same
+        # month. With auto_purchase_bucks disabled there is no automatic
+        # replacement path (sires are the user's to manage via scheduled
+        # events), and since conception is gated on ``bucks > 0`` (step 4),
+        # firing the cull half alone would silently sterilize the projected
+        # herd for the rest of the horizon. Skip the rotation instead and
+        # keep the battery.
+        # A buck bought via a scheduled event *this* month is fresh stock,
+        # not a sire due for rotation — exclude it from the cull pool so the
+        # user's explicit purchase isn't destroyed the same month it lands.
         if (
             a.herd.auto_purchase_bucks
             and bucks > 0.0
             and month % (cull.buck_rotation_years * 12) == 0
         ):
-            culls_head += bucks
-            cull_revenue += bucks * sales.cull_buck_price_per_kg * buck_w
-            bucks = 0.0
+            cull_pool = max(0.0, bucks - bucks_purchased_this_month)
+            culls_head += cull_pool
+            cull_revenue += cull_pool * sales.cull_buck_price_per_kg * buck_w
+            bucks -= cull_pool
         does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:

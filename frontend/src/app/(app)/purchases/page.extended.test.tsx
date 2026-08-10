@@ -327,6 +327,18 @@ describe("PurchasesPage new-batch dialog", () => {
     expect(postCalls).toBe(0);
   });
 
+  // REGRESSION — the helper text still described the old fixed 30.44-day
+  // month average after _estimated_dob_from_age switched to interpolating
+  // over the actual calendar-month day span.
+  it("describes the calendar-anchored interpolation, not a 30.44-day average", async () => {
+    const { dialog } = await openDialog();
+
+    expect(
+      within(dialog).getByText(/actual day span of the surrounding calendar month/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(/30\.44-day/)).not.toBeInTheDocument();
+  });
+
   it("rejects a negative average weight", async () => {
     const { user, dialog } = await openDialog();
 
@@ -368,6 +380,20 @@ describe("PurchasesPage new-batch dialog", () => {
 
     expect(await within(dialog).findByText("Amount must be ₹0 or at least ₹0.005"))
       .toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  // REGRESSION — total_price had no upper bound client-side, so a value past
+  // the backend's NonNegativeMoneyFloat cap only failed on the final POST.
+  it("rejects a total price above the server's ₹1,000,000,000 ceiling", async () => {
+    const { user, dialog } = await openDialog();
+
+    await user.type(within(dialog).getByLabelText(/Total price/), "1000000001");
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(
+      await within(dialog).findByText("Total price cannot exceed ₹1,000,000,000"),
+    ).toBeInTheDocument();
     expect(postCalls).toBe(0);
   });
 

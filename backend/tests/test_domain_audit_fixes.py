@@ -136,7 +136,10 @@ async def test_schedule_inference_uses_words_and_first_dose_anchors_booster(
         product_name="FMD vaccine",
     )
     fmd = row_by_name(await get_schedule(client, owner, first_dose["id"]), "FMD")
-    actual_booster = today() + timedelta(weeks=3.5)
+    # FMD's seeded booster_weeks is 3.5; timedelta(weeks=3.5) truncates to 24
+    # days (date arithmetic drops the timedelta's sub-day remainder), but the
+    # schedule rounds the 24.5-day interval half-up to 25.
+    actual_booster = today() + timedelta(days=25)
     assert fmd["booster_due"] == actual_booster.isoformat()
     assert fmd["next_due"] == actual_booster.isoformat()
 

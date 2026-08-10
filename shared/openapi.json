@@ -10300,7 +10300,14 @@
       "MortalityOut": {
         "properties": {
           "total_deaths": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Total Deaths"
           },
           "deaths_by_month": {
@@ -10325,7 +10332,14 @@
             "title": "Total Kids Born"
           },
           "stillborn": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Stillborn"
           },
           "stillborn_rate": {
@@ -12958,6 +12972,18 @@
               }
             ],
             "title": "Related Animal Id"
+          },
+          "feed_quantity_kg": {
+            "anyOf": [
+              {
+                "type": "number",
+                "le": 1000000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Quantity Kg"
           },
           "reason": {
             "type": "string",

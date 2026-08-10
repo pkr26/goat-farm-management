@@ -96,7 +96,9 @@ function resolveAppPath(
   // so accept only its already-canonical spelling instead of silently
   // changing which module was requested.
   if (path !== rawPath) return null;
-  const special = MANAGE_ROUTE_PERMISSIONS.find(({ path: root }) => path === root);
+  const special = MANAGE_ROUTE_PERMISSIONS.find(
+    ({ path: root }) => path === root || path.startsWith(`${root}/`),
+  );
   if (special && !can(special.permission)) return null;
 
   const route = APP_ROUTE_PERMISSIONS.find(

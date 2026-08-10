@@ -20,6 +20,7 @@ export interface TransactionCorrectionIn {
   amount: number;
   notes?: string | null;
   related_animal_id?: number | null;
+  feed_quantity_kg?: number | null;
   /**
      * @minLength 3
      * @maxLength 255

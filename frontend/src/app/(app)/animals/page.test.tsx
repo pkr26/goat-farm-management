@@ -5,7 +5,7 @@
  * (defaults applied, blank optionals → null) and invalidates the list query.
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -177,5 +177,65 @@ describe("AnimalsPage", () => {
     await waitFor(() =>
       expect(replaceMock).toHaveBeenCalledWith("/animals?bucket=QUARANTINE"),
     );
+  });
+
+  it("rejects a future date_of_birth inline instead of hitting the API", async () => {
+    const user = userEvent.setup();
+    await renderAndWaitForList();
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/date of birth/i), {
+      target: { value: "2099-01-01" },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+    expect(await within(dialog).findByText("Date can't be in the future")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects a future estimated_dob inline instead of hitting the API", async () => {
+    const user = userEvent.setup();
+    await renderAndWaitForList();
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/estimated dob/i), {
+      target: { value: "2099-01-01" },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+    expect(await within(dialog).findByText("Date can't be in the future")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects a future purchase_date inline instead of hitting the API", async () => {
+    const user = userEvent.setup();
+    await renderAndWaitForList();
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText(/purchase date/i), {
+      target: { value: "2099-01-01" },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+    expect(await within(dialog).findByText("Date can't be in the future")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
+  it("rejects a purchase_price above the ₹1,000,000,000 cap inline instead of hitting the API", async () => {
+    const user = userEvent.setup();
+    await renderAndWaitForList();
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/purchase price/i), "1000000001");
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+    expect(
+      await within(dialog).findByText("Purchase price cannot exceed ₹1,000,000,000"),
+    ).toBeInTheDocument();
+    expect(postCalls).toBe(0);
   });
 });

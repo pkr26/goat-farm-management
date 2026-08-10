@@ -490,6 +490,29 @@ def test_buck_rotation_skipped_when_auto_purchase_is_off() -> None:
     assert m36_auto.bucks == pytest.approx(2.0, abs=1e-9)
 
 
+def test_scheduled_buck_purchase_at_rotation_month_survives_the_cull() -> None:
+    """A buck purchase scheduled for the same month as buck rotation must not
+    be swept into that same month's cull-then-restaff: the user's explicit
+    purchase would otherwise be destroyed the instant it lands, ending at the
+    same buck count auto-purchase alone would have produced. ``does=0`` keeps
+    the pre-existing battery's trajectory trivial (mortality only, no
+    auto-restock) so the rotation cull's size is exactly known."""
+    event = HerdEventAssumptions(month=12, kind="purchase", animal_class="buck", count=5)
+    a = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=12),
+        herd=HerdAssumptions(does=0, bucks=2, auto_purchase_bucks=True),
+        culling=CullingAssumptions(buck_rotation_years=1),
+        events=[event],
+    )
+    res = run_simulation(a, with_break_even=False)
+    m12 = res.months[11]
+    # Only the pre-existing 2-head battery (12 months of mortality) is
+    # rotated out; the 5 freshly bought bucks face just this month's
+    # mortality, like any other scheduled purchase, and survive uncalled.
+    assert m12.culls_head == pytest.approx(2.0 * S_ADULT**12, abs=1e-6)
+    assert m12.bucks == pytest.approx(5.0 * S_ADULT, abs=1e-6)
+
+
 # ---------------------------------------------------------------------------
 # (h) Break-even meat price vs baseline NPV
 # ---------------------------------------------------------------------------
@@ -801,19 +824,25 @@ def test_female_grower_purchase_without_grower_chain_joins_doe_pool() -> None:
     assert _doe_pool(m3) - _doe_pool(m3_base) == pytest.approx(3.0 * S_ADULT, abs=1e-6)
 
 
-def test_male_grower_purchase_at_sale_age_resold_immediately() -> None:
-    # sale_age == 6: no grower slots, so the purchase is resold at once at the
-    # sale-age weight while the purchase is charged at the mid-class weight.
+def test_male_grower_purchase_at_sale_age_books_purchase_only() -> None:
+    # sale_age == 6: no grower slots, so the purchase has nowhere to age
+    # through — it must book as a purchase only (mid-class weight), not also
+    # as an immediate same-month meat sale (which used to manufacture a
+    # phantom round trip at the mismatched mid-age vs sale-age valuation).
     a = event_toy(
         [HerdEventAssumptions(month=3, kind="purchase", animal_class="male_grower", count=3)],
         horizon=12,
     )
     a.growth.sale_age_months = 6
+    base_a = a.model_copy(deep=True)
+    base_a.events = []
     res = run_simulation(a, with_break_even=False)
-    m3 = res.months[2]
+    base = run_simulation(base_a, with_break_even=False)
+    m3, m3_base = res.months[2], base.months[2]
     assert m3.m_growers == 0.0
-    assert m3.sales_head == pytest.approx(3.0)
-    assert m3.sales_revenue == pytest.approx(3.0 * weight_at_age(6, a.growth, 34.0) * 350.0)
+    assert m3.sales_head == pytest.approx(m3_base.sales_head, abs=1e-9)
+    assert m3.sales_revenue == pytest.approx(m3_base.sales_revenue, abs=1e-9)
+    assert m3.purchases_head == pytest.approx(3.0)
     assert m3.purchase_cost == pytest.approx(3.0 * weight_at_age(5, a.growth, 34.0) * 350.0)
 
 

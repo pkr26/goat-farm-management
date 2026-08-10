@@ -146,7 +146,10 @@ const settingSchema = z.object({
   daily_kg_per_head: z.coerce
     .number()
     .positive("kg/head must be greater than 0")
-    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE),
+    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
+    // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
+    // quantity should fail inline instead of as an opaque server 422.
+    .max(1_000_000, "Quantity cannot exceed 1,000,000 kg"),
 });
 type SettingInput = z.input<typeof settingSchema>;
 type SettingValues = z.output<typeof settingSchema>;

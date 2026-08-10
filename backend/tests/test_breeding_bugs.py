@@ -23,23 +23,27 @@ import httpx
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
-from app.models import BreedingOutcome, BreedingRecord, BucketMove
+from app.models import BreedingOutcome, BreedingRecord, BucketMove, KidEntry
 from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_breeding_extended import (
+    POSTPARTUM_RECOVERY_DAYS,
     all_tasks,
     bred_doe,
     confirm,
     get_animal,
     get_breeding,
     iso,
+    kid_on_ekd,
     kid_on_ekd_raw,
     kidding_list,
     make_buck,
     make_doe,
+    move_to,
     pregnant_doe,
     set_status,
+    tasks_by_category,
     ultrasound,
 )
 
@@ -325,3 +329,56 @@ async def test_ultrasound_rejected_after_doe_sold(client: httpx.AsyncClient) -> 
     # task set was spawned for a doe that is no longer on the farm.
     assert {t["category"] for t in related} == {"ULTRASOUND"}
     assert {t["status"] for t in related} == {"SKIPPED"}
+
+
+# ---------------------------------------------------------------------------
+# — a history_override round-trip through RECOVERY must not fake "weaned"
+# ---------------------------------------------------------------------------
+# replan_dam_after_last_kid_death's "already weaned" guard used to treat ANY
+# BucketMove row with from_bucket=RECOVERY as proof the kid had weaned.
+# history_override bypasses LEGAL_BUCKET_TRANSITIONS entirely (it is meant
+# for correcting historical data-entry mistakes), so an owner fixing a
+# mistake (RECOVERY -> FOUNDATION -> RECOVERY) left behind exactly that row
+# shape without the kid ever actually weaning. When the kid later died as the
+# last survivor, the guard wrongly reported "already weaned": the birth
+# KidEntry stayed ALIVE forever and the dam was left on her stale WEANING
+# task instead of the 14-day no-survivor recovery path.
+async def test_history_override_round_trip_does_not_fake_weaning(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
+    record = await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}, {"sex": "F"}])
+    kid_a_id = record["kids"][0]["animal_id"]
+    kid_b_id = record["kids"][1]["animal_id"]
+
+    # A data-entry correction, not a weaning: kid A never actually leaves its
+    # birth RECOVERY cohort.
+    await move_to(client, headers, kid_a_id, "FOUNDATION", history_override=True)
+    await move_to(client, headers, kid_a_id, "RECOVERY", history_override=True)
+
+    await set_status(client, headers, kid_b_id, "DEAD")
+    await set_status(client, headers, kid_a_id, "DEAD")
+
+    async with get_sessionmaker()() as db:
+        entry = (
+            await db.execute(
+                select(KidEntry.status, KidEntry.mortality_reported_at).where(
+                    KidEntry.animal_id == kid_a_id
+                )
+            )
+        ).one()
+    assert tuple(entry) == ("DIED", today())
+
+    tasks = await all_tasks(client, headers)
+    assert not any(
+        t["animal_id"] == doe["id"] and t["category"] == "WEANING" and t["status"] == "PENDING"
+        for t in tasks
+    )
+    postpartum = [
+        t
+        for t in tasks_by_category(tasks, "BUCKET_MOVE")
+        if t["status"] == "PENDING" and t["animal_id"] == doe["id"]
+    ]
+    assert len(postpartum) == 1
+    assert postpartum[0]["due_date"] == iso(today() + timedelta(days=POSTPARTUM_RECOVERY_DAYS))

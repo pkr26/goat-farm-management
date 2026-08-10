@@ -126,7 +126,9 @@ class FeedFinishedStock(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     recipe_code: Mapped[str] = mapped_column(ForeignKey("feed_recipes.code"), index=True)
-    qty_on_hand: Mapped[float] = mapped_column(Numeric(15, 3, asdecimal=False), default=0.0)
+    qty_on_hand: Mapped[float] = mapped_column(
+        Numeric(15, 3, asdecimal=False), default=0.0, server_default="0"
+    )
 
 
 class FeedingRecord(Base):

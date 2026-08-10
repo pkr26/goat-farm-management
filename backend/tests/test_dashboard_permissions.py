@@ -9,16 +9,26 @@ the free-text notes were gated); it is now withheld entirely for them — empty
 list, null total — following the cull_candidates withheld-preview convention.
 """
 
+from datetime import timedelta
+
 import httpx
 
 from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_finance_extended import (
+    change_status,
+    custom_role_id,
     get_dashboard,
+    get_reports,
     iso,
     make_animal,
+    make_breeding,
+    make_buck,
+    make_doe,
     preset_role_id,
+    record_kidding,
+    ultrasound,
     worker_headers,
 )
 
@@ -80,3 +90,72 @@ async def test_recent_weights_visible_with_animals_view_notes_still_gated(
     assert mover_dash["recent_weights"][0]["animal"]["tag_number"] == "W-OPEN"
     # notes carry clinical observations: animals.view alone must not leak them.
     assert mover_dash["recent_weights"][0]["notes"] is None
+
+
+# FIXED — regression test
+# Endpoint: GET /api/dashboard/reports (breeding-performance + mortality
+# blocks). reports() gated cull_candidates on breeding.view but left
+# conception_rate/first_cycle_rate/kids_per_kidding/twin_rate and the whole
+# mortality block (total_deaths/deaths_by_month/stillborn/stillborn_rate)
+# ungated — a reports.view-only caller got the herd's breeding and mortality
+# aggregates in full. Both blocks now follow the cull_candidates convention:
+# withheld fields come back None (list fields empty), never a fabricated
+# zero, while the un-gated raw counts (total_records, kiddings,
+# total_kids_born) stay visible.
+async def test_reports_breeding_and_mortality_aggregates_require_permission(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner, tag="AGG-1")
+    buck = await make_buck(client, owner, tag="AGG-1-BUCK")
+    br = await make_breeding(client, owner, doe["id"], buck["id"], today() - timedelta(days=160))
+    await ultrasound(client, owner, br["id"], pregnant=True, kid_count=2)
+    await record_kidding(
+        client,
+        owner,
+        br["id"],
+        today(),
+        [
+            {"tag": "AGG-1-A", "sex": "F", "birth_weight": 2.5, "status": "ALIVE"},
+            {"sex": "M", "status": "STILLBORN"},
+        ],
+    )
+    dead = await make_animal(client, owner, tag="AGG-DEAD")
+    await change_status(client, owner, dead["id"], "DEAD")
+
+    owner_reports = await get_reports(client, owner)
+    breeding = owner_reports["breeding"]
+    assert breeding["conception_rate"] == 100.0
+    assert breeding["first_cycle_rate"] == 100.0
+    assert breeding["kids_per_kidding"] == 1.0
+    assert breeding["twin_rate"] == 0.0
+    mortality = owner_reports["mortality"]
+    assert mortality["total_deaths"] == 1
+    assert mortality["deaths_by_month"] != []
+    assert mortality["stillborn"] == 1
+    assert mortality["stillborn_rate"] == 50.0
+
+    analyst_role = await custom_role_id(
+        client, owner, "Reports Only", ["dashboard.view", "reports.view"]
+    )
+    analyst = await worker_headers(client, owner, analyst_role, "reports-only-agg@farm.in")
+    delegated = await get_reports(client, analyst)
+
+    delegated_breeding = delegated["breeding"]
+    # null, not the owner's real figures and not a fabricated zero — a
+    # withheld section must be distinguishable from genuinely empty history.
+    assert delegated_breeding["conception_rate"] is None
+    assert delegated_breeding["first_cycle_rate"] is None
+    assert delegated_breeding["kids_per_kidding"] is None
+    assert delegated_breeding["twin_rate"] is None
+    # The raw counts behind the rates aren't breeding-identity data; they stay.
+    assert delegated_breeding["total_records"] == breeding["total_records"]
+    assert delegated_breeding["kiddings"] == breeding["kiddings"]
+
+    delegated_mortality = delegated["mortality"]
+    assert delegated_mortality["total_deaths"] is None
+    assert delegated_mortality["deaths_by_month"] == []
+    assert delegated_mortality["stillborn"] is None
+    assert delegated_mortality["stillborn_rate"] is None
+    # Births aren't a clinical/mortality figure — health.view doesn't gate it.
+    assert delegated_mortality["total_kids_born"] == mortality["total_kids_born"]

@@ -23,11 +23,11 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Response
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, event, func, select, update
 
 import app.api.auth as auth_api
 from app.core.config import Settings, get_settings
-from app.db import get_sessionmaker
+from app.db import get_engine, get_sessionmaker
 from app.deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
 from app.models import FarmMembership, RefreshSession, User
 from app.permissions import ALL_PERMISSIONS, ROLE_PRESETS
@@ -1719,6 +1719,40 @@ async def test_permissions_deactivated_worker_loses_access(client: httpx.AsyncCl
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Farm not found"
     assert (await client.get("/api/auth/me", headers=worker)).status_code == 200
+
+
+async def test_worker_get_request_fetches_membership_only_once(
+    client: httpx.AsyncClient,
+) -> None:
+    """current_farm's safe-method branch used to fetch-then-discard the active
+    membership, and current_membership re-fetched the identical row for the
+    same request — 2x the membership/role SELECTs on every worker GET."""
+    owner = await owner_with_farm(client)
+    await add_worker(client, owner, "VET", "counted@farm.in")
+    worker = (await worker_login(client, "counted@farm.in")) | {"X-Farm-Id": owner["X-Farm-Id"]}
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        resp = await client.get("/api/auth/permissions", headers=worker)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+    assert resp.status_code == 200, resp.text
+
+    membership_queries = [s for s in statements if "FROM farm_memberships" in s]
+    assert len(membership_queries) == 1, membership_queries
 
 
 async def test_permissions_owner_of_two_farms(client: httpx.AsyncClient) -> None:

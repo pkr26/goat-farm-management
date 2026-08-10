@@ -246,6 +246,21 @@ describe("InventoryPage add-stock dialog", () => {
     expect(addCalls).toBe(0);
   });
 
+  // REGRESSION — qty_kg had no client-side maximum although the backend's
+  // QuantityKgFloat rejects anything above 1,000,000 kg, so a fat-fingered
+  // restock passed validation and only failed with an opaque server 422.
+  it("blocks a quantity above the backend's 1,000,000 kg cap", async () => {
+    const { user, dialog } = await openAddStock();
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "2000000");
+    await user.click(within(dialog).getByRole("button", { name: "Add" }));
+
+    expect(
+      await within(dialog).findByText("Quantity cannot exceed 1,000,000 kg"),
+    ).toBeInTheDocument();
+    expect(addCalls).toBe(0);
+  });
+
   it("posts an explicit zero price instead of treating it as blank or invalid", async () => {
     const { user, dialog } = await openAddStock();
 

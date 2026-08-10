@@ -47,6 +47,19 @@ describe("permittedAppPath — same-farm back links", () => {
     }
     expect(permittedAppPath("/health", canView)).toBeNull();
   });
+
+  it("gates a manage route the same way with or without a trailing slash", () => {
+    // Holds the view permission but not the create permission a manage
+    // route requires; a trailing slash must not weaken the check to view-only.
+    const viewOnly = (permission: string) => permission === "animals.view";
+    expect(permittedAppPath("/animals/new", viewOnly)).toBeNull();
+    expect(permittedAppPath("/animals/new/", viewOnly)).toBeNull();
+
+    const canCreate = (permission: string) =>
+      permission === "animals.view" || permission === "animals.create";
+    expect(permittedAppPath("/animals/new", canCreate)).toBe("/animals/new");
+    expect(permittedAppPath("/animals/new/", canCreate)).toBe("/animals/new/");
+  });
 });
 
 describe("permittedAppPathFromList — farm switching", () => {

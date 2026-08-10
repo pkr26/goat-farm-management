@@ -426,6 +426,7 @@ def upgrade() -> None:
         "tasks",
         "status = 'PENDING' OR (verification_note IS NULL "
         "AND rejected_by_id IS NULL AND rejected_at IS NULL)",
+        postgresql_not_valid=True,
     )
     op.execute("ALTER TABLE tasks VALIDATE CONSTRAINT ck_tasks_rejection_current_state")
 

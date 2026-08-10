@@ -70,6 +70,18 @@ describe("taskSkipUnavailable", () => {
     ).toBe(true);
   });
 
+  it("blocks skip for auto-generated animal-linked BUCKET_MOVE duties", () => {
+    // Mirrors the WEANING case above: the backend's postpartum-RECOVERY guard
+    // (api/tasks.py::skip) covers both categories, and TaskOut carries no
+    // bucket state to separate this from the legitimately-skippable
+    // pregnancy→DELIVERY flavor, so it fails closed like WEANING does.
+    expect(
+      taskSkipUnavailable(
+        makeState({ category: "BUCKET_MOVE", auto_generated: true, animal_id: 7 }),
+      ),
+    ).toBe(true);
+  });
+
   it("keeps skip for duties the backend can accept", () => {
     // Manual duties are never gated, batch-linked or not.
     expect(taskSkipUnavailable(makeState({ purchase_batch_id: 42 }))).toBe(false);
@@ -79,13 +91,10 @@ describe("taskSkipUnavailable", () => {
     expect(
       taskSkipUnavailable(makeState({ category: "WEANING", auto_generated: true })),
     ).toBe(false);
-    // Animal-linked generated BUCKET_MOVE fails open: the pregnancy→DELIVERY
-    // flavor is legitimately skippable and TaskOut carries no bucket state to
-    // tell it apart from the postpartum RECOVERY flavor.
+    // A generated BUCKET_MOVE row without a linked animal has no RECOVERY set
+    // to strand, so the backend accepts the skip.
     expect(
-      taskSkipUnavailable(
-        makeState({ category: "BUCKET_MOVE", auto_generated: true, animal_id: 7 }),
-      ),
+      taskSkipUnavailable(makeState({ category: "BUCKET_MOVE", auto_generated: true })),
     ).toBe(false);
     // Ordinary generated protocol duties (animal-linked vaccine, …) skip fine.
     expect(

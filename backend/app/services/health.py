@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import literal, select, union_all
@@ -464,6 +464,17 @@ async def inferred_schedule_template(
     return matches[0] if len(matches) == 1 else None
 
 
+def _booster_interval(booster_weeks: float) -> timedelta:
+    """Days from primary dose to booster, rounded half-up.
+
+    ``date + timedelta(weeks=...)`` silently drops the timedelta's sub-day
+    remainder (date arithmetic ignores seconds/microseconds), so a seeded
+    3.5-week interval would floor to 24 days instead of the intended 25.
+    """
+    days = Decimal(str(booster_weeks * 7)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return timedelta(days=int(days))
+
+
 async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> list[dict[str, Any]]:
     """Per-animal vaccination schedule from seeded VaccineTemplates.
     Status: DONE (event recorded) / OVERDUE (due date passed) / UPCOMING.
@@ -610,10 +621,10 @@ async def vaccination_schedule_for_animal(db: AsyncSession, animal: Animal) -> l
         primary_event = primary_event_by_template.get(template.id)
         first_administered = primary_event.event_date if primary_event is not None else None
         if template.booster_weeks and first_administered is not None:
-            booster_due = first_administered + timedelta(weeks=template.booster_weeks)
+            booster_due = first_administered + _booster_interval(template.booster_weeks)
         else:
             booster_due = (
-                first_due + timedelta(weeks=template.booster_weeks)
+                first_due + _booster_interval(template.booster_weeks)
                 if first_due and template.booster_weeks
                 else None
             )

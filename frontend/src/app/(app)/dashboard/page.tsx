@@ -501,7 +501,15 @@ export default function DashboardPage() {
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Recent weight records</h2>
-        {recentWeights.length === 0 ? (
+        {/* null = withheld (no animals.view); a real 0 renders as a genuine
+            empty state, not this permission notice */}
+        {payload.recent_weights_total === null ? (
+          <EmptyState
+            icon={Scale}
+            title="Weight records require animal access."
+            description="Ask an admin to grant animals.view to see recent weight records here."
+          />
+        ) : recentWeights.length === 0 ? (
           <EmptyState
             icon={Scale}
             title="No weight records yet."

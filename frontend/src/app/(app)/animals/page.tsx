@@ -146,13 +146,26 @@ const createSchema = z
     source: z.enum([AnimalCreateInSource.BORN, AnimalCreateInSource.PURCHASED]),
     current_bucket: z.enum(BUCKETS as [string, ...string[]]),
     breed: z.string().max(60).optional(),
-    date_of_birth: z.string().optional(),
-    estimated_dob: z.string().optional(),
+    date_of_birth: z
+      .string()
+      .optional()
+      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
+    estimated_dob: z
+      .string()
+      .optional()
+      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
     birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
     birth_weight: optNum(z.number().nonnegative().max(1000, "At most 1000 kg")),
-    purchase_date: z.string().optional(),
+    purchase_date: z
+      .string()
+      .optional()
+      .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
     purchase_price: optNum(
-      z.number().nonnegative().refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+      z
+        .number()
+        .nonnegative()
+        .max(1_000_000_000, "Purchase price cannot exceed ₹1,000,000,000")
+        .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     seller_name: z.string().max(120).optional(),
     weight_kg: optNum(z.number().positive().max(1000, "At most 1000 kg")),
@@ -497,6 +510,9 @@ function CreateAnimalDialog({
                 max={localToday()}
                 {...register("estimated_dob")}
               />
+              {errors.estimated_dob && (
+                <p className="text-sm text-destructive">{errors.estimated_dob.message}</p>
+              )}
             </div>
             {source === AnimalCreateInSource.BORN && (
               <>
@@ -582,7 +598,15 @@ function CreateAnimalDialog({
             <div className="grid grid-cols-2 gap-3 rounded-lg border p-3">
               <div className="space-y-1.5">
                 <Label htmlFor="purchase_date">Purchase date</Label>
-                <Input id="purchase_date" type="date" {...register("purchase_date")} />
+                <Input
+                  id="purchase_date"
+                  type="date"
+                  max={localToday()}
+                  {...register("purchase_date")}
+                />
+                {errors.purchase_date && (
+                  <p className="text-sm text-destructive">{errors.purchase_date.message}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="purchase_price">Purchase price (₹)</Label>

@@ -19,7 +19,7 @@ from app.services.tasks import reject_task
 from app.utils import today
 
 from .conftest import owner_with_farm
-from .test_tasks_extended import complete_duty, make_duty, role_id, worker_headers
+from .test_tasks_extended import complete_duty, make_animal, make_duty, role_id, worker_headers
 
 
 async def _series_rows(series_id: str) -> list[Task]:
@@ -266,3 +266,40 @@ async def test_verify_spawn_respects_pending_manual_duty_cap(
         TaskStatus.VERIFIED.value,
         TaskStatus.PENDING.value,
     ]
+
+
+# FIXED — regression test
+# Endpoint: POST /api/tasks/{task_id}/reject.
+# Repro: reject() sent a DONE duty back to PENDING without re-checking the
+# linked animal was still ACTIVE, unlike complete/skip. A CLEANING duty
+# completed while its animal was ACTIVE could have that animal sold/die before
+# a verifier acted, and reject() would silently plant a PENDING row for an
+# inactive animal: hidden from every list tab (actionable_pending_task_predicate
+# filters it out), unreachable by a later complete/skip (both 409 on
+# _require_locked_linked_animal_active), and permanently holding one slot of
+# the farm's manual-duty capacity. reject() now takes the same ANIMAL lock and
+# active-check as complete/skip, in the same FARM -> ANIMAL -> TASK order.
+async def test_reject_409s_when_the_linked_animal_is_no_longer_active(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    animal_id = await make_animal(client, owner, "CLN-1")
+    duty = await make_duty(client, owner, "Pen scrub", category="CLEANING", animal_id=animal_id)
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+
+    dead = await client.post(
+        f"/api/animals/{animal_id}/status", json={"new_status": "DEAD"}, headers=owner
+    )
+    assert dead.status_code == 200, dead.text
+
+    rejected = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "redo"}, headers=manager
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert "no longer active" in rejected.json()["detail"]
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Task, duty["id"])
+        assert stored is not None
+        # Still DONE, not a stranded PENDING row — the rejection never applied.
+        assert stored.status == TaskStatus.DONE.value

@@ -1,7 +1,7 @@
 """Finance: transaction list with filters, add transaction, monthly P&L."""
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -84,15 +84,25 @@ async def _locked_source_animal(db: DbSession, farm: CurrentFarm, animal_id: int
     return animal
 
 
-def _corrected_feed_unit_price(txn: Transaction, amount: Decimal) -> Decimal | None:
-    if txn.feed_quantity_kg is None or txn.feed_unit_price_per_kg is None:
+def _corrected_feed_quantity_kg(
+    txn: Transaction, payload: TransactionCorrectionIn
+) -> Decimal | None:
+    if payload.feed_quantity_kg is None:
+        return txn.feed_quantity_kg
+    return Decimal(str(payload.feed_quantity_kg))
+
+
+def _corrected_feed_unit_price(
+    txn: Transaction, amount: Decimal, quantity_kg: Decimal | None
+) -> Decimal | None:
+    if quantity_kg is None or txn.feed_unit_price_per_kg is None:
         return None
-    if amount == txn.amount:
+    if amount == txn.amount and quantity_kg == txn.feed_quantity_kg:
         # Total cost was rounded to paise when the restock was booked; dividing
         # it back by quantity can lose the actual unit price (0.333 kg @ ₹1.00
         # stores a ₹0.33 total, whose quotient rounds to ₹0.99).
         return txn.feed_unit_price_per_kg
-    unit_price = money(amount / txn.feed_quantity_kg)
+    unit_price = money(amount / quantity_kg)
     if amount > 0 and unit_price < Decimal("0.01"):
         raise HTTPException(
             status_code=422,
@@ -151,10 +161,17 @@ async def _reconcile_feed_purchase(
         # them is a pure ledger edit with nothing to reconcile. Refusing
         # amount/date corrections here would permanently freeze every
         # pre-provenance purchase the moment the deployment upgrades.
+        if payload.feed_quantity_kg is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="This feed purchase has no recorded quantity to correct",
+            )
         return await _resolve_related_animal(db, farm, txn.related_animal_id)
     if txn.source_id is None:
         raise HTTPException(status_code=409, detail="This feed purchase has no stable source id")
-    if amount == txn.amount and payload.date == txn.date:
+    corrected_qty_kg = _corrected_feed_quantity_kg(txn, payload)
+    quantity_changed = corrected_qty_kg != txn.feed_quantity_kg
+    if amount == txn.amount and payload.date == txn.date and not quantity_changed:
         # A notes-only correction cannot move the displayed last-purchase
         # price; skip the inventory row lock and both ordering probes.
         return await _resolve_related_animal(db, farm, txn.related_animal_id)
@@ -175,6 +192,27 @@ async def _reconcile_feed_purchase(
             detail="The feed inventory item this purchase updated no longer exists",
         )
 
+    if quantity_changed:
+        # qty_on_hand is a running total across every purchase, not just the
+        # latest one, so the delta applies unconditionally — unlike the unit
+        # price below, it does not depend on this purchase being the newest.
+        # ck_transactions_feed_purchase_provenance (columns are all-or-none)
+        # plus the all-NULL early return above guarantee both are populated.
+        assert corrected_qty_kg is not None and txn.feed_quantity_kg is not None
+        delta = corrected_qty_kg - txn.feed_quantity_kg
+        new_qty_on_hand = Decimal(str(inventory.qty_on_hand)) + delta
+        if new_qty_on_hand < 0:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Correcting this purchase's quantity would drive on-hand stock "
+                    "negative — some of it has already been used"
+                ),
+            )
+        inventory.qty_on_hand = float(
+            new_qty_on_hand.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        )
+
     other_latest = (
         await db.execute(
             _latest_active_feed_purchase_stmt(
@@ -185,7 +223,7 @@ async def _reconcile_feed_purchase(
         )
     ).scalar_one_or_none()
 
-    corrected_unit_price = _corrected_feed_unit_price(txn, amount)
+    corrected_unit_price = _corrected_feed_unit_price(txn, amount, corrected_qty_kg)
     # The all-NULL early return plus ck_transactions_feed_purchase_provenance
     # (columns are all-or-none) guarantee complete pricing on this path.
     assert corrected_unit_price is not None
@@ -578,6 +616,11 @@ async def correct_transaction(
             raise HTTPException(status_code=404, detail="Transaction not found")
         if txn.voided_at is not None:
             raise HTTPException(status_code=409, detail="Transaction has already been corrected")
+        if payload.feed_quantity_kg is not None and txn.source_type != "FEED_PURCHASE":
+            raise HTTPException(
+                status_code=422,
+                detail="feed_quantity_kg only applies to a feed-purchase correction",
+            )
         source_related = await _reconcile_source_record(db, farm, txn, payload)
 
         if source_related is None:
@@ -594,8 +637,12 @@ async def correct_transaction(
         # the corrected replacement for a system-generated source.
         await db.flush()
         replacement_feed_unit_price = txn.feed_unit_price_per_kg
+        replacement_feed_quantity_kg = txn.feed_quantity_kg
         if txn.source_type == "FEED_PURCHASE":
-            replacement_feed_unit_price = _corrected_feed_unit_price(txn, money(payload.amount))
+            replacement_feed_quantity_kg = _corrected_feed_quantity_kg(txn, payload)
+            replacement_feed_unit_price = _corrected_feed_unit_price(
+                txn, money(payload.amount), replacement_feed_quantity_kg
+            )
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,
@@ -608,7 +655,7 @@ async def correct_transaction(
             source_type=txn.source_type,
             source_id=txn.source_id,
             feed_inventory_id=txn.feed_inventory_id,
-            feed_quantity_kg=txn.feed_quantity_kg,
+            feed_quantity_kg=replacement_feed_quantity_kg,
             feed_unit_price_per_kg=replacement_feed_unit_price,
             correction_of_id=txn.id,
         )

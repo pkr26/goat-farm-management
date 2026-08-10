@@ -8,6 +8,7 @@ Every section is filtered by the caller's effective permissions exactly as
 side door around field-level authorization.
 """
 
+from collections.abc import Sequence
 from datetime import date, timedelta
 from typing import Annotated, Any
 
@@ -289,7 +290,7 @@ async def dashboard(
     # caller without it — so the aggregate view must not become the side door
     # the module docstring rules out. Withheld means an empty list and a None
     # total (not 0), following the cull_candidates convention above.
-    recent_weight_rows: list[Any] = []
+    recent_weight_rows: Sequence[Any] = []
     recent_weights_total: int | None = None
     if "animals.view" in perms:
         recent_weights_stmt = (
@@ -477,21 +478,28 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         )
     ).one()
 
+    can_view_breeding = "breeding.view" in perms
     cull_candidates: list[Animal] = []
     # None (not 0) when withheld — see the dashboard endpoint's twin comment.
     cull_candidates_total: int | None = None
-    if "breeding.view" in perms:
+    if can_view_breeding:
         cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
 
+    # The rate fields below share cull_candidates' breeding.view gate: an
+    # aggregate view is not a side door around field-level authorization
+    # (module docstring), so a reports.view-only caller gets None here too —
+    # indistinguishable on the wire from "not enough completed breedings yet".
     breeding_stats = BreedingStatsOut(
         total_records=total_records,
-        conception_rate=_rate(conceived_count, completed_count),
-        first_cycle_rate=_rate(fc_conceived, fc_completed),
+        conception_rate=_rate(conceived_count, completed_count) if can_view_breeding else None,
+        first_cycle_rate=_rate(fc_conceived, fc_completed) if can_view_breeding else None,
         kiddings=kiddings_count,
         kids_per_kidding=(
-            round(float(total_alive) / kiddings_count, 2) if kiddings_count else None
+            round(float(total_alive) / kiddings_count, 2)
+            if kiddings_count and can_view_breeding
+            else None
         ),
-        twin_rate=_rate(multi_kid, kiddings_count),
+        twin_rate=_rate(multi_kid, kiddings_count) if can_view_breeding else None,
         cull_candidates=[_animal_identity_out(a) for a in cull_candidates],
         cull_candidates_total=cull_candidates_total,
         cull_candidates_limit=DASHBOARD_PREVIEW_LIMIT,
@@ -524,12 +532,15 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         )
     ).one()
 
+    can_view_health = "health.view" in perms
+    # Same withheld-not-empty gate as breeding_stats above, keyed to
+    # health.view — deaths and stillbirths are clinical outcomes.
     mortality = MortalityOut(
-        total_deaths=status_counts.get(AnimalStatus.DEAD.value, 0),
-        deaths_by_month=deaths_by_month,
+        total_deaths=status_counts.get(AnimalStatus.DEAD.value, 0) if can_view_health else None,
+        deaths_by_month=deaths_by_month if can_view_health else [],
         total_kids_born=total_kids,
-        stillborn=stillborn,
-        stillborn_rate=_rate(stillborn, total_kids),
+        stillborn=stillborn if can_view_health else None,
+        stillborn_rate=_rate(stillborn, total_kids) if can_view_health else None,
     )
 
     return ReportsOut(

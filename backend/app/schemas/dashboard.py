@@ -67,10 +67,11 @@ class BreedingStatsOut(BaseModel):
 
 
 class MortalityOut(BaseModel):
-    total_deaths: int
+    # None means the caller lacks health.view — withheld, not empty/zero.
+    total_deaths: int | None
     deaths_by_month: list[tuple[str, int]]
     total_kids_born: int
-    stillborn: int
+    stillborn: int | None
     stillborn_rate: float | None
 
 

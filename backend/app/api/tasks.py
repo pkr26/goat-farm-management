@@ -755,9 +755,15 @@ async def reject(
     # Farm before Task so it serializes with create and recurring successor
     # insertion without forming a Farm/Task lock cycle.
     await _lock_manual_task_queue(db, farm)
+    # Match complete/skip's canonical FARM -> ANIMAL -> TASK order: reject also
+    # sends the duty back to PENDING, so it needs the same re-check that the
+    # linked animal is still ACTIVE or the row becomes a stranded PENDING duty
+    # no list/sweep can ever reach again.
+    locked_animals = await _lock_completion_animals(db, farm, task_id)
     task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.DONE.value or not task.needs_verification:
         raise HTTPException(status_code=400, detail="Task is not awaiting verification")
+    _require_locked_linked_animal_active(task, locked_animals)
     # Rejection returns the duty to PENDING, which is exactly the state
     # ck_tasks_user_assignment_has_role constrains. Repair a pre-D9 personal row
     # first, like complete/skip do: without it the flush raises IntegrityError

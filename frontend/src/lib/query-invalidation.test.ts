@@ -23,6 +23,7 @@ const FARM_DATA_ROOTS = [
   "/api/finance",
   "/api/purchases",
   "/api/dashboard",
+  "/api/team",
 ];
 
 /** Seeds one cache entry per key and reports which ones came back invalidated. */
@@ -48,6 +49,9 @@ describe("invalidateFarmData", () => {
       ["/api/animals/7"],
       ["/api/health/schedule", { animal_id: 3 }],
       ["/api/finance/summary"],
+      // A role rename or worker reassignment must bust /api/tasks and
+      // /api/dashboard caches, which embed role/worker display names.
+      ["/api/team/roles/3"],
     ];
 
     expect(invalidatedAfterMutation(keys)).toEqual(
@@ -65,11 +69,10 @@ describe("invalidateFarmData", () => {
     expect(stale).toEqual(new Set([JSON.stringify(snapshot)]));
   });
 
-  it("leaves auth, team and unrelated keys alone", () => {
+  it("leaves auth and unrelated keys alone", () => {
     const keys = [
       ["/api/auth/farms"],
       ["/api/auth/permissions"],
-      ["/api/team/members"],
       ["/api/reports/summary"],
       // A path that merely shares a prefix must not match either.
       ["/api/animalsx"],

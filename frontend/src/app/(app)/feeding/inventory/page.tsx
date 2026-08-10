@@ -100,7 +100,10 @@ const addStockSchema = z
     qty_kg: z.coerce
       .number()
       .positive("Quantity must be greater than 0")
-      .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE),
+      .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
+      // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
+      // quantity should fail inline instead of as an opaque server 422.
+      .max(1_000_000, "Quantity cannot exceed 1,000,000 kg"),
     price_per_kg: optNum(
       z
         .number()
