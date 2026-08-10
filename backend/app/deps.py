@@ -1,6 +1,7 @@
 """Request-scoped dependencies: JWT auth, active farm (X-Farm-Id header),
 and the RBAC authorization layer (membership, permissions, require_perm)."""
 
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Annotated
@@ -15,13 +16,18 @@ from .core.config import get_settings
 from .db import get_db
 from .models import Farm, FarmMembership, RefreshSession, Role, User
 from .permissions import ALL_PERMISSIONS
+from .ratelimit import auth_limiter
 from .schemas.common import MAX_INT32_ID
-from .security import decode_access_claims
+from .security import decode_access_claims_result
 from .utils import utcnow
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 logger = logging.getLogger("goatfarm.deps")
+
+INVALID_ACCESS_TOKEN_SCOPE = "access-token-invalid"
+INVALID_LOGOUT_REFRESH_TOKEN_SCOPE = "logout-refresh-token-invalid"
+INVALID_TOKEN_IP_LIMIT_MULTIPLIER = 10
 
 # A real FastAPI security dependency keeps the runtime and OpenAPI contract in
 # agreement. ``auto_error=False`` preserves this module's stable JSON 401s.
@@ -30,6 +36,99 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 def _unauthenticated(detail: str = "Not authenticated") -> HTTPException:
     return HTTPException(status_code=401, detail=detail)
+
+
+def single_bearer_token(request: Request) -> str | None:
+    """Return one canonical Bearer credential, never an ambiguous selection.
+
+    Reverse proxies and ASGI servers are not required to select the same value
+    from duplicate Authorization fields. Security-sensitive callers must
+    therefore reject the whole credential set unless exactly one canonical
+    compact-JWT value is present.
+    """
+    authorization_values = request.headers.getlist("authorization")
+    if len(authorization_values) != 1:
+        return None
+    authorization = authorization_values[0]
+    prefix = "Bearer "
+    if not authorization.startswith(prefix):
+        return None
+    token = authorization[len(prefix) :]
+    if not token or any(character.isspace() for character in token):
+        return None
+    return token
+
+
+def guard_invalid_token_verification_budget(
+    request: Request,
+    scope: str,
+    token_material: str,
+) -> None:
+    """Stop a previously classified bad JWT before another RSA verification.
+
+    Authenticity is unknowable before decoding, so a shared-IP history must
+    never reject a new token here: doing so lets attackers behind the same NAT
+    turn valid/expired client credentials into 429s. The wider IP budget is
+    consulted only after the presented token actually fails validation.
+    """
+    settings = get_settings()
+    if not settings.auth_rate_limit_enabled:
+        return
+    token_key = hashlib.sha256(token_material.encode("utf-8")).hexdigest()
+    attempts = settings.auth_rate_limit_max_attempts
+    window = settings.auth_rate_limit_window_seconds
+    if not auth_limiter.is_blocked(
+        scope + "-token",
+        token_key,
+        attempts,
+        window,
+    ):
+        return
+    raise invalid_token_rate_error(request, scope)
+
+
+def invalid_token_rate_error(request: Request, scope: str) -> HTTPException:
+    settings = get_settings()
+    ip_key = request.client.host if request.client else "unknown"
+    logger.info("%s throttled (ip=%s)", scope, ip_key)
+    return HTTPException(
+        status_code=429,
+        detail="Too many invalid authentication attempts — please try again later.",
+        headers={"Retry-After": str(settings.auth_rate_limit_window_seconds)},
+    )
+
+
+def record_invalid_token_verification(
+    request: Request,
+    scope: str,
+    token_material: str,
+) -> bool:
+    """Record one classified-invalid JWT and report a saturated IP budget.
+
+    Callers may turn ``True`` into a 429 for *this invalid request*. They must
+    never carry the result forward to reject an unclassified future token.
+    """
+    settings = get_settings()
+    if not settings.auth_rate_limit_enabled:
+        return False
+    ip_key = request.client.host if request.client else "unknown"
+    token_key = hashlib.sha256(token_material.encode("utf-8")).hexdigest()
+    attempts = settings.auth_rate_limit_max_attempts
+    ip_attempts = attempts * INVALID_TOKEN_IP_LIMIT_MULTIPLIER
+    window = settings.auth_rate_limit_window_seconds
+    auth_limiter.record(
+        scope + "-token",
+        token_key,
+        window,
+        max_attempts=attempts,
+    )
+    auth_limiter.record(
+        scope + "-ip",
+        ip_key,
+        window,
+        max_attempts=ip_attempts,
+    )
+    return auth_limiter.is_blocked(scope + "-ip", ip_key, ip_attempts, window)
 
 
 async def current_user(
@@ -41,16 +140,24 @@ async def current_user(
     # canonical ``Bearer`` spelling only. HTTPBearer supplies the OpenAPI
     # security scheme, while this explicit check avoids silently changing
     # authorization behavior as part of that documentation fix.
-    authorization_values = request.headers.getlist("authorization")
-    authorization = authorization_values[0] if len(authorization_values) == 1 else None
+    bearer_token = single_bearer_token(request)
     if (
         credentials is None
         or credentials.scheme != "Bearer"
-        or authorization != f"Bearer {credentials.credentials}"
+        or bearer_token != credentials.credentials
     ):
         raise _unauthenticated("Missing bearer token")
-    claims = decode_access_claims(credentials.credentials)
+    guard_invalid_token_verification_budget(request, INVALID_ACCESS_TOKEN_SCOPE, bearer_token)
+    decoded = decode_access_claims_result(bearer_token)
+    claims = decoded.claims
     if claims is None:
+        if not decoded.expired:
+            if record_invalid_token_verification(
+                request,
+                INVALID_ACCESS_TOKEN_SCOPE,
+                bearer_token,
+            ):
+                raise invalid_token_rate_error(request, INVALID_ACCESS_TOKEN_SCOPE)
         raise _unauthenticated("Invalid or expired token")
     statement = select(User).where(User.id == claims.user_id)
     user = (await db.execute(statement)).scalar_one_or_none()
@@ -375,6 +482,11 @@ async def current_farm(
     # before this dependency runs.
     x_farm_id: Annotated[str, Header()],
 ) -> Farm:
+    # Tenant selection is an authorization input. Reverse proxies and ASGI
+    # servers are not required to choose the same member from duplicate
+    # headers, so never authorize a request under an ambiguous farm identity.
+    if len(request.headers.getlist("x-farm-id")) != 1:
+        raise HTTPException(status_code=400, detail="X-Farm-Id must be supplied exactly once")
     try:
         farm_id = int(x_farm_id)
     except ValueError:

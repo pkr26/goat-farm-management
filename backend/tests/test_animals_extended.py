@@ -1578,6 +1578,38 @@ async def test_profile_happy_structure(client: httpx.AsyncClient) -> None:
     assert profile["history_limit"] == 25
 
 
+async def test_profile_reports_sire_breeding_history(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner, tag="PROFILE-DOE")
+    buck = await make_buck(client, owner, tag="PROFILE-BUCK")
+    breeding = await make_breeding(client, owner, doe["id"], buck["id"], today())
+
+    doe_profile = await get_profile(client, owner, doe["id"])
+    buck_profile = await get_profile(client, owner, buck["id"])
+
+    assert doe_profile["breedings"] == [breeding["id"]]
+    assert doe_profile["breedings_total"] == 1
+    assert buck_profile["breedings"] == [breeding["id"]]
+    assert buck_profile["breedings_total"] == 1
+
+
+async def test_profile_moves_expose_business_effective_date(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    purchased_on = today() - timedelta(days=45)
+    animal = await make_animal(
+        client,
+        owner,
+        tag="PROFILE-MOVE-DATE",
+        purchase_date=iso(purchased_on),
+    )
+
+    profile = await get_profile(client, owner, animal["id"])
+
+    assert profile["moves"][0]["effective_date"] == iso(purchased_on)
+    # The audit insertion instant remains separately available.
+    assert profile["moves"][0]["moved_at"]
+
+
 async def test_profile_not_found_404(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     resp = await client.get("/api/animals/999999", headers=owner)

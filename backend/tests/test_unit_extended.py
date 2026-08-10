@@ -32,6 +32,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+import app.services.feeding as feeding_service
 from app import security
 from app.db import Base
 from app.models import (
@@ -990,6 +991,21 @@ def test_recipe_for_animal_uses_explicit_farm_business_date() -> None:
 
     assert recipe_for_animal(animal, date(2026, 3, 15), "UTC") == "DRY_ROUGHAGE_ONLY"
     assert recipe_for_animal(animal, date(2026, 3, 16), "UTC") == "MAINTENANCE_75_25"
+
+
+def test_recipe_for_animal_resolves_an_omitted_date_in_the_named_timezone(monkeypatch) -> None:
+    observed_timezones: list[str] = []
+
+    def fake_today(timezone_name: str) -> date:
+        observed_timezones.append(timezone_name)
+        return date(2026, 3, 15)
+
+    monkeypatch.setattr(feeding_service, "today", fake_today)
+    animal = make_animal_object(current_bucket=Bucket.FOUNDATION.value, bucket_moves=[])
+
+    recipe_for_animal(animal, timezone_name="America/Phoenix")
+
+    assert observed_timezones == ["America/Phoenix"]
 
 
 @pytest.mark.parametrize(

@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import Header, HTTPException, Response
+from fastapi import Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -31,7 +31,7 @@ SENSITIVE_IDEMPOTENCY_OPERATIONS = frozenset({"team.workers.create"})
 
 # Keep keys opaque but bounded and safe for HTTP/logging infrastructure:
 # printable, non-whitespace ASCII. The raw value is hashed before persistence.
-IdempotencyKey = Annotated[
+_IdempotencyHeader = Annotated[
     str | None,
     Header(
         alias="Idempotency-Key",
@@ -40,6 +40,28 @@ IdempotencyKey = Annotated[
         pattern=r"^[\x21-\x7e]+$",
     ),
 ]
+
+
+def single_idempotency_key(
+    request: Request,
+    value: _IdempotencyHeader = None,
+) -> str | None:
+    """Return one unambiguous retry identity.
+
+    ASGI servers and reverse proxies need not choose the same member from
+    duplicate request headers. Silently selecting one therefore lets the edge
+    and application disagree about which mutation is being deduplicated.
+    """
+    values = request.headers.getlist("idempotency-key")
+    if len(values) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail="Idempotency-Key must be supplied exactly once",
+        )
+    return value
+
+
+IdempotencyKey = Annotated[str | None, Depends(single_idempotency_key)]
 
 
 async def purge_expired_idempotency_records(

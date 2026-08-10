@@ -624,6 +624,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -640,15 +649,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -903,6 +903,15 @@
             }
           },
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -919,15 +928,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -2133,6 +2133,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -2149,15 +2158,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -2455,6 +2455,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -2471,15 +2480,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -2939,6 +2939,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -2955,15 +2964,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3222,6 +3222,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -3238,15 +3247,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3360,6 +3360,15 @@
             }
           },
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -3376,15 +3385,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3573,6 +3573,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -3589,15 +3598,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3659,6 +3659,15 @@
             }
           },
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -3675,15 +3684,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -3825,6 +3825,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -3841,15 +3850,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -4126,6 +4126,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -4142,15 +4151,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -4777,6 +4777,15 @@
         ],
         "parameters": [
           {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": false,
@@ -4793,15 +4802,6 @@
                 }
               ],
               "title": "Idempotency-Key"
-            }
-          },
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
             }
           }
         ],
@@ -6923,6 +6923,11 @@
             ],
             "title": "Reason"
           },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
           "moved_at": {
             "type": "string",
             "format": "date-time",
@@ -6935,6 +6940,7 @@
           "from_bucket",
           "to_bucket",
           "reason",
+          "effective_date",
           "moved_at"
         ],
         "title": "BucketMoveOut"

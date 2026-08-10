@@ -113,8 +113,19 @@ if os.environ.get("MOCK_PG_DUMP_FAIL") == "1":
 record("pg_restore")
 if "--list" in sys.argv and os.environ.get("MOCK_PG_RESTORE_LIST_FAIL") == "1":
     raise SystemExit(8)
-if "--list" not in sys.argv and os.environ.get("MOCK_PG_RESTORE_FAIL") == "1":
-    raise SystemExit(7)
+if "--list" not in sys.argv:
+    output = next(
+        (
+            argument.split("=", 1)[1]
+            for argument in sys.argv
+            if argument.startswith("--file=")
+        ),
+        None,
+    )
+    if output is None:
+        print("mock pg_restore expected a private SQL output file", file=sys.stderr)
+        raise SystemExit(7)
+    Path(output).write_text("-- mock restore SQL\\n")
 """,
     )
     _write_executable(
@@ -122,11 +133,26 @@ if "--list" not in sys.argv and os.environ.get("MOCK_PG_RESTORE_FAIL") == "1":
         f"""#!/usr/bin/env python3
 {common}
 record("psql")
-command = ""
+commands = [
+    argument.split("=", 1)[1]
+    for argument in sys.argv[1:]
+    if argument.startswith("--command=")
+]
 for index, argument in enumerate(sys.argv):
     if argument == "--command" and index + 1 < len(sys.argv):
-        command = sys.argv[index + 1]
-if "user_namespaces" in command:
+        commands.append(sys.argv[index + 1])
+command = "\\n".join(commands)
+if "atomic_restore_guard" in command:
+    if os.environ.get("MOCK_ATOMIC_USER_OBJECT_COUNT", "0") != "0":
+        print(
+            "target database acquired user schema objects before the atomic restore",
+            file=sys.stderr,
+        )
+        raise SystemExit(6)
+    if os.environ.get("MOCK_PG_RESTORE_FAIL") == "1":
+        print("mock restore SQL failed", file=sys.stderr)
+        raise SystemExit(7)
+elif "user_namespaces" in command:
     print(os.environ.get("MOCK_USER_OBJECT_COUNT", "0"))
 elif "FROM alembic_version" in command:
     print(os.environ.get("MOCK_ALEMBIC_REVISION", "f7d8c9b0a1e2"))
@@ -911,6 +937,33 @@ def test_production_alembic_refuses_unsafe_tls_before_engine_creation() -> None:
     assert "Refusing migration: GOATFARM_DB_SSLMODE='disable'" in result.stderr
 
 
+def test_health_compliance_migration_renders_safe_offline_preflight_and_validation() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "upgrade",
+            "a6c9e2f4b7d1:b7c8d9e0f1a2",
+            "--sql",
+        ],
+        cwd=REPO_ROOT / "backend",
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "DO $health_compliance_preflight$" in result.stdout
+    assert "Sample health_event ids" in result.stdout
+    assert "LIMIT 20" in result.stdout
+    assert "ck_health_events_compliance_requires_suspicion" in result.stdout
+    assert "NOT VALID" in result.stdout
+    assert "VALIDATE CONSTRAINT ck_health_events_compliance_requires_suspicion" in result.stdout
+
+
 def test_failed_second_offsite_upload_removes_remote_partial_only(
     tmp_path: Path,
 ) -> None:
@@ -1079,6 +1132,35 @@ def test_restore_rejects_objects_in_any_user_schema_before_mutation(
     assert "user_namespaces" in log
     assert log.count('"tool": "pg_restore"') == 1
     assert '"--single-transaction"' not in log
+
+
+def test_restore_rechecks_emptiness_under_release_lock_in_restore_transaction(
+    tmp_path: Path,
+) -> None:
+    """A DDL writer racing the friendly preflight must not leave an extra
+    object beside an otherwise successful restore."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env["MOCK_ATOMIC_USER_OBJECT_COUNT"] = "1"
+    archive = tmp_path / "goatfarm.dump"
+    archive.write_bytes(b"archive")
+    _write_checksum(archive)
+
+    result = _run_restore(archive, env)
+
+    assert result.returncode != 0
+    assert "acquired user schema objects" in result.stderr
+    calls = [json.loads(line) for line in _log_text(env).splitlines()]
+    transaction_calls = [
+        call for call in calls if call["tool"] == "psql" and "--single-transaction" in call["argv"]
+    ]
+    assert len(transaction_calls) == 1
+    transaction_args = "\n".join(transaction_calls[0]["argv"])
+    assert "pg_try_advisory_xact_lock(718204614)" in transaction_args
+    assert "atomic_restore_guard" in transaction_args
+    assert "--file=" in transaction_args
+    assert "FROM alembic_version" not in _log_text(env)
+    assert not list((tmp_path / "restore-tmp").iterdir())
 
 
 def test_restore_is_single_transaction_sanitizes_credentials_and_checks_alembic(
@@ -1400,6 +1482,7 @@ def _render_compose_network(
     *,
     subnet: str = "198.18.243.0/24",
     edge_address: str = "198.18.243.10",
+    public_scheme: str = "http",
     trusted_proxy_hosts: str | None = None,
 ) -> dict:
     """Emulate Compose interpolation for the network variables.
@@ -1421,6 +1504,7 @@ def _render_compose_network(
         f"${{GOATFARM_TRUSTED_PROXY_HOSTS:-{edge_address}}}",
         trusted_proxy_hosts if trusted_proxy_hosts is not None else edge_address,
     )
+    compose = compose.replace("${GOATFARM_EDGE_PUBLIC_SCHEME:-http}", public_scheme)
     return yaml.safe_load(compose)
 
 
@@ -1441,7 +1525,11 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
 
     # `$$` is Compose's escape; nginx receives single-dollar variables.
     proxy_conf = compose["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    assert "proxy_set_header Host $http_host;" in proxy_conf
+    assert "proxy_set_header Host $host;" not in proxy_conf
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in proxy_conf
+    assert "proxy_set_header X-Forwarded-Proto http;" in proxy_conf
+    assert "$http_x_forwarded_proto" not in proxy_conf
     assert "$$" not in proxy_conf
     assert "location /api/" in proxy_conf
     assert "proxy_pass http://backend:8000;" in proxy_conf
@@ -1489,6 +1577,17 @@ def test_compose_network_override_avoids_collision_without_weakening_proxy_trust
     assert lb_trust == "198.18.243.10,203.0.113.9"
 
 
+def test_compose_public_scheme_is_static_and_operator_controlled() -> None:
+    local = _render_compose_network(public_scheme="http")
+    tls_terminated = _render_compose_network(public_scheme="https")
+
+    local_proxy = local["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    tls_proxy = tls_terminated["configs"]["edge_proxy"]["content"].replace("$$", "$")
+    assert "proxy_set_header X-Forwarded-Proto http;" in local_proxy
+    assert "proxy_set_header X-Forwarded-Proto https;" in tls_proxy
+    assert "$http_x_forwarded_proto" not in local_proxy + tls_proxy
+
+
 def test_ci_cancels_only_superseded_pull_requests() -> None:
     for workflow_name in ("ci.yml", "security.yml"):
         workflow = (REPO_ROOT / ".github" / "workflows" / workflow_name).read_text()
@@ -1522,6 +1621,15 @@ def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> 
     assert "GOATFARM_DATABASE_URL=postgresql+asyncpg://" in compose_example
     assert "GOATFARM_MIGRATION_DATABASE_URL=postgresql+asyncpg://" in compose_example
     assert "Percent-encode reserved characters" in compose_example
+
+
+def test_migrations_and_restores_share_the_same_release_writer_lock() -> None:
+    alembic_env = (REPO_ROOT / "backend" / "alembic" / "env.py").read_text()
+    restore = RESTORE.read_text()
+
+    assert "RELEASE_WRITER_ADVISORY_LOCK_ID = 718204614" in alembic_env
+    assert "pg_try_advisory_lock({RELEASE_WRITER_ADVISORY_LOCK_ID})" in alembic_env
+    assert "pg_try_advisory_xact_lock(718204614)" in restore
 
 
 def test_migrations_do_not_inherit_the_request_path_statement_timeout(tmp_path: Path) -> None:

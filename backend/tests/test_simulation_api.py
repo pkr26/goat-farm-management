@@ -669,6 +669,138 @@ def test_run_cost_window_checks_the_prospective_request_cost() -> None:
     window.charge("user", 1, 99)
     assert not window.would_exceed_budget("user", 1, 1)
     assert window.would_exceed_budget("user", 1, 2)
+    assert window.would_exceed_any((("user", 2, 60), ("user", 2, 41)))
+
+
+def test_run_cost_window_saturation_admits_new_pair_and_preserves_hot_principal() -> None:
+    window = _RunCostWindow(window_seconds=60, budget=100, max_keys=4)
+    window.charge("user", 99, 99)  # one high-cost run => protected
+    window.charge("user", 98, 1)
+    window.charge("user", 98, 1)  # repeated cheap runs => protected
+    window.charge("farm", 900, 1)
+    window.charge("farm", 901, 1)
+
+    new_pair = (("user", 1, 1), ("farm", 1, 1))
+    assert not window.would_exceed_any(new_pair)
+    window.charge_many(new_pair)
+
+    assert len(window._spend) == 4
+    assert set(window._spend) == {
+        ("user", 99),
+        ("user", 98),
+        ("user", 1),
+        ("farm", 1),
+    }
+    assert set(window._totals) == set(window._spend)
+    assert set(window._cold).isdisjoint(window._protected)
+    assert set(window._cold) | set(window._protected) == set(window._spend)
+    assert window.would_exceed_budget("user", 99, 2)
+
+
+def test_run_cost_window_all_protected_saturation_evicts_oldest_deterministically() -> None:
+    window = _RunCostWindow(window_seconds=60, budget=100, max_keys=2)
+    for principal in (1, 2):
+        window.charge("user", principal, 50)
+        window.charge("user", principal, 50)
+
+    window.charge("user", 3, 1)
+
+    assert set(window._spend) == {("user", 2), ("user", 3)}
+    assert window.is_over_budget("user", 2)
+
+
+def test_run_cost_window_probe_refreshes_cold_lru_recency() -> None:
+    window = _RunCostWindow(window_seconds=60, budget=100, max_keys=2)
+    window.charge("user", 1, 1)
+    window.charge("user", 2, 1)
+    assert not window.would_exceed_budget("user", 1, 1)  # user 1 is now newest
+
+    window.charge("user", 3, 1)
+
+    assert set(window._spend) == {("user", 1), ("user", 3)}
+
+
+def test_run_cost_window_lazily_expires_saturated_candidates() -> None:
+    now = [1000.0]
+    window = _RunCostWindow(
+        window_seconds=60,
+        budget=100,
+        max_keys=2,
+        clock=lambda: now[0],
+    )
+    window.charge("user", 1, 50)
+    window.charge("user", 1, 50)
+    window.charge("farm", 1, 1)
+    now[0] += 61.0
+
+    window.charge("user", 2, 1)
+
+    assert ("user", 2) in window._spend
+    assert not window.is_over_budget("user", 1)
+    assert set(window._spend) == {("user", 2)}
+
+
+def test_saturated_run_cost_admission_does_constant_bucket_work(monkeypatch) -> None:
+    """Operation-count benchmark: saturation work is independent of map size."""
+    window = _RunCostWindow(window_seconds=60, budget=100, max_keys=10_000)
+    for principal in range(10_000):
+        window.charge("user", principal, 1)
+
+    class NonIterableLedger(dict[tuple[str, int], object]):
+        def __iter__(self):
+            raise AssertionError("saturated admission must not scan the principal ledger")
+
+        def keys(self):
+            raise AssertionError("saturated admission must not scan the principal ledger")
+
+    # Membership/get/set/pop remain available, but any accidental whole-map
+    # set/dict-view operation fails deterministically instead of relying on a
+    # timing threshold in CI.
+    window._spend = NonIterableLedger(window._spend)  # type: ignore[assignment]
+
+    prune_calls = 0
+    original = window._prune_bucket
+
+    def counted(bucket: tuple[str, int], *, touch: bool) -> int:
+        nonlocal prune_calls
+        prune_calls += 1
+        return original(bucket, touch=touch)
+
+    monkeypatch.setattr(window, "_prune_bucket", counted)
+    window.charge_many((("user", 20_001, 1), ("farm", 20_001, 1)))
+
+    assert len(window._spend) == 10_000
+    assert len(window._totals) == 10_000
+    assert len(window._cold) + len(window._protected) == 10_000
+    assert prune_calls == 4  # two requested keys + two LRU eviction candidates
+
+
+async def test_run_endpoint_key_saturation_does_not_globally_reject_new_farm(
+    client: httpx.AsyncClient,
+    monkeypatch,
+) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    _run_budget.clear()
+    monkeypatch.setattr(_run_budget, "_max_keys", 2)
+    _run_budget.charge("user", 999_999_991, 1)
+    _run_budget.charge("farm", 999_999_991, 1)
+    try:
+        response = await client.post(
+            "/api/simulation/run",
+            json={"assumptions": assumptions},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        tracked = set(_run_budget._spend)
+        assert len(tracked) == 2
+        assert ("farm", int(headers["X-Farm-Id"])) in tracked
+        assert sum(scope == "user" for scope, _key in tracked) == 1
+        assert ("user", 999_999_991) not in tracked
+        assert ("farm", 999_999_991) not in tracked
+    finally:
+        _run_budget.clear()
 
 
 async def test_run_endpoint_rejects_a_request_that_would_cross_cpu_budget(

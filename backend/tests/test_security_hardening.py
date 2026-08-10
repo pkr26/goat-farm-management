@@ -19,12 +19,14 @@ farm cap serializes concurrent creations on the user row.
 """
 
 import asyncio
+import hashlib
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
 from sqlalchemy import select
 
@@ -33,10 +35,10 @@ from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import FarmMembership, Role, User
 from app.ratelimit import SlidingWindowRateLimiter, auth_limiter
-from app.security import decode_token, issue_access_token
+from app.security import decode_access_claims, decode_token, issue_access_token
 
 from .conftest import login, owner_with_farm, register
-from .test_auth_extended import insert_user, make_pbkdf2_hash
+from .test_auth_extended import forge_token, insert_user, make_pbkdf2_hash, set_refresh_cookie
 
 PRODUCTION_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 
@@ -620,6 +622,209 @@ def rate_limit_one(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("rate_limit_one")
+async def test_invalid_access_tokens_are_blocked_before_repeated_signature_work(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every protected route used to verify unlimited attacker JWTs. Kidless
+    legacy-shaped tokens can try every rotation key, making this an unbounded
+    RSA-work endpoint before authentication or database authorization runs."""
+    from app import deps
+
+    real_decode = deps.decode_access_claims_result
+    calls = 0
+
+    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_decode(token)
+
+    monkeypatch.setattr(deps, "decode_access_claims_result", counted_decode)
+    # Two invalid-token ledgers exactly fill this deliberately tiny map. A
+    # valid new principal must still be able to register and authenticate;
+    # saturation is bookkeeping pressure, not a global auth kill switch.
+    monkeypatch.setattr(auth_limiter, "_max_keys", 2)
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    headers = {"Authorization": f"Bearer {forge_token(1, key=attacker_key)}"}
+    assert (await client.get("/api/auth/me", headers=headers)).status_code == 401
+    assert len(auth_limiter._hits) == 2
+    valid_headers = await register(client, "invalid-jwt-neighbor@farm.in")
+    # The narrow per-token threshold must not lock a valid bystander on the
+    # same IP; only the wider anti-spray IP ceiling is shared.
+    assert (await client.get("/api/auth/me", headers=valid_headers)).status_code == 200
+    blocked = await client.get("/api/auth/me", headers=headers)
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"] == "300"
+    assert calls == 2
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_verified_expired_access_token_stays_401_without_spending_invalid_budget(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A normal browser can issue several requests just after access expiry;
+    each 401 must remain refresh-triggering rather than becoming a limiter 429.
+    The token is signature/claim valid and therefore is not attacker input.
+    """
+    from app import deps
+
+    live_headers = await register(client, "expired-access-race@farm.in")
+    live_token = live_headers["Authorization"].removeprefix("Bearer ")
+    live_claims = decode_access_claims(live_token)
+    assert live_claims is not None
+    expired_token = forge_token(
+        live_claims.user_id,
+        ttl_seconds=-120,
+        ver=live_claims.token_version,
+    )
+
+    real_decode = deps.decode_access_claims_result
+    calls = 0
+
+    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_decode(token)
+
+    monkeypatch.setattr(deps, "decode_access_claims_result", counted_decode)
+    headers = {"Authorization": f"Bearer {expired_token}"}
+    responses = await asyncio.gather(
+        *(client.get("/api/auth/me", headers=headers) for _ in range(4))
+    )
+    assert [response.status_code for response in responses] == [401, 401, 401, 401]
+    assert all(response.json()["detail"] == "Invalid or expired token" for response in responses)
+    assert calls == 4
+    digest = hashlib.sha256(expired_token.encode("utf-8")).hexdigest()
+    assert ("access-token-invalid-token", digest) not in auth_limiter._hits
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_invalid_jwt_ip_spray_cannot_block_unclassified_authentic_tokens(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shared-IP history applies only after the current token is classified.
+
+    Ten distinct forgeries saturate the wide IP ledger. A live neighbor, an
+    authentic expired token, and logout must retain their normal semantics;
+    only a repeated *known-bad* token is stopped before another RSA decode.
+    """
+    from app import deps
+
+    live_headers = await register(client, "invalid-jwt-nat-neighbor@farm.in")
+    live_token = live_headers["Authorization"].removeprefix("Bearer ")
+    live_claims = decode_access_claims(live_token)
+    assert live_claims is not None
+    valid_refresh = client.cookies.get(get_settings().refresh_cookie_name)
+    assert valid_refresh is not None
+    expired_token = forge_token(
+        live_claims.user_id,
+        ttl_seconds=-120,
+        ver=live_claims.token_version,
+    )
+
+    real_decode = deps.decode_access_claims_result
+    calls = 0
+
+    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_decode(token)
+
+    monkeypatch.setattr(deps, "decode_access_claims_result", counted_decode)
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    bad_headers = [
+        {"Authorization": f"Bearer {forge_token(live_claims.user_id, key=attacker_key)}"}
+        for _ in range(10)
+    ]
+    assert len({headers["Authorization"] for headers in bad_headers}) == 10
+    spray = [await client.get("/api/auth/me", headers=headers) for headers in bad_headers]
+    assert [response.status_code for response in spray] == [*([401] * 9), 429]
+    assert calls == 10
+
+    assert (await client.get("/api/auth/me", headers=live_headers)).status_code == 200
+    expired = await client.get(
+        "/api/auth/me",
+        headers={"Authorization": f"Bearer {expired_token}"},
+    )
+    assert expired.status_code == 401
+    assert calls == 12
+
+    set_refresh_cookie(client, valid_refresh)
+    assert (await client.post("/api/auth/logout", headers=live_headers)).status_code == 204
+    assert (await client.get("/api/auth/me", headers=live_headers)).status_code == 401
+    calls_after_logout_check = calls
+
+    repeated = await client.get("/api/auth/me", headers=bad_headers[0])
+    assert repeated.status_code == 429
+    assert calls == calls_after_logout_check
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_logout_invalid_tokens_are_blocked_before_repeated_signature_work(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Logout is unauthenticated by design, but that must not make its access
+    and refresh JWT decoders an unlimited public cryptographic-work oracle."""
+    from app.api import auth as auth_api
+
+    real_decode = auth_api.decode_access_claims_result
+    calls = 0
+
+    def counted_decode(token: str):  # type: ignore[no-untyped-def]
+        nonlocal calls
+        calls += 1
+        return real_decode(token)
+
+    monkeypatch.setattr(auth_api, "decode_access_claims_result", counted_decode)
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    headers = {"Authorization": f"Bearer {forge_token(1, key=attacker_key)}"}
+    assert (await client.post("/api/auth/logout", headers=headers)).status_code == 204
+    blocked = await client.post("/api/auth/logout", headers=headers)
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"] == "300"
+    assert calls == 1
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_logout_bounds_each_invalid_token_when_the_other_component_is_authentic(
+    client: httpx.AsyncClient,
+) -> None:
+    """A valid component must not give the other decoder an unlimited pass.
+
+    This covers both mixed directions, including a verified-expired access JWT:
+    expiry itself remains uncharged, while an arbitrary refresh cookie beside
+    it is still bounded independently.
+    """
+    live_headers = await register(client, "mixed-logout-tokens@farm.in")
+    live_token = live_headers["Authorization"].removeprefix("Bearer ")
+    live_claims = decode_access_claims(live_token)
+    assert live_claims is not None
+    valid_refresh = client.cookies.get(get_settings().refresh_cookie_name)
+    assert valid_refresh is not None
+
+    invalid_access = {"Authorization": "Bearer attacker-access"}
+    set_refresh_cookie(client, valid_refresh)
+    assert (await client.post("/api/auth/logout", headers=invalid_access)).status_code == 204
+    set_refresh_cookie(client, valid_refresh)
+    assert (await client.post("/api/auth/logout", headers=invalid_access)).status_code == 429
+
+    auth_limiter.clear()
+    expired_access = forge_token(
+        live_claims.user_id,
+        ttl_seconds=-120,
+        ver=live_claims.token_version,
+    )
+    expired_headers = {"Authorization": f"Bearer {expired_access}"}
+    set_refresh_cookie(client, "attacker-refresh")
+    assert (await client.post("/api/auth/logout", headers=expired_headers)).status_code == 204
+    set_refresh_cookie(client, "attacker-refresh")
+    assert (await client.post("/api/auth/logout", headers=expired_headers)).status_code == 429
+
+
+@pytest.mark.usefixtures("rate_limit_one")
 async def test_login_per_email_ceiling_across_rotating_ips(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -717,6 +922,73 @@ def test_sliding_window_cardinality_is_hard_bounded() -> None:
         limiter.record("register", f"unique-{i}", 300)
     assert len(limiter._hits) == 25
     assert len(limiter._windows) == 25
+    assert len(limiter._limits) <= 25
+
+
+def test_cardinality_spray_cannot_evict_a_live_brute_force_counter() -> None:
+    """A full limiter preserves a hot victim without denying a new identity.
+
+    The old eviction policy made the target below the oldest inserted bucket:
+    one unique-key record evicted all three of its failures and reopened the
+    password-guessing budget immediately.
+    """
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0], max_keys=2)
+    for _ in range(3):
+        limiter.record("login-email", "victim@farm.in", 300, max_attempts=3)
+    limiter.record("login-email", "spray-1@farm.in", 300, max_attempts=3)
+
+    # A pure probe never allocates and is not globally denied merely because
+    # bookkeeping is full. If it later fails, the cold one-shot spray bucket
+    # is evicted while the threshold-reaching victim survives unchanged.
+    assert not limiter.is_blocked("login-email", "benign@farm.in", 3, 300)
+    assert ("login-email", "victim@farm.in") in limiter._hits
+    limiter.record("login-email", "spray-2@farm.in", 300, max_attempts=3)
+    assert limiter.is_blocked("login-email", "victim@farm.in", 3, 300)
+    assert ("login-email", "victim@farm.in") in limiter._hits
+    assert ("login-email", "spray-1@farm.in") not in limiter._hits
+    assert len(limiter._hits) == 2
+
+    # The protected counter is still a sliding window, not a permanent block.
+    now[0] += 301
+    assert not limiter.is_blocked("login-email", "spray-2@farm.in", 3, 300)
+
+
+def test_limiter_sweep_preserves_lru_order_and_demotes_aged_blocks_first() -> None:
+    """Expiry maintenance must not impersonate traffic and refresh every key.
+
+    Reclassifying all survivors with move_to_end reset cold LRU order to map
+    creation order every sweep. A protected bucket that ages below threshold
+    is older still and belongs at the cold tier's eviction front.
+    """
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(
+        clock=lambda: now[0],
+        max_keys=10,
+        sweep_interval_seconds=5,
+    )
+    limiter.record("login", "cold-a", 300, max_attempts=3)
+    now[0] += 1
+    limiter.record("login", "cold-b", 300, max_attempts=3)
+    # A real probe touches A, making B the older cold entry.
+    now[0] += 1
+    assert not limiter.is_blocked("login", "cold-a", 3, 300)
+    assert list(limiter._cold) == [("login", "cold-b"), ("login", "cold-a")]
+
+    now[0] += 5
+    assert not limiter.is_blocked("login", "unseen-probe", 3, 300)
+    assert list(limiter._cold) == [("login", "cold-b"), ("login", "cold-a")]
+
+    # Build a blocked counter whose oldest hit expires while its newer hit
+    # survives. Passive demotion places it ahead of both existing cold keys.
+    limiter.record("login", "aging", 10, max_attempts=2)
+    now[0] += 2
+    limiter.record("login", "aging", 10, max_attempts=2)
+    assert ("login", "aging") in limiter._protected
+    now[0] += 9  # cutoff expires the first hit but retains the second
+    assert not limiter.is_blocked("different", "sweep-trigger", 3, 10)
+    assert next(iter(limiter._cold)) == ("login", "aging")
+    assert ("login", "aging") not in limiter._protected
 
 
 def test_password_admission_reservations_are_nonwaiting_bounded_and_reusable() -> None:
@@ -962,6 +1234,15 @@ def test_cors_origins_are_stored_the_way_a_browser_sends_them(
     """CORSMiddleware matches `origin in allow_origins` exactly, so a value the
     production gate accepts must also be the value a browser presents."""
     assert Settings(cors_origins=[configured]).cors_origins == [expected]
+
+
+def test_cors_origins_reject_unicode_hosts_and_accept_explicit_punycode() -> None:
+    """Browsers put the WHATWG/Punycode host in Origin, never this Unicode key."""
+    with pytest.raises(ValidationError, match="ASCII/Punycode"):
+        Settings(cors_origins=["https://münich.example"])
+
+    punycode = "https://xn--mnich-kva.example"
+    assert Settings(cors_origins=[punycode]).cors_origins == [punycode]
 
 
 # --- account password workflows: budget and pool admission -------------------

@@ -26,7 +26,7 @@ import asyncio
 import json
 import math
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Annotated
 
@@ -205,7 +205,7 @@ _global_run_slots = asyncio.BoundedSemaphore(2)
 # (240 months, 2,000 Monte Carlo runs, sensitivity) ~497k.
 _RUN_BUDGET_WINDOW_SECONDS = 300
 _RUN_BUDGET_UNITS = 500_000
-_BREAK_EVEN_PASSES = 52  # npv_at(0), npv_at(5x) + 50 bisection steps
+_BREAK_EVEN_PASSES = 52  # npv_at(0), npv_at(schema ceiling) + 50 bisection steps
 _SENSITIVITY_PASSES = 17  # base + 8 parameters x (low, high)
 _RUN_BUDGET_MAX_KEYS = 50_000  # cardinality ceiling, mirroring app.ratelimit
 
@@ -243,43 +243,133 @@ class _RunCostWindow:
         self._max_keys = max_keys
         self._clock = clock
         self._spend: dict[tuple[str, int], deque[tuple[float, int]]] = {}
+        self._totals: dict[tuple[str, int], int] = {}
+        # O(1) LRU eviction tiers. A principal with repeated runs or a spent
+        # budget is protected from one-shot cardinality spray; if every slot
+        # is protected, the oldest protected principal is retired so map
+        # saturation can never become a process-wide admission outage.
+        self._cold: OrderedDict[tuple[str, int], None] = OrderedDict()
+        self._protected: OrderedDict[tuple[str, int], None] = OrderedDict()
 
     def is_over_budget(self, scope: str, key: int) -> bool:
         return self._spent(scope, key) >= self._budget
 
     def would_exceed_budget(self, scope: str, key: int, cost: int) -> bool:
         """Whether admitting ``cost`` would cross the window ceiling."""
-        return self._spent(scope, key) + cost > self._budget
+        return self.would_exceed_any(((scope, key, cost),))
+
+    def would_exceed_any(self, charges: tuple[tuple[str, int, int], ...]) -> bool:
+        """Whether a complete request would cross any principal's budget.
+
+        A pure probe never rejects an unseen principal merely because the
+        bounded bookkeeping map is full. ``charge_many`` makes room only once
+        an admitted request actually needs to enter the ledger.
+        """
+        prospective: dict[tuple[str, int], int] = {}
+        for scope, key, cost in charges:
+            bucket = (scope, key)
+            prospective[bucket] = prospective.get(bucket, 0) + cost
+        return any(
+            self._spent(scope, key) + cost > self._budget
+            for (scope, key), cost in prospective.items()
+        )
 
     def charge(self, scope: str, key: int, cost: int) -> None:
-        bucket = (scope, key)
-        self._spent(scope, key)  # prune first so the ceiling counts live keys
-        if bucket not in self._spend and len(self._spend) >= self._max_keys:
-            self._sweep()
-        if bucket not in self._spend and len(self._spend) >= self._max_keys:
-            return  # spray of unique keys: drop the charge rather than the process
-        self._spend.setdefault(bucket, deque()).append((self._clock(), cost))
+        self.charge_many(((scope, key, cost),))
+
+    def charge_many(self, charges: tuple[tuple[str, int, int], ...]) -> None:
+        """Atomically book all principals with bounded, tiered LRU eviction."""
+        requested = {(scope, key) for scope, key, _cost in charges}
+        if len(requested) > self._max_keys:
+            raise RuntimeError("Simulation CPU budget cannot track this principal set")
+        # Direct test/internal callers may charge without a preceding probe.
+        # Lazily expire the requested keys before computing how many new slots
+        # are needed; the public API performs the same work during preflight.
+        for bucket in requested:
+            self._prune_bucket(bucket, touch=True)
+        # Iterate the request's (normally two) principals, never the 50k-key
+        # ledger. ``requested - self._spend.keys()`` looks equivalent but
+        # CPython's mixed set/dict-view difference walks the large operand.
+        missing = {bucket for bucket in requested if bucket not in self._spend}
+        while len(self._spend) + len(missing) > self._max_keys:
+            if not self._evict_one(exclude=requested):
+                raise RuntimeError("Simulation CPU budget principal capacity exhausted")
+        charged_at = self._clock()
+        for scope, key, cost in charges:
+            bucket = (scope, key)
+            self._spend.setdefault(bucket, deque()).append((charged_at, cost))
+            self._totals[bucket] = self._totals.get(bucket, 0) + cost
+            self._reclassify(bucket, touch=True)
 
     def clear(self) -> None:
         """Test hook: drop all recorded spend."""
         self._spend.clear()
+        self._totals.clear()
+        self._cold.clear()
+        self._protected.clear()
 
     def _spent(self, scope: str, key: int) -> int:
-        bucket = (scope, key)
+        return self._prune_bucket((scope, key), touch=True)
+
+    def _prune_bucket(self, bucket: tuple[str, int], *, touch: bool) -> int:
         entries = self._spend.get(bucket)
         if entries is None:
             return 0  # a pure budget probe must not allocate a dictionary key
         cutoff = self._clock() - self._window_seconds
+        total = self._totals[bucket]
         while entries and entries[0][0] <= cutoff:
-            entries.popleft()
+            _recorded_at, expired_cost = entries.popleft()
+            total -= expired_cost
         if not entries:
-            del self._spend[bucket]
+            self._drop(bucket)
             return 0
-        return sum(cost for _, cost in entries)
+        self._totals[bucket] = total
+        self._reclassify(bucket, touch=touch)
+        return total
 
-    def _sweep(self) -> None:
-        for scope, key in list(self._spend):
-            self._spent(scope, key)
+    def _drop(self, bucket: tuple[str, int]) -> None:
+        self._spend.pop(bucket, None)
+        self._totals.pop(bucket, None)
+        self._cold.pop(bucket, None)
+        self._protected.pop(bucket, None)
+
+    def _is_protected(self, bucket: tuple[str, int]) -> bool:
+        # Two runs establish a hot principal even if both were cheap. A single
+        # run that spends at least half the window budget is equally important:
+        # evicting it would let successive schema-maximal runs reset their
+        # accounting under one-shot spray pressure.
+        return len(self._spend[bucket]) >= 2 or self._totals[bucket] * 2 >= self._budget
+
+    def _reclassify(self, bucket: tuple[str, int], *, touch: bool) -> None:
+        """Refresh one principal's eviction tier and optional LRU recency."""
+        if bucket not in self._spend:
+            return
+        target = self._protected if self._is_protected(bucket) else self._cold
+        other = self._cold if target is self._protected else self._protected
+        was_in_target = bucket in target
+        if not was_in_target:
+            other.pop(bucket, None)
+            target[bucket] = None
+            if not touch:
+                # Expiry can demote an old protected key. It belongs at the
+                # cold tier's eviction front, not among recently used keys.
+                target.move_to_end(bucket, last=False)
+        elif touch:
+            target.move_to_end(bucket)
+
+    def _evict_one(self, *, exclude: set[tuple[str, int]]) -> bool:
+        """Retire one least-valuable principal without scanning the key map."""
+        for tier in (self._cold, self._protected):
+            candidate = next((bucket for bucket in tier if bucket not in exclude), None)
+            if candidate is None:
+                continue
+            # Expiry is lazy and bounded to the selected LRU candidate. If it
+            # is still live, evict it; either path frees exactly one slot.
+            self._prune_bucket(candidate, touch=False)
+            if candidate in self._spend:
+                self._drop(candidate)
+            return True
+        return False
 
 
 _run_budget = _RunCostWindow(
@@ -291,8 +381,8 @@ _run_budget = _RunCostWindow(
 
 def _check_run_budget(farm_id: int, user_id: int, cost: int) -> None:
     """429 when admitting ``cost`` would exceed either principal's budget."""
-    if _run_budget.would_exceed_budget("user", user_id, cost) or _run_budget.would_exceed_budget(
-        "farm", farm_id, cost
+    if _run_budget.would_exceed_any(
+        (("user", user_id, cost), ("farm", farm_id, cost)),
     ):
         raise HTTPException(
             status_code=429,
@@ -303,8 +393,9 @@ def _check_run_budget(farm_id: int, user_id: int, cost: int) -> None:
 
 def _charge_run_budget(farm_id: int, user_id: int, cost: int) -> None:
     """Book a request's cost before it runs, so its own spend counts."""
-    _run_budget.charge("user", user_id, cost)
-    _run_budget.charge("farm", farm_id, cost)
+    _run_budget.charge_many(
+        (("user", user_id, cost), ("farm", farm_id, cost)),
+    )
 
 
 def _farm_run_lock(farm_id: int) -> asyncio.Lock:

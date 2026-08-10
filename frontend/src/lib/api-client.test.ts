@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   apiFetch,
+  apiFetchEnvelope,
   setAccessToken,
   setCurrentFarmId,
   setOnAuthFailure,
@@ -168,6 +169,57 @@ describe("apiFetch", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
     await apiFetch("/api/buckets");
     expect((fetchMock.mock.calls[0][1]?.headers as Headers).get("Authorization")).toBeNull();
+  });
+
+  it("rejects a successful response that arrives after the authenticated actor changes", async () => {
+    const actorOne = actorToken(1);
+    const actorTwo = actorToken(2);
+    let resolveResponse!: (response: Response) => void;
+    setAccessToken(actorOne, 1);
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+
+    const request = apiFetch<{ private_value: string }>("/api/auth/account/export");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    setAccessToken(actorTwo, 2);
+    resolveResponse(jsonResponse(200, { private_value: "actor-one-only" }));
+
+    await expect(request).rejects.toMatchObject({ name: "AuthSessionChangedError" });
+  });
+
+  it("rejects an envelope when its body finishes parsing after the actor changes", async () => {
+    const actorOne = actorToken(1);
+    const actorTwo = actorToken(2);
+    let resolveJson!: (body: unknown) => void;
+    let markJsonStarted!: () => void;
+    const jsonStarted = new Promise<void>((resolve) => {
+      markJsonStarted = resolve;
+    });
+    setAccessToken(actorOne, 1);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: vi.fn(() => {
+        markJsonStarted();
+        return new Promise<unknown>((resolve) => {
+          resolveJson = resolve;
+        });
+      }),
+    } as unknown as Response);
+
+    const request = apiFetchEnvelope<{ private_value: string }>("/api/animals");
+    await jsonStarted;
+
+    setAccessToken(actorTwo, 2);
+    resolveJson({ private_value: "actor-one-only" });
+
+    await expect(request).rejects.toMatchObject({ name: "AuthSessionChangedError" });
   });
 
   it("calls onAuthFailure and clears the token when the refresh fails", async () => {

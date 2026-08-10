@@ -307,6 +307,16 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   credentials. Percent-encode reserved characters in URL usernames/passwords;
   production should use a DDL-free API role and a distinct DDL-capable
   migration role. Only the edge port is host-published.
+  Supported Alembic and restore jobs share a database advisory lock, so two
+  release/restore writers fail closed instead of racing. This protocol cannot
+  stop manually issued DDL that ignores the application tooling: quiesce all
+  operator schema changes and give the restore job exclusive rollout ownership
+  until its final Alembic marker check succeeds.
+  Migration `b7c8d9e0f1a2` also fails closed if a legacy health event has an
+  authority-notification or isolation date without scheduled-disease suspicion.
+  Preserve those compliance dates; reconcile each flagged event by confirming
+  `suspected_scheduled_disease=true` and a nonblank `disease_target`, then retry
+  the migration. The error reports the count and sample event IDs.
   The release that first applies security migration `f4e5f6a7b8c9` is a
   one-time exception to an ordinary rolling cutover: drain password-bearing
   worker-create traffic and stop every pre-HMAC API instance, apply the
@@ -341,7 +351,9 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   port 3000; the API's `8000` and the frontend's `3000` remain internal-only. It
   proxies `/api/` straight to `backend:8000` and everything else to
   `frontend:3000`, preserves the browser's `Host`, appends
-  `X-Forwarded-For`/`X-Forwarded-Proto`, and mirrors
+  `X-Forwarded-For`, sets `X-Forwarded-Proto` from the static
+  `GOATFARM_EDGE_PUBLIC_SCHEME` deployment value (never from a client header),
+  and mirrors
   `GOATFARM_MAX_REQUEST_BODY_BYTES` with `client_max_body_size 1m`. The `edge`
   holds one fixed address inside the operator-selectable
   `GOATFARM_DOCKER_SUBNET` network so
@@ -352,7 +364,8 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   `GOATFARM_TRUSTED_PROXY_HOSTS` in `.env` still overrides the trust list —
   required when an additional outer proxy or load balancer fronts the edge,
   whose address must also be trusted or every client keys the per-IP auth
-  ceilings as one IP. If the documented default conflicts with a host, VPN,
+  ceilings as one IP. Set `GOATFARM_EDGE_PUBLIC_SCHEME=https` when that outer
+  hop terminates public TLS. If the documented default conflicts with a host, VPN,
   or cloud route, override the subnet and an address inside it in `.env`; no
   Compose-file edit is required — but note that changing the subnet or edge
   IP of an **already-created** stack (including upgrading across a release

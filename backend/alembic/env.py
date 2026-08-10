@@ -39,6 +39,10 @@ target_metadata = Base.metadata
 # DDL that can't acquire its lock within this window aborts the migration
 # (loud, retryable) rather than piling up blocked sessions behind it.
 LOCK_TIMEOUT = "10s"
+# Serialize every supported schema writer with restore.sh. A session lock
+# survives the SET transaction commit below and is released automatically when
+# this one-shot Alembic connection closes, including after a failed migration.
+RELEASE_WRITER_ADVISORY_LOCK_ID = 718204614
 
 
 def run_migrations_offline() -> None:
@@ -75,14 +79,25 @@ async def run_migrations_online() -> None:
             "server_settings": {"statement_timeout": str(settings.migration_statement_timeout_ms)},
         },
     )
-    async with connectable.connect() as connection:
-        # Session-level SET autobegins a transaction in SQLAlchemy 2.0 —
-        # commit it, or Alembic would join that outer transaction and every
-        # migration would roll back when the connection closes.
-        await connection.execute(text(f"SET lock_timeout = '{LOCK_TIMEOUT}'"))
-        await connection.commit()
-        await connection.run_sync(do_run_migrations)
-    await connectable.dispose()
+    try:
+        async with connectable.connect() as connection:
+            release_lock_acquired = await connection.scalar(
+                text(f"SELECT pg_try_advisory_lock({RELEASE_WRITER_ADVISORY_LOCK_ID})")
+            )
+            if release_lock_acquired is not True:
+                raise RuntimeError(
+                    "Another supported migration or restore writer owns the target database"
+                )
+            # Session-level SET autobegins a transaction in SQLAlchemy 2.0 —
+            # commit it, or Alembic would join that outer transaction and every
+            # migration would roll back when the connection closes.
+            await connection.execute(text(f"SET lock_timeout = '{LOCK_TIMEOUT}'"))
+            await connection.commit()
+            await connection.run_sync(do_run_migrations)
+    finally:
+        # Physically close the pooled connection on every failure path too, so
+        # the session advisory lock never survives in an embedded invocation.
+        await connectable.dispose()
 
 
 if context.is_offline_mode():

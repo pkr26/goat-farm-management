@@ -173,7 +173,7 @@ def recipe_for_animal(
     Pure python (stays synchronous). Callers may provide SQL-derived
     ``bucket_days``; otherwise date-sensitive buckets read the animal's loaded
     bucket history."""
-    ref = ref or today()
+    ref = ref or today(timezone_name)
     bucket = animal.current_bucket
     if bucket in (Bucket.QUARANTINE.value, Bucket.RESTING.value):
         bucket_days = (

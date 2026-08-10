@@ -208,7 +208,11 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
         ),
         _SensitivityCase(
             "feed_prices",
-            lambda v: v.feed.green_price_per_kg,
+            lambda v: (
+                v.feed.green_price_per_kg
+                + v.feed.dry_price_per_kg
+                + v.feed.concentrate_price_per_kg
+            ),
             _pct_label,
             lambda v: _scale_feed_prices(v, 0.8),
             lambda v: _scale_feed_prices(v, 1.2),

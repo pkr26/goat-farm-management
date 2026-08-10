@@ -320,6 +320,10 @@ describe("FarmSelectPage — create a farm", () => {
     await user.click(screen.getByRole("button", { name: /create farm/i }));
 
     expect(screen.getByRole("button", { name: /creating…/i })).toBeDisabled();
+    // Selecting a different farm while creation is pending would let the two
+    // completions race and whichever resolved last would replace the active
+    // farm/navigation chosen by the operator.
+    expect(cardOf("Test Goat Farm")).toBeDisabled();
 
     resolveCreate();
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));

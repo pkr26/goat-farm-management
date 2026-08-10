@@ -227,9 +227,15 @@ async function rawFetch(
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const sessionScope = authSessionEpoch;
   const resp = await apiResponse(path, init);
+  assertAuthSession(sessionScope);
   if (resp.status === 204) return undefined as T;
-  return (await resp.json()) as T;
+  const data = (await resp.json()) as T;
+  // Response bodies are asynchronous streams. The actor can change after
+  // headers arrive but before JSON parsing finishes, so guard both edges.
+  assertAuthSession(sessionScope);
+  return data;
 }
 
 /** The only /api/auth/* paths exempt from the 401→refresh retry: a 401 there
@@ -254,14 +260,18 @@ async function apiResponseOnce(
 ): Promise<Response> {
   assertAuthSession(sessionScope);
   let resp = await rawFetch(path, init, farmScope);
+  assertAuthSession(sessionScope);
+  let clearedSession = false;
   if (resp.status === 401 && !NO_REFRESH_PATHS.has(path)) {
     const refreshed = await tryRefresh();
     assertAuthSession(sessionScope);
     if (refreshed) {
       resp = await rawFetch(path, init, farmScope);
+      assertAuthSession(sessionScope);
     } else {
       setAccessToken(null);
       onAuthFailure?.();
+      clearedSession = true;
     }
   }
   if (!resp.ok) {
@@ -271,6 +281,10 @@ async function apiResponseOnce(
     } catch {
       /* non-JSON error body */
     }
+    // A failed refresh deliberately ended this request's own session; retain
+    // the original 401 in that one case. All other delayed error bodies must
+    // not cross an unrelated logout/login boundary either.
+    if (!clearedSession) assertAuthSession(sessionScope);
     throw new ApiError(resp.status, extractDetail(body, resp.statusText));
   }
   // Fully consume protected successful bodies before their logical request is
@@ -313,7 +327,10 @@ export async function apiFetchEnvelope<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<{ data: T; status: number; headers: Headers }> {
+  const sessionScope = authSessionEpoch;
   const resp = await apiResponse(path, init);
+  assertAuthSession(sessionScope);
   const data = resp.status === 204 ? undefined : await resp.json();
+  assertAuthSession(sessionScope);
   return { data: data as T, status: resp.status, headers: resp.headers };
 }

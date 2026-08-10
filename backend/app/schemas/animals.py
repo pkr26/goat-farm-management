@@ -188,6 +188,7 @@ class BucketMoveOut(BaseModel):
     from_bucket: str | None
     to_bucket: str
     reason: str | None
+    effective_date: date
     moved_at: datetime
 
 

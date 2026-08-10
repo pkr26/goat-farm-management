@@ -2565,6 +2565,20 @@ async def test_supplier_name_cannot_hijack_the_quarantine_vaccine_template(
     fmd_task = next(t for t in detail["tasks"] if "FMD" in t["title"])
     assert et_task["title"].startswith("[PPR Traders #")
 
+    # This is one combined duty: recording ET alone must not silently close
+    # the missing Tetanus half merely because the storage template is ET.
+    half = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=batch["id"],
+        type="VACCINE",
+        disease_target="ET",
+        task_id=et_task["id"],
+    )
+    assert half.status_code == 422, half.text
+    assert half.json()["detail"] == "Disease target does not match the linked task"
+
     # The correct entry is accepted and filed under the real programme item.
     events = await record_event(
         client,
@@ -2602,6 +2616,7 @@ async def test_supplier_name_cannot_hijack_the_quarantine_vaccine_template(
         task_id=fmd_task["id"],
     )
     assert blank[0]["schedule_template_name"] == "FMD"
+    assert blank[0]["disease_target"] == "FMD"
     refreshed = await get_batch(client, headers, batch["id"])
     assert next(t for t in refreshed["tasks"] if t["id"] == pox_task["id"])["status"] == "PENDING"
 

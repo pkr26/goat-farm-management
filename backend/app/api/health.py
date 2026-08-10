@@ -47,12 +47,14 @@ from ..schemas.health import (
 from ..schemas.summaries import AnimalIdentityOut
 from ..services import (
     IdempotencyKey,
+    canonical_target_for_task,
     complete_task,
     execute_idempotent,
     inferred_schedule_template,
     record_health_event,
     require_animal_event_chronology,
     require_farm_not_future,
+    target_matches_task,
     target_matches_template,
     template_name_for_task,
     vaccination_schedule_for_animal,
@@ -672,6 +674,7 @@ async def _record_event_mutation(
             detail="withdrawal_until cannot be before the health event date",
         )
 
+    disease_target = (payload.disease_target or "").strip()
     requested_template = (payload.schedule_template_name or "").strip() or None
     template_name: str | None
     template = None
@@ -681,9 +684,7 @@ async def _record_event_mutation(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         template_name = str(template.name) if template is not None else None
-        if template_name is not None and not target_matches_template(
-            payload.disease_target or "", template_name
-        ):
+        if template_name is not None and not target_matches_template(disease_target, template_name):
             raise HTTPException(
                 status_code=422,
                 detail="Disease target does not match the selected schedule template",
@@ -736,7 +737,7 @@ async def _record_event_mutation(
                 raise HTTPException(
                     status_code=422, detail="Health template does not match the linked task"
                 )
-            if not target_matches_template(payload.disease_target or "", expected_template):
+            if not target_matches_task(disease_target, task.title, task.category):
                 raise HTTPException(
                     status_code=422, detail="Disease target does not match the linked task"
                 )
@@ -745,6 +746,8 @@ async def _record_event_mutation(
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
             template_name = expected_template
+            if not disease_target:
+                disease_target = canonical_target_for_task(task.title, task.category) or ""
         await complete_task(db, task, user)
 
     if template is None:
@@ -752,7 +755,7 @@ async def _record_event_mutation(
             db,
             payload.type,
             (payload.product_name or "").strip(),
-            (payload.disease_target or "").strip(),
+            disease_target,
         )
     template_id = template.id if template is not None else None
 
@@ -764,7 +767,7 @@ async def _record_event_mutation(
         event_date,
         payload.type,
         (payload.product_name or "").strip(),
-        (payload.disease_target or "").strip(),
+        disease_target,
         (payload.dose or "").strip(),
         (payload.route or "").strip(),
         (payload.vet_name or "").strip(),

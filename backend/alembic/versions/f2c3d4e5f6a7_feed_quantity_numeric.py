@@ -50,7 +50,7 @@ def _preflight_quantity(table: str, column: str) -> None:
         "CASE "
         f"WHEN \"{column}\"::text IN ('NaN', 'Infinity', '-Infinity') THEN 'non-finite' "
         f"WHEN abs(\"{column}\"::numeric) > {_MAX_NUMERIC_15_3} THEN 'overflow' "
-        f"WHEN \"{column}\"::numeric <> round(\"{column}\"::numeric, 3) THEN 'sub-gram' "
+        f'WHEN "{column}"::numeric <> round("{column}"::numeric, 3) THEN \'sub-gram\' '
         "END"
     )
     rows = (

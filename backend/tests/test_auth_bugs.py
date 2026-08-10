@@ -87,6 +87,30 @@ async def test_farm_header_beyond_int32_returns_404(
     assert resp.status_code == 404, resp.status_code
 
 
+async def test_duplicate_farm_headers_are_rejected_as_ambiguous(
+    client: httpx.AsyncClient,
+) -> None:
+    """Tenant selection is an authorization input. A proxy and ASGI server
+    may select different values from duplicate X-Farm-Id fields, so the API
+    must not silently choose one farm and execute under that tenant context.
+    """
+    bearer = await register(client, "duplicate-farm-header@farm.in")
+    first = await client.post("/api/auth/farms", json={"name": "First Farm"}, headers=bearer)
+    second = await client.post("/api/auth/farms", json={"name": "Second Farm"}, headers=bearer)
+    assert first.status_code == second.status_code == 201
+
+    response = await client.get(
+        "/api/auth/permissions",
+        headers=[
+            *bearer.items(),
+            ("X-Farm-Id", str(first.json()["id"])),
+            ("X-Farm-Id", str(second.json()["id"])),
+        ],
+    )
+    assert response.status_code == 400
+    assert "exactly once" in response.json()["detail"]
+
+
 # FIXED — regression test
 async def test_login_with_non_argon2_stored_hash_returns_401(client: httpx.AsyncClient) -> None:
     """verify_password caught VerifyMismatchError/VerificationError/
@@ -125,3 +149,42 @@ async def test_login_with_bcrypt_stored_hash_returns_401(client: httpx.AsyncClie
         "/api/auth/login", json={"email": "bcrypt@farm.in", "password": OWNER_PW}
     )
     assert resp.status_code == 401, resp.status_code
+
+
+async def test_logout_rejects_ambiguous_duplicate_authorization_headers(
+    client: httpx.AsyncClient,
+) -> None:
+    """Logout is state-changing even though it intentionally returns 204 for
+    unauthenticated callers. It must share CurrentUser's duplicate-header rule:
+    a proxy and the app may select different values from two Authorization
+    fields, so neither principal is safe to revoke when the request is
+    ambiguous.
+    """
+    first = await register(client, "duplicate-auth-a@farm.in")
+    second = await register(client, "duplicate-auth-b@farm.in")
+    client.cookies.clear()  # exercise bearer-only logout, not the refresh cookie
+
+    response = await client.post(
+        "/api/auth/logout",
+        headers=[
+            ("Authorization", first["Authorization"]),
+            ("Authorization", second["Authorization"]),
+        ],
+    )
+    assert response.status_code == 204
+    assert (await client.get("/api/auth/me", headers=first)).status_code == 200
+    assert (await client.get("/api/auth/me", headers=second)).status_code == 200
+
+
+async def test_cookie_origin_guard_uses_origin_not_root_path() -> None:
+    """When the API is mounted below a proxy root_path, Request.base_url
+    contains that path but a browser Origin never does. Same-origin refreshes
+    must compare scheme+authority rather than an impossible path-bearing value.
+    """
+    from app.main import create_app
+
+    transport = httpx.ASGITransport(app=create_app(), root_path="/mounted")
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as mounted:
+        await register(mounted, "root-path-origin@farm.in")
+        response = await mounted.post("/api/auth/refresh", headers={"Origin": "http://test"})
+    assert response.status_code == 200, response.text

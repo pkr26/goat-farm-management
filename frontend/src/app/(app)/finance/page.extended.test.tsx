@@ -481,6 +481,21 @@ describe("FinancePage correction dialog", () => {
     expect(correctionCalls).toBe(0);
   });
 
+  it("does not coerce a blank correction amount into a zero-value replacement", async () => {
+    const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
+    await user.clear(within(dialog).getByLabelText("Amount (₹) *"));
+    await user.type(
+      within(dialog).getByLabelText("Correction reason *"),
+      "Correct receipt",
+    );
+
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+
+    expect(await within(dialog).findByText("Amount is required")).toBeInTheDocument();
+    expect(correctionCalls).toBe(0);
+  });
+
   it("posts a full replacement while preserving the original as an audit row", async () => {
     const { user, dialog } = await openCorrection();
     await confirmCorrection(user, dialog);

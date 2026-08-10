@@ -138,9 +138,15 @@ configs:
           # Preserve the browser's Host: TrustedHostMiddleware validates it and
           # the SPA builds same-origin URLs from it. X-Forwarded-For is what
           # lets the API key its auth rate limits on the real client.
-          proxy_set_header Host $$host;
+          # $host discards a non-default public port (notably Compose's :3000),
+          # making FastAPI's canonical slash redirects point at the wrong
+          # origin. HTTP/1.1+ supplies $http_host from Host/:authority, intact.
+          proxy_set_header Host $$http_host;
           proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
-          proxy_set_header X-Forwarded-Proto $$scheme;
+          # Never trust a client-supplied forwarding header. Compose's edge is
+          # HTTP locally; a deployment with a trusted TLS terminator pins this
+          # operator-controlled value to `https` in the root .env file.
+          proxy_set_header X-Forwarded-Proto ${GOATFARM_EDGE_PUBLIC_SCHEME:-http};
           proxy_http_version 1.1;
           # Mirrors GOATFARM_MAX_REQUEST_BODY_BYTES: reject oversized bodies at
           # the edge rather than inside the application.

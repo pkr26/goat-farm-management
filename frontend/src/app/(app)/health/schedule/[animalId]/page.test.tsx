@@ -141,7 +141,7 @@ describe("VaccinationSchedulePage", () => {
     expect(attempts).toBe(2);
   });
 
-  it.each(["abc", "0", "-3", "2.5"])(
+  it.each(["abc", "0", "-3", "2.5", "1e2", "9007199254740992"])(
     "rejects the invalid animal id %s without fetching",
     async (bad) => {
       paramsMock.animalId = bad;

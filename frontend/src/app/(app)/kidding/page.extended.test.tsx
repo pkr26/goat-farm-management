@@ -763,6 +763,22 @@ describe("KiddingPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
+    it("does not reinterpret a scientific-notation deep-link id as another pregnancy", async () => {
+      let detailCalls = 0;
+      server.use(
+        http.get("/api/kidding/pregnancies/100", () => {
+          detailCalls += 1;
+          return HttpResponse.json(makeBreeding({ id: 100 }));
+        }),
+      );
+      navState.search = "?breeding_id=1e2";
+
+      await renderLoaded();
+
+      expect(detailCalls).toBe(0);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
     it("fetches and opens a linked pregnancy outside both current due pages", async () => {
       const older = makeBreeding({
         id: 99,

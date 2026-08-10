@@ -89,7 +89,10 @@ function VaccinationSchedulePageContent() {
   const params = useParams<{ animalId: string }>();
   const searchParams = useSearchParams();
   const animalId = Number(params.animalId);
-  const validId = Number.isInteger(animalId) && animalId > 0;
+  const validId =
+    /^\d+$/.test(params.animalId) &&
+    Number.isSafeInteger(animalId) &&
+    animalId > 0;
 
   const query = useVaccinationScheduleApiHealthScheduleAnimalIdGet(animalId, {
     query: { enabled: allowed && validId },

@@ -573,11 +573,53 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         Task.assigned_role_id.is_(None),
         Task.category.in_(list(TASK_CATEGORY_ROLE_MAP)),
     )
+    candidate = or_(pending_personal_without_role, legacy_generated_without_role)
+
+    # Do not let one currently unresolvable low-ID row monopolize every
+    # ordered batch.  SKIP LOCKED only skips rows held by *other* transactions;
+    # after this transaction commits, an unchanged row is immediately selected
+    # again.  That used to starve every later repair forever (and made the
+    # hourly worker burn its complete max-batch budget on the same rows).
+    #
+    # A personal assignment can be recovered from its retained same-farm
+    # membership.  Otherwise, mapped generated duties can use the farm's live
+    # preset role.  Correlated EXISTS predicates keep the claim set limited to
+    # rows that have one of those sources *now*; a later membership/role repair
+    # makes a previously skipped row eligible automatically.
+    membership_role_exists = (
+        select(FarmMembership.id)
+        .where(
+            FarmMembership.farm_id == Task.farm_id,
+            FarmMembership.user_id == Task.assigned_user_id,
+        )
+        .correlate(Task)
+        .exists()
+    )
+    preset_role_exists = or_(
+        *[
+            and_(
+                Task.category == category,
+                select(Role.id)
+                .where(
+                    Role.farm_id == Task.farm_id,
+                    Role.code == role_code,
+                    Role.deleted_at.is_(None),
+                )
+                .correlate(Task)
+                .exists(),
+            )
+            for category, role_code in TASK_CATEGORY_ROLE_MAP.items()
+        ]
+    )
+    resolvable = or_(
+        and_(Task.assigned_user_id.is_not(None), membership_role_exists),
+        preset_role_exists,
+    )
     tasks = list(
         (
             await db.execute(
                 select(Task)
-                .where(or_(pending_personal_without_role, legacy_generated_without_role))
+                .where(candidate, resolvable)
                 .order_by(Task.id)
                 .limit(batch_size)
                 .with_for_update(skip_locked=True)
@@ -635,11 +677,14 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
             assigned += 1
     await db.flush()
     if assigned != len(tasks):
+        # A membership/role may still change between the correlated eligibility
+        # probe and the locked source-row reads.  That race is harmless: the
+        # unresolved row remains eligible for a later pass once a source is
+        # stable, while this already-bounded claim still lets the caller
+        # continue its current batch budget.
         logger.info("task role backfill resolved %d of %d claimed duties", assigned, len(tasks))
-    # Report rows CLAIMED, not rows written: the caller uses this to decide
-    # whether the candidate set is drained, and a claimed-but-unresolvable row
-    # is still progress through it. Returning `assigned` made one such row end
-    # the worker's whole batch budget while thousands of duties remained.
+    # Report rows claimed, not rows written: the caller compares this with the
+    # batch size to decide whether another finite pass may contain work.
     return len(tasks)
 
 

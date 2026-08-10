@@ -437,7 +437,8 @@ async def record_ultrasound_result(
     br: BreedingRecord,
     pregnant: bool,
     kid_count: int | None = None,
-    result_date: date | None = None,
+    *,
+    result_date: date,
     created_by_id: int | None = None,
 ) -> BreedingRecord:
     """Record ultrasound outcome. Pregnant → CONFIRMED_PREGNANT + 3 follow-up
@@ -459,13 +460,9 @@ async def record_ultrasound_result(
         raise ValueError(
             f"{doe.tag_number} is {doe.status.lower()} — cannot record an ultrasound result"
         )
-    if result_date is not None and result_date < br.breeding_date:
+    if result_date < br.breeding_date:
         raise ValueError("Pregnancy check result cannot predate the breeding date")
-    if (
-        pregnant
-        and result_date is not None
-        and result_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS)
-    ):
+    if pregnant and result_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS):
         # Kidding is deliberately bounded to the same maximum gestation and
         # cannot predate its confirmation. Accepting a positive scan after that
         # boundary creates no possible kidding date and permanently strands the
@@ -474,11 +471,7 @@ async def record_ultrasound_result(
             "A positive pregnancy check cannot be recorded after the maximum "
             f"{MAX_GESTATION_DAYS}-day gestation window"
         )
-    if (
-        result_date is not None
-        and br.ultrasound_date is not None
-        and result_date < br.ultrasound_date
-    ):
+    if br.ultrasound_date is not None and result_date < br.ultrasound_date:
         # A scan cannot confirm a pregnancy before the planned check window, so
         # a positive result still has to wait for it. A NEGATIVE result can be
         # factual much earlier: the heat cycle is ~21 days, and a doe seen back
@@ -522,7 +515,7 @@ async def record_ultrasound_result(
             "Ultrasound confirmed pregnant",
             created_by_id=created_by_id,
             context="ultrasound",
-            reference_date=result_date or today(),
+            reference_date=result_date,
             # A disease hold prevents physical/manual transfer, but the
             # authoritative pregnancy fact and its feed/lifecycle cohort must
             # be committed atomically in the same transaction.

@@ -51,7 +51,7 @@ def _preflight_money(table: str, column: str) -> None:
         "CASE "
         f"WHEN \"{column}\"::text IN ('NaN', 'Infinity', '-Infinity') THEN 'non-finite' "
         f"WHEN abs(\"{column}\"::numeric) > {_MAX_NUMERIC_14_2} THEN 'overflow' "
-        f"WHEN \"{column}\"::numeric <> round(\"{column}\"::numeric, 2) THEN 'sub-cent' "
+        f'WHEN "{column}"::numeric <> round("{column}"::numeric, 2) THEN \'sub-cent\' '
         "END"
     )
     rows = (

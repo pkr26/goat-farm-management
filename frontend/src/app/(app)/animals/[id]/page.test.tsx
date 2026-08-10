@@ -127,6 +127,7 @@ const PROFILE = {
       from_bucket: null,
       to_bucket: "QUARANTINE",
       reason: null,
+      effective_date: "2026-06-20",
       // Naive UTC, as the backend serialises BucketMoveOut.moved_at: 20:15 UTC
       // on 20 Jun is already 01:45 on 21 Jun for the Asia/Kolkata test farm.
       moved_at: "2026-06-20T20:15:00",
@@ -136,6 +137,7 @@ const PROFILE = {
       from_bucket: "QUARANTINE",
       to_bucket: "PREGNANCY_EARLY",
       reason: "Confirmed pregnant",
+      effective_date: "2026-07-25",
       moved_at: "2026-07-25T06:00:00",
     },
   ],
@@ -536,16 +538,19 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByText("No weight records yet.")).toBeInTheDocument();
     });
 
-    it("renders bucket moves with dash for null from-bucket and spaced names", async () => {
+    it("renders the business effective date separately from the audit timestamp", async () => {
       await renderProfile();
-      expect(screen.getByText("Bucket moves (2)")).toBeInTheDocument();
-      expect(screen.getByText("Confirmed pregnant")).toBeInTheDocument();
-      const rows = screen.getAllByText("QUARANTINE");
+      const card = screen.getByText("Bucket moves (2)").closest('[data-slot="card"]') as HTMLElement;
+      const body = within(card);
+      expect(body.getByText("Confirmed pregnant")).toBeInTheDocument();
+      const rows = body.getAllByText("QUARANTINE");
       expect(rows.length).toBeGreaterThanOrEqual(2); // to-bucket and from-bucket cells
-      // REGRESSION — moved_at is a datetime; the date-only formatter printed
-      // the UTC day, so an early-morning farm move showed the previous day.
-      expect(screen.getByText("21-06-2026 01:45")).toBeInTheDocument();
-      expect(screen.queryByText("20 Jun 2026")).not.toBeInTheDocument();
+      // The business date must not be inferred from the audit timestamp: a move
+      // effective on 20 Jun was recorded after midnight in the farm timezone.
+      expect(body.getByText("20 Jun 2026")).toBeInTheDocument();
+      expect(body.getByText("21-06-2026 01:45")).toBeInTheDocument();
+      expect(body.getByText("Effective date")).toBeInTheDocument();
+      expect(body.getByText("Recorded")).toBeInTheDocument();
     });
 
     it("shows the empty state when there are no moves", async () => {
@@ -599,6 +604,22 @@ describe("AnimalProfilePage", () => {
       await renderProfile();
       expect(screen.queryByText(/Kids \(/)).not.toBeInTheDocument();
     });
+
+    it("shows breeding history for a buck while keeping kids doe-only", async () => {
+      useProfileHandler(
+        profileWith(
+          { sex: "M" },
+          { breedings: [55], breedings_total: 1 },
+        ),
+      );
+      await renderProfile();
+
+      expect(screen.queryByText(/Kids \(/)).not.toBeInTheDocument();
+      expect(screen.getByText("Breeding history (1)")).toBeInTheDocument();
+      expect(
+        screen.getByRole("link", { name: "Breeding record #55" }),
+      ).toHaveAttribute("href", "/breeding");
+    });
   });
 
   describe("page states and RBAC", () => {
@@ -636,12 +657,31 @@ describe("AnimalProfilePage", () => {
       expect(attempts).toBe(2);
     });
 
-    it("treats a non-numeric id as not found and never calls the API", async () => {
+    it("treats a non-numeric id as invalid and never calls the API", async () => {
       nav.id = "abc";
       renderWithProviders(<AnimalProfilePage />);
-      expect(await screen.findByText("Animal not found.")).toBeInTheDocument();
+      expect(await screen.findByText("Invalid animal id.")).toBeInTheDocument();
       expect(getCalls).toBe(0);
     });
+
+    it.each(["0", "-1", "1.5", "9007199254740992"])(
+      "rejects the invalid route id %s without requesting an animal",
+      async (id) => {
+        let invalidIdCalls = 0;
+        nav.id = id;
+        server.use(
+          http.get("/api/animals/:animalId", () => {
+            invalidIdCalls += 1;
+            return HttpResponse.json(PROFILE);
+          }),
+        );
+
+        renderWithProviders(<AnimalProfilePage />);
+
+        expect(await screen.findByText("Invalid animal id.")).toBeInTheDocument();
+        expect(invalidIdCalls).toBe(0);
+      },
+    );
 
     it("denies access without animals.view and never calls the API", async () => {
       server.use(permissionsHandler(["dashboard.view"]));

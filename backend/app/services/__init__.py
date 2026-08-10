@@ -114,9 +114,11 @@ from .feeding import (
 )
 from .finance import monthly_pnl
 from .health import (
+    canonical_target_for_task,
     inferred_schedule_template,
     place_movement_restriction,
     record_health_event,
+    target_matches_task,
     target_matches_template,
     template_name_for_task,
     vaccination_schedule_for_animal,
@@ -193,6 +195,7 @@ __all__ = [
     "breeding_candidate_page",
     "breeding_weights_as_of",
     "bucket_transition_error",
+    "canonical_target_for_task",
     "complete_task",
     "create_breeding_record",
     "create_manual_task",
@@ -233,6 +236,7 @@ __all__ = [
     "skip_pending_tasks_for_animal",
     "skip_task",
     "spawn_next_occurrence",
+    "target_matches_task",
     "target_matches_template",
     "task_scope",
     "template_name_for_task",

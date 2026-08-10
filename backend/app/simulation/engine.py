@@ -55,7 +55,6 @@ from .assumptions import (
     MAX_MONEY,
     GrowthAssumptions,
     HerdEventAssumptions,
-    SalesAssumptions,
     SimulationAssumptions,
 )
 from .feed import class_feed, combine_feed, cultivated_green_supply_kg
@@ -925,17 +924,13 @@ def break_even_meat_price(a: SimulationAssumptions) -> float | None:
     """Meat price (₹/kg) at which NPV = 0, by bisection on the price.
 
     Only the meat price is scaled (cull/milk/manure prices are held at base).
-    Returns ``None`` when the search ceiling cannot lift NPV to zero, and 0.0
-    when NPV is already non-negative with meat revenue zeroed out. Very small
-    base prices have no useful multiplier, so the ceiling is never lower than
-    five times the schema's documented default meat price.
+    Returns ``None`` when the public schema's maximum price cannot lift NPV to
+    zero, and 0.0 when NPV is already non-negative with meat revenue zeroed.
     """
-    base_price = a.sales.meat_price_per_kg
-    reference_price = SalesAssumptions().meat_price_per_kg
     # Never report a break-even value the public assumptions schema would
     # reject. At the price ceiling, a still-negative project has no usable
     # meat-price-only break-even under this model.
-    upper_price = min(MAX_MONEY, 5.0 * max(base_price, reference_price))
+    upper_price = float(MAX_MONEY)
 
     def npv_at(price: float) -> float:
         variant = a.model_copy(deep=True)

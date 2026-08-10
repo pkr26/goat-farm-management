@@ -1056,7 +1056,8 @@ function ProfileBody({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
+                  <TableHead>Effective date</TableHead>
+                  <TableHead>Recorded</TableHead>
                   <TableHead>From</TableHead>
                   <TableHead>To</TableHead>
                   <TableHead>Reason</TableHead>
@@ -1065,6 +1066,7 @@ function ProfileBody({
               <TableBody>
                 {profile.moves.map((m) => (
                   <TableRow key={m.id}>
+                    <TableCell>{formatDate(m.effective_date)}</TableCell>
                     <TableCell>{formatFarmDateTime(m.moved_at)}</TableCell>
                     <TableCell>{m.from_bucket?.replace(/_/g, " ") ?? "—"}</TableCell>
                     <TableCell>{m.to_bucket.replace(/_/g, " ")}</TableCell>
@@ -1183,7 +1185,7 @@ function ProfileBody({
           </DataTableCard>
         )}
 
-        {a.sex === "F" && canViewBreeding && (
+        {canViewBreeding && (
           <DataTableCard title={`Breeding history (${profile.breedings_total})`}>
             {profile.breedings.length === 0 ? (
               <p className="text-muted-foreground">No breeding records.</p>
@@ -1216,6 +1218,8 @@ function AnimalProfilePageContent() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const animalId = Number(params.id);
+  const validAnimalId =
+    /^\d+$/.test(params.id) && Number.isSafeInteger(animalId) && animalId > 0;
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("animals.view");
   const [kidsOffset, setKidsOffset] = useState(0);
@@ -1235,7 +1239,7 @@ function AnimalProfilePageContent() {
     },
     {
       query: {
-        enabled: allowed && Number.isFinite(animalId),
+        enabled: allowed && validAnimalId,
         placeholderData: (previous) => previous,
       },
     },
@@ -1263,6 +1267,16 @@ function AnimalProfilePageContent() {
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
+  }
+  if (!validAnimalId) {
+    return (
+      <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+        <p className="text-sm text-destructive">Invalid animal id.</p>
+        <Link href={backHref} className="block text-sm text-primary underline">
+          {backLabel}
+        </Link>
+      </div>
+    );
   }
   if (query.isLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;

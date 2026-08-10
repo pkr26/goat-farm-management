@@ -21,6 +21,7 @@ hook): breedings are backdated so that expected kidding dates, weaning duties,
 etc. fall where the API guards require them.
 """
 
+import inspect
 from datetime import date, timedelta
 
 import httpx
@@ -38,7 +39,7 @@ from app.models import (
     User,
     WeightRecord,
 )
-from app.services.breeding import mark_unassessed
+from app.services.breeding import mark_unassessed, record_ultrasound_result
 from app.utils import add_months, today
 
 from .conftest import owner_with_farm, register
@@ -1363,6 +1364,11 @@ async def test_get_breeding_record_requires_auth(client: httpx.AsyncClient) -> N
 # ---------------------------------------------------------------------------
 # POST /api/breeding/{record_id}/ultrasound
 # ---------------------------------------------------------------------------
+def test_ultrasound_service_requires_an_explicit_business_date() -> None:
+    parameter = inspect.signature(record_ultrasound_result).parameters["result_date"]
+    assert parameter.default is inspect.Parameter.empty
+
+
 async def test_ultrasound_pregnant_happy_path(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     breeding_date = today() - timedelta(days=35)

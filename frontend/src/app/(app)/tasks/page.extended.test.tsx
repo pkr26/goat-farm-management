@@ -440,6 +440,29 @@ describe("TasksPage (extended)", () => {
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
+  it("locks the other transition while a task completion is in flight", async () => {
+    let releaseComplete!: () => void;
+    server.use(
+      http.post(
+        "/api/tasks/1/complete",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseComplete = () => resolve(HttpResponse.json(TODAY_TASK));
+          }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = rowOf("Morning feed count");
+
+    await user.click(within(row).getByRole("button", { name: "Complete" }));
+    await waitFor(() => expect(releaseComplete).toBeTypeOf("function"));
+
+    expect(within(row).getByRole("button", { name: "Skip" })).toBeDisabled();
+    releaseComplete();
+    await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
+  });
+
   it("does not refetch when completing fails on the server", async () => {
     let failed = 0;
     server.use(

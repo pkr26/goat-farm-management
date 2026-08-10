@@ -497,7 +497,10 @@ async def animal_profile(
     health_where = (HealthEvent.farm_id == farm.id, HealthEvent.animal_id == animal.id)
     breedings_where = (
         BreedingRecord.farm_id == farm.id,
-        BreedingRecord.doe_id == animal.id,
+        or_(
+            BreedingRecord.doe_id == animal.id,
+            BreedingRecord.buck_id == animal.id,
+        ),
     )
     totals = (
         await db.execute(
@@ -600,6 +603,7 @@ async def animal_profile(
                 # provenance, or an owner's import rationale, so it follows
                 # the health.view boundary used by other profile free text.
                 reason=move.reason if "health.view" in perms else None,
+                effective_date=move.effective_date,
                 moved_at=move.moved_at,
             )
             for move in moves_result.scalars()

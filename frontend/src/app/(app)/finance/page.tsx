@@ -157,10 +157,19 @@ function sourceLabel(transaction: TransactionOut): string | null {
 }
 
 const correctionSchema = txnSchema.extend({
-  amount: z.coerce
-    .number()
-    .nonnegative("Amount can't be negative")
-    .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+  // z.coerce.number() turns an empty HTML number input into 0. Zero is a
+  // meaningful correction (it neutralizes a bad ledger amount), so blank must
+  // remain distinguishable from an intentional "0".
+  amount: z.preprocess(
+    (value) =>
+      value === "" || value === null || value === undefined
+        ? undefined
+        : Number(value),
+    z
+      .number({ error: "Amount is required" })
+      .nonnegative("Amount can't be negative")
+      .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
+  ),
   reason: z.string().trim().min(3, "Reason must be at least 3 characters").max(255),
 });
 type CorrectionInput = z.input<typeof correctionSchema>;

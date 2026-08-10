@@ -520,6 +520,13 @@ class AccessClaims(NamedTuple):
     token_version: int
 
 
+class AccessDecodeResult(NamedTuple):
+    """Access claims plus a non-abusive, signature-verified expiry signal."""
+
+    claims: AccessClaims | None
+    expired: bool
+
+
 class RefreshClaims(NamedTuple):
     """Decoded, verified refresh-token claims needed for session tracking."""
 
@@ -529,26 +536,29 @@ class RefreshClaims(NamedTuple):
     expires_at: datetime  # naive UTC, like every stored datetime
 
 
-def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
+def _decode_payload_result(
+    token: str,
+    expected_kind: str,
+) -> tuple[dict[str, Any] | None, bool]:
     s = get_settings()
     try:
         header = jwt.get_unverified_header(token)
     except jwt.PyJWTError:
-        return None
+        return None, False
     # Never allow the untrusted header to select an algorithm. ``kid`` is a
     # dictionary lookup only — it is never interpreted as a path or URL.
     if header.get("alg") != s.jwt_algorithm:
-        return None
+        return None, False
 
     keyring = _get_jwt_keyring()
     candidates: tuple[str, ...]
     if "kid" in header:
         kid = header["kid"]
         if not isinstance(kid, str):
-            return None
+            return None, False
         key = keyring.verification_by_kid.get(kid)
         if key is None:
-            return None
+            return None, False
         candidates = (key,)
     else:
         # Tokens issued before ``kid`` deployment remain usable during the
@@ -567,15 +577,22 @@ def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
                 audience=s.jwt_audience,
                 issuer=s.jwt_issuer,
                 leeway=60,
-                options={"require": list(REQUIRED_JWT_CLAIMS)},
+                # Expiry is checked immediately below after every other
+                # signature/claim validation succeeds. Keeping the authentic
+                # expired state distinct prevents normal clients racing to
+                # refresh from being charged to the attacker-invalid limiter.
+                options={
+                    "require": list(REQUIRED_JWT_CLAIMS),
+                    "verify_exp": False,
+                },
             )
             break
         except jwt.PyJWTError:
             continue
     if payload is None:
-        return None
+        return None, False
     if payload.get("kind") != expected_kind:
-        return None
+        return None, False
     subject = payload.get("sub")
     jti = payload.get("jti")
     # PyJWT verifies these registered claim types too, but keep the identity
@@ -587,13 +604,25 @@ def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
         or not subject.isascii()
         or not subject.isdecimal()
     ):
-        return None
+        return None, False
     subject_id = int(subject)
     if subject != str(subject_id) or subject_id <= 0:
-        return None
+        return None, False
     if not isinstance(jti, str) or not jti or len(jti) > 128:
-        return None
-    return payload
+        return None, False
+    try:
+        # Mirror PyJWT's registered-claim rule: it converts exp with int() and
+        # expires at ``exp <= now - leeway``.
+        expires_at = int(payload["exp"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None, False
+    expired = expires_at <= datetime.now(UTC).timestamp() - 60
+    return payload, expired
+
+
+def _decode_payload(token: str, expected_kind: str) -> dict[str, Any] | None:
+    payload, expired = _decode_payload_result(token, expected_kind)
+    return None if expired else payload
 
 
 def decode_token(token: str, expected_kind: str) -> int | None:
@@ -607,29 +636,39 @@ def decode_token(token: str, expected_kind: str) -> int | None:
         return None
 
 
-def decode_access_claims(token: str) -> AccessClaims | None:
+def decode_access_claims_result(token: str) -> AccessDecodeResult:
     """Verified access identity plus its server-checked revocation version.
 
     ``ver`` is mandatory so a malformed/legacy token cannot silently opt out
     of the server-side password-change and membership revocation check.
     """
-    payload = _decode_payload(token, "access")
+    payload, expired = _decode_payload_result(token, "access")
     if payload is None:
-        return None
+        return AccessDecodeResult(claims=None, expired=False)
     try:
         user_id = int(payload["sub"])
         token_version = payload["ver"]
     except (KeyError, TypeError, ValueError):
-        return None
+        return AccessDecodeResult(claims=None, expired=False)
     if isinstance(token_version, bool) or not isinstance(token_version, int) or token_version < 0:
-        return None
-    return AccessClaims(user_id=user_id, token_version=token_version)
+        return AccessDecodeResult(claims=None, expired=False)
+    if expired:
+        return AccessDecodeResult(claims=None, expired=True)
+    return AccessDecodeResult(
+        claims=AccessClaims(user_id=user_id, token_version=token_version),
+        expired=False,
+    )
+
+
+def decode_access_claims(token: str) -> AccessClaims | None:
+    """Compatibility projection for callers that need only live claims."""
+    return decode_access_claims_result(token).claims
 
 
 def decode_refresh_claims(token: str) -> RefreshClaims | None:
     """Refresh-token user id + jti + expiry, or None when invalid/expired.
 
-    jwt.decode already rejects expired tokens; expires_at comes back for the
+    The shared decoder rejects expired tokens; expires_at comes back for the
     session row's expiry cross-check.
     """
     payload = _decode_payload(token, "refresh")

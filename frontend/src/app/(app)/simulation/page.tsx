@@ -34,6 +34,7 @@ import { toast } from "sonner";
 
 import {
   getCompareScenariosApiSimulationScenariosCompareGetQueryKey,
+  getCompareScenariosApiSimulationScenariosCompareGetQueryOptions,
   getListScenariosApiSimulationScenariosGetQueryKey,
   useBreedDefaultsApiSimulationDefaultsGet,
   useCompareScenariosApiSimulationScenariosCompareGet,
@@ -96,6 +97,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 const DEFAULT_BREED = "osmanabadi";
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
@@ -628,6 +630,9 @@ export default function SimulationPage() {
   });
   const [assumptions, setAssumptions] = useState<SimulationAssumptions | null>(null);
   const [loadedScenario, setLoadedScenario] = useState<ScenarioRow | null>(null);
+  // Defaults requests run independently from the scenario list/editor. Only
+  // apply a response while defaults are still the user's latest load intent.
+  const acceptDefaultsRef = useRef(true);
   const [invalidFields, setInvalidFields] = useState<Set<string>>(() => new Set());
   const [editorVersion, setEditorVersion] = useState(0);
   const [horizonInputVersion, setHorizonInputVersion] = useState(0);
@@ -642,6 +647,10 @@ export default function SimulationPage() {
   const [result, setResult] = useState<BoundResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningScenarioId, setRunningScenarioId] = useState<number | null>(null);
+  // Ad-hoc runs, saved-scenario runs and comparisons all execute the same
+  // expensive simulation engine. Keep one client-side flight across all three
+  // so a second legitimate click cannot race into the backend's 429 guard.
+  const simulationExecution = useSingleFlight();
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [compareIds, setCompareIds] = useState<string | null>(null);
@@ -662,10 +671,10 @@ export default function SimulationPage() {
   });
 
   useEffect(() => {
-    if (defaultsQuery.data?.status === 200) {
-      // react-query v5 has no onSuccess: mirror each fetched defaults payload
-      // into editable state (one-shot per new payload identity).
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
+      acceptDefaultsRef.current = false;
+      // react-query v5 has no onSuccess: mirror the explicitly requested
+      // defaults payload into editable state.
       setAssumptions(defaultsQuery.data.data);
       const nextEvents = defaultsQuery.data.data.events ?? [];
       setEvents(nextEvents);
@@ -713,7 +722,9 @@ export default function SimulationPage() {
 
   const compareQuery = useCompareScenariosApiSimulationScenariosCompareGet(
     { ids: compareIds ?? "" },
-    { query: { enabled: allowed && compareIds !== null } },
+    // onCompare fetches this query inside simulationExecution. Auto-fetching
+    // from the state change would escape that shared flight.
+    { query: { enabled: false } },
   );
   const comparePayload =
     compareIds !== null && compareQuery.data?.status === 200
@@ -753,6 +764,7 @@ export default function SimulationPage() {
   }
 
   function updateField(section: string, key: string, value: unknown) {
+    acceptDefaultsRef.current = false;
     setAssumptions((prev) => {
       if (!prev) return prev;
       const current = (prev as Record<string, SectionValues>)[section] ?? {};
@@ -761,6 +773,7 @@ export default function SimulationPage() {
   }
 
   function updateNestedField(section: string, key: string, subKey: string, value: unknown) {
+    acceptDefaultsRef.current = false;
     setAssumptions((prev) => {
       if (!prev) return prev;
       const current = (prev as Record<string, SectionValues>)[section] ?? {};
@@ -865,6 +878,7 @@ export default function SimulationPage() {
       (liveFingerprint(result) ?? result.fingerprint) !== result.fingerprint);
 
   function addEvent() {
+    acceptDefaultsRef.current = false;
     setEventKeys((previous) => [...previous, `event-${eventKeyCounter.current++}`]);
     setEvents((prev) => [
       ...prev,
@@ -879,12 +893,14 @@ export default function SimulationPage() {
   }
 
   function updateEvent(index: number, patch: Partial<HerdEventAssumptions>) {
+    acceptDefaultsRef.current = false;
     setEvents((prev) =>
       prev.map((event, i) => (i === index ? { ...event, ...patch } : event)),
     );
   }
 
   function removeEvent(index: number) {
+    acceptDefaultsRef.current = false;
     const removedKey = eventKeys[index];
     setEvents((prev) => prev.filter((_, i) => i !== index));
     setEventKeys((previous) => previous.filter((_, i) => i !== index));
@@ -902,6 +918,7 @@ export default function SimulationPage() {
   }
 
   async function onUseCurrentHerd() {
+    acceptDefaultsRef.current = false;
     try {
       const res = await snapshotQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
@@ -939,53 +956,56 @@ export default function SimulationPage() {
   }
 
   async function onRun() {
-    const payload = assumptionsWithEvents();
-    if (!payload) return;
-    if (hasEditorErrors) return;
-    setRunError(null);
-    try {
-      const res = await runMutation.mutateAsync({
-        data: { assumptions: payload, monte_carlo: monteCarlo, sensitivity },
-      });
-      if (res.status === 200)
-        setResult({
-          data: res.data,
-          fingerprint: assumptionsFingerprint(payload),
-          options: runOptionsFingerprint(monteCarlo, sensitivity),
-          scenarioId: null,
-          source: "Current editor assumptions",
+    await simulationExecution.run(async () => {
+      const payload = assumptionsWithEvents();
+      if (!payload || hasEditorErrors) return;
+      setRunError(null);
+      try {
+        const res = await runMutation.mutateAsync({
+          data: { assumptions: payload, monte_carlo: monteCarlo, sensitivity },
         });
-    } catch (err) {
-      const message = errorMessage(err, "Simulation failed");
-      setRunError(message);
-      toast.error(message);
-    }
+        if (res.status === 200)
+          setResult({
+            data: res.data,
+            fingerprint: assumptionsFingerprint(payload),
+            options: runOptionsFingerprint(monteCarlo, sensitivity),
+            scenarioId: null,
+            source: "Current editor assumptions",
+          });
+      } catch (err) {
+        const message = errorMessage(err, "Simulation failed");
+        setRunError(message);
+        toast.error(message);
+      }
+    });
   }
 
   async function onRunScenario(scenario: ScenarioRow) {
     if (!scenarioUsable(scenario)) return;
-    setRunError(null);
-    setRunningScenarioId(scenario.id);
-    try {
-      const res = await runScenarioMutation.mutateAsync({
-        scenarioId: scenario.id,
-        params: { monte_carlo: monteCarlo, sensitivity },
-      });
-      if (res.status === 200)
-        setResult({
-          data: res.data,
-          fingerprint: assumptionsFingerprint(scenario.assumptions),
-          options: runOptionsFingerprint(monteCarlo, sensitivity),
+    await simulationExecution.run(async () => {
+      setRunError(null);
+      setRunningScenarioId(scenario.id);
+      try {
+        const res = await runScenarioMutation.mutateAsync({
           scenarioId: scenario.id,
-          source: `Saved scenario “${scenario.name}”`,
+          params: { monte_carlo: monteCarlo, sensitivity },
         });
-    } catch (err) {
-      const message = errorMessage(err, "Scenario run failed");
-      setRunError(message);
-      toast.error(message);
-    } finally {
-      setRunningScenarioId(null);
-    }
+        if (res.status === 200)
+          setResult({
+            data: res.data,
+            fingerprint: assumptionsFingerprint(scenario.assumptions),
+            options: runOptionsFingerprint(monteCarlo, sensitivity),
+            scenarioId: scenario.id,
+            source: `Saved scenario “${scenario.name}”`,
+          });
+      } catch (err) {
+        const message = errorMessage(err, "Scenario run failed");
+        setRunError(message);
+        toast.error(message);
+      } finally {
+        setRunningScenarioId(null);
+      }
+    });
   }
 
   async function onDeleteScenario(scenario: ScenarioRow) {
@@ -1010,18 +1030,29 @@ export default function SimulationPage() {
     }
   }
 
-  function onCompare() {
+  async function onCompare() {
     if (
       selectedUsableIds.length < 2 ||
       selectedUsableIds.length > MAX_COMPARE_SCENARIOS
     )
       return;
     const ids = selectedUsableIds.join(",");
-    if (ids === compareIds) {
-      void compareQuery.refetch();
-    } else {
+    await simulationExecution.run(async () => {
       setCompareIds(ids);
-    }
+      try {
+        await queryClient.fetchQuery(
+          getCompareScenariosApiSimulationScenariosCompareGetQueryOptions(
+            { ids },
+            // This is an explicit user-requested execution, not a passive
+            // cache read. Preserve the former refetch-on-repeat behavior.
+            { query: { staleTime: 0 } },
+          ),
+        );
+      } catch {
+        // The disabled observer above still receives and renders the cached
+        // query error; contain the rejection because this is a click handler.
+      }
+    });
   }
 
   async function onSaveScenario() {
@@ -1626,11 +1657,11 @@ export default function SimulationPage() {
           <>
             <Button
               variant="outline"
-              onClick={onCompare}
+              onClick={() => void onCompare()}
               disabled={
                 selectedUsableIds.length < 2 ||
                 selectedUsableIds.length > MAX_COMPARE_SCENARIOS ||
-                compareQuery.isFetching
+                simulationExecution.pending
               }
             >
               <GitCompareArrows />
@@ -1669,7 +1700,7 @@ export default function SimulationPage() {
             )}
             <Button
               onClick={() => void onRun()}
-              disabled={!assumptions || hasEditorErrors || runMutation.isPending}
+              disabled={!assumptions || hasEditorErrors || simulationExecution.pending}
             >
               <Play />
               {runMutation.isPending ? "Running…" : "Run simulation"}
@@ -1728,6 +1759,7 @@ export default function SimulationPage() {
             <Button
               variant="outline"
               onClick={() => {
+                acceptDefaultsRef.current = true;
                 if (breed === submittedParams.breed && system === submittedParams.system) {
                   void defaultsQuery.refetch();
                 } else {
@@ -2114,6 +2146,7 @@ export default function SimulationPage() {
                           size="sm"
                           onClick={() => {
                             if (!scenarioUsable(scenario)) return;
+                            acceptDefaultsRef.current = false;
                             setAssumptions(scenario.assumptions);
                             const scenarioEvents = scenario.assumptions.events ?? [];
                             setEvents(scenarioEvents);
@@ -2135,7 +2168,7 @@ export default function SimulationPage() {
                           size="sm"
                           onClick={() => void onRunScenario(scenario)}
                           disabled={
-                            !scenarioUsable(scenario) || runningScenarioId !== null
+                            !scenarioUsable(scenario) || simulationExecution.pending
                           }
                         >
                           {runningScenarioId === scenario.id ? "Running…" : "Run"}

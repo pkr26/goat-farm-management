@@ -956,6 +956,22 @@ describe("BreedingPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
+    it("does not reinterpret a scientific-notation deep-link id as another record", async () => {
+      let detailCalls = 0;
+      server.use(
+        http.get("/api/breeding/100", () => {
+          detailCalls += 1;
+          return HttpResponse.json(makeRecord({ id: 100 }));
+        }),
+      );
+      navState.search = "?ultrasound_id=1e2";
+
+      await renderLoaded();
+
+      expect(detailCalls).toBe(0);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
     it("fetches and opens an older linked record outside the current page", async () => {
       const older = makeRecord({ id: 99, breeding_date: "2026-06-01", ultrasound_date: "2026-07-03" });
       server.use(http.get("/api/breeding/99", () => HttpResponse.json(older)));

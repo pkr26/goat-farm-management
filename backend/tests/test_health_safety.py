@@ -643,6 +643,51 @@ async def test_next_due_provenance_is_enforced_for_direct_database_writes(
             await db.commit()
 
 
+@pytest.mark.parametrize("field", ["authority_notified_at", "isolation_started_at"])
+async def test_compliance_dates_require_a_suspected_scheduled_disease(
+    client: httpx.AsyncClient,
+    field: str,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag=f"ORPHAN-{field[:3]}")
+
+    response = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": animal["id"],
+            "type": "TREATMENT",
+            field: today().isoformat(),
+        },
+        headers=owner,
+    )
+
+    assert response.status_code == 422, response.text
+
+
+async def test_compliance_dates_are_enforced_for_direct_database_writes(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="ORPHAN-DB")
+    async with get_sessionmaker()() as db:
+        db.add(
+            HealthEvent(
+                farm_id=int(owner["X-Farm-Id"]),
+                animal_id=animal["id"],
+                date=today(),
+                type="TREATMENT",
+                suspected_scheduled_disease=False,
+                authority_notified_at=today(),
+            )
+        )
+        with pytest.raises(
+            IntegrityError,
+            match="ck_health_events_compliance_requires_suspicion",
+        ):
+            await db.commit()
+
+
 def test_health_template_matching_uses_words_and_requires_both_combined_components() -> None:
     assert not target_matches_template("diet review", "Enterotoxaemia (ET)")
     assert not target_matches_template("ET vaccine", "ET + TT pre-kidding")

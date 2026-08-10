@@ -899,6 +899,19 @@ async def test_key_bounds_server_errors_and_expiry_cleanup(
         )
         assert response.status_code == 422
 
+    duplicate_headers = [
+        *owner.items(),
+        ("Idempotency-Key", "ambiguous-first-key"),
+        ("Idempotency-Key", "ambiguous-second-key"),
+    ]
+    duplicate = await client.post(
+        "/api/finance/new",
+        json=payload,
+        headers=duplicate_headers,
+    )
+    assert duplicate.status_code == 422
+    assert "exactly once" in duplicate.json()["detail"]
+
     # An unhandled server exception also rolls the claim back. ASGITransport
     # propagates it in tests; production's exception boundary emits HTTP 500.
     def crash_money(value: object) -> Decimal:

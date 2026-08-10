@@ -4,7 +4,7 @@
  * scenario save with list refresh, and the run error state.
  */
 
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -242,6 +242,48 @@ describe("SimulationPage", () => {
     expect(screen.getByText("Foundation Flock State")).toBeInTheDocument();
   });
 
+  it("does not let a late defaults response overwrite a scenario loaded afterward", async () => {
+    const scenario = {
+      id: 7,
+      farm_id: 1,
+      name: "Expansion",
+      notes: "",
+      assumptions: {
+        ...DEFAULTS,
+        herd: { ...DEFAULTS.herd, does: 99 },
+      },
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    let releaseDefaults!: () => void;
+    registerApiHandlers([scenario]);
+    server.use(
+      http.get(
+        "/api/simulation/defaults",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseDefaults = () => resolve(HttpResponse.json(DEFAULTS));
+          }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+
+    const scenarioRow = (await screen.findByText("Expansion")).closest("tr") as HTMLElement;
+    await user.click(within(scenarioRow).getByRole("button", { name: "Load" }));
+    expect(await screen.findByLabelText("Does")).toHaveValue(99);
+    expect(screen.getByText("Editing scenario: Expansion")).toBeInTheDocument();
+
+    releaseDefaults();
+    expect(
+      await screen.findByRole("button", { name: "Load defaults" }),
+    ).toBeEnabled();
+    expect(screen.getByLabelText("Does")).toHaveValue(99);
+    expect(screen.getByText("Editing scenario: Expansion")).toBeInTheDocument();
+  });
+
   it("runs the simulation and shows metric cards and annual P&L rows", async () => {
     server.use(
       http.post("/api/simulation/run", () => HttpResponse.json(RESULT)),
@@ -261,6 +303,145 @@ describe("SimulationPage", () => {
     expect(within(yearRow).getByText("₹90,000")).toBeInTheDocument();
     // EBITDA and net cash flow are both 30,000 in the fixture.
     expect(within(yearRow).getAllByText("₹30,000")).toHaveLength(2);
+  });
+
+  it("prevents saved and ad-hoc simulation runs from overlapping", async () => {
+    const scenario = {
+      id: 7,
+      farm_id: 1,
+      name: "Plan B",
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    let releaseRun!: () => void;
+    let scenarioRuns = 0;
+    server.use(
+      http.post(
+        "/api/simulation/run",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseRun = () => resolve(HttpResponse.json(RESULT));
+          }),
+      ),
+      http.post("/api/simulation/scenarios/7/run", () => {
+        scenarioRuns += 1;
+        return HttpResponse.json(RESULT);
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded([scenario]);
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    await waitFor(() => expect(releaseRun).toBeTypeOf("function"));
+    const scenarioRow = screen.getByText("Plan B").closest("tr") as HTMLElement;
+    const scenarioRun = within(scenarioRow).getByRole("button", { name: "Run" });
+    expect(scenarioRun).toBeDisabled();
+    await user.click(scenarioRun);
+    expect(scenarioRuns).toBe(0);
+
+    releaseRun();
+    expect(await screen.findByText("Source: Current editor assumptions")).toBeInTheDocument();
+  });
+
+  it("prevents comparison while an ad-hoc run is in flight", async () => {
+    const scenarios = [1, 2].map((id) => ({
+      id,
+      farm_id: 1,
+      name: `Plan ${id}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    let releaseRun!: () => void;
+    let compareCalls = 0;
+    server.use(
+      http.post(
+        "/api/simulation/run",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseRun = () => resolve(HttpResponse.json(RESULT));
+          }),
+      ),
+      http.get("/api/simulation/scenarios/compare", () => {
+        compareCalls += 1;
+        return HttpResponse.json({ scenarios, results: [RESULT, RESULT] });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+    await user.click(screen.getByLabelText("Compare Plan 1"));
+    await user.click(screen.getByLabelText("Compare Plan 2"));
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    await waitFor(() => expect(releaseRun).toBeTypeOf("function"));
+    const compare = screen.getByRole("button", { name: "Compare selected" });
+    expect(compare).toBeDisabled();
+    await user.click(compare);
+    expect(compareCalls).toBe(0);
+
+    releaseRun();
+    expect(await screen.findByText("Source: Current editor assumptions")).toBeInTheDocument();
+  });
+
+  it("prevents ad-hoc and saved runs while comparison is in flight", async () => {
+    const scenarios = [1, 2].map((id) => ({
+      id,
+      farm_id: 1,
+      name: `Plan ${id}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    let releaseCompare!: () => void;
+    let adHocRuns = 0;
+    let savedRuns = 0;
+    server.use(
+      http.get(
+        "/api/simulation/scenarios/compare",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseCompare = () =>
+              resolve(HttpResponse.json({ scenarios, results: [RESULT, RESULT] }));
+          }),
+      ),
+      http.post("/api/simulation/run", () => {
+        adHocRuns += 1;
+        return HttpResponse.json(RESULT);
+      }),
+      http.post("/api/simulation/scenarios/1/run", () => {
+        savedRuns += 1;
+        return HttpResponse.json(RESULT);
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+    await user.click(screen.getByLabelText("Compare Plan 1"));
+    await user.click(screen.getByLabelText("Compare Plan 2"));
+
+    await user.click(screen.getByRole("button", { name: "Compare selected" }));
+    await waitFor(() => expect(releaseCompare).toBeTypeOf("function"));
+    const adHocRun = screen.getByRole("button", { name: "Run simulation" });
+    const planOneRow = screen.getByText("Plan 1").closest("tr") as HTMLElement;
+    const savedRun = within(planOneRow).getByRole("button", { name: "Run" });
+    expect(adHocRun).toBeDisabled();
+    expect(savedRun).toBeDisabled();
+    await user.click(adHocRun);
+    await user.click(savedRun);
+    expect(adHocRuns).toBe(0);
+    expect(savedRuns).toBe(0);
+
+    releaseCompare();
+    expect(await screen.findByText("Comparison")).toBeInTheDocument();
   });
 
   it("labels result provenance and warns when the editor changes after a run", async () => {

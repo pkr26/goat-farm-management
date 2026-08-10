@@ -348,6 +348,7 @@ class Settings(BaseSettings):
         gate still reports them verbatim.
         """
         canonical: list[str] = []
+        unicode_hosts: list[str] = []
         for origin in value:
             candidate = origin.strip()
             try:
@@ -357,6 +358,17 @@ class Settings(BaseSettings):
                 canonical.append(origin)
                 continue
             host = parsed.hostname
+            if host is not None and not host.isascii():
+                # WHATWG URL serialization sends an internationalized hostname
+                # in ASCII/Punycode in the browser's Origin header. Keeping the
+                # Unicode spelling here therefore passes production validation
+                # but can never match CORSMiddleware or the refresh-cookie
+                # origin guard. Python's built-in ``idna`` codec implements the
+                # older IDNA-2003 mapping (not browser UTS-46), so fail with an
+                # actionable instruction instead of canonicalizing differently
+                # from the client for names such as ``faß.de``.
+                unicode_hosts.append(origin)
+                continue
             if not parsed.scheme or not host or parsed.path or parsed.query or parsed.fragment:
                 canonical.append(origin)
                 continue
@@ -368,6 +380,11 @@ class Settings(BaseSettings):
             if port is not None and port != default_port:
                 authority = f"{authority}:{port}"
             canonical.append(f"{parsed.scheme}://{authority}")
+        if unicode_hosts:
+            raise ValueError(
+                "GOATFARM_CORS_ORIGINS hostnames must use their browser-serialized "
+                f"ASCII/Punycode spelling, not Unicode: {unicode_hosts}"
+            )
         return canonical
 
     @field_validator("trusted_proxy_hosts")

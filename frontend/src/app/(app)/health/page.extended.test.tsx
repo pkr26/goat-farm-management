@@ -1271,6 +1271,17 @@ describe("HealthPage", () => {
     );
   });
 
+  it.each(["1e2", "9007199254740992", "not-an-id"])(
+    "ignores the malformed animal deep-link id %s instead of coercing a target",
+    async (animalId) => {
+      window.history.replaceState({}, "", `/health?animal_id=${animalId}`);
+      await renderLoaded();
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(postBody).toBeNull();
+    },
+  );
+
   it("returns to the originating task tab after a deep-linked event is saved", async () => {
     window.history.replaceState(
       {},

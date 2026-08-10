@@ -879,34 +879,64 @@ async def test_preset_role_repair_survives_a_custom_role_holding_a_preset_name()
     assert farms == 0
 
 
-async def test_task_backfill_reports_claimed_rows_not_repaired_rows() -> None:
-    """The worker's continuation test compares this count with the batch size.
-    Returning only the rows it managed to update made one unresolvable duty end
-    the whole batch budget while thousands of legacy duties remained."""
+async def test_task_backfill_skips_unresolvable_rows_without_starving_later_work() -> None:
+    """SKIP LOCKED does not make an unchanged row progress across commits.
+
+    The old ordered query repeatedly claimed the same unresolvable lowest-ID
+    duty, exhausting every maintenance pass while later repairable duties were
+    never reached.  Eligibility must be part of the claim query itself.
+    """
     async with get_sessionmaker()() as db:
         owner = User(email="claimed-count-owner@farm.in", password_hash="argon2-placeholder")
         db.add(owner)
         await db.flush()
-        farm = Farm(name="Claimed Count Farm", owner_id=owner.id)
-        db.add(farm)
+        unresolved_farm = Farm(name="Unresolved Farm", owner_id=owner.id)
+        repairable_farm = Farm(name="Repairable Farm", owner_id=owner.id)
+        db.add_all([unresolved_farm, repairable_farm])
         await db.flush()
-        # Claimable (auto-generated, mapped category, no role) but unresolvable:
-        # this legacy farm has no roles at all, so the lookup finds nothing.
-        db.add(
-            Task(
-                farm_id=farm.id,
-                title="Unresolvable duty",
-                due_date=date(2026, 1, 10),
-                category=TaskCategory.CLEANING.value,
-                auto_generated=True,
-            )
+        unresolved = Task(
+            farm_id=unresolved_farm.id,
+            title="Unresolvable duty",
+            due_date=date(2026, 1, 10),
+            category=TaskCategory.CLEANING.value,
+            auto_generated=True,
         )
+        db.add(unresolved)
+        await db.flush()  # it must be the deterministic lowest-ID candidate
+
+        await seed_default_roles(db, repairable_farm.id)
+        repairable = Task(
+            farm_id=repairable_farm.id,
+            title="Repairable duty",
+            due_date=date(2026, 1, 11),
+            category=TaskCategory.CLEANING.value,
+            auto_generated=True,
+        )
+        db.add(repairable)
         await db.commit()
+        unresolved_id, repairable_id = unresolved.id, repairable.id
 
     async with get_sessionmaker()() as db:
         claimed = await backfill_task_assignments_batch(db, batch_size=1)
         await db.commit()
-    assert claimed == 1  # claimed, even though nothing could be assigned
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        unresolved_after = await db.get(Task, unresolved_id)
+        repairable_after = await db.get(Task, repairable_id)
+        assert unresolved_after is not None and unresolved_after.assigned_role_id is None
+        assert repairable_after is not None and repairable_after.assigned_role_id is not None
+
+        # Once its missing source is repaired, the skipped row becomes eligible
+        # without a marker rewrite or an unbounded scan.
+        await seed_default_roles(db, unresolved_farm.id)
+        assert await backfill_task_assignments_batch(db, batch_size=1) == 1
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        eventually_repaired = await db.get(Task, unresolved_id)
+        assert eventually_repaired is not None
+        assert eventually_repaired.assigned_role_id is not None
 
 
 async def test_task_backfill_share_locks_membership_role_snapshot() -> None:
@@ -962,9 +992,10 @@ async def test_task_backfill_share_locks_membership_role_snapshot() -> None:
     finally:
         event.remove(engine, "before_cursor_execute", capture)
     assert claimed == 1
-    membership_reads = [sql for sql in statements if "FROM farm_memberships" in sql]
+    membership_reads = [
+        sql for sql in statements if "FROM farm_memberships" in sql and "FOR SHARE" in sql
+    ]
     assert len(membership_reads) == 1
-    assert "FOR SHARE" in membership_reads[0]
 
 
 async def test_non_pending_personal_duty_is_repaired_so_rejection_stays_possible() -> None:

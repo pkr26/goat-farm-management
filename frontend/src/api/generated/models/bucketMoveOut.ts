@@ -10,5 +10,6 @@ export interface BucketMoveOut {
   from_bucket: string | null;
   to_bucket: string;
   reason: string | null;
+  effective_date: string;
   moved_at: string;
 }

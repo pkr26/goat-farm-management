@@ -143,6 +143,44 @@ def target_matches_template(target: str, template_name: str) -> bool:
     return _has_alias(target_words, *aliases)
 
 
+def canonical_target_for_task(title: str, category: str) -> str | None:
+    """Disease/programme target represented by an auto-generated duty.
+
+    Quarantine's ET + Tetanus duty is stored against the seeded ET schedule
+    template, but its factual target still has two required components.
+    """
+    template_name = template_name_for_task(title, category)
+    if template_name is None:
+        return None
+    words = _words(protocol_phrase_of(title))
+    et_matches = _has_alias(words, "et", "enterotoxaemia", "enterotoxemia")
+    tt_matches = _has_alias(words, "tt", "tetanus", "tetanus toxoid")
+    if et_matches and tt_matches:
+        return "Enterotoxaemia (ET) + Tetanus (TT)"
+    return template_name
+
+
+def target_matches_task(target: str, title: str, category: str) -> bool:
+    """Validate an explicitly supplied target against the complete duty.
+
+    The schedule template alone is insufficient for quarantine's combined
+    ET + Tetanus item because that duty deliberately reuses the seeded ET
+    template. A blank remains valid and is canonicalised by the API.
+    """
+    target_words = _words(target)
+    if not target_words:
+        return True
+    task_words = _words(protocol_phrase_of(title))
+    task_has_et = _has_alias(task_words, "et", "enterotoxaemia", "enterotoxemia")
+    task_has_tt = _has_alias(task_words, "tt", "tetanus", "tetanus toxoid")
+    if task_has_et and task_has_tt:
+        target_has_et = _has_alias(target_words, "et", "enterotoxaemia", "enterotoxemia")
+        target_has_tt = _has_alias(target_words, "tt", "tetanus", "tetanus toxoid")
+        return target_has_et and target_has_tt
+    template_name = template_name_for_task(title, category)
+    return template_name is None or target_matches_template(target, template_name)
+
+
 def place_movement_restriction(
     db: AsyncSession,
     animal: Animal,

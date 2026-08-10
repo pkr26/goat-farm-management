@@ -267,9 +267,75 @@ if [[ ! "${user_object_count}" =~ ^[0-9]+$ || "${user_object_count}" != "0" ]]; 
 fi
 
 # One transaction guarantees that any restore error rolls the target back to
-# its validated empty state.
-pg_restore --single-transaction --exit-on-error --no-owner --no-password \
-    --dbname="${TARGET_URL}" "${RESTORE_ARCHIVE}"
+# its validated empty state.  The earlier check is only a friendly preflight:
+# if it ran in one connection and pg_restore opened another, a concurrent
+# supported migration/restore writer could create an unrelated object in
+# between and the restore could still succeed around it. Render the archive to
+# private SQL, then acquire the same advisory lock Alembic uses and repeat the
+# emptiness assertion in the transaction/connection that executes every
+# restore statement. Advisory locks need no system-catalog privileges, so a
+# least-privilege database owner can restore; manual operator DDL remains
+# outside this protocol and must stay quiesced by the restore runbook.
+RESTORE_SQL="${TMP_DIR}/restore.sql"
+pg_restore --exit-on-error --no-owner --no-password \
+    --file="${RESTORE_SQL}" "${RESTORE_ARCHIVE}"
+chmod 0600 "${RESTORE_SQL}"
+
+read -r -d '' ATOMIC_EMPTY_DATABASE_SQL <<'SQL' || true
+DO $atomic_restore_guard$
+DECLARE
+    release_writer_lock_acquired boolean;
+    user_object_count bigint;
+BEGIN
+    SELECT pg_try_advisory_xact_lock(718204614)
+    INTO release_writer_lock_acquired;
+    IF NOT release_writer_lock_acquired THEN
+        RAISE EXCEPTION
+            'another supported migration or restore writer owns the target database';
+    END IF;
+
+    WITH user_namespaces AS (
+        SELECT oid, nspname
+        FROM pg_namespace
+        WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+          AND nspname NOT LIKE 'pg_toast%'
+          AND nspname NOT LIKE 'pg_temp_%'
+    ), namespaced_objects AS (
+        SELECT relnamespace AS namespace_oid FROM pg_class
+        UNION ALL SELECT pronamespace FROM pg_proc
+        UNION ALL SELECT typnamespace FROM pg_type
+        UNION ALL SELECT oprnamespace FROM pg_operator
+        UNION ALL SELECT collnamespace FROM pg_collation
+        UNION ALL SELECT connamespace FROM pg_conversion
+        UNION ALL SELECT opcnamespace FROM pg_opclass
+        UNION ALL SELECT opfnamespace FROM pg_opfamily
+        UNION ALL SELECT stxnamespace FROM pg_statistic_ext
+        UNION ALL SELECT cfgnamespace FROM pg_ts_config
+        UNION ALL SELECT dictnamespace FROM pg_ts_dict
+        UNION ALL SELECT prsnamespace FROM pg_ts_parser
+        UNION ALL SELECT tmplnamespace FROM pg_ts_template
+        UNION ALL SELECT extnamespace FROM pg_extension
+    )
+    SELECT
+        (SELECT count(*) FROM user_namespaces WHERE nspname <> 'public')
+        +
+        (SELECT count(*) FROM namespaced_objects o
+         JOIN user_namespaces n ON n.oid = o.namespace_oid)
+    INTO user_object_count;
+
+    IF user_object_count <> 0 THEN
+        RAISE EXCEPTION
+            'target database acquired % user schema object(s) before the atomic restore',
+            user_object_count;
+    END IF;
+END
+$atomic_restore_guard$;
+SQL
+psql --no-psqlrc --no-password --set=ON_ERROR_STOP=1 --single-transaction \
+    --dbname="${TARGET_URL}" \
+    --command="SET LOCAL lock_timeout = '10s'" \
+    --command="${ATOMIC_EMPTY_DATABASE_SQL}" \
+    --file="${RESTORE_SQL}"
 
 # A completed archive is not considered usable unless it restored exactly one
 # syntactically valid Alembic revision marker.

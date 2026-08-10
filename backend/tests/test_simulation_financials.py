@@ -585,11 +585,31 @@ def test_break_even_price_never_exceeds_the_public_schema_ceiling() -> None:
     assert run_simulation(a).metrics.break_even_meat_price_per_kg is None
 
 
-def test_break_even_none_when_5x_price_cannot_save() -> None:
+def test_break_even_searches_the_full_public_price_domain() -> None:
     a = SimulationAssumptions()
-    a.costs.labour_per_month = 1_000_000.0  # structural loss, price cannot fix it
-    res = run_simulation(a)
-    assert res.metrics.break_even_meat_price_per_kg is None
+    a.costs.labour_per_month = 1_000_000.0
+
+    break_even = run_simulation(a).metrics.break_even_meat_price_per_kg
+
+    assert break_even is not None
+    assert break_even > 5.0 * a.sales.meat_price_per_kg
+    variant = a.model_copy(deep=True)
+    variant.sales.meat_price_per_kg = break_even
+    assert run_simulation(variant, with_break_even=False).metrics.npv == pytest.approx(0.0, abs=1.0)
+
+
+def test_feed_price_sensitivity_labels_all_prices_not_only_green_fodder() -> None:
+    a = SimulationAssumptions()
+    a.feed.green_price_per_kg = 0.0
+    a.feed.dry_price_per_kg = 10.0
+    a.feed.concentrate_price_per_kg = 30.0
+
+    feed = next(item for item in run_sensitivity(a) if item.parameter == "feed_prices")
+
+    assert feed.label_low == "-20.0%"
+    assert feed.label_high == "+20.0%"
+    assert feed.delta_npv_low != 0.0
+    assert feed.delta_npv_high != 0.0
 
 
 def test_dscr_consistency() -> None:

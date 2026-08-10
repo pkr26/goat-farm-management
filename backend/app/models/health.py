@@ -105,6 +105,11 @@ class HealthEvent(Base):
             "(disease_target IS NOT NULL AND btrim(disease_target) <> '')",
             name="ck_health_events_suspected_disease",
         ),
+        CheckConstraint(
+            "suspected_scheduled_disease IS TRUE OR "
+            "(authority_notified_at IS NULL AND isolation_started_at IS NULL)",
+            name="ck_health_events_compliance_requires_suspicion",
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

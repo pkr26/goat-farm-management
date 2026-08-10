@@ -67,7 +67,8 @@ import { useSingleFlight } from "@/lib/use-single-flight";
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
 function parsePositiveId(raw: string | null): number | null {
-  const parsed = raw === null ? Number.NaN : Number(raw);
+  if (raw === null || !/^\d+$/.test(raw)) return null;
+  const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 

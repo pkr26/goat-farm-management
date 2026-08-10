@@ -28,6 +28,7 @@ import {
   firstPermittedPathFromList,
   permittedAppPathFromList,
 } from "@/lib/permission-navigation";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 const farmSchema = z.object({
   name: z.string().min(1, "Name is required").max(120),
@@ -42,6 +43,7 @@ function FarmSelectPageContent() {
   const { user, farms, farmId, loading, selectFarm, refreshFarms } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
+  const farmTransition = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -52,7 +54,7 @@ function FarmSelectPageContent() {
     defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
   });
 
-  async function pick(farm: FarmEntry) {
+  async function openFarm(farm: FarmEntry) {
     setServerError(null);
     setSelectingFarmId(farm.id);
     // A just-created farm may not be in AuthProvider's cached list when the
@@ -75,31 +77,37 @@ function FarmSelectPageContent() {
     }
   }
 
+  async function pick(farm: FarmEntry) {
+    await farmTransition.run(() => openFarm(farm));
+  }
+
   async function onSubmit(values: FarmValues) {
-    setServerError(null);
-    let farm: FarmEntry;
-    try {
-      farm = await apiFetch<FarmEntry>("/api/auth/farms", {
-        method: "POST",
-        body: JSON.stringify({ ...values, location: values.location || null }),
-      });
-    } catch (err) {
-      setServerError(
-        err instanceof ApiError ? err.detail : "Could not create the farm.",
-      );
-      return;
-    }
-    // The farm is durably created from here on. Never report a follow-up
-    // failure as a creation failure: the retry would mint a fresh
-    // Idempotency-Key and create a second, identical farm.
-    reset({ name: "", location: "", timezone: "Asia/Kolkata" });
-    try {
-      await refreshFarms();
-    } catch {
-      // Best-effort: the list is re-fetched on the next load, and pick()
-      // below takes the operator straight into the farm they just created.
-    }
-    await pick(farm);
+    await farmTransition.run(async () => {
+      setServerError(null);
+      let farm: FarmEntry;
+      try {
+        farm = await apiFetch<FarmEntry>("/api/auth/farms", {
+          method: "POST",
+          body: JSON.stringify({ ...values, location: values.location || null }),
+        });
+      } catch (err) {
+        setServerError(
+          err instanceof ApiError ? err.detail : "Could not create the farm.",
+        );
+        return;
+      }
+      // The farm is durably created from here on. Never report a follow-up
+      // failure as a creation failure: the retry would mint a fresh
+      // Idempotency-Key and create a second, identical farm.
+      reset({ name: "", location: "", timezone: "Asia/Kolkata" });
+      try {
+        await refreshFarms();
+      } catch {
+        // Best-effort: the list is re-fetched on the next load, and openFarm()
+        // below takes the operator straight into the farm they just created.
+      }
+      await openFarm(farm);
+    });
   }
 
   if (loading || !user) {
@@ -134,7 +142,7 @@ function FarmSelectPageContent() {
             <button
               key={farm.id}
               type="button"
-              disabled={selectingFarmId !== null}
+              disabled={farmTransition.pending}
               onClick={() => void pick(farm)}
               className="rounded-xl border bg-card p-4 text-left shadow-sm transition hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
@@ -217,7 +225,7 @@ function FarmSelectPageContent() {
                   {serverError}
                 </p>
               )}
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || farmTransition.pending}>
                 {isSubmitting ? "Creating…" : "Create farm"}
               </Button>
             </form>

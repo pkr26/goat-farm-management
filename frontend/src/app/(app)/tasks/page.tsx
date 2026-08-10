@@ -62,6 +62,7 @@ import { invalidateFarmData } from "@/lib/query-invalidation";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn, safeAppPath } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TaskCreateInCategory);
@@ -184,6 +185,7 @@ function RowActions({
   const skipMutation = useSkipApiTasksTaskIdSkipPost();
   const verifyMutation = useVerifyApiTasksTaskIdVerifyPost();
   const rejectMutation = useRejectApiTasksTaskIdRejectPost();
+  const actionFlight = useSingleFlight();
   const safeAction = safeAppPath(task.action_url);
   const permittedAction = permittedTaskActionPath(task.action_url, can);
 
@@ -201,56 +203,64 @@ function RowActions({
   }
 
   async function completeTask() {
-    setActionError(null);
-    try {
-      await completeMutation.mutateAsync({ taskId: task.id });
-      toast.success("Task completed.");
-      invalidate();
-    } catch (error) {
-      reportActionError("complete", error);
-    }
+    await actionFlight.run(async () => {
+      setActionError(null);
+      try {
+        await completeMutation.mutateAsync({ taskId: task.id });
+        toast.success("Task completed.");
+        invalidate();
+      } catch (error) {
+        reportActionError("complete", error);
+      }
+    });
   }
 
   async function skipTask() {
-    setActionError(null);
-    try {
-      await skipMutation.mutateAsync({
-        taskId: task.id,
-        data: { reason: skipReason.trim() || null },
-      });
-      toast.success("Task skipped.");
-      setSkipReason("");
-      setSkipOpen(false);
-      invalidate();
-    } catch (error) {
-      reportActionError("skip", error);
-    }
+    await actionFlight.run(async () => {
+      setActionError(null);
+      try {
+        await skipMutation.mutateAsync({
+          taskId: task.id,
+          data: { reason: skipReason.trim() || null },
+        });
+        toast.success("Task skipped.");
+        setSkipReason("");
+        setSkipOpen(false);
+        invalidate();
+      } catch (error) {
+        reportActionError("skip", error);
+      }
+    });
   }
 
   async function verifyTask() {
-    setActionError(null);
-    try {
-      await verifyMutation.mutateAsync({ taskId: task.id });
-      toast.success("Task verified.");
-      invalidate();
-    } catch (error) {
-      reportActionError("verify", error);
-    }
+    await actionFlight.run(async () => {
+      setActionError(null);
+      try {
+        await verifyMutation.mutateAsync({ taskId: task.id });
+        toast.success("Task verified.");
+        invalidate();
+      } catch (error) {
+        reportActionError("verify", error);
+      }
+    });
   }
 
   async function rejectTask() {
-    setActionError(null);
-    try {
-      await rejectMutation.mutateAsync({
-        taskId: task.id,
-        data: { note: note.trim() || null },
-      });
-      toast.success("Task sent back.");
-      setNote("");
-      invalidate();
-    } catch (error) {
-      reportActionError("reject", error);
-    }
+    await actionFlight.run(async () => {
+      setActionError(null);
+      try {
+        await rejectMutation.mutateAsync({
+          taskId: task.id,
+          data: { note: note.trim() || null },
+        });
+        toast.success("Task sent back.");
+        setNote("");
+        invalidate();
+      } catch (error) {
+        reportActionError("reject", error);
+      }
+    });
   }
 
   if (task.status === "PENDING" && canComplete) {
@@ -279,7 +289,7 @@ function RowActions({
             !lockedFutureCompletion && (
               <Button
                 size="sm"
-                disabled={completeMutation.isPending}
+                disabled={actionFlight.pending}
                 onClick={() => void completeTask()}
               >
                 {actionError?.action === "complete" ? "Retry complete" : "Complete"}
@@ -290,7 +300,7 @@ function RowActions({
             <Button
               size="sm"
               variant="outline"
-              disabled={skipMutation.isPending}
+              disabled={actionFlight.pending}
               onClick={() => setSkipOpen(true)}
             >
               Skip
@@ -327,10 +337,10 @@ function RowActions({
               <Button
                 type="button"
                 variant="destructive"
-                disabled={skipMutation.isPending}
+                disabled={actionFlight.pending}
                 onClick={() => void skipTask()}
               >
-                {skipMutation.isPending
+                {actionFlight.pending
                   ? "Skipping…"
                   : actionError?.action === "skip"
                     ? "Retry skip"
@@ -353,7 +363,7 @@ function RowActions({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          disabled={verifyMutation.isPending}
+          disabled={actionFlight.pending}
           onClick={() => void verifyTask()}
         >
           {actionError?.action === "verify" ? "Retry verify" : "Verify"}
@@ -369,7 +379,7 @@ function RowActions({
         <Button
           size="sm"
           variant="destructive"
-          disabled={rejectMutation.isPending}
+          disabled={actionFlight.pending}
           onClick={() => void rejectTask()}
         >
           {actionError?.action === "reject" ? "Retry reject" : "Reject"}

@@ -192,6 +192,7 @@ async def _hash_team_password(password: str, *, actor_id: int) -> str:
                 TEAM_PASSWORD_WORK_SCOPE,
                 key,
                 settings.auth_rate_limit_window_seconds,
+                max_attempts=settings.auth_rate_limit_max_attempts,
             )
         # Keep the owner reservation until native Argon work really finishes.
         # Cancelling/disconnecting an HTTP request must not release this slot

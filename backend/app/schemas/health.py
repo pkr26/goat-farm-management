@@ -270,6 +270,13 @@ class HealthEventIn(StrictInputModel):
             raise ValueError("withdrawal_until cannot be before the health event date")
         if self.suspected_scheduled_disease and not self.disease_target:
             raise ValueError("A suspected scheduled disease requires a disease target")
+        if not self.suspected_scheduled_disease and (
+            self.authority_notified_at is not None or self.isolation_started_at is not None
+        ):
+            raise ValueError(
+                "Authority notification and isolation dates require "
+                "suspected_scheduled_disease=true"
+            )
         # Reject cross-scope target ids instead of silently
         # ignoring them (v1 dropped a stray animal_id sent with batch scope).
         if self.scope != "animal" and self.animal_id is not None:

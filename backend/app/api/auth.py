@@ -16,14 +16,20 @@ from sqlalchemy.orm import selectinload
 
 from ..core.config import get_settings
 from ..deps import (
+    INVALID_ACCESS_TOKEN_SCOPE,
+    INVALID_LOGOUT_REFRESH_TOKEN_SCOPE,
     CurrentFarm,
     CurrentMembership,
     CurrentPerms,
     CurrentUser,
     DbSession,
     accessible_farms,
+    guard_invalid_token_verification_budget,
+    invalid_token_rate_error,
+    record_invalid_token_verification,
     revoke_session_family,
     revoke_user_sessions,
+    single_bearer_token,
 )
 from ..models import (
     Farm,
@@ -52,7 +58,7 @@ from ..security import (
     LEGACY_PBKDF2_PREFIX,
     PasswordWorkCapacityError,
     complete_rejected_login_timing_async,
-    decode_access_claims,
+    decode_access_claims_result,
     decode_refresh_claims,
     hash_password_async,
     issue_access_token,
@@ -133,6 +139,30 @@ def _client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _browser_origin(url: str) -> str:
+    """Return a URL's browser-serialized HTTP(S) origin, or ``""``.
+
+    A Starlette ``base_url`` may include an ASGI ``root_path`` even though an
+    Origin header never contains a path.  Reconstructing from parsed
+    scheme/authority also mirrors browser treatment of case, IPv6 brackets,
+    and explicit default ports.
+    """
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return ""
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname
+    if scheme not in {"http", "https"} or host is None:
+        return ""
+    authority = f"[{host}]" if ":" in host else host
+    default_port = {"http": 80, "https": 443}[scheme]
+    if port is not None and port != default_port:
+        authority = f"{authority}:{port}"
+    return f"{scheme}://{authority}"
+
+
 def _guard_cookie_request_origin(request: Request) -> None:
     """Reject browser cross-site requests before consuming a refresh cookie.
 
@@ -147,7 +177,7 @@ def _guard_cookie_request_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail=UNTRUSTED_COOKIE_ORIGIN)
 
     allowed = set(get_settings().cors_origins)
-    allowed.add(str(request.base_url).rstrip("/"))
+    allowed.add(_browser_origin(str(request.base_url)))
     origin = request.headers.get("Origin")
     if origin is not None:
         if origin not in allowed:
@@ -157,11 +187,7 @@ def _guard_cookie_request_origin(request: Request) -> None:
     referer = request.headers.get("Referer")
     if referer is None:
         return
-    try:
-        parsed = urlsplit(referer)
-        referer_origin = f"{parsed.scheme}://{parsed.netloc}"
-    except ValueError:
-        referer_origin = ""
+    referer_origin = _browser_origin(referer)
     if referer_origin not in allowed:
         raise HTTPException(status_code=403, detail=UNTRUSTED_COOKIE_ORIGIN)
 
@@ -199,10 +225,17 @@ def _login_blocked(request: Request, email: str) -> bool:
 def _record_login_failure(request: Request, email: str) -> None:
     s = get_settings()
     if s.auth_rate_limit_enabled:
-        window = s.auth_rate_limit_window_seconds
-        auth_limiter.record("login", _login_key(request, email), window)
-        auth_limiter.record("login-email", email, window)
-        auth_limiter.record("login-ip", _client_key(request), window)
+        attempts, window = s.auth_rate_limit_max_attempts, s.auth_rate_limit_window_seconds
+        auth_limiter.record("login", _login_key(request, email), window, max_attempts=attempts)
+        auth_limiter.record(
+            "login-email", email, window, max_attempts=attempts * EMAIL_LIMIT_MULTIPLIER
+        )
+        auth_limiter.record(
+            "login-ip",
+            _client_key(request),
+            window,
+            max_attempts=attempts * IP_LIMIT_MULTIPLIER,
+        )
 
 
 def _reset_login_failures(request: Request, email: str) -> None:
@@ -224,10 +257,15 @@ def _rate_limited(scope: str, key: str) -> bool:
     return blocked
 
 
-def _record_attempt(scope: str, key: str) -> None:
+def _record_attempt(scope: str, key: str, *, limit_multiplier: int = 1) -> None:
     s = get_settings()
     if s.auth_rate_limit_enabled:
-        auth_limiter.record(scope, key, s.auth_rate_limit_window_seconds)
+        auth_limiter.record(
+            scope,
+            key,
+            s.auth_rate_limit_window_seconds,
+            max_attempts=s.auth_rate_limit_max_attempts * limit_multiplier,
+        )
 
 
 def _account_password_blocked(scope: str, account_scope: str, rate_key: str, user_id: int) -> bool:
@@ -256,7 +294,7 @@ def _record_account_password_attempt(
     producing the change it asked for — a wrong current password, a rejected
     replacement, or an unavailable deletion."""
     _record_attempt(scope, rate_key)
-    _record_attempt(account_scope, str(user_id))
+    _record_attempt(account_scope, str(user_id), limit_multiplier=EMAIL_LIMIT_MULTIPLIER)
 
 
 def _reset_account_password_attempts(
@@ -360,7 +398,12 @@ def _check_refresh_preverification_budget(request: Request) -> None:
     ):
         logger.info("refresh pre-verification throttled (ip=%s)", key)
         raise _too_many_attempts()
-    auth_limiter.record(REFRESH_PREVERIFY_SCOPE, key, window)
+    auth_limiter.record(
+        REFRESH_PREVERIFY_SCOPE,
+        key,
+        window,
+        max_attempts=preverification_limit,
+    )
 
 
 async def _make_refresh_session_slot(
@@ -508,6 +551,7 @@ def _raise_invalid_refresh(request: Request) -> NoReturn:
             "refresh-invalid",
             rate_key,
             settings.auth_rate_limit_window_seconds,
+            max_attempts=limit,
         )
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
@@ -744,13 +788,47 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     # Revoke the presented session server-side — deleting the
     # cookie alone leaves an exfiltrated token fully usable.
     token = _refresh_cookie(request)
+    access_token = single_bearer_token(request)
+    if token is not None:
+        guard_invalid_token_verification_budget(
+            request,
+            INVALID_LOGOUT_REFRESH_TOKEN_SCOPE,
+            token,
+        )
+    if access_token is not None:
+        guard_invalid_token_verification_budget(
+            request,
+            INVALID_ACCESS_TOKEN_SCOPE,
+            access_token,
+        )
     claims = decode_refresh_claims(token) if token else None
-    authorization = request.headers.get("Authorization")
-    access_claims = (
-        decode_access_claims(authorization.removeprefix("Bearer "))
-        if authorization and authorization.startswith("Bearer ")
-        else None
-    )
+    access_result = decode_access_claims_result(access_token) if access_token is not None else None
+    access_claims = access_result.claims if access_result is not None else None
+    refresh_ip_blocked = False
+    if token is not None and claims is None:
+        refresh_ip_blocked = record_invalid_token_verification(
+            request,
+            INVALID_LOGOUT_REFRESH_TOKEN_SCOPE,
+            token,
+        )
+    access_ip_blocked = False
+    if (
+        access_token is not None
+        and access_claims is None
+        and not (access_result is not None and access_result.expired)
+    ):
+        access_ip_blocked = record_invalid_token_verification(
+            request,
+            INVALID_ACCESS_TOKEN_SCOPE,
+            access_token,
+        )
+    # Record both independently before returning a shared-IP throttle. A bad
+    # companion token must not escape its own ledger merely because the other
+    # component crossed the wider post-classification budget first.
+    if refresh_ip_blocked:
+        raise invalid_token_rate_error(request, INVALID_LOGOUT_REFRESH_TOKEN_SCOPE)
+    if access_ip_blocked:
+        raise invalid_token_rate_error(request, INVALID_ACCESS_TOKEN_SCOPE)
     candidate_user_id = claims.user_id if claims is not None else None
     if candidate_user_id is None and access_claims is not None:
         candidate_user_id = access_claims.user_id

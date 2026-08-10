@@ -98,6 +98,14 @@ function localToday(): string {
   return farmToday();
 }
 
+/** Canonicalise URL/select ids without JavaScript's permissive Number()
+ * syntax (for example, "1e2" must never silently target record 100). */
+function positiveIdString(raw: string | null | undefined): string | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null;
+}
+
 /** Next-due date cell: red tint when overdue, amber when due within a week.
  *  Comparisons use the active farm's calendar day. */
 function NextDue({ date }: { date: string }) {
@@ -160,14 +168,17 @@ const eventSchema = z
     task_id: z.string().optional(),
   })
   .superRefine((v, ctx) => {
-    if (v.scope === "animal" && !v.animal_id) {
+    if (v.scope === "animal" && positiveIdString(v.animal_id) === null) {
       ctx.addIssue({ code: "custom", path: ["animal_id"], message: "Pick an animal" });
     }
     if (v.scope === "bucket" && !v.bucket) {
       ctx.addIssue({ code: "custom", path: ["bucket"], message: "Pick a bucket" });
     }
-    if (v.scope === "batch" && !v.purchase_batch_id) {
+    if (v.scope === "batch" && positiveIdString(v.purchase_batch_id) === null) {
       ctx.addIssue({ code: "custom", path: ["purchase_batch_id"], message: "Pick a batch" });
+    }
+    if (v.task_id && v.task_id !== NONE && positiveIdString(v.task_id) === null) {
+      ctx.addIssue({ code: "custom", path: ["task_id"], message: "Pick a valid duty" });
     }
     if (v.date && v.date > localToday()) {
       ctx.addIssue({ code: "custom", path: ["date"], message: "Date cannot be in the future" });
@@ -317,13 +328,9 @@ function HealthPageContent() {
 
   const [open, setOpen] = useState(false);
   const deepLinkedTaskIdParam = searchParams.get("task_id");
-  const parsedDeepLinkedTaskId = deepLinkedTaskIdParam
-    ? Number(deepLinkedTaskIdParam)
-    : Number.NaN;
+  const deepLinkedTaskIdValue = positiveIdString(deepLinkedTaskIdParam);
   const deepLinkedTaskId =
-    Number.isSafeInteger(parsedDeepLinkedTaskId) && parsedDeepLinkedTaskId > 0
-      ? parsedDeepLinkedTaskId
-      : null;
+    deepLinkedTaskIdValue === null ? null : Number(deepLinkedTaskIdValue);
   const tasksQuery = useListTasksApiTasksGet(undefined, {
     query: { enabled: canManage && canViewTasks && open },
   });
@@ -365,7 +372,7 @@ function HealthPageContent() {
   const [recordError, setRecordError] = useState<string | null>(null);
   const [bulkPreview, setBulkPreview] = useState<HealthBulkTargetPreviewOut | null>(null);
   const [scheduleAnimalId, setScheduleAnimalId] = useState(
-    () => searchParams.get("schedule_animal_id") ?? "",
+    () => positiveIdString(searchParams.get("schedule_animal_id")) ?? "",
   );
   const [prefillTaskId, setPrefillTaskId] = useState<string | null>(null);
   /** A deep-linked duty id we could not resolve — surfaced so the operator
@@ -526,9 +533,9 @@ function HealthPageContent() {
   useEffect(() => {
     if (!canManage || prefillTaskId !== null) return;
     const params = new URLSearchParams(searchParams.toString());
-    const taskId = params.get("task_id");
-    const animalId = params.get("animal_id");
-    const batchId = params.get("purchase_batch_id");
+    const taskId = positiveIdString(params.get("task_id"));
+    const animalId = positiveIdString(params.get("animal_id"));
+    const batchId = positiveIdString(params.get("purchase_batch_id"));
     if (!taskId && !animalId && !batchId) return;
     // One-time mount initialization from URL params — cascading-render risk
     // doesn't apply here (runs once, not reactive to props/state).

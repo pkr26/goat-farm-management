@@ -24,6 +24,7 @@ from ..models import (
     KiddingRecord,
     KidEntry,
     PurchaseBatch,
+    Role,
     Task,
     TaskCategory,
     TaskStatus,
@@ -409,8 +410,23 @@ async def resolve_personal_task_role_fallback(db: AsyncSession, task: Task) -> i
     ).scalar_one_or_none()
     if role_id is None:
         raise ValueError("Personal duty has no retained membership role")
-    task.assigned_role_id = role_id
-    return role_id
+    role = (
+        await db.execute(
+            select(Role).where(
+                Role.id == role_id,
+                Role.farm_id == task.farm_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if role is None:  # pragma: no cover - protected by the membership's composite FK
+        raise ValueError("Personal duty's retained membership role no longer exists")
+    # Keep the already-loaded relationship coherent with the repaired FK. The
+    # task routers serialize their response from this same ORM instance; setting
+    # only assigned_role_id returned a contradictory payload (non-null id with
+    # assigned_role_name=null) until the client performed a second GET.
+    task.assigned_role_id = role.id
+    task.assigned_role = role
+    return role.id
 
 
 async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
