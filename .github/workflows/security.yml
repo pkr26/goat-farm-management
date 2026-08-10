@@ -22,8 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
+      # CodeQL reads workflow-run metadata when finalizing a private-repository
+      # analysis. Without this permission both language jobs fail after the
+      # queries and SARIF export have already completed.
+      actions: read
       contents: read
-      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -31,11 +34,28 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        uses: github/codeql-action/init@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
         with:
           languages: ${{ matrix.language }}
       - name: Analyze
-        uses: github/codeql-action/analyze@c3400c2f38909e0dcf3c3a41f2030a8217be5d3e # v3
+        id: codeql-analyze
+        uses: github/codeql-action/analyze@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4
+        with:
+          # GitHub Code Scanning is not enabled for this private repository,
+          # so its upload API returns 403 after an otherwise successful scan.
+          # Preserve the results as an Actions artifact instead. When Code
+          # Security is enabled, change this to "always" and restore the
+          # security-events: write permission above.
+          upload: never
+          upload-database: false
+          output: codeql-results/${{ matrix.language }}
+      - name: Preserve CodeQL SARIF
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codeql-${{ matrix.language }}-sarif
+          path: ${{ steps.codeql-analyze.outputs.sarif-output }}
+          if-no-files-found: error
+          retention-days: 30
 
   secrets:
     name: Secret scan

@@ -1348,6 +1348,17 @@ def test_frontend_is_a_standalone_node_container() -> None:
     assert "poweredByHeader: false" in config
     assert 'CMD ["node", "server.js"]' in dockerfile
 
+    # npm is required while building, but not by Next's standalone runtime.
+    # Shipping the base image's global npm tree needlessly exposed all of its
+    # transitive packages to production image vulnerability scans.
+    runner = dockerfile.split(" AS runner", maxsplit=1)[1]
+    assert "/usr/local/lib/node_modules/npm" in runner
+    assert "/usr/local/bin/npm" in runner
+    assert "/usr/local/bin/npx" in runner
+    assert runner.index("rm -rf /usr/local/lib/node_modules/npm") < runner.index(
+        'CMD ["node", "server.js"]'
+    )
+
 
 def _stage_scripts(tmp_path: Path, env_file: str | None) -> Path:
     """Copy the scripts under a private backend/ tree so a test can control the
@@ -1593,6 +1604,20 @@ def test_ci_cancels_only_superseded_pull_requests() -> None:
         workflow = (REPO_ROOT / ".github" / "workflows" / workflow_name).read_text()
         assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
         assert "cancel-in-progress: true" not in workflow
+
+
+def test_private_repository_codeql_keeps_results_without_unavailable_upload() -> None:
+    workflow = (REPO_ROOT / ".github" / "workflows" / "security.yml").read_text()
+
+    assert "actions: read" in workflow
+    assert "github/codeql-action/init@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4" in workflow
+    assert "github/codeql-action/analyze@24c7eb380a2dc368f2d129e4c65e51d172983a1e # v4" in workflow
+    assert "upload: never" in workflow
+    assert "upload-database: false" in workflow
+    assert "output: codeql-results/${{ matrix.language }}" in workflow
+    assert "name: codeql-${{ matrix.language }}-sarif" in workflow
+    assert "path: ${{ steps.codeql-analyze.outputs.sarif-output }}" in workflow
+    assert "if-no-files-found: error" in workflow
 
 
 def test_compose_keeps_api_and_migration_credentials_separate_and_url_safe() -> None:
