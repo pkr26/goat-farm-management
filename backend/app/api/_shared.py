@@ -227,6 +227,12 @@ def animal_out(
         out.restriction_cleared_at = None
         out.restriction_cleared_by_id = None
         out.restriction_clearance_reference = None
+        # The episode counter is clinical history too: a non-zero value
+        # discloses that scheduled-disease holds were opened (and how many),
+        # even long after clearance. Its only legitimate use is the
+        # clear-restriction optimistic-concurrency token, and that whole flow
+        # requires health permissions — so fail closed alongside the rest.
+        out.restriction_version = 0
         out.mortality_cause = None
         out.mortality_reported_at = None
         # Free text has no enforceable domain classification and commonly

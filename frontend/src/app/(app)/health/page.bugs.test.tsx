@@ -9,7 +9,7 @@
 // `items` prop; the page now passes value → label maps, so these tests assert
 // the corrected display.
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,7 +17,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AnimalOut, TaskOut } from "@/api/generated/models";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { farmToday } from "@/lib/format";
+import { addDays, farmToday } from "@/lib/format";
 
 import HealthPage from "./page";
 
@@ -264,5 +264,94 @@ describe("HealthPage date default survives a farm-midnight rollover", () => {
     const dateInput = await screen.findByLabelText("Date (defaults to today)");
     expect(dateInput).toHaveValue("2026-08-10");
     expect(dateInput).toHaveAttribute("max", "2026-08-10");
+  });
+});
+
+// REGRESSION TESTS — fixed bug: silent submit failure behind the collapsed
+// Advanced section.
+//
+// Setting a Next due date (visible grid) makes schedule_template_name and
+// next_due_authority mandatory, but both fields — and their error messages —
+// live inside the collapsed "Advanced traceability & compliance" <details>.
+// The section had no error-driven open state, and react-hook-form cannot
+// focus an input the browser is not rendering, so clicking "Save event"
+// blocked the submit with zero visible feedback. The section is now
+// controlled: a failed submit with errors inside it forces it open, while
+// the user's own toggles are still honored.
+
+describe("HealthPage collapsed Advanced section validation errors", () => {
+  beforeEach(() => {
+    server.use(
+      http.get("/api/health/events", () =>
+        HttpResponse.json({ events: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("/api/health/animals", () =>
+        HttpResponse.json({ animals: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("/api/health/purchase-batches", () =>
+        HttpResponse.json({ batches: [], total: 0, limit: 50, offset: 0 }),
+      ),
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          completed_total: 0,
+          completed_limit: 50,
+          completed_offset: 0,
+        }),
+      ),
+    );
+  });
+
+  async function openDialogWithNextDue(user: User) {
+    renderWithProviders(<HealthPage />);
+    await screen.findByText("Event log");
+    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    const dialog = await screen.findByRole("dialog");
+    const details = within(dialog)
+      .getByText("Advanced traceability & compliance")
+      .closest("details");
+    expect(details).not.toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Next due date"), {
+      target: { value: addDays(TODAY, 30) },
+    });
+    return { dialog, details: details as HTMLDetailsElement };
+  }
+
+  it("opens the section and reveals its errors when saving with only a next-due date", async () => {
+    const user = userEvent.setup();
+    const { dialog, details } = await openDialogWithNextDue(user);
+    expect(details).not.toHaveAttribute("open");
+
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    await waitFor(() => expect(details).toHaveAttribute("open"));
+    expect(
+      within(dialog).getByText("Name the schedule used for a next-due date"),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByText("Record the authority for this next-due date"),
+    ).toBeVisible();
+  });
+
+  it("honors a manual re-collapse and re-opens on the next failed save", async () => {
+    const user = userEvent.setup();
+    const { dialog, details } = await openDialogWithNextDue(user);
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(details).toHaveAttribute("open"));
+
+    // The user closes the section without fixing anything (jsdom's summary
+    // has no activation behavior, so toggle the element the way the browser
+    // would: flip `open`, which also fires the toggle event).
+    act(() => {
+      details.open = false;
+    });
+    await waitFor(() => expect(details).not.toHaveAttribute("open"));
+
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+    await waitFor(() => expect(details).toHaveAttribute("open"));
   });
 });

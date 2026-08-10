@@ -510,6 +510,66 @@ describe("SimulationPage", () => {
     expect(screen.getByText(/5 selected/)).toBeInTheDocument();
   });
 
+  // REGRESSION — selectedUsableIds was a bare alias of selectedIds, so a
+  // selected scenario that turned invalid on a refetch (stored assumptions are
+  // re-validated server-side on every list read) kept inflating the
+  // "(N selected)" count, could not be unticked past its disabled checkbox,
+  // and was still sent to the compare endpoint.
+  it("stops counting and comparing a selected scenario that turns invalid", async () => {
+    const scenarios = Array.from({ length: 4 }, (_, index) => ({
+      id: index + 1,
+      farm_id: 1,
+      name: `Plan ${index + 1}`,
+      notes: "",
+      assumptions: DEFAULTS as typeof DEFAULTS | null,
+      valid: true,
+      validation_error: null as string | null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    let requestedIds: string | null = null;
+    server.use(
+      http.delete("/api/simulation/scenarios/:scenarioId", ({ params }) => {
+        const index = scenarios.findIndex(
+          (scenario) => scenario.id === Number(params.scenarioId),
+        );
+        if (index >= 0) scenarios.splice(index, 1);
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get("/api/simulation/scenarios/compare", ({ request }) => {
+        requestedIds = new URL(request.url).searchParams.get("ids");
+        return HttpResponse.json({
+          scenarios: scenarios.slice(0, 2),
+          results: [RESULT, RESULT],
+        });
+      }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderLoaded(scenarios);
+    for (const name of ["Plan 1", "Plan 2", "Plan 3"])
+      await user.click(screen.getByLabelText(`Compare ${name}`));
+    expect(screen.getByText(/3 selected/)).toBeInTheDocument();
+
+    // Plan 3's stored assumptions no longer parse; deleting Plan 4 refreshes
+    // the list, which brings Plan 3 back as invalid while still selected.
+    Object.assign(scenarios[2], {
+      assumptions: null,
+      valid: false,
+      validation_error: "horizon_months must be at least 12",
+    });
+    const planFourRow = screen.getByText("Plan 4").closest("tr") as HTMLElement;
+    await user.click(within(planFourRow).getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText("Invalid saved assumptions")).toBeInTheDocument();
+    expect(screen.getByText(/2 selected/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Compare Plan 3")).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Compare selected" }));
+    expect(await screen.findByText("Comparison")).toBeInTheDocument();
+    expect(requestedIds).toBe("1,2");
+  });
+
   it("pages truthfully and preserves valid compare selections across pages", async () => {
     const scenarios = Array.from({ length: 21 }, (_, index) => ({
       id: index + 1,

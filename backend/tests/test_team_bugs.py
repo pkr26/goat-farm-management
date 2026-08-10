@@ -9,11 +9,12 @@ regression guards. Helpers are reused from the extended suite.
 import httpx
 import pytest
 from sqlalchemy import func, literal, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.api.team as team_api
 from app.db import get_sessionmaker
-from app.models import Farm, FarmMembership, Role, User
+from app.models import Farm, FarmMembership, Role, Task, User
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
@@ -452,6 +453,135 @@ async def test_reset_password_increments_the_locked_token_version(
     # Both increments survive: the reset built on the value it locked, so the
     # token minted by the concurrent change-password is now invalid.
     assert after == before + 2
+
+
+# FIXED — regression test
+# Endpoint: PUT /api/team/workers/{membership_id}/status (body is_active)
+# Repro: send {"is_active": 1} / {"is_active": "false"} / {"is_active": 0.0}.
+# Expected: 422 — every other mutating boolean input (pregnant,
+# history_override, create_animals, ...) is a StrictBool, so non-boolean JSON
+# must be rejected, not coerced.
+# Actual: WorkerStatusIn.is_active was a plain `bool`; Pydantic's lax mode
+# silently coerced ints/floats/strings and flipped the worker's access,
+# masking client type errors and breaking the strict-input contract.
+async def test_worker_status_rejects_coerced_booleans(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    await worker_headers(client, owner, "CLEANER", "strict-bool@farm.in")
+    mid = await membership_id(client, owner, "strict-bool@farm.in")
+
+    for bad in (1, 0, "false", "true", "off", 1.0):
+        resp = await client.put(
+            f"/api/team/workers/{mid}/status", json={"is_active": bad}, headers=owner
+        )
+        assert resp.status_code == 422, (bad, resp.text)
+
+    # A genuine JSON boolean still round-trips, so the field is strict — not
+    # broken — and none of the rejected payloads flipped the stored state.
+    resp = await client.put(
+        f"/api/team/workers/{mid}/status", json={"is_active": False}, headers=owner
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_active"] is False
+
+
+def _key_share_probe_while_membership_locked(
+    farm_id: int, probe_role_id: int, worker_user_id: int
+) -> tuple[dict, object]:
+    """Wrap `_get_membership` so that, while the route still holds its
+    membership row lock, a second session inserts a Task assigned to the same
+    worker — the composite FK to farm_memberships(farm_id, user_id) takes
+    FOR KEY SHARE on the locked row, exactly what task creation,
+    auto-generation, and recurring-duty spawning do in production."""
+    original = team_api._get_membership
+    state: dict = {"blocked": None}
+
+    async def probe(
+        db: AsyncSession,
+        farm: Farm,
+        target_id: int,
+        *,
+        for_update: bool = False,
+        no_key_update: bool = False,
+    ) -> FarmMembership:
+        membership = await original(
+            db, farm, target_id, for_update=for_update, no_key_update=no_key_update
+        )
+        if for_update and state["blocked"] is None:
+            try:
+                async with get_sessionmaker()() as writer:
+                    await writer.execute(text("SET lock_timeout = '2s'"))
+                    writer.add(
+                        Task(
+                            farm_id=farm_id,
+                            title="KEY SHARE probe",
+                            due_date=today(),
+                            assigned_role_id=probe_role_id,
+                            assigned_user_id=worker_user_id,
+                        )
+                    )
+                    await writer.commit()
+            except DBAPIError:
+                state["blocked"] = True
+            else:
+                state["blocked"] = False
+        return membership
+
+    return state, probe
+
+
+# FIXED — regression test
+# Endpoints: POST /api/team/workers/{membership_id}/role and
+# POST /api/team/workers/{membership_id}/reset-password
+# Repro: while either endpoint holds its membership row lock, insert a Task
+# assigned to the same worker (FK KEY SHARE on the membership row).
+# Expected: the insert proceeds — neither endpoint mutates the (farm_id,
+# user_id) key that Task rows reference, so FOR NO KEY UPDATE suffices, the
+# mode the sibling status endpoint deliberately uses.
+# Actual: both took plain FOR UPDATE, which conflicts with FOR KEY SHARE, so
+# role changes and password resets needlessly serialized against concurrent
+# task creation / duty spawning for the same worker.
+async def test_change_role_lock_admits_concurrent_task_fk_key_share(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    added = await add_worker(client, owner, cleaner, "keyshare-role@farm.in")
+    assert added.status_code == 201, added.text
+    mover = await role_id(client, owner, "MOVER")
+
+    state, probe = _key_share_probe_while_membership_locked(
+        int(owner["X-Farm-Id"]), cleaner, added.json()["user_id"]
+    )
+    monkeypatch.setattr(team_api, "_get_membership", probe)
+    resp = await client.post(
+        f"/api/team/workers/{added.json()['id']}/role",
+        json={"role_id": mover},
+        headers=owner,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role_id"] == mover
+    assert state["blocked"] is False
+
+
+async def test_reset_password_lock_admits_concurrent_task_fk_key_share(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = await owner_with_farm(client)
+    cleaner = await role_id(client, owner, "CLEANER")
+    added = await add_worker(client, owner, cleaner, "keyshare-reset@farm.in")
+    assert added.status_code == 201, added.text
+
+    state, probe = _key_share_probe_while_membership_locked(
+        int(owner["X-Farm-Id"]), cleaner, added.json()["user_id"]
+    )
+    monkeypatch.setattr(team_api, "_get_membership", probe)
+    resp = await client.post(
+        f"/api/team/workers/{added.json()['id']}/reset-password",
+        json={"password": "brandnewpass1"},
+        headers=owner,
+    )
+    assert resp.status_code == 200, resp.text
+    assert state["blocked"] is False
 
 
 async def test_team_provisioning_lock_does_not_block_unrelated_tenant_writes(

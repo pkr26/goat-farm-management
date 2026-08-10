@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   RemotePicker,
   type RemotePickerLoadArgs,
+  type RemotePickerOption,
   type RemotePickerPage,
 } from "@/components/remote-picker";
 import { Label } from "@/components/ui/label";
@@ -16,10 +17,12 @@ function renderPicker({
   loadPage,
   initialValue = "",
   searchMaxLength,
+  staticOptions,
 }: {
   loadPage: (args: RemotePickerLoadArgs) => Promise<RemotePickerPage>;
   initialValue?: string;
   searchMaxLength?: number;
+  staticOptions?: RemotePickerOption[];
 }) {
   function Harness() {
     const [value, setValue] = useState(initialValue);
@@ -37,6 +40,7 @@ function renderPicker({
           dialogTitle="Choose an animal"
           searchLabel="Search animals"
           searchMaxLength={searchMaxLength}
+          staticOptions={staticOptions}
           sourcePath="/api/animals"
           cacheKey={["test"]}
           loadPage={loadPage}
@@ -221,6 +225,30 @@ describe("RemotePicker", () => {
     failNextPage = false;
     await user.click(within(dialog).getByRole("button", { name: "Load more" }));
     expect(await within(dialog).findByRole("option", { name: /G-0051 · Reached/ })).toBeInTheDocument();
+  });
+
+  it("does not claim zero options while a selectable static option is rendered", async () => {
+    // The tasks/finance pickers pass staticOptions=[{value: NONE, "— none —"}].
+    // Previously a search with zero server matches rendered that selectable
+    // option and, directly beneath it, "No matching options." plus a status
+    // line of "0 options available." — contradicting what the user sees.
+    const user = userEvent.setup();
+    const loadPage = vi.fn(async () => ({ options: [], total: 0, nextOffset: 0 }));
+    const Harness = renderPicker({
+      loadPage,
+      staticOptions: [{ value: "NONE", label: "— none —" }],
+    });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    // Wait for the (empty) server page to settle before asserting on the
+    // empty-state block, which only renders once loading finishes.
+    await within(dialog).findByText(/Checked 0 of 0/);
+
+    expect(within(dialog).getByRole("option", { name: "— none —" })).toBeInTheDocument();
+    expect(within(dialog).queryByText("No matching options.")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/1 option available/)).toBeInTheDocument();
   });
 
   it("preserves a prefilled value that is not present in loaded pages", () => {

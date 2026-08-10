@@ -686,7 +686,12 @@ export default function SimulationPage() {
   }, [defaultsQuery.data]);
 
   const snapshotQuery = useHerdSnapshotApiSimulationHerdSnapshotGet(
-    { breed },
+    // The snapshot buckets females by the breed's age-at-first-breeding, so
+    // it must be taken for the breed whose defaults are actually loaded in
+    // the editor — not the live dropdown, which the user may have changed
+    // without clicking "Load defaults". Keying on the dropdown silently mixed
+    // breed A economics with head counts bucketed by breed B's thresholds.
+    { breed: submittedParams.breed },
     {
       query: { enabled: false },
     },
@@ -700,10 +705,18 @@ export default function SimulationPage() {
     scenariosQuery.data?.status === 200 ? scenariosQuery.data.data : undefined;
   const scenarios = scenarioPage?.items ?? [];
   const scenarioTotal = scenarioPage?.total ?? 0;
-  // Only usable rows can enter this collection. Keep off-page ids so farmers
-  // can compare scenarios selected from different pages; the compare endpoint
-  // re-checks tenant scope and stored validity before running anything.
-  const selectedUsableIds = selectedIds;
+  // Only usable rows can enter this collection, but a refetch re-validates
+  // stored assumptions, so an already-selected row can turn invalid — and its
+  // checkbox is then disabled, leaving no way to untick it. Count such rows
+  // out here so the "(N selected)" label, the 2–5 compare gate and the ids
+  // sent to compare all describe what would actually run. Off-page ids are
+  // kept (their rows are unknown here) so farmers can compare scenarios
+  // selected from different pages; the compare endpoint re-checks tenant
+  // scope and stored validity before running anything.
+  const selectedUsableIds = selectedIds.filter((id) => {
+    const row = scenarios.find((scenario) => scenario.id === id);
+    return row === undefined || scenarioUsable(row);
+  });
 
   useEffect(() => {
     if (scenarioPage === undefined || scenarioOffset === 0) return;
@@ -1865,7 +1878,12 @@ export default function SimulationPage() {
             variant="outline"
             size="sm"
             onClick={addEvent}
-            disabled={events.length >= 500}
+            // Events belong to a loaded assumption set. Before the initial
+            // defaults land, adding one would flip acceptDefaultsRef and
+            // silently cancel the pending auto-load, leaving the editor stuck
+            // on "Loading defaults…" — so stay disabled until assumptions
+            // exist, like Run and "Use current herd" already do.
+            disabled={!assumptions || events.length >= 500}
           >
             <Plus />
             Add event

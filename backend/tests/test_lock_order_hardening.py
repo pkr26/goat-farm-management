@@ -516,8 +516,9 @@ async def test_recompleted_overdue_occurrences_atomically_share_one_successor(
         assert rejected.status_code == 200, rejected.text
 
     # Both requests start concurrently, but recurring transitions serialize on
-    # Farm before Task. They therefore cannot deadlock with review rejection or
-    # manufacture two successors at the same anchored date.
+    # Farm before Task. They therefore cannot deadlock with review rejection —
+    # and CLEANING completions spawn nothing at all: the successor is minted
+    # on verification, the terminal transition.
     async with second_client() as first_client, second_client() as second_client_instance:
         first = asyncio.create_task(
             first_client.post(f"/api/tasks/{occurrence_ids[0]}/complete", headers=owner)
@@ -542,10 +543,42 @@ async def test_recompleted_overdue_occurrences_atomically_share_one_successor(
                 )
             ).scalars()
         )
-    assert len(rows) == 3
     assert [task.status for task in rows] == [
         TaskStatus.DONE.value,
         TaskStatus.DONE.value,
+    ]
+
+    # Concurrent verifications are where the successor race lives now: both
+    # anchor on max(due, today) — the same date — so the series dedup must
+    # collapse them to a single PENDING successor without deadlocking.
+    async with second_client() as first_client, second_client() as second_client_instance:
+        first = asyncio.create_task(
+            first_client.post(f"/api/tasks/{occurrence_ids[0]}/verify", headers=owner)
+        )
+        second = asyncio.create_task(
+            second_client_instance.post(
+                f"/api/tasks/{occurrence_ids[1]}/verify",
+                headers=owner,
+            )
+        )
+        first_response, second_response = await finish_pair(first, second)
+
+    assert first_response.status_code == 200, first_response.text
+    assert second_response.status_code == 200, second_response.text
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(Task)
+                    .where(Task.recurring_series_id == series_id)
+                    .order_by(Task.due_date, Task.id)
+                )
+            ).scalars()
+        )
+    assert len(rows) == 3
+    assert [task.status for task in rows] == [
+        TaskStatus.VERIFIED.value,
+        TaskStatus.VERIFIED.value,
         TaskStatus.PENDING.value,
     ]
     assert rows[-1].due_date == today() + timedelta(days=1)

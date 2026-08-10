@@ -330,6 +330,14 @@ async def clear_movement_restriction(
     animal.movement_restricted = False
     animal.suspected_scheduled_disease = False
     animal.restriction_reason = None
+    # Like restriction_reason, these columns describe the CURRENT episode
+    # only; leaving them set would present a cleared animal as still under an
+    # active suspicion already reported to the authority. The historical fact
+    # is not lost — it stays on the HealthEvent that recorded the suspicion
+    # (cited by the PLACED action via health_event_id) and on the CLEARED
+    # action's disease_target captured above.
+    animal.suspected_disease = None
+    animal.authority_notified_at = None
     await db.commit()
 
 
@@ -375,7 +383,21 @@ async def _bulk_target_snapshot(
     if target.scope == "bucket":
         filters.append(Animal.current_bucket == target.bucket)
     else:
-        filters.append(Animal.purchase_batch_id == target.purchase_batch_id)
+        # BoundedId admits ids up to 2**62 but purchase_batch_id is an int4
+        # column: comparing an impossible id in SQL would make asyncpg raise a
+        # DataError (500). Same ceiling guard as the writer's batch lookup —
+        # such an id can never exist, so it simply matches no animals (400).
+        filters.append(
+            Animal.purchase_batch_id == target.purchase_batch_id
+            if target.purchase_batch_id is not None and target.purchase_batch_id <= MAX_INT32_ID
+            else false()
+        )
+        # Batch scope always means the batch's ACTIVE QUARANTINE animals — the
+        # exact set /purchase-batches advertises as the selectable count and
+        # the set the writer's stability check accepts — for linked and
+        # unlinked writes alike, so a reviewed preview can be submitted
+        # unchanged.
+        filters.append(Animal.current_bucket == Bucket.QUARANTINE.value)
         if target.task_id is not None:
             if target.task_id > MAX_INT32_ID:
                 raise HTTPException(status_code=409, detail="Linked health task is unavailable")
@@ -399,9 +421,6 @@ async def _bulk_target_snapshot(
                 raise HTTPException(
                     status_code=422, detail="Health preview scope must match the linked batch"
                 )
-            # Match the writer's authoritative target predicate exactly so a
-            # reviewed preview can be submitted unchanged with this task id.
-            filters.append(Animal.current_bucket == Bucket.QUARANTINE.value)
     rows = list(
         (
             await db.execute(
@@ -576,8 +595,16 @@ async def _lock_event_targets(
             else None
         )
         batch_id = batch.id if batch is not None else None
+        # Batch scope targets the batch's ACTIVE QUARANTINE set — the count
+        # /purchase-batches advertised when the operator chose the batch and
+        # the set the preview snapshot presented for review. An animal
+        # released from quarantine between preview and write has left that
+        # set, so the snapshot is stale rather than silently dosing an
+        # already-released animal.
         stable = batch_id is not None and all(
-            animal.status == AnimalStatus.ACTIVE.value and animal.purchase_batch_id == batch_id
+            animal.status == AnimalStatus.ACTIVE.value
+            and animal.purchase_batch_id == batch_id
+            and animal.current_bucket == Bucket.QUARANTINE.value
             for animal in animals
         )
     if not stable:

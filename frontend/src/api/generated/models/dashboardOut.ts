@@ -31,7 +31,7 @@ export interface DashboardOut {
   suggestions: MoveSuggestionOut[];
   suggestions_total: number;
   recent_weights: DashboardWeightOut[];
-  recent_weights_total: number;
+  recent_weights_total: number | null;
   preview_limit: number;
   recent_weights_limit: number;
 }

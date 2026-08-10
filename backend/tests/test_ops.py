@@ -1,8 +1,8 @@
 """Ops readiness tests: unauthenticated
 health/readiness probes, request-ID correlation, production-boot safety
 validation, docs gating, the GOATFARM_TEST_DB footgun guard, and direct
-coverage of seed_startup / backfill_task_assignments (the lifespan path the
-httpx ASGI transport never triggers)."""
+coverage of seed_startup / backfill_task_assignments_batch (the lifespan path
+the httpx ASGI transport never triggers)."""
 
 import importlib.util
 import os
@@ -23,6 +23,7 @@ from sqlalchemy import delete, event, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 import app.main as main_module
+import app.seed as seed_module
 from app.core.config import (
     DEVELOPMENT_IDEMPOTENCY_HMAC_SECRET,
     PRODUCTION_REFRESH_COOKIE_NAME,
@@ -996,6 +997,103 @@ async def test_task_backfill_share_locks_membership_role_snapshot() -> None:
         sql for sql in statements if "FROM farm_memberships" in sql and "FOR SHARE" in sql
     ]
     assert len(membership_reads) == 1
+
+
+def test_superseded_unbatched_backfill_stays_deleted() -> None:
+    """The dead non-batch backfill looked category roles up through an
+    UNFILTERED `{role.code: role.id}` dict: every custom role shares code=None,
+    so an unmapped category (e.g. OTHER) resolved via `roles.get(None)` to an
+    arbitrary custom role instead of staying unassigned. The batch variant is
+    the only wired-in path and guards that lookup, so the unbatched twin was
+    deleted outright — a future caller must revive the guarded variant, never
+    this one."""
+    assert not hasattr(seed_module, "backfill_task_assignments")
+
+
+async def test_task_backfill_never_resolves_a_soft_deleted_membership_role() -> None:
+    """Account deletion retains membership rows while `_member_count` only
+    counts live users, so a custom role whose sole holder was tombstoned can
+    itself be soft-deleted with a retained membership still pointing at it.
+    The membership fallback used to stamp that dead role onto a duty (and kept
+    re-claiming rows it could never resolve); it must fall through to the live
+    category preset — or leave the row unclaimed when no preset source exists —
+    exactly like the request path, which refuses roles with `deleted_at` set."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="dead-role-owner@farm.in", password_hash="argon2-placeholder")
+        worker = User(email="dead-role-worker@farm.in", password_hash="argon2-placeholder")
+        db.add_all([owner, worker])
+        await db.flush()
+        preset_farm = Farm(name="Dead Role Preset Farm", owner_id=owner.id)
+        bare_farm = Farm(name="Dead Role Bare Farm", owner_id=owner.id)
+        db.add_all([preset_farm, bare_farm])
+        await db.flush()
+        await seed_default_roles(db, preset_farm.id)
+        tombstoned = [
+            Role(farm_id=preset_farm.id, code=None, name="Night watch", permissions="[]"),
+            Role(farm_id=bare_farm.id, code=None, name="Night watch", permissions="[]"),
+        ]
+        db.add_all(tombstoned)
+        await db.flush()
+        db.add_all(
+            [
+                FarmMembership(user_id=worker.id, farm_id=preset_farm.id, role_id=tombstoned[0].id),
+                FarmMembership(user_id=worker.id, farm_id=bare_farm.id, role_id=tombstoned[1].id),
+            ]
+        )
+        for farm in (preset_farm, bare_farm):
+            db.add(
+                Task(
+                    farm_id=farm.id,
+                    title="Legacy personal cleaning",
+                    due_date=date(2026, 1, 10),
+                    category=TaskCategory.CLEANING.value,
+                    status=TaskStatus.DONE.value,
+                    assigned_user_id=worker.id,
+                    assigned_role_id=None,
+                    auto_generated=True,
+                    completed_by_id=worker.id,
+                    completed_at=utcnow(),
+                )
+            )
+        # Tombstone the worker first (memberships are retained), then the now
+        # holder-less custom roles — the exact shape delete_role permits.
+        # The scrub mirrors delete_account so ck_users_deleted_profile_scrubbed
+        # holds.
+        worker.deleted_at = utcnow()
+        worker.email = f"deleted-{worker.id}@deleted.invalid"
+        worker.name = None
+        for role in tombstoned:
+            role.deleted_at = utcnow()
+        await db.commit()
+        preset_farm_id, bare_farm_id = preset_farm.id, bare_farm.id
+        dead_role_ids = {role.id for role in tombstoned}
+
+    async with get_sessionmaker()() as db:
+        claimed = await backfill_task_assignments_batch(db, batch_size=10)
+        await db.commit()
+    # Only the preset-farm duty has a live source; the bare-farm row must not
+    # be claimed at all (a dead-role membership is not a resolvable source).
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        cleaner_id = (
+            await db.execute(
+                select(Role.id).where(
+                    Role.farm_id == preset_farm_id,
+                    Role.code == "CLEANER",
+                    Role.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+        repaired = (
+            await db.execute(select(Task).where(Task.farm_id == preset_farm_id))
+        ).scalar_one()
+        assert repaired.assigned_role_id == cleaner_id
+        assert repaired.assigned_role_id not in dead_role_ids
+        unclaimed = (
+            await db.execute(select(Task).where(Task.farm_id == bare_farm_id))
+        ).scalar_one()
+        assert unclaimed.assigned_role_id is None
 
 
 async def test_non_pending_personal_duty_is_repaired_so_rejection_stays_possible() -> None:

@@ -250,7 +250,10 @@ const dispenseSchema = z.object({
   qty_kg: z.coerce
     .number()
     .positive("Quantity must be greater than 0")
-    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE),
+    .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
+    // Mirrors QuantityKgFloat (le=1_000_000, schemas/common.py): a fat-fingered
+    // quantity should fail inline instead of as an opaque server 422.
+    .max(1_000_000, "Quantity cannot exceed 1,000,000 kg"),
   date: z
     .string()
     .min(1, "Date is required")
@@ -810,6 +813,7 @@ export default function FeedingPage() {
                   type="number"
                   step="0.001"
                   min="0.0005"
+                  max="1000000"
                   placeholder="kg"
                   aria-invalid={Boolean(errors.qty_kg) || undefined}
                   aria-describedby={errors.qty_kg ? "qty-kg-error" : undefined}

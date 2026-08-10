@@ -38,7 +38,9 @@ class DashboardOut(BaseModel):
     suggestions: list[MoveSuggestionOut]
     suggestions_total: int
     recent_weights: list[DashboardWeightOut]
-    recent_weights_total: int
+    # None means the caller lacks animals.view — the weights preview was
+    # withheld, not empty. A literal 0 must always mean "genuinely none".
+    recent_weights_total: int | None
     # All operational lists above except recent_weights use this cap.
     preview_limit: int
     recent_weights_limit: int

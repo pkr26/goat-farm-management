@@ -3,7 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import MAX_EMAIL_LENGTH, EmailMixin
-from .common import BoundedId, PostgresText, StrictInputModel
+from .common import BoundedId, PostgresText, StrictBool, StrictInputModel
 
 
 class WorkerCreateIn(EmailMixin):
@@ -18,7 +18,10 @@ class RoleChangeIn(StrictInputModel):
 
 
 class WorkerStatusIn(StrictInputModel):
-    is_active: bool
+    # StrictBool, like every other mutating boolean input: lax coercion would
+    # let `1`/`"false"`/`"off"` silently flip a worker's access instead of
+    # returning the 422 the strict-input contract promises.
+    is_active: StrictBool
 
 
 class PasswordResetIn(StrictInputModel):

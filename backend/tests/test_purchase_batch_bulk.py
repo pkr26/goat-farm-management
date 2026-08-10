@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
+from datetime import date
 from decimal import Decimal
 
 import httpx
@@ -22,8 +23,8 @@ from app.models import (
     Transaction,
 )
 from app.schemas.common import MAX_INT32_ID
-from app.services.purchases import _purchase_batch_tag
-from app.utils import today
+from app.services.purchases import _estimated_dob_from_age, _purchase_batch_tag
+from app.utils import add_months, today
 
 from .conftest import owner_with_farm
 from .test_tasks_extended import add_worker, login_user, make_custom_role
@@ -42,6 +43,35 @@ def test_generated_tag_fits_at_batch_and_id_boundaries() -> None:
     tag = _purchase_batch_tag(MAX_INT32_ID, "f" * 12, MAX_BATCH_COUNT)
     assert tag == f"B{MAX_INT32_ID}-{'f' * 12}-1000"
     assert len(tag) <= MAX_ANIMAL_TAG_LENGTH
+
+
+def test_estimated_dob_is_monotone_as_stated_age_increases() -> None:
+    """A batch declared a hundredth of a month YOUNGER must never receive an
+    EARLIER birth date. The old fixed 30.4375-day fraction was measured
+    against a calendar-month base, so it overshot short months: for a
+    2026-08-10 batch, 5.99 months landed on 2026-02-08 — two days before the
+    6.0-month anchor of 2026-02-10 — inverting the age→DOB relationship at
+    every February-crossing whole-month boundary."""
+    batch_date = date(2026, 8, 10)
+    assert _estimated_dob_from_age(batch_date, 6.0) == date(2026, 2, 10)
+    assert _estimated_dob_from_age(batch_date, 5.99) >= _estimated_dob_from_age(batch_date, 6.0)
+
+    # Whole-month behavior is unchanged: 0 months is the batch date itself
+    # (age-based vaccine scheduling breaks on a missing DOB) and whole months
+    # keep calendar arithmetic with month-end clamping.
+    assert _estimated_dob_from_age(batch_date, 0) == batch_date
+    assert _estimated_dob_from_age(date(2026, 3, 31), 1) == date(2026, 2, 28)
+    assert _estimated_dob_from_age(batch_date, 7) == add_months(batch_date, -7)
+
+    # Sweep the full plausible age range in 0.01-month steps for two batch
+    # dates (a mid-month one and a clamping month-end one): a greater stated
+    # age must always map to an earlier-or-equal birth date.
+    for anchor in (batch_date, date(2026, 1, 31)):
+        previous = _estimated_dob_from_age(anchor, 0)
+        for hundredths in range(1, 6001):
+            current = _estimated_dob_from_age(anchor, hundredths / 100)
+            assert current <= previous, (anchor, hundredths)
+            previous = current
 
 
 async def _capture_statements(

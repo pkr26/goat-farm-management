@@ -91,7 +91,10 @@ const DUE_LIST_LIMIT = 25;
 const kidSchema = z.object({
   tag: z.string().max(50, "Max 50 characters").optional(),
   sex: z.enum(["M", "F"]),
-  birth_weight: z.number().nonnegative("Must be ≥ 0").nullish(),
+  // Mirrors NonNegativeWeightKgFloat (le=1000, schemas/common.py): a grams-as-kg
+  // typo like 5000 should fail inline instead of bouncing the whole kidding
+  // with an opaque server 422, matching the purchases weight field's cap.
+  birth_weight: z.number().nonnegative("Must be ≥ 0").max(1000, "At most 1000 kg").nullish(),
   status: z.enum(KID_STATUSES),
   // Required exactly when the kid died, mirroring KidIn (schemas/kidding.py).
   mortality_reported_at: z.string().optional(),
@@ -103,7 +106,10 @@ const kiddingSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
       .refine((s) => s <= localToday(), "Date can't be in the future"),
     ease: z.enum(EASES),
-    notes: z.string().optional(),
+    // Backend KiddingCreateIn caps free text at MAX_FREE_TEXT_LENGTH (4000);
+    // an over-long pasted note should fail inline like the pregnancy-loss
+    // dialog's notes rather than only as a server 422 on submit.
+    notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
     kids: z.array(kidSchema).min(1, "At least one kid").max(MAX_KIDS, "At most 10 kids"),
   })
   .superRefine((values, ctx) => {
@@ -254,7 +260,19 @@ function RecordKiddingDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="kidding_notes">Notes</Label>
-            <Textarea id="kidding_notes" rows={2} {...register("notes")} />
+            <Textarea
+              id="kidding_notes"
+              rows={2}
+              maxLength={4_000}
+              aria-invalid={Boolean(errors.notes) || undefined}
+              aria-describedby={errors.notes ? "kidding-notes-error" : undefined}
+              {...register("notes")}
+            />
+            {errors.notes && (
+              <p id="kidding-notes-error" role="alert" className="text-sm text-destructive">
+                {errors.notes.message}
+              </p>
+            )}
           </div>
 
           <fieldset className="space-y-2" aria-labelledby="kidding-kids-label">
@@ -330,6 +348,7 @@ function RecordKiddingDialog({
                     type="number"
                     step="0.1"
                     min="0"
+                    max="1000"
                     aria-invalid={Boolean(errors.kids?.[index]?.birth_weight) || undefined}
                     aria-describedby={
                       errors.kids?.[index]?.birth_weight

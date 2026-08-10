@@ -4,7 +4,7 @@ import asyncio
 import os
 import subprocess
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 
 import asyncpg
 import httpx
@@ -16,8 +16,18 @@ from app.utils import today
 from .conftest import BACKEND_DIR, TEST_DB, owner_with_farm
 from .test_health_extended import make_animal
 
+# The legacy-era fixtures below live ~20 revisions beneath head. Downgrading
+# the shared suite database that far (and back) is slow and would tear through
+# state other tests rely on, so those tests borrow the throwaway-database
+# helpers instead of this module's shared-database `_alembic`.
+from .test_ops_migration_integrity import _admin, _throwaway_name
+from .test_ops_migration_integrity import _alembic as _alembic_on
+
 PARENT_REVISION = "d1c2b3a4e5f6"
 HEALTH_COMPLIANCE_PARENT_REVISION = "a6c9e2f4b7d1"
+REPRODUCTIVE_PARENT_REVISION = "f7d8c9b0a1e2"
+EXACT_MONEY_REVISION = "c8f1d3a5e709"
+EXACT_MONEY_PARENT_REVISION = "a4d9e6f2b701"
 
 
 async def _alembic(*args: str) -> None:
@@ -261,3 +271,239 @@ async def test_health_compliance_migration_fails_safely_until_legacy_evidence_is
     finally:
         await get_engine().dispose()
         await _alembic("upgrade", "head")
+
+
+async def test_reproductive_migration_preserves_recorded_death_dates_and_skips_living() -> None:
+    """b9's dead-animal alignment must not rewrite history it did not create.
+
+    A DIED birth entry can belong to an animal that survived the neonatal
+    window and died much later with an accurate recorded status_date, or to an
+    animal that is still alive. The backfilled kidding date is only a floor
+    for animals that never captured any death date; stamping the others either
+    corrupts the recorded death date or (for a living animal) violates
+    ck_animals_status_date when c1d2e3f4a5b6 validates it, aborting the
+    release.
+    """
+    database = _throwaway_name("b9_death_alignment")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    kidding_date = date(2024, 12, 1)
+    adult_death_date = date(2025, 8, 1)
+    try:
+        await _alembic_on(database, "upgrade", REPRODUCTIVE_PARENT_REVISION)
+        connection = await asyncpg.connect(database_url)
+        try:
+            actor_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('death-alignment@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            farm_id = await connection.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at)
+                VALUES ('Death Alignment', $1, timezone('UTC', now()))
+                RETURNING id
+                """,
+                actor_id,
+            )
+            doe_id = await connection.fetchval(
+                """
+                INSERT INTO animals (
+                  farm_id, tag_number, breed, sex, source, current_bucket,
+                  status, cull_candidate, created_at, movement_restricted,
+                  suspected_scheduled_disease
+                ) VALUES (
+                  $1, 'DOE-B9', 'Test', 'F', 'PURCHASED', 'FOUNDATION',
+                  'ACTIVE', false, timezone('UTC', now()), false, false
+                ) RETURNING id
+                """,
+                farm_id,
+            )
+            kidding_id = await connection.fetchval(
+                """
+                INSERT INTO kidding_records (farm_id, doe_id, date, ease, created_by_id)
+                VALUES ($1, $2, $3, 'NORMAL', $4)
+                RETURNING id
+                """,
+                farm_id,
+                doe_id,
+                kidding_date,
+                actor_id,
+            )
+            kid_ids: dict[str, int] = {}
+            for tag, status, status_date in (
+                # Survived weaning, died as an adult: the app already recorded
+                # the real death date, which the migration must preserve.
+                ("KID-GROWN-DEAD", "DEAD", adult_death_date),
+                # Entry flipped to DIED but the animal was never transitioned:
+                # it must not receive death fields while ACTIVE.
+                ("KID-LIVING", "ACTIVE", None),
+                # Genuine legacy neonatal death with no date anywhere: the
+                # kidding-date floor is the intended, still-working backfill.
+                ("KID-NEONATAL", "DEAD", None),
+            ):
+                kid_ids[tag] = await connection.fetchval(
+                    """
+                    INSERT INTO animals (
+                      farm_id, tag_number, breed, sex, date_of_birth, source,
+                      dam_id, current_bucket, status, status_date,
+                      cull_candidate, created_at, movement_restricted,
+                      suspected_scheduled_disease
+                    ) VALUES (
+                      $1, $2, 'Test', 'F', $3, 'BORN', $4, 'FEMALE_KIDS',
+                      $5, $6, false, timezone('UTC', now()), false, false
+                    ) RETURNING id
+                    """,
+                    farm_id,
+                    tag,
+                    kidding_date,
+                    doe_id,
+                    status,
+                    status_date,
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO kid_entries (
+                      farm_id, kidding_record_id, sex, status, animal_id,
+                      mortality_reported_at
+                    ) VALUES ($1, $2, 'F', 'DIED', $3, NULL)
+                    """,
+                    farm_id,
+                    kidding_id,
+                    kid_ids[tag],
+                )
+        finally:
+            await connection.close()
+
+        # Fails under the unguarded UPDATE: the living animal gets stamped and
+        # c1d2e3f4a5b6's ck_animals_status_date preflight aborts the release.
+        await _alembic_on(database, "upgrade", "head")
+
+        connection = await asyncpg.connect(database_url)
+        try:
+            animals = {
+                row["tag_number"]: row
+                for row in await connection.fetch(
+                    """
+                    SELECT tag_number, status, status_date, mortality_reported_at
+                    FROM animals
+                    WHERE id = ANY($1::int[])
+                    """,
+                    list(kid_ids.values()),
+                )
+            }
+            entry_mortalities = [
+                row["mortality_reported_at"]
+                for row in await connection.fetch(
+                    "SELECT mortality_reported_at FROM kid_entries WHERE kidding_record_id = $1",
+                    kidding_id,
+                )
+            ]
+        finally:
+            await connection.close()
+
+        grown = animals["KID-GROWN-DEAD"]
+        assert grown["status"] == "DEAD"
+        assert grown["status_date"] == adult_death_date
+        assert grown["mortality_reported_at"] == adult_death_date
+
+        living = animals["KID-LIVING"]
+        assert living["status"] == "ACTIVE"
+        assert living["status_date"] is None
+        assert living["mortality_reported_at"] is None
+
+        neonatal = animals["KID-NEONATAL"]
+        assert neonatal["status"] == "DEAD"
+        assert neonatal["status_date"] == kidding_date
+        assert neonatal["mortality_reported_at"] == kidding_date
+
+        # The kid-entry backfill itself (kidding date as the earliest-known
+        # mortality floor) is unchanged by the animal-side guards.
+        assert entry_mortalities == [kidding_date] * 3
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+async def test_exact_money_migration_preflights_the_amount_business_cap() -> None:
+    """c8's preflight must cover the 1e9 bound its own constraint installs.
+
+    A legacy amount in (1e9, ~1e12] was permitted before c8 (only
+    ``amount >= 0`` constrained it) and is finite, whole-cent, and below the
+    Numeric(14,2) overflow arm — so without a dedicated arm it sails through
+    the preflight and aborts the release as a raw check_violation when
+    ck_transactions_amount_bounded validates existing rows.
+    """
+    database = _throwaway_name("c8_amount_cap")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    try:
+        await _alembic_on(database, "upgrade", EXACT_MONEY_PARENT_REVISION)
+        connection = await asyncpg.connect(database_url)
+        try:
+            actor_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('amount-cap@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            farm_id = await connection.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at)
+                VALUES ('Amount Cap', $1, timezone('UTC', now()))
+                RETURNING id
+                """,
+                actor_id,
+            )
+            transaction_id = await connection.fetchval(
+                """
+                INSERT INTO transactions (farm_id, date, type, category, amount)
+                VALUES ($1, CURRENT_DATE, 'EXPENSE', 'OTHER', 2000000000)
+                RETURNING id
+                """,
+                farm_id,
+            )
+        finally:
+            await connection.close()
+
+        over_limit = await _alembic_on(database, "upgrade", EXACT_MONEY_REVISION, succeeds=False)
+        output = over_limit.stdout + over_limit.stderr
+        assert "transactions.amount contains over-limit values" in output
+        assert f"row ids [{transaction_id}]" in output
+
+        connection = await asyncpg.connect(database_url)
+        try:
+            # The refusal happens before any DDL: the column is untouched.
+            assert (
+                await connection.fetchval(
+                    """
+                    SELECT data_type FROM information_schema.columns
+                    WHERE table_name = 'transactions' AND column_name = 'amount'
+                    """
+                )
+                == "double precision"
+            )
+            # Exactly at the cap is legal; the arm must use a strict >.
+            await connection.execute(
+                "UPDATE transactions SET amount = 1000000000 WHERE id = $1",
+                transaction_id,
+            )
+        finally:
+            await connection.close()
+
+        await _alembic_on(database, "upgrade", EXACT_MONEY_REVISION)
+        connection = await asyncpg.connect(database_url)
+        try:
+            stored_amount = await connection.fetchval(
+                "SELECT amount::text FROM transactions WHERE id = $1",
+                transaction_id,
+            )
+        finally:
+            await connection.close()
+        assert stored_amount == "1000000000.00"
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')

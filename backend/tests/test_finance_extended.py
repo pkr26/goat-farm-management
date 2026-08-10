@@ -2082,17 +2082,12 @@ async def test_cleaner_dashboard_nested_rows_exclude_profile_secrets(
     assert not [
         row for row in delegated_dashboard["suggestions"] if row["animal"]["id"] == animal["id"]
     ]
-    assert set(delegated_dashboard["recent_weights"][0]) == {
-        "id",
-        "date",
-        "weight_kg",
-        "bcs",
-        "animal",
-        "notes",
-    }
-    assert delegated_dashboard["recent_weights"][0]["weight_kg"] == 27.0
-    assert delegated_dashboard["recent_weights"][0]["animal"]["tag_number"] == "DASH-PRIVATE"
-    assert delegated_dashboard["recent_weights"][0]["notes"] is None
+    # Weight rows carry per-animal identity and live behind animals.view on
+    # the animal pages; the cleaner preset lacks it, so the preview is
+    # withheld outright — empty list and a None total (0 must always mean
+    # "genuinely none"), matching the cull_candidates convention.
+    assert delegated_dashboard["recent_weights"] == []
+    assert delegated_dashboard["recent_weights_total"] is None
 
     # animals.view widens which animal fields a mover may read, but the
     # breeding programme itself stays behind breeding.view.

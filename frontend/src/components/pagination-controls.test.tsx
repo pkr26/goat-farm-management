@@ -38,4 +38,23 @@ describe("PaginationControls", () => {
     expect(screen.getByText("Showing 41–55 of 55 records")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
+
+  it("never inverts the range when the offset outlives a shrunken list", () => {
+    // The parent kept offset=90 while the list shrank to 5 rows (deletion,
+    // filter, or a stale offset carried across records). Previously this
+    // rendered "Showing 91–5 of 5 records" — an impossible, inverted range.
+    render(
+      <PaginationControls
+        total={5}
+        limit={10}
+        offset={90}
+        onOffsetChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Showing 5–5 of 5 records")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    // Previous stays live so the user can page back to real rows.
+    expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+  });
 });

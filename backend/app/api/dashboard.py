@@ -217,6 +217,10 @@ async def dashboard(
     ``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in
     ``animal_out``. A caller without it gets empty lists and zero totals rather
     than a 403, so the page still renders for e.g. the cleaner preset.
+
+    Recent weights are per-animal weight/BCS rows with the animal's identity,
+    so they need ``animals.view`` — the permission that guards weight history
+    on the animal pages — and are withheld (empty list, null total) without it.
     """
     defs = list(
         (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
@@ -280,21 +284,29 @@ async def dashboard(
         db, farm, limit=DASHBOARD_PREVIEW_LIMIT, include_breeding=can_view_breeding
     )
 
-    recent_weights_stmt = (
-        select(WeightRecord, Animal)
-        .join(Animal, WeightRecord.animal_id == Animal.id)
-        .where(Animal.farm_id == farm.id)
-    )
-    recent_weight_rows = (
-        await db.execute(
-            recent_weights_stmt.add_columns(
-                _exact_total(recent_weights_stmt).label("preview_total")
-            )
-            .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
-            .limit(RECENT_WEIGHTS_LIMIT)
+    # Weight records (weight/BCS plus the animal's identity) live behind
+    # animals.view everywhere else — the animal list and profile refuse a
+    # caller without it — so the aggregate view must not become the side door
+    # the module docstring rules out. Withheld means an empty list and a None
+    # total (not 0), following the cull_candidates convention above.
+    recent_weight_rows: list[Any] = []
+    recent_weights_total: int | None = None
+    if "animals.view" in perms:
+        recent_weights_stmt = (
+            select(WeightRecord, Animal)
+            .join(Animal, WeightRecord.animal_id == Animal.id)
+            .where(Animal.farm_id == farm.id)
         )
-    ).all()
-    recent_weights_total = int(recent_weight_rows[0].preview_total) if recent_weight_rows else 0
+        recent_weight_rows = (
+            await db.execute(
+                recent_weights_stmt.add_columns(
+                    _exact_total(recent_weights_stmt).label("preview_total")
+                )
+                .order_by(WeightRecord.date.desc(), WeightRecord.id.desc())
+                .limit(RECENT_WEIGHTS_LIMIT)
+            )
+        ).all()
+        recent_weights_total = int(recent_weight_rows[0].preview_total) if recent_weight_rows else 0
     status_rows = (
         await db.execute(
             select(Animal.status, func.count())
@@ -338,7 +350,7 @@ async def dashboard(
             )
             for row in recent_weight_rows
         ],
-        recent_weights_total=int(recent_weights_total),
+        recent_weights_total=recent_weights_total,
         preview_limit=DASHBOARD_PREVIEW_LIMIT,
         recent_weights_limit=RECENT_WEIGHTS_LIMIT,
     )

@@ -1337,9 +1337,21 @@ async def test_reject_cannot_exceed_pending_manual_task_limit(
     completed = await client.post(f"/api/tasks/{created.json()['id']}/complete", headers=owner)
     assert completed.status_code == 200, completed.text
 
-    # Completion replaced the original pending row with its successor, so the
-    # queue is still exactly at capacity. Reopening the reviewed occurrence
-    # would be the second PENDING manual row and must fail without mutation.
+    # Completing a CLEANING occurrence spawns nothing (its successor is
+    # minted on verification), so completion vacated the farm's only manual
+    # slot. Refill it with an unrelated duty: reopening the reviewed
+    # occurrence would now be the second PENDING manual row and must fail
+    # without mutation.
+    refill = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Slot filler",
+            "due_date": today().isoformat(),
+            "category": "CLEANING",
+        },
+        headers=owner,
+    )
+    assert refill.status_code == 201, refill.text
     rejected = await client.post(
         f"/api/tasks/{created.json()['id']}/reject",
         json={"note": "Redo it"},
@@ -1358,7 +1370,7 @@ async def test_reject_cannot_exceed_pending_manual_task_limit(
                 )
             ).scalars()
         )
-    assert [row.status for row in rows] == [TaskStatus.DONE.value, TaskStatus.PENDING.value]
+    assert [row.status for row in rows] == [TaskStatus.DONE.value]
 
 
 async def test_concurrent_rejects_share_one_pending_manual_slot(

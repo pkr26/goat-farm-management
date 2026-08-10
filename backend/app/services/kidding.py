@@ -317,6 +317,33 @@ async def replan_dam_after_last_kid_death(
     recovery path used when a kidding starts with no live kids. Returns true
     only when the dam was actually replanned.
     """
+    # KidStatus.DIED records a *neonatal* mortality after a live birth, yet
+    # every death routes through here (change_status calls it for any DEAD
+    # transition) and KidEntry.animal_id is set once at birth and never
+    # cleared. Realign the birth entry only while the child is still a
+    # dependent kid — one that has lived in its birth RECOVERY cohort since
+    # delivery. A weaned juvenile or adult born on this farm keeps its ALIVE
+    # birth outcome: that row is an immutable delivery fact, and flipping it
+    # on a later death silently corrupts twin-rate / kids-per-kidding stats.
+    # The bucket alone is not enough — a farm-born doe who later kids returns
+    # to RECOVERY as a dam while her own birth entry still exists — so also
+    # require that the child never left RECOVERY (weaning always records a
+    # from_bucket=RECOVERY move). Returning before any lock keeps non-kid
+    # deaths out of the entry/kidding/dam lock chain entirely.
+    if child.current_bucket != Bucket.RECOVERY.value:
+        return False
+    weaned_out = (
+        await db.execute(
+            select(BucketMove.id)
+            .where(
+                BucketMove.animal_id == child.id,
+                BucketMove.from_bucket == Bucket.RECOVERY.value,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if weaned_out is not None:
+        return False
     entry = (
         await db.execute(
             select(KidEntry)

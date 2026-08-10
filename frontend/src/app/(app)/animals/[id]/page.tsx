@@ -1312,9 +1312,16 @@ function AnimalProfilePageContent() {
 }
 
 export default function AnimalProfilePage() {
+  const params = useParams<{ id: string }>();
   return (
     <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
-      <AnimalProfilePageContent />
+      {/* Keyed by the route param: the App Router reuses this mounted tree
+          when only [id] changes (dam/sire/kid links navigate profile →
+          profile), and placeholderData keeps the previous profile rendered
+          through the switch — so without a remount, one animal's history
+          offsets (and ProfileBody's restriction offset) would be sent as the
+          next animal's query params, showing a falsely empty page. */}
+      <AnimalProfilePageContent key={params.id} />
     </Suspense>
   );
 }

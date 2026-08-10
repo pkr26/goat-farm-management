@@ -311,7 +311,11 @@ export function RemotePicker({
                   Try again
                 </Button>
               </div>
-            ) : remoteOptions.length === 0 ? (
+            ) : displayedOptions.length === 0 ? (
+              // Gate on the combined list, not just the server results: static
+              // options ("— none —") stay rendered and selectable above, so
+              // claiming "no matching options" beside one would contradict
+              // what the user sees.
               <p className="p-3 text-sm text-muted-foreground">
                 {hasMore ? noEligibleYetMessage : emptyMessage}
               </p>
@@ -321,7 +325,9 @@ export function RemotePicker({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p id={statusId} aria-live="polite" className="text-xs text-muted-foreground">
               {results.data
-                ? `${remoteOptions.length} option${remoteOptions.length === 1 ? "" : "s"} available. Checked ${checkedCount} of ${total} matching record${total === 1 ? "" : "s"}.${hasMore ? " More records are available." : " All matching records checked."}`
+                ? // Count what is actually selectable (static options included);
+                  // "Checked X of Y" still describes the server records only.
+                  `${displayedOptions.length} option${displayedOptions.length === 1 ? "" : "s"} available. Checked ${checkedCount} of ${total} matching record${total === 1 ? "" : "s"}.${hasMore ? " More records are available." : " All matching records checked."}`
                 : "Results load when this picker opens."}
             </p>
             {hasMore && (

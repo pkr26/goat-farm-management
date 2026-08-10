@@ -29,8 +29,6 @@ from ..models import (
 from ..utils import add_months, allocate_money, money
 from ._common import _add_task
 
-_AVERAGE_DAYS_PER_MONTH = Decimal("30.4375")
-
 
 def _purchase_batch_tag(batch_id: int, batch_tag_nonce: str, index: int) -> str:
     """Return the bounded, sortable internal tag for one purchased animal."""
@@ -44,16 +42,29 @@ def _estimated_dob_from_age(batch_date: date, avg_age_months: float) -> date:
     """Approximate a decimal-month age without discarding its fraction.
 
     Whole months use calendar arithmetic (and therefore retain the existing
-    month-end clamping rule).  The remaining fraction uses the mean Gregorian
-    month length and ordinary half-up rounding to a whole day.  For example,
-    ``7.5`` means seven calendar months plus approximately fifteen days.
+    month-end clamping rule).  The remaining fraction interpolates between the
+    two adjacent whole-month anchors on that *same* calendar scale, with
+    ordinary half-up rounding to a whole day — e.g. ``7.5`` means seven
+    calendar months plus about half of the preceding calendar month.
+
+    The fraction deliberately does NOT use a fixed mean month length: a mean
+    30.44-day fraction measured against a calendar-month base overshoots short
+    months, so "0.99 of a month" subtracted across a February landed EARLIER
+    than the next whole-month anchor — an animal declared younger was dated
+    older, shifting age-based vaccine due dates and recipe-day boundaries in
+    the wrong direction.  Interpolating over the anchors' actual day span
+    keeps estimated_dob monotonically earlier-or-equal as stated age grows.
     """
     age = Decimal(str(avg_age_months))
     whole_months = int(age)
+    newer_anchor = add_months(batch_date, -whole_months)
+    older_anchor = add_months(batch_date, -(whole_months + 1))
     fractional_days = int(
-        ((age - whole_months) * _AVERAGE_DAYS_PER_MONTH).to_integral_value(rounding=ROUND_HALF_UP)
+        ((age - whole_months) * (newer_anchor - older_anchor).days).to_integral_value(
+            rounding=ROUND_HALF_UP
+        )
     )
-    return add_months(batch_date, -whole_months) - timedelta(days=fractional_days)
+    return newer_anchor - timedelta(days=fractional_days)
 
 
 async def schedule_quarantine_tasks(db: AsyncSession, farm: Farm, batch: PurchaseBatch) -> None:

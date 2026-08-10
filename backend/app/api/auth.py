@@ -57,6 +57,7 @@ from ..schemas.auth import (
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
     PasswordWorkCapacityError,
+    _decode_payload_result,
     complete_rejected_login_timing_async,
     decode_access_claims_result,
     decode_refresh_claims,
@@ -528,6 +529,28 @@ async def _issue_tokens(
     )
 
 
+def _refresh_token_expired_but_genuine(token: str) -> bool:
+    """True only when an authentic refresh token's sole defect is expiry.
+
+    Mirrors the deliberate ``AccessDecodeResult.expired`` exemption
+    (deps.current_user and logout's access branch): with a 14-day cookie TTL a
+    user returning from a long absence presents a signature-valid, well-formed
+    but expired cookie on the very first page load. That is a returning
+    client, not attacker probing, so it must not be charged to the per-IP
+    invalid-token ledgers — behind a shared NAT a handful of such returns
+    would otherwise 429 colleagues' still-valid refreshes. Forged or malformed
+    material (bad signature, wrong kind, bogus claims) still returns False and
+    stays on the attacker ledger.
+    """
+    payload, expired = _decode_payload_result(token, "refresh")
+    if payload is None or not expired:
+        return False
+    # Apply decode_refresh_claims' extra family-claim shape rule: a token that
+    # would have been rejected even when fresh is invalid, not merely expired.
+    family_id = payload.get("fid")
+    return family_id is None or (isinstance(family_id, str) and 1 <= len(family_id) <= 64)
+
+
 def _raise_invalid_refresh(request: Request) -> NoReturn:
     """Track only rejected refreshes at the base auth ceiling.
 
@@ -657,15 +680,34 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 .with_for_update()
             )
         ).scalar_one_or_none()
-        if (
-            user is None
-            or user.token_version != snapshot.token_version
-            or user.password_hash != snapshot.password_hash
-        ):
+        if user is None or user.token_version != snapshot.token_version:
             # Reset/change/delete won during verification. The old credential
             # is no longer valid and the unauthenticated response stays generic.
             _record_login_failure(request, payload.email)
             raise invalid
+        if user.password_hash != snapshot.password_hash:
+            # Rewritten hash bytes under an UNCHANGED token_version can only
+            # be another process's concurrent login transparently rehashing
+            # this same credential (legacy pbkdf2 → Argon2id, or outdated
+            # Argon2 parameters): every genuine change/reset/delete bumps
+            # token_version and was caught above. Re-verify against the
+            # reloaded hash instead of failing on raw byte inequality — a
+            # correct password must not 401, and a benign format-only rehash
+            # must not charge the account's brute-force ledger. The extra
+            # verify runs while the row lock is held, an accepted cost on this
+            # cross-worker race path that the per-email reservation already
+            # makes rare in a single process.
+            reverified, needs_current_rehash = await verify_password_async(
+                payload.password, user.password_hash
+            )
+            if not reverified:
+                _record_login_failure(request, payload.email)
+                raise invalid
+            if not needs_current_rehash:
+                # The concurrent winner already stored current-format
+                # material; overwriting it with this request's equivalent
+                # replacement would be gratuitous churn.
+                replacement_hash = None
         if replacement_hash is not None:  # legacy pbkdf2 → Argon2id
             user.password_hash = replacement_hash
             logger.info("upgraded legacy pbkdf2 hash to Argon2id (user_id=%s)", user.id)
@@ -684,6 +726,12 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
     token = _refresh_cookie(request)
     claims = decode_refresh_claims(token) if token else None
     if claims is None:
+        if token is not None and _refresh_token_expired_but_genuine(token):
+            # Authentic-but-expired: reject without recording, matching the
+            # access-token exemption — the ``refresh-invalid`` ledger is for
+            # material that was never valid, not for a returning client whose
+            # cookie simply outlived its TTL.
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
         _raise_invalid_refresh(request)
     # Lock order for every auth/session mutation is User -> RefreshSession.
     # Password reset/change holds the same user lock before revoking sessions,
@@ -805,7 +853,14 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     access_result = decode_access_claims_result(access_token) if access_token is not None else None
     access_claims = access_result.claims if access_result is not None else None
     refresh_ip_blocked = False
-    if token is not None and claims is None:
+    if (
+        token is not None
+        and claims is None
+        # Same exemption as the expired-access branch below: an authentic,
+        # merely-expired cookie is a returning client clearing local state,
+        # not attacker input, and must not spend the invalid-token budget.
+        and not _refresh_token_expired_but_genuine(token)
+    ):
         refresh_ip_blocked = record_invalid_token_verification(
             request,
             INVALID_LOGOUT_REFRESH_TOKEN_SCOPE,
@@ -959,10 +1014,15 @@ async def change_password(
         ).scalar_one_or_none()
         if locked_user is None:
             raise HTTPException(status_code=401, detail="Account no longer exists")
-        if (
-            locked_user.token_version != authenticated_token_version
-            or locked_user.password_hash != authenticated_password_hash
-        ):
+        # token_version alone is the "credential still unchanged" signal,
+        # exactly as create_farm revalidates: every genuine password
+        # change/reset/delete bumps it under the same User lock. The raw
+        # password_hash bytes are deliberately NOT compared — a concurrent
+        # login's transparent legacy→Argon2id (or outdated-parameter) rehash
+        # rewrites the bytes WITHOUT changing the credential, and byte
+        # equality here turned that benign race into a spurious 401 for a
+        # correct, unchanged current password.
+        if locked_user.token_version != authenticated_token_version:
             raise HTTPException(status_code=401, detail="Session is no longer valid")
         locked_user.password_hash = replacement_hash
         locked_user.token_version += 1
@@ -1119,10 +1179,11 @@ async def delete_account(
         ).scalar_one_or_none()
         if locked_user is None:
             raise HTTPException(status_code=401, detail="Account no longer exists")
-        if (
-            locked_user.token_version != authenticated_token_version
-            or locked_user.password_hash != authenticated_password_hash
-        ):
+        # token_version-only, matching change_password: a concurrent login's
+        # benign format-only rehash rewrites password_hash bytes without
+        # changing the credential and must not fail this deletion, while
+        # every genuine credential mutation bumps token_version.
+        if locked_user.token_version != authenticated_token_version:
             raise HTTPException(status_code=401, detail="Session is no longer valid")
 
         owns_farm = (

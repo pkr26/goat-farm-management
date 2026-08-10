@@ -17,16 +17,25 @@
 // data (permissions included) and a sign-out → sign-in as another user
 // leaked the previous user's data. Both actions now call
 // queryClient.clear(); the tests seed the cache and assert it is emptied.
+//
+// Third bug pinned below: AccountDialog installed the post-password-change
+// access token via the PUBLIC setAccessToken, which bumps authSessionEpoch —
+// the "different session signed in" boundary — so every concurrent in-flight
+// apiFetch rejected with AuthSessionChangedError even though the actor never
+// changed. The dialog now rotates through refreshSession(), the same
+// non-epoch-bumping path a 401 retry uses; the test holds a request in
+// flight across the password change and asserts it still resolves.
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
+import { AccountDialog } from "@/components/account-dialog";
+import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
-import { server } from "@/test/msw-server";
+import { TEST_USER, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
@@ -176,5 +185,88 @@ describe("AuthProvider — query cache cleared on farm switch / sign-out", () =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+});
+
+describe("AccountDialog — password change keeps the session's in-flight requests alive", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("a request in flight across a password change still resolves", async () => {
+    let releaseAnimals: (() => void) | undefined;
+    const animalsGate = new Promise<void>((resolve) => {
+      releaseAnimals = resolve;
+    });
+    server.use(
+      http.post("/api/auth/change-password", () =>
+        HttpResponse.json({
+          access_token: "rotated-access-token",
+          token_type: "bearer",
+          user: TEST_USER,
+        }),
+      ),
+      http.get("/api/animals", async () => {
+        await animalsGate;
+        return HttpResponse.json([{ id: 1, tag_number: "G-001" }]);
+      }),
+    );
+
+    renderWithProviders(
+      <>
+        <Probe />
+        <AccountDialog name="Test Owner" email="owner@goatfarm.test" />
+      </>,
+    );
+    // The bootstrap's setAccessToken marks a genuine session boundary; the
+    // held request below must be issued under the settled session.
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "owner@goatfarm.test",
+      ),
+    );
+
+    // A background query, still on the wire while the password changes.
+    const inFlight = apiFetch<Array<{ id: number; tag_number: string }>>(
+      "/api/animals",
+    ).then(
+      (data) => ({ outcome: "resolved" as const, data }),
+      (error: unknown) => ({
+        outcome: "rejected" as const,
+        name: error instanceof Error ? error.name : "unknown",
+      }),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(
+      within(dialog).getByLabelText("Current password for password change"),
+      "old-password-123",
+    );
+    await user.type(
+      within(dialog).getByLabelText("New password"),
+      "correct-horse-battery",
+    );
+    await user.type(
+      within(dialog).getByLabelText("Confirm new password"),
+      "correct-horse-battery",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    // The dialog closes only after the mutation resolved and the rotated
+    // token was installed — the moment the epoch bump used to happen.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+
+    releaseAnimals?.();
+    // Previously: {outcome: "rejected", name: "AuthSessionChangedError"} —
+    // the epoch bump aborted a same-actor request mid-flight.
+    await expect(inFlight).resolves.toEqual({
+      outcome: "resolved",
+      data: [{ id: 1, tag_number: "G-001" }],
+    });
   });
 });

@@ -472,26 +472,6 @@ async def seed_new_farm(db: AsyncSession, farm: Farm) -> None:
     await seed_farm_inventory(db, farm.id)
 
 
-async def backfill_task_assignments(db: AsyncSession, farm_id: int) -> None:
-    """Auto-generated tasks created before role assignment existed get their
-    category's default preset role. Manually created unassigned duties
-    (assigned_role_id NULL) are left alone."""
-    roles_result = await db.execute(select(Role).where(Role.farm_id == farm_id))
-    roles = {role.code: role.id for role in roles_result.scalars()}
-    orphans = await db.execute(
-        select(Task).where(
-            Task.farm_id == farm_id,
-            Task.auto_generated.is_(True),
-            Task.assigned_role_id.is_(None),
-        )
-    )
-    for task in orphans.scalars():
-        role_id = roles.get(TASK_CATEGORY_ROLE_MAP.get(task.category))
-        if role_id:
-            task.assigned_role_id = role_id
-    await db.flush()
-
-
 async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int:
     """Repair at most one finite, lock-skipping batch of legacy farms."""
     if not 1 <= batch_size <= 500:
@@ -586,11 +566,21 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
     # preset role.  Correlated EXISTS predicates keep the claim set limited to
     # rows that have one of those sources *now*; a later membership/role repair
     # makes a previously skipped row eligible automatically.
+    # A membership fallback is only usable while its role is live.  Account
+    # deletion retains membership rows (FK/audit anchors) and `_member_count`
+    # only counts live users, so a custom role whose last holders were all
+    # tombstoned users can itself be soft-deleted while a retained membership
+    # still points at it.  The request path refuses such a role
+    # (`Role.deleted_at IS NULL` in api.tasks); without the same filter here
+    # the repair would pin a defunct role onto a duty — and, because the claim
+    # query would keep matching the unresolved row, re-claim it every pass.
     membership_role_exists = (
         select(FarmMembership.id)
+        .join(Role, Role.id == FarmMembership.role_id)
         .where(
             FarmMembership.farm_id == Task.farm_id,
             FarmMembership.user_id == Task.assigned_user_id,
+            Role.deleted_at.is_(None),
         )
         .correlate(Task)
         .exists()
@@ -644,7 +634,15 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
                 FarmMembership.user_id,
                 FarmMembership.role_id,
             )
-            .where(tuple_(FarmMembership.farm_id, FarmMembership.user_id).in_(personal_pairs))
+            # Mirror the eligibility probe above: a membership pointing at a
+            # soft-deleted role must not resolve — the duty falls through to
+            # its live category preset (or stays unclaimed) instead of being
+            # stamped with a defunct role.
+            .join(Role, Role.id == FarmMembership.role_id)
+            .where(
+                tuple_(FarmMembership.farm_id, FarmMembership.user_id).in_(personal_pairs),
+                Role.deleted_at.is_(None),
+            )
             .order_by(FarmMembership.farm_id, FarmMembership.user_id)
             # Match the request/lazy-repair path: the role fallback must not
             # change after we read it but before the task FK is written.

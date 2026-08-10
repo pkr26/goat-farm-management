@@ -682,18 +682,34 @@ describe("BreedingPage", () => {
     return { user, dialog: await screen.findByRole("dialog") };
   }
 
-  it("describes the record and defaults to pregnant with 2 kids", async () => {
+  // REGRESSION — with the scan due, the dialog used to open with "Pregnant —
+  // confirmed" already checked and kid count prefilled to 2, so an operator
+  // recording a NEGATIVE scan who trusted the prefill silently booked a false
+  // confirmed pregnancy (bucket move + follow-up tasks). A diagnostic outcome
+  // now always starts neutral: unchecked, no kid count, until chosen.
+  it("describes the record and starts with no pre-checked pregnancy outcome", async () => {
     const { dialog } = await openUltrasound();
     expect(
       within(dialog).getByText(/Doe G-010 · bred 1 Jul 2026 by G-020/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText(/planned scan 2 Aug 2026/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("checkbox")).toBeChecked();
-    expect(within(dialog).getByText("Kid count detected")).toBeInTheDocument();
+    expect(within(dialog).getByRole("checkbox")).not.toBeChecked();
+    expect(within(dialog).queryByText("Kid count detected")).not.toBeInTheDocument();
   });
 
-  it("saves a pregnant result with the default kid count of 2", async () => {
+  it("posts a not-pregnant result when the operator saves without checking the box", async () => {
     const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("button", { name: "Save result" }));
+
+    await waitFor(() => expect(ultrasoundBody).not.toBeNull());
+    expect(ultrasoundBody).toEqual({ pregnant: false, date: farmToday(), kid_count: null });
+  });
+
+  it("saves a pregnant result with the default kid count of 2 once checked", async () => {
+    const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("checkbox"));
+    // The twins default appears only after the explicit positive choice.
+    expect(within(dialog).getByText("Kid count detected")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Save result" }));
 
     await waitFor(() => expect(ultrasoundBody).not.toBeNull());
@@ -704,6 +720,7 @@ describe("BreedingPage", () => {
 
   it("saves the selected kid count when changed", async () => {
     const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("checkbox"));
     await pickOption(user, within(dialog).getByRole("combobox"), "3");
     await user.click(within(dialog).getByRole("button", { name: "Save result" }));
 
@@ -711,8 +728,9 @@ describe("BreedingPage", () => {
     expect(ultrasoundBody).toEqual({ pregnant: true, date: farmToday(), kid_count: 3 });
   });
 
-  it("rejects a result date before the planned scan date", async () => {
-    const { dialog } = await openUltrasound();
+  it("rejects a pregnant result date before the planned scan date", async () => {
+    const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("checkbox"));
     fireEvent.change(within(dialog).getByLabelText("Result date *"), {
       target: { value: "2026-08-01" },
     });
@@ -780,8 +798,10 @@ describe("BreedingPage", () => {
     expect(ultrasoundBody).toBeNull();
   });
 
-  it("hides the kid count and posts kid_count null when not pregnant", async () => {
+  it("hides the kid count and posts kid_count null when unchecked again", async () => {
     const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("checkbox"));
+    expect(within(dialog).getByText("Kid count detected")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("checkbox"));
     expect(within(dialog).queryByText("Kid count detected")).not.toBeInTheDocument();
 
@@ -792,6 +812,7 @@ describe("BreedingPage", () => {
 
   it("clears a hidden kid count instead of restoring stale data", async () => {
     const { user, dialog } = await openUltrasound();
+    await user.click(within(dialog).getByRole("checkbox"));
     await pickOption(user, within(dialog).getByRole("combobox"), "3");
     await user.click(within(dialog).getByRole("checkbox"));
     expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();

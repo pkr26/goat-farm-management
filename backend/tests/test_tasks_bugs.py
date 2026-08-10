@@ -6,15 +6,48 @@ app (an int32-overflow path id crashed with an asyncpg DataError → 500;
 ck_tasks_user_assignment_has_role). Do not weaken them.
 """
 
+from datetime import timedelta
+
 import httpx
+import pytest
 from sqlalchemy import select, text, update
 
+from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.models import Task, TaskStatus, User
 from app.services.tasks import reject_task
+from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_tasks_extended import complete_duty, make_duty, role_id, worker_headers
+
+
+async def _series_rows(series_id: str) -> list[Task]:
+    """All occurrences of one recurring series, oldest due date first."""
+    async with get_sessionmaker()() as db:
+        return list(
+            (
+                await db.execute(
+                    select(Task)
+                    .where(Task.recurring_series_id == series_id)
+                    .order_by(Task.due_date, Task.id)
+                )
+            ).scalars()
+        )
+
+
+async def _rewind_series_one_day(series_id: str) -> None:
+    """Simulate the business day advancing between two actions on a series
+    without touching the farm clock: shift every row one day into the past, so
+    "today" sits one day beyond the occurrence's due date exactly as in the
+    real cross-day reject → re-action workflow."""
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (await db.execute(select(Task).where(Task.recurring_series_id == series_id))).scalars()
+        )
+        for row in rows:
+            row.due_date = row.due_date - timedelta(days=1)
+        await db.commit()
 
 
 # FIXED — regression test
@@ -88,3 +121,148 @@ async def test_reject_task_service_repairs_a_legacy_personal_duty(
             text("ALTER TABLE tasks VALIDATE CONSTRAINT ck_tasks_user_assignment_has_role")
         )
         await db.commit()
+
+
+# FIXED — regression test
+# Service: app.services.tasks.complete_task / verify_task.
+# Repro: complete_task spawned a recurring successor the moment a CLEANING
+# occurrence went DONE — but DONE only means "awaiting verification" for
+# verification-required categories, so a verifier reject plus a re-completion
+# on a LATER business day re-anchored spawn_next_occurrence on the later day
+# and minted a SECOND successor at a different due date. The
+# (farm_id, recurring_series_id, due_date) dedup cannot collapse two different
+# dates, so both successor threads survived and the series' weekly cadence
+# doubled permanently. The successor now spawns on the terminal transitions
+# (verify/skip), never on DONE.
+async def test_reject_then_cross_day_recompletion_does_not_double_the_series(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    duty = await make_duty(client, owner, "Weekly scrub", category="CLEANING", recur_days=7)
+    series_id = duty["recurring_series_id"]
+
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    rejected = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "redo"}, headers=manager
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    # The worker only gets to the redo the next day.
+    await _rewind_series_one_day(series_id)
+
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    verified = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert verified.status_code == 200, verified.text
+
+    rows = await _series_rows(series_id)
+    assert [row.status for row in rows] == [
+        TaskStatus.VERIFIED.value,
+        TaskStatus.PENDING.value,
+    ]  # one verified occurrence, exactly ONE successor thread
+    assert rows[-1].due_date == today() + timedelta(days=7)
+
+
+# FIXED — regression test
+# Endpoint: POST /api/tasks/{task_id}/complete then /verify.
+# Repro: the successor of a verification-required recurring duty appeared as
+# soon as the occurrence was marked DONE, i.e. before anyone reviewed the
+# work — which is exactly what made the reject workflow able to duplicate the
+# series. The spawn is deferred to the VERIFIED transition.
+async def test_verification_required_recurrence_spawns_on_verify_not_on_done(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    duty = await make_duty(client, owner, "Daily scrub", category="CLEANING", recur_days=1)
+    series_id = duty["recurring_series_id"]
+
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    # DONE only means "awaiting verification" for CLEANING: no successor yet.
+    assert [row.status for row in await _series_rows(series_id)] == [TaskStatus.DONE.value]
+
+    verified = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert verified.status_code == 200, verified.text
+    rows = await _series_rows(series_id)
+    assert [row.status for row in rows] == [
+        TaskStatus.VERIFIED.value,
+        TaskStatus.PENDING.value,
+    ]
+    assert rows[-1].due_date == today() + timedelta(days=1)
+
+
+# FIXED — regression test
+# Endpoint: POST /api/tasks/{task_id}/skip after a reject.
+# Repro: same duplication through the other re-action: complete (spawn #1 on
+# the old code), reject back to PENDING, then SKIP on a later business day —
+# skip_task always spawns to keep the series alive, so the old completion-time
+# spawn left two successor threads one day apart. With the spawn moved to the
+# terminal transitions, the rejected-then-skipped occurrence produces exactly
+# one successor (from skip), and verify/skip can never both fire for one
+# occurrence (verify needs DONE, skip needs PENDING, both end terminal).
+async def test_rejected_then_skipped_recurrence_spawns_exactly_one_successor(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    duty = await make_duty(client, owner, "Daily scrub", category="CLEANING", recur_days=1)
+    series_id = duty["recurring_series_id"]
+
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    rejected = await client.post(
+        f"/api/tasks/{duty['id']}/reject", json={"note": "redo"}, headers=manager
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    # The skip decision is only made the next day.
+    await _rewind_series_one_day(series_id)
+
+    skipped = await client.post(
+        f"/api/tasks/{duty['id']}/skip", json={"reason": "area under repair"}, headers=owner
+    )
+    assert skipped.status_code == 200, skipped.text
+    assert skipped.json()["status"] == "SKIPPED"
+
+    rows = await _series_rows(series_id)
+    assert [row.status for row in rows] == [
+        TaskStatus.SKIPPED.value,
+        TaskStatus.PENDING.value,
+    ]
+    assert rows[-1].due_date == today() + timedelta(days=1)
+
+
+# FIXED — regression test
+# Endpoint: POST /api/tasks/{task_id}/verify.
+# Repro: with the successor moved to the VERIFIED transition, verification —
+# unlike completion/skip — does not close a PENDING row to pay for the row it
+# spawns (the reviewed occurrence is already DONE). Left unguarded that would
+# quietly push the farm past max_pending_manual_tasks_per_farm, the invariant
+# creation and rejection both 409 on. Verify now applies the same capacity
+# guard before spawning and succeeds once the queue drains.
+async def test_verify_spawn_respects_pending_manual_duty_cap(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = await owner_with_farm(client)
+    manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "cm@farm.in")
+    monkeypatch.setattr(get_settings(), "max_pending_manual_tasks_per_farm", 1)
+
+    duty = await make_duty(client, owner, "Capacity clean", category="CLEANING", recur_days=1)
+    series_id = duty["recurring_series_id"]
+    assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    # Completion freed the queue's only slot; an unrelated duty takes it.
+    filler = await make_duty(client, owner, "Filler")
+
+    blocked = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert blocked.status_code == 409, blocked.text
+    assert "pending manual-duty limit" in blocked.json()["detail"]
+    # Still awaiting verification, and no successor sneaked past the cap.
+    assert [row.status for row in await _series_rows(series_id)] == [TaskStatus.DONE.value]
+
+    assert (await complete_duty(client, owner, filler["id"])).status_code == 200
+    verified = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert verified.status_code == 200, verified.text
+    assert [row.status for row in await _series_rows(series_id)] == [
+        TaskStatus.VERIFIED.value,
+        TaskStatus.PENDING.value,
+    ]

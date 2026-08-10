@@ -491,7 +491,14 @@ async def animal_profile(
     reference_date = today(farm.timezone)
     computed = await _profile_computed_facts(db, animal, reference_date, farm.timezone)
 
-    kids_where = (Animal.farm_id == farm.id, Animal.dam_id == animal.id)
+    # A kid row records both parents: dam_id at birth and sire_id from the
+    # breeding's buck. Match either column so a buck's profile surfaces his
+    # sired offspring — breedings_where below already shows him the services,
+    # and a dam-only predicate here left the resulting kids invisible.
+    kids_where = (
+        Animal.farm_id == farm.id,
+        or_(Animal.dam_id == animal.id, Animal.sire_id == animal.id),
+    )
     weights_where = WeightRecord.animal_id == animal.id
     moves_where = BucketMove.animal_id == animal.id
     health_where = (HealthEvent.farm_id == farm.id, HealthEvent.animal_id == animal.id)

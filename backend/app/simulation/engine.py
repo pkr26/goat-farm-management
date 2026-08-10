@@ -548,7 +548,18 @@ def _run_core(a: SimulationAssumptions) -> _CoreResult:
                 cull_revenue += culled * sales.cull_doe_price_per_kg * doe_w
 
         # Buck rotation: cull the whole sire battery, then re-staff per ratio.
-        if bucks > 0.0 and month % (cull.buck_rotation_years * 12) == 0:
+        # Cull-then-restaff is one atomic policy — the wholesale cull is only
+        # safe because the auto-purchase below rebuys sires the same month.
+        # With auto_purchase_bucks disabled there is no automatic replacement
+        # path (sires are the user's to manage via scheduled events), and
+        # since conception is gated on ``bucks > 0`` (step 4), firing the cull
+        # half alone would silently sterilize the projected herd for the rest
+        # of the horizon. Skip the rotation instead and keep the battery.
+        if (
+            a.herd.auto_purchase_bucks
+            and bucks > 0.0
+            and month % (cull.buck_rotation_years * 12) == 0
+        ):
             culls_head += bucks
             cull_revenue += bucks * sales.cull_buck_price_per_kg * buck_w
             bucks = 0.0

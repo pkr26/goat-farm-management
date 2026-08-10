@@ -123,15 +123,29 @@ def upgrade() -> None:
             """
         )
     )
+    # Align only animals actually recorded DEAD, and never overwrite what the
+    # farm already recorded: a DIED birth entry can also belong to an animal
+    # that survived the neonatal window and died much later, so the animal's
+    # own status_date/mortality_reported_at (the real death date) must win
+    # over the kidding-date floor backfilled above. Stamping a non-DEAD animal
+    # would additionally violate ck_animals_status_date and
+    # ck_animals_mortality_fields when the next revision (c1d2e3f4a5b6)
+    # validates them, aborting the release.
     op.execute(
         sa.text(
             """
             UPDATE animals a
-            SET status_date = ke.mortality_reported_at,
-                mortality_reported_at = ke.mortality_reported_at
+            SET status_date =
+                    COALESCE(a.status_date, a.mortality_reported_at,
+                             ke.mortality_reported_at),
+                mortality_reported_at =
+                    COALESCE(a.mortality_reported_at, a.status_date,
+                             ke.mortality_reported_at)
             FROM kid_entries ke
             WHERE ke.animal_id = a.id
               AND ke.status = 'DIED'
+              AND a.status = 'DEAD'
+              AND (a.status_date IS NULL OR a.mortality_reported_at IS NULL)
             """
         )
     )

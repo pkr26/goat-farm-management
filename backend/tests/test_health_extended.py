@@ -16,6 +16,7 @@ booking as an ANIMAL_PURCHASE transaction.
 """
 
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 import httpx
 import pytest
@@ -559,11 +560,13 @@ async def test_batch_scope_targets_batch_animals_and_links_batch(
     assert all(e["animal_tag"] is not None for e in events)
 
 
-async def test_batch_scope_still_targets_animals_after_release(
+async def test_batch_scope_ends_with_quarantine_release(
     client: httpx.AsyncClient,
 ) -> None:
-    """Released (FOUNDATION) animals keep purchase_batch_id — a batch-scoped
-    booster event still reaches them."""
+    """Batch scope means the batch's ACTIVE QUARANTINE animals — the exact
+    set the batch picker advertises and the preview snapshots. Released
+    (FOUNDATION) animals keep purchase_batch_id for provenance but leave
+    that set; they stay reachable through the bucket they now occupy."""
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=2, date=iso(today() - timedelta(days=50)))
     detail = await get_batch(client, headers, batch["id"])
@@ -573,8 +576,12 @@ async def test_batch_scope_still_targets_animals_after_release(
     assert resp.status_code == 200, resp.text
     detail = await get_batch(client, headers, batch["id"])
     assert all(a["current_bucket"] == "FOUNDATION" for a in detail["animals"])
-    events = await record_event(
+    resp = await post_event(
         client, headers, scope="batch", purchase_batch_id=batch["id"], type="VACCINE"
+    )
+    assert resp.status_code == 400, resp.text
+    events = await record_event(
+        client, headers, scope="bucket", bucket="FOUNDATION", type="VACCINE"
     )
     assert len(events) == 2
 
@@ -2351,10 +2358,22 @@ async def test_batch_fractional_avg_age_preserved_in_estimated_dob(
     batch_date = today() - timedelta(days=10)
     batch = await make_batch(client, headers, count=1, date=iso(batch_date), avg_age_months=7.9)
     detail = await get_batch(client, headers, batch["id"])
-    # Seven calendar months plus round(0.9 * 30.4375) == 27 days are
-    # subtracted. The fractional age must not silently disappear.
-    expected_dob = add_months(batch_date, -7) - timedelta(days=27)
+    # 7.9 months = seven whole calendar months plus 0.9 of the eighth,
+    # interpolated over THAT month's actual day span (not a fixed 30.44-day
+    # mean, which could round past the anchor and make a younger stated age
+    # yield an earlier birth date). The fractional age must not disappear.
+    newer_anchor = add_months(batch_date, -7)
+    older_anchor = add_months(batch_date, -8)
+    fractional_days = int(
+        (Decimal("0.9") * (newer_anchor - older_anchor).days).to_integral_value(
+            rounding=ROUND_HALF_UP
+        )
+    )
+    expected_dob = newer_anchor - timedelta(days=fractional_days)
     assert detail["animals"][0]["estimated_dob"] == iso(expected_dob)
+    # The fraction genuinely moved the estimate earlier than the whole-month
+    # anchor, and never past the next anchor.
+    assert older_anchor < expected_dob < newer_anchor
 
 
 async def test_batch_detail_animals_ordered_by_tag(client: httpx.AsyncClient) -> None:

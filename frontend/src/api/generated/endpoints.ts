@@ -6547,6 +6547,10 @@ export const getDashboardApiDashboardGetUrl = () => {
  * ``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in
  * ``animal_out``. A caller without it gets empty lists and zero totals rather
  * than a 403, so the page still renders for e.g. the cleaner preset.
+ *
+ * Recent weights are per-animal weight/BCS rows with the animal's identity,
+ * so they need ``animals.view`` — the permission that guards weight history
+ * on the animal pages — and are withheld (empty list, null total) without it.
  * @summary Dashboard
  */
 export const dashboardApiDashboardGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<dashboardApiDashboardGetResponse> => {

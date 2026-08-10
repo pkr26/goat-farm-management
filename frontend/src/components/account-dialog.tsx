@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError, apiFetch, setAccessToken } from "@/lib/api-client";
+import { ApiError, apiFetch, refreshSession } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
 
@@ -123,7 +123,19 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           new_password: values.new_password,
         },
       });
-      if (response.status === 200) setAccessToken(response.data.access_token);
+      if (response.status === 200) {
+        // The server revoked every other session and rotated THIS device's
+        // refresh cookie; the old in-memory access token is now invalid. But
+        // installing the returned token via setAccessToken would bump
+        // authSessionEpoch — the "different session signed in" boundary — and
+        // abort every concurrent in-flight request with
+        // AuthSessionChangedError. The actor is unchanged here, so pull a
+        // fresh token through refreshSession(), the same internal path a 401
+        // retry uses: it swaps the token in place without invalidating
+        // requests already on the wire (and any request that races the swap
+        // self-heals through the ordinary 401 → refresh retry).
+        await refreshSession();
+      }
       toast.success("Password changed. Other signed-in sessions were revoked.");
       close();
     } catch (error) {

@@ -215,7 +215,9 @@ async def complete_task(
     - BUCKET_MOVE (animal-linked, pregnancy) → move doe to DELIVERY
     - BUCKET_MOVE (no-survivor kidding) → move recovered doe to RESTING
     - WEANING → kids to MALE_KIDS/FEMALE_KIDS by sex, dam to RESTING
-    - recurring duty (recur_days) → spawn the next occurrence
+    - recurring duty (recur_days) → spawn the next occurrence (but a
+      verification-required category spawns on verify/skip, its terminal
+      transitions, never here — see the guard below)
 
     For categories needing verification (CLEANING) DONE means "awaiting
     verification" — a tasks.verify holder turns it into VERIFIED.
@@ -387,7 +389,15 @@ async def complete_task(
                     reference_date=movement_date,
                 )
 
-    if task.recur_days:
+    if task.recur_days and not task.needs_verification:
+        # For verification-required categories DONE is NOT terminal: a reject
+        # can send this occurrence back to PENDING, and a spawn here plus a
+        # reject → re-action on a later business day anchors a SECOND
+        # successor on a different due date — which the
+        # (farm_id, recurring_series_id, due_date) dedup can never collapse —
+        # permanently doubling the series' cadence. Those series spawn their
+        # successor on the terminal transitions instead: verify_task and
+        # skip_task.
         await spawn_next_occurrence(db, task)
 
     await db.flush()
@@ -434,8 +444,9 @@ async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
     category, due recur_days after max(the current due_date, the farm's
     business date), fresh PENDING state. Dedupes on
     (farm_id, recurring_series_id, due_date) via uq_task_recurring_series_due,
-    so a reject → re-complete loop doesn't pile up duplicates while two
-    same-titled parallel series stay independent."""
+    so two occurrences of one series acted on concurrently (both anchoring on
+    the same date) don't pile up duplicates while two same-titled parallel
+    series stay independent."""
     if not task.recur_days or task.recur_days > MAX_RECUR_DAYS:
         return task  # absurd recurrence (legacy data): don't explode date math
     if task.recurring_series_id is None:
@@ -518,12 +529,35 @@ async def skip_task(db: AsyncSession, task: Task, user: User, reason: str | None
     return task
 
 
-async def verify_task(db: AsyncSession, task: Task, user: User) -> Task:
-    """Verifier confirms a DONE duty → VERIFIED (final state)."""
+async def verify_task(
+    db: AsyncSession,
+    task: Task,
+    user: User,
+    *,
+    spawn_successor: bool | None = None,
+) -> Task:
+    """Verifier confirms a DONE duty → VERIFIED (final state).
+
+    A recurring verification-required occurrence spawns its successor HERE,
+    on its terminal transition, not on completion: DONE for those categories
+    only means "awaiting verification", so a completion-time spawn plus a
+    reject → re-action on a later business day minted a second successor with
+    a different due date that the series dedup could not collapse (the series'
+    cadence doubled forever). Callers that can spawn must take the canonical
+    FARM -> ANIMAL -> TASK locks first — the successor insert takes FK KEY
+    SHARE on the linked animal. ``spawn_successor`` lets the route withhold
+    the spawn (e.g. the linked animal is no longer active, so the swept series
+    must not regrow an unactionable PENDING row); ``None`` means "spawn
+    whenever the duty recurs".
+    """
     task.status = TaskStatus.VERIFIED.value
     task.verified_by_id = user.id
     task.verified_at = utcnow()
     _clear_task_rejection(task)
+    if spawn_successor is None:
+        spawn_successor = task.recur_days is not None
+    if task.recur_days and spawn_successor:
+        await spawn_next_occurrence(db, task)
     await db.flush()
     return task
 

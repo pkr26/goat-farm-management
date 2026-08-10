@@ -89,7 +89,8 @@ async def _lock_manual_task_queue(db: AsyncSession, farm: Farm) -> None:
 async def _guard_manual_task_capacity_locked(db: AsyncSession, farm: Farm) -> None:
     """Bound outstanding manual duties while the caller holds the Farm lock.
 
-    Both creation and verification rejection can add one PENDING manual row.
+    Creation, verification rejection, and the successor a verification spawns
+    can each add one PENDING manual row.
     Requiring their shared Farm lock before any Task lock makes the count/update
     invariant concurrency-safe and keeps recurring completion's successor
     insert on the same canonical Farm -> Animal -> Task lock path.
@@ -699,6 +700,14 @@ async def skip(
 async def verify(
     task_id: int, db: DbSession, user: CurrentUser, farm: CurrentFarm, perms: VERIFY
 ) -> TaskOut:
+    # Verifying a recurring verification-required duty is the transition that
+    # spawns its successor (see verify_task) — completion cannot, because a
+    # reject can reopen it. The successor insert takes FK KEY SHARE on the
+    # linked animal, so this route follows the same canonical FARM -> ANIMAL
+    # -> TASK lock order as complete/skip; locking the Task row first would
+    # invert against animal-first writes (sales, status sweeps) and deadlock.
+    await _lock_farm_for_recurring_transition(db, farm, task_id)
+    locked_animals = await _lock_completion_animals(db, farm, task_id)
     task = await _get_task(db, farm, task_id, for_update=True)
     if task.status != TaskStatus.DONE.value or not task.needs_verification:
         raise HTTPException(status_code=400, detail="Task is not awaiting verification")
@@ -706,7 +715,29 @@ async def verify(
     # work; the farm owner is exempt.
     if task.completed_by_id == user.id and farm.owner_id != user.id:
         raise HTTPException(status_code=409, detail="Someone else must verify this duty")
-    await verify_task(db, task, user)
+    # Completion could only act while the linked animal was ACTIVE; by review
+    # time the animal may be sold/dead and its pending duties already swept.
+    # Spawning then would plant a PENDING row no sweep revisits and no action
+    # can close (complete/skip 409 on an inactive animal), permanently holding
+    # one slot of the farm's manual-duty capacity — the series ends instead.
+    spawn_successor = task.recur_days is not None and (
+        task.animal_id is None
+        or any(
+            animal.id == task.animal_id and animal.status == AnimalStatus.ACTIVE.value
+            for animal in locked_animals
+        )
+    )
+    if spawn_successor and not task.auto_generated:
+        # Unlike completion/skip, verification does not close a PENDING row to
+        # pay for the successor it spawns — the occurrence being verified is
+        # already DONE — so the net-new manual PENDING row is bounded exactly
+        # like creation and rejection, under the same held Farm lock.
+        await _guard_manual_task_capacity_locked(db, farm)
+    try:
+        await verify_task(db, task, user, spawn_successor=spawn_successor)
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     await db.commit()
     return task_out(task)
 

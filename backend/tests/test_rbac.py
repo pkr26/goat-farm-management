@@ -498,6 +498,13 @@ async def test_recurring_duty_spawns_next_occurrence(client: httpx.AsyncClient) 
     resp = await client.post(f"/api/tasks/{duty['id']}/complete", headers=cleaner)
     assert resp.status_code == 200, resp.text
 
+    # CLEANING needs verification, so DONE is not terminal — the successor
+    # spawns on verification, not completion (a reject could still reopen it).
+    tabs = await get_tabs(client, owner)
+    assert not [t for t in tabs["upcoming"] if t["title"] == "Daily bunk sweep"]
+    resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
+    assert resp.status_code == 200, resp.text
+
     tabs = await get_tabs(client, owner)
     spawned = [t for t in tabs["upcoming"] if t["title"] == "Daily bunk sweep"]
     assert len(spawned) == 1

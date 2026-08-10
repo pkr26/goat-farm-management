@@ -18,8 +18,12 @@ export function PaginationControls({
   label?: string;
 }) {
   if (total <= 0) return null;
-  const first = offset + 1;
   const last = Math.min(offset + limit, total);
+  // A parent can hold an offset past the end of the list — the data shrank
+  // under it (deletion/filter) or a stale offset was carried over. Clamp the
+  // range start to the end so the label can never invert into "Showing 91–5
+  // of 5"; Previous stays enabled, so the user can page back to real rows.
+  const first = Math.min(offset + 1, last);
   return (
     <nav
       aria-label={`${label} pagination`}

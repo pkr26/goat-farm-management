@@ -18,6 +18,7 @@ from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_health_extended import (
+    get_batch,
     get_schedule,
     iso,
     make_animal,
@@ -328,3 +329,177 @@ async def test_recent_first_dose_booster_not_yet_due_stays_done(
     )
     fmd = row_by_name(await get_schedule(client, headers, animal["id"]), "FMD")
     assert fmd["status"] == "DONE"  # booster window is still open
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-08-10 regressions
+# ---------------------------------------------------------------------------
+# FIXED — regression test
+# _HEALTH_TYPE_TO_TX_CATEGORY mapped VITAMIN to MEDICINE while its own
+# governing comment groups TREATMENT/FOOTBATH/VITAMIN under VET ("vet
+# consultation, hoof care, tonics") and reserves MEDICINE for the actual
+# drug/vaccine spend (VACCINE/DEWORMING). Every vitamin/tonic round was
+# therefore booked to the wrong P&L bucket: MEDICINE over-reported, VET
+# under-reported, with the total unchanged so the drift was silent.
+async def test_vitamin_event_cost_books_to_vet_not_medicine(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="VIT-1")
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VITAMIN",
+        product_name="Vitamin AD3E injection",
+        cost=500.0,
+    )
+    fin = (await client.get("/api/finance", headers=headers)).json()
+    vet_txns = [t for t in fin["transactions"] if t["category"] == "VET" and t["type"] == "EXPENSE"]
+    assert len(vet_txns) == 1
+    assert vet_txns[0]["amount"] == 500.0
+    assert not any(t["category"] == "MEDICINE" for t in fin["transactions"])
+
+
+# FIXED — regression test
+# POST /api/health/events/preview with scope=batch and purchase_batch_id at
+# the BoundedId ceiling (2**62). The no-task batch branch pushed the id
+# straight into `Animal.purchase_batch_id == <id>` against an int4 FK column
+# → asyncpg "value out of int32 range" → 500, while the writer (line with
+# `payload.purchase_batch_id <= MAX_INT32_ID`) and the batch selector both
+# guard the same column. Expected the documented 400 (no active animals
+# match), actual 500.
+async def test_preview_batch_id_at_schema_max_should_400_not_500(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    resp = await client.post(
+        "/api/health/events/preview",
+        json={"scope": "batch", "purchase_batch_id": 2**62},
+        headers=headers,
+    )
+    assert resp.status_code == 400, resp.text
+
+
+# ---------------------------------------------------------------------------
+# — batch scope targets the advertised quarantine set
+# ---------------------------------------------------------------------------
+# The /purchase-batches selector advertises the batch's ACTIVE QUARANTINE
+# count (that is the number the operator picks a batch by), and the
+# task-linked path targets exactly that set — but the no-task batch preview
+# and write only required status=ACTIVE, so a batch write silently reached
+# animals already released to another bucket. Preview and write now share
+# the selector's quarantine predicate.
+async def _release_one_from_quarantine(
+    client: httpx.AsyncClient, headers: dict, animal_id: int
+) -> None:
+    """Owner history-override move: the only per-animal path out of a
+    purchased batch's quarantine without completing the whole protocol."""
+    resp = await client.post(
+        f"/api/animals/{animal_id}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "reason": "Cleared early by veterinarian",
+            "history_override": True,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["current_bucket"] == "FOUNDATION"
+
+
+async def test_batch_preview_targets_only_the_advertised_quarantine_set(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    batch = await make_batch(client, headers, count=3)
+    detail = await get_batch(client, headers, batch["id"])
+    ids = sorted(a["id"] for a in detail["animals"])
+    await _release_one_from_quarantine(client, headers, ids[0])
+
+    options = (await client.get("/api/health/purchase-batches", headers=headers)).json()
+    advertised = next(b for b in options["batches"] if b["id"] == batch["id"])
+    assert advertised["active_quarantine_animal_count"] == 2
+
+    preview = await client.post(
+        "/api/health/events/preview",
+        json={"scope": "batch", "purchase_batch_id": batch["id"]},
+        headers=headers,
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    # The snapshot must be the advertised quarantine set — not every ACTIVE
+    # animal that ever belonged to the batch.
+    assert sorted(body["target_animal_ids"]) == ids[1:]
+    assert body["target_count"] == advertised["active_quarantine_animal_count"]
+
+
+async def test_batch_write_rejects_snapshot_containing_released_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    batch = await make_batch(client, headers, count=2)
+    detail = await get_batch(client, headers, batch["id"])
+    ids = sorted(a["id"] for a in detail["animals"])
+    await _release_one_from_quarantine(client, headers, ids[0])
+
+    # A snapshot reviewed before the release still lists both animals; the
+    # write must refuse it as stale instead of dosing the released animal.
+    resp = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "batch",
+            "purchase_batch_id": batch["id"],
+            "type": "VACCINE",
+            "expected_animal_ids": ids,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "stale" in resp.json()["detail"]
+
+
+# FIXED — regression test
+# POST /api/health/restrictions/{id}/clear reset movement_restricted,
+# suspected_scheduled_disease and restriction_reason but left
+# suspected_disease and authority_notified_at on the animal, so a cleared
+# animal's profile still read as an active PPR suspicion already reported to
+# the authority. Those columns describe the CURRENT episode only; the
+# historical fact stays on the HealthEvent and the restriction actions.
+async def test_clearance_resets_suspected_disease_and_authority_notified(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="PPR-1")
+    await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        disease_target="PPR",
+        suspected_scheduled_disease=True,
+        authority_notified_at=iso(today()),
+    )
+    profile = (await client.get(f"/api/animals/{animal['id']}", headers=headers)).json()
+    held = profile["animal"]
+    assert held["suspected_disease"] == "PPR"
+    assert held["authority_notified_at"] == iso(today())
+
+    resp = await client.post(
+        f"/api/health/restrictions/{animal['id']}/clear",
+        json={
+            "clearance_reference": "AHD clearance 2026/08-17",
+            "expected_restriction_version": held["restriction_version"],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    cleared = (await client.get(f"/api/animals/{animal['id']}", headers=headers)).json()["animal"]
+    assert cleared["movement_restricted"] is False
+    assert cleared["suspected_scheduled_disease"] is False
+    assert cleared["suspected_disease"] is None
+    assert cleared["authority_notified_at"] is None
+    # Clearing the animal's current-state columns is not an erasure: the
+    # audit trail keeps the disease target on both restriction actions.
+    history = (await client.get(f"/api/health/restrictions/{animal['id']}", headers=headers)).json()
+    assert [a["action"] for a in history["actions"]] == ["CLEARED", "PLACED"]
+    assert all(a["disease_target"] == "PPR" for a in history["actions"])

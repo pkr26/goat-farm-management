@@ -34,9 +34,16 @@ _MONEY_COLUMNS = (
     ("feed_inventory", "last_purchase_price_per_kg", True),
 )
 _MAX_NUMERIC_14_2 = "999999999999.99"
+# ck_transactions_amount_bounded below is created VALIDATED, so PostgreSQL
+# checks every existing row the instant it is added. Preflight the same bound
+# here: a legacy amount in (1e9, ~1e12] was permitted before this revision
+# (only ``amount >= 0`` constrained it) and would sail through the lossiness
+# checks, then abort the release mid-DDL with a raw check_violation instead
+# of the sampled, actionable refusal the preflight exists to provide.
+_BUSINESS_CAPS = {("transactions", "amount"): "1000000000"}
 
 
-def _preflight_money(table: str, column: str) -> None:
+def _preflight_money(table: str, column: str, cap: str | None = None) -> None:
     """One classifying scan per column; deterministic samples enable repair.
 
     CASE (unlike a bare OR chain) guarantees ordered, lazy evaluation, so the
@@ -46,13 +53,20 @@ def _preflight_money(table: str, column: str) -> None:
     float8 -> numeric canonicalizes ordinary binary representation noise; a
     genuine sub-cent difference is meaningful legacy information that must
     not be silently rounded into a different ledger value.
+
+    ``cap`` mirrors a business upper bound installed later in this same
+    revision so a violating legacy value fails here, with row ids, rather
+    than as a raw check_violation halfway through the DDL. The matching
+    lower bound needs no arm: ``amount >= 0`` has been constraint-enforced
+    since f5b1a09c8d7e and is only dropped inside this same transaction.
     """
     classify = (
         "CASE "
         f"WHEN \"{column}\"::text IN ('NaN', 'Infinity', '-Infinity') THEN 'non-finite' "
         f"WHEN abs(\"{column}\"::numeric) > {_MAX_NUMERIC_14_2} THEN 'overflow' "
         f'WHEN "{column}"::numeric <> round("{column}"::numeric, 2) THEN \'sub-cent\' '
-        "END"
+        + (f"WHEN \"{column}\"::numeric > {cap} THEN 'over-limit' " if cap is not None else "")
+        + "END"
     )
     rows = (
         op.get_bind()
@@ -91,11 +105,12 @@ def upgrade() -> None:
         op.execute(
             "-- WARNING: offline generation skipped the exact-money preflight. "
             "Audit money columns for non-finite/overflow/sub-cent float values "
+            "and transactions.amount above 1000000000 "
             "(or run 'alembic upgrade' online) before applying this script."
         )
     else:
         for table, column, _nullable in _MONEY_COLUMNS:
-            _preflight_money(table, column)
+            _preflight_money(table, column, cap=_BUSINESS_CAPS.get((table, column)))
 
     op.add_column(
         "farms",
@@ -116,10 +131,12 @@ def upgrade() -> None:
             existing_nullable=nullable,
             postgresql_using=f"round({column}::numeric, 2)",
         )
+    # Rendered from the same constant the preflight scans with so the two
+    # bounds can never drift apart.
     op.create_check_constraint(
         "ck_transactions_amount_bounded",
         "transactions",
-        "amount >= 0 AND amount <= 1000000000",
+        f"amount >= 0 AND amount <= {_BUSINESS_CAPS[('transactions', 'amount')]}",
     )
 
     op.add_column(

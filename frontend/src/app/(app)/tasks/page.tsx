@@ -60,7 +60,12 @@ import { useAuth } from "@/lib/auth-context";
 import { farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { withReturnTo } from "@/lib/permission-navigation";
-import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
+import {
+  permittedTaskActionPath,
+  taskFormNotDueYet,
+  taskSkipUnavailable,
+  type PermissionCheck,
+} from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn, safeAppPath } from "@/lib/utils";
@@ -275,12 +280,21 @@ function RowActions({
       <>
         <div className="flex flex-wrap items-center gap-2">
           {permittedAction ? (
-            <Link
-              href={withReturnTo(permittedAction, returnTo)}
-              className={buttonVariants({ size: "sm" })}
-            >
-              Open form
-            </Link>
+            // The linked health form rejects an event before the duty's due
+            // date, so offering the link early only walks the user into a
+            // guaranteed 409 — mirror the bare-Complete future lock instead.
+            taskFormNotDueYet(task, today) ? (
+              <span className="text-xs text-muted-foreground">
+                Not due yet — the linked form opens on the due date.
+              </span>
+            ) : (
+              <Link
+                href={withReturnTo(permittedAction, returnTo)}
+                className={buttonVariants({ size: "sm" })}
+              >
+                Open form
+              </Link>
+            )
           ) : safeAction ? (
             <span className="text-xs text-muted-foreground">
               Linked form unavailable with your permissions.
@@ -296,7 +310,10 @@ function RowActions({
               </Button>
             )
           )}
-          {!lockedFutureRecurrence && (
+          {/* Quarantine-gate and weaning duties always 409 a skip (see
+              taskSkipUnavailable) — don't offer an action that cannot
+              succeed; their Complete/Open-form workflow stays available. */}
+          {!lockedFutureRecurrence && !taskSkipUnavailable(task) && (
             <Button
               size="sm"
               variant="outline"
@@ -718,6 +735,13 @@ function TasksPageContent() {
   const wAssignedUserId = useWatch({ control, name: "assigned_user_id" });
   const wCategory = useWatch({ control, name: "category" });
   const wAnimalId = useWatch({ control, name: "animal_id" });
+  // Assignment is optional (both selects default to NONE and submit as null),
+  // so the team directory's load state only matters once the user has actually
+  // chosen a role/worker from it. Blocking every submit on a failing /api/team
+  // would stop a team.manage holder from creating the same unassigned duty a
+  // less-privileged user (who never fetches the team) creates freely.
+  const assignmentChosen =
+    (wAssignedRoleId || NONE) !== NONE || (wAssignedUserId || NONE) !== NONE;
 
   async function onSubmit(values: DutyValues) {
     setCreateError(null);
@@ -1132,7 +1156,10 @@ function TasksPageContent() {
               <Button
                 type="submit"
                 disabled={
-                  isSubmitting || (canSeeTeam && (teamQuery.isLoading || teamQuery.isError))
+                  isSubmitting ||
+                  (canSeeTeam &&
+                    assignmentChosen &&
+                    (teamQuery.isLoading || teamQuery.isError))
                 }
               >
                 {isSubmitting ? "Creating…" : createError ? "Retry create" : "Create duty"}

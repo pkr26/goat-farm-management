@@ -245,6 +245,68 @@ async def test_delivery_move_task_moves_doe_from_pregnancy_early(
 # submit_ultrasound never checked the doe: recording "pregnant" spawned the
 # full pre-kidding task set for a non-existent animal. The submit now
 # mirrors record_kidding's ACTIVE guard.
+async def test_negative_ultrasound_in_impossible_early_window_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """A NOT-pregnant result used to have no lower sanity bound at all: only
+    `result_date < breeding_date` was rejected, so a "seen back in heat"
+    observation dated 2–17 days after service — before any next heat can
+    physically exist — was accepted, fabricated a FAILED cycle, moved the
+    doe's reproductive boundary (permitting an immediate re-service), and two
+    such entries could flag a healthy doe as a cull candidate. The negative
+    path now enforces the oestrous window: same-heat closes (day 0/1) and
+    return-to-heat observations (day >= 18) stay accepted."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=32)
+    _doe, _buck, br = await bred_doe(client, headers, breeding_date=breeding_date)
+
+    for impossible_day in (2, 7, 17):
+        resp = await ultrasound(
+            client,
+            headers,
+            br["id"],
+            pregnant=False,
+            kid_count=None,
+            date=iso(breeding_date + timedelta(days=impossible_day)),
+        )
+        assert resp.status_code == 409, resp.text
+        assert "heat" in resp.json()["detail"].lower()
+    unchanged = await get_breeding(client, headers, br["id"])
+    assert unchanged["outcome"] == "PENDING"
+    assert unchanged["ultrasound_done"] is False
+    assert unchanged["ultrasound_date"] == iso(breeding_date + timedelta(days=32))
+
+    # The earliest physically possible return to heat still closes the cycle
+    # and brings the check date forward with it (existing behavior).
+    accepted = await ultrasound(
+        client,
+        headers,
+        br["id"],
+        pregnant=False,
+        kid_count=None,
+        date=iso(breeding_date + timedelta(days=18)),
+    )
+    assert accepted.status_code == 200, accepted.text
+    body = accepted.json()
+    assert body["outcome"] == "FAILED"
+    assert body["ultrasound_result_date"] == iso(breeding_date + timedelta(days=18))
+    assert body["ultrasound_date"] == iso(breeding_date + timedelta(days=18))
+
+
+async def test_same_heat_negative_still_closes_the_cycle(client: httpx.AsyncClient) -> None:
+    """The lower edge of the window: a service observed to fail during its own
+    standing heat (the day after breeding) remains recordable — the floor only
+    rejects the physically impossible in-between days."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=1)
+    _doe, _buck, br = await bred_doe(client, headers, breeding_date=breeding_date)
+    resp = await ultrasound(
+        client, headers, br["id"], pregnant=False, kid_count=None, date=iso(today())
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["outcome"] == "FAILED"
+
+
 async def test_ultrasound_rejected_after_doe_sold(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     doe, _buck, br = await bred_doe(client, headers)

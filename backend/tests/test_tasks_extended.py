@@ -1885,13 +1885,22 @@ async def test_skip_auto_future_duty_allowed(client: httpx.AsyncClient) -> None:
 # ---------------------------------------------------------------------------
 # Recurrence
 # ---------------------------------------------------------------------------
-async def test_complete_recurring_spawns_next_occurrence(client: httpx.AsyncClient) -> None:
+async def test_verified_recurring_cleaning_spawns_next_occurrence(
+    client: httpx.AsyncClient,
+) -> None:
+    """CLEANING needs verification, so DONE is not terminal: the successor
+    spawns on verify (a reject could still reopen this occurrence)."""
     owner = await owner_with_farm(client)
     rid = await role_id(client, owner, "CLEANER")
     duty = await make_duty(
         client, owner, "Weekly deep clean", category="CLEANING", assigned_role_id=rid, recur_days=7
     )
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    tabs = await get_tabs(client, owner)
+    assert not [t for t in tabs["upcoming"] if t["title"] == "Weekly deep clean"]
+    # The farm owner is exempt from the someone-else-must-verify rule.
+    resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=owner)
+    assert resp.status_code == 200, resp.text
     tabs = await get_tabs(client, owner)
     spawned = [t for t in tabs["upcoming"] if t["title"] == "Weekly deep clean"]
     assert len(spawned) == 1
@@ -1993,19 +2002,28 @@ async def test_reject_then_recomplete_does_not_duplicate_spawn(client: httpx.Asy
     )
     assert resp.status_code == 200, resp.text
     assert (await complete_duty(client, owner, duty["id"])).status_code == 200
+    # Neither completion spawned — DONE is not terminal for CLEANING. Only
+    # the single verification mints the successor, so a reject → re-complete
+    # loop cannot double the series.
+    tabs = await get_tabs(client, owner)
+    assert not [t for t in tabs["upcoming"] if t["title"] == "Daily scrub"]
+    resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert resp.status_code == 200, resp.text
     tabs = await get_tabs(client, owner)
     spawned = [
         t
         for t in tabs["upcoming"]
         if t["title"] == "Daily scrub" and t["due_date"] == iso(today() + timedelta(days=1))
     ]
-    assert len(spawned) == 1  # deduped per series
+    assert len(spawned) == 1  # exactly one successor for the whole episode
 
 
-async def test_recomplete_after_spawned_occurrence_finished_does_not_hit_unique_constraint(
+async def test_late_review_cannot_reopen_a_verified_occurrence(
     client: httpx.AsyncClient,
 ) -> None:
-    """A slow review may reject occurrence N after N+1 was already done."""
+    """The successor only exists once its predecessor is VERIFIED, and a
+    verified occurrence is final — so the old race (reject occurrence N after
+    its spawned N+1 already ran) is structurally impossible now."""
     owner = await owner_with_farm(client)
     manager, _ = await worker_headers(client, owner, "CLEANER_MANAGER", "late-review@farm.in")
     first = await make_duty(
@@ -2017,27 +2035,33 @@ async def test_recomplete_after_spawned_occurrence_finished_does_not_hit_unique_
         recur_days=1,
     )
     assert (await complete_duty(client, owner, first["id"])).status_code == 200
+    resp = await client.post(f"/api/tasks/{first['id']}/verify", headers=manager)
+    assert resp.status_code == 200, resp.text
     second = next(
         task
         for task in (await get_tabs(client, owner))["upcoming"]
         if task["title"] == "Late-reviewed sweep"
     )
-    async with get_sessionmaker()() as db:
-        row = await db.get(Task, second["id"])
-        assert row is not None
-        row.due_date = today()
-        await db.commit()
-    assert (await complete_duty(client, owner, second["id"])).status_code == 200
+    assert second["id"] != first["id"]
+
     rejected = await client.post(
         f"/api/tasks/{first['id']}/reject",
         json={"note": "Redo the first occurrence"},
         headers=manager,
     )
-    assert rejected.status_code == 200, rejected.text
+    assert rejected.status_code == 400, rejected.text
+    assert rejected.json()["detail"] == "Task is not awaiting verification"
 
-    recompleted = await complete_duty(client, owner, first["id"])
-    assert recompleted.status_code == 200, recompleted.text
-    assert recompleted.json()["status"] == "DONE"
+    # The series carries exactly one live successor; the closed occurrence
+    # stays VERIFIED.
+    tabs = await get_tabs(client, owner)
+    assert find_task(tabs, first["id"])["status"] == "VERIFIED"
+    live = [
+        t
+        for t in all_tasks(tabs)
+        if t["title"] == "Late-reviewed sweep" and t["status"] == "PENDING"
+    ]
+    assert [t["id"] for t in live] == [second["id"]]
 
 
 async def test_parallel_series_same_title_stay_independent(client: httpx.AsyncClient) -> None:
@@ -2419,6 +2443,9 @@ async def test_recurring_successor_carries_no_rejection_trail(client: httpx.Asyn
     assert rejected.status_code == 200, rejected.text
     assert rejected.json()["rejected_by_id"] == manager_id
     assert (await complete_duty(client, cleaner, duty["id"])).status_code == 200
+    # The successor is minted on the terminal transition — verification.
+    resp = await client.post(f"/api/tasks/{duty['id']}/verify", headers=manager)
+    assert resp.status_code == 200, resp.text
 
     tabs = await get_tabs(client, owner)
     successor = next(

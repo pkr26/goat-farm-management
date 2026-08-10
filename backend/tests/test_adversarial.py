@@ -536,6 +536,18 @@ async def test_recurring_reject_loop_spawns_one_occurrence(client: httpx.AsyncCl
         f"/api/tasks/{task_id}/complete", headers=owner
     )  # redo after rejection
     assert resp.status_code == 200, resp.text
+    # CLEANING spawns its successor on verification, the terminal transition,
+    # so the reject → re-complete loop mints nothing on its own …
+    spawned = [
+        t
+        for t in find_tasks(await task_tabs(client, owner), title="Daily sweep", status="PENDING")
+        if t["id"] != task_id
+    ]
+    assert len(spawned) == 0
+    # … and the single verification mints exactly one (owner is exempt from
+    # the someone-else-must-verify rule).
+    resp = await client.post(f"/api/tasks/{task_id}/verify", headers=owner)
+    assert resp.status_code == 200, resp.text
     spawned = [
         t
         for t in find_tasks(await task_tabs(client, owner), title="Daily sweep", status="PENDING")
@@ -560,6 +572,14 @@ async def test_complete_task_is_idempotent(client: httpx.AsyncClient) -> None:
     resp = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)
     assert resp.status_code == 200, resp.text
     resp = await client.post(f"/api/tasks/{task_id}/complete", headers=owner)  # replay on DONE
+    assert resp.status_code == 400
+    # Completion is not terminal for CLEANING, so neither attempt spawned.
+    spawned = [t for t in all_tasks(await task_tabs(client, owner)) if t["id"] != task_id]
+    assert len(spawned) == 0
+    # Verification is idempotent the same way: one spawn, replay refused.
+    resp = await client.post(f"/api/tasks/{task_id}/verify", headers=owner)
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(f"/api/tasks/{task_id}/verify", headers=owner)  # replay on VERIFIED
     assert resp.status_code == 400
     spawned = [t for t in all_tasks(await task_tabs(client, owner)) if t["id"] != task_id]
     assert len(spawned) == 1

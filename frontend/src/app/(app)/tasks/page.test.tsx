@@ -5,7 +5,8 @@
  * and a future recurring duty cannot be completed or skipped early.
  */
 
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -188,5 +189,166 @@ describe("TasksPage row guards", () => {
     expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();
     expect(within(row).getByText(/Linked form unavailable/)).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
+  });
+});
+
+// REGRESSION TESTS — actions the backend deterministically 409s are no longer
+// offered: Skip on quarantine-gate/weaning duties (api/tasks.py::skip) and the
+// "Open form" link on future VACCINE/DEWORMING duties whose linked health
+// write rejects any event before the due date (api/health.py).
+
+const QUARANTINE_GATE_TASK = makeTask({
+  id: 6,
+  title: "Day 20: vaccinate ET + Tetanus",
+  category: "VACCINE",
+  auto_generated: true,
+  purchase_batch_id: 42,
+  action_url: "/health/new?task_id=6&purchase_batch_id=42",
+});
+const RECOVERY_WEANING_TASK = makeTask({
+  id: 7,
+  title: "Wean kids of G-012",
+  category: "WEANING",
+  auto_generated: true,
+  animal_id: 12,
+});
+const FUTURE_FORM_TASK = makeTask({
+  id: 8,
+  title: "Pre-kidding booster",
+  category: "VACCINE",
+  auto_generated: true,
+  animal_id: 9,
+  due_date: TOMORROW,
+  action_url: "/health/new?task_id=8&animal_id=9",
+});
+
+describe("TasksPage deterministic 409 guards", () => {
+  beforeEach(() => {
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [QUARANTINE_GATE_TASK, RECOVERY_WEANING_TASK, FUTURE_FORM_TASK],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          today_total: 3,
+          today_offset: 0,
+          overdue_total: 0,
+          overdue_offset: 0,
+          upcoming_total: 0,
+          upcoming_offset: 0,
+          awaiting_total: 0,
+          awaiting_offset: 0,
+          active_limit: 50,
+          completed_total: 0,
+          completed_limit: 50,
+          completed_offset: 0,
+        }),
+      ),
+    );
+  });
+
+  it("hides Skip on a batch-linked quarantine duty but keeps its form workflow", async () => {
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Day 20: vaccinate ET + Tetanus");
+
+    const row = rowOf("Day 20: vaccinate ET + Tetanus");
+    expect(within(row).getByRole("link", { name: "Open form" })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+  });
+
+  it("hides Skip on an animal-linked weaning duty but keeps Complete", async () => {
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Wean kids of G-012");
+
+    const row = rowOf("Wean kids of G-012");
+    expect(within(row).getByRole("button", { name: "Complete" })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+  });
+
+  it("replaces the Open form link of a future health duty with a not-due hint", async () => {
+    renderWithProviders(<TasksPage />);
+    await screen.findByText("Pre-kidding booster");
+
+    const row = rowOf("Pre-kidding booster");
+    expect(within(row).queryByRole("link", { name: "Open form" })).not.toBeInTheDocument();
+    expect(within(row).getByText(/Not due yet/)).toBeInTheDocument();
+    // A one-off generated duty may still be skipped early (only recurring
+    // duties are future-locked for skip).
+    expect(within(row).getByRole("button", { name: "Skip" })).toBeInTheDocument();
+  });
+});
+
+// REGRESSION TESTS — the Create-duty button used to be disabled whenever the
+// (optional) team directory was loading or erroring, so a team.manage holder
+// could not create even an intentionally unassigned duty during a /api/team
+// outage while a less-privileged user could. The load state now only gates a
+// submit that actually chose an assignment.
+
+describe("TasksPage create-duty gating during a team outage", () => {
+  let createBody: Record<string, unknown> | null;
+
+  beforeEach(() => {
+    createBody = null;
+    server.use(
+      http.get("/api/tasks", () =>
+        HttpResponse.json({
+          today: [],
+          overdue: [],
+          upcoming: [],
+          awaiting: [],
+          completed: [],
+          today_total: 0,
+          today_offset: 0,
+          overdue_total: 0,
+          overdue_offset: 0,
+          upcoming_total: 0,
+          upcoming_offset: 0,
+          awaiting_total: 0,
+          awaiting_offset: 0,
+          active_limit: 50,
+          completed_total: 0,
+          completed_limit: 50,
+          completed_offset: 0,
+        }),
+      ),
+      http.get("/api/team", () =>
+        HttpResponse.json({ detail: "team directory unavailable" }, { status: 503 }),
+      ),
+      http.get("/api/animals", () =>
+        HttpResponse.json({ animals: [], total: 0 }),
+      ),
+      http.post("/api/tasks", async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeTask({ id: 50 }), { status: 201 });
+      }),
+    );
+  });
+
+  it("still creates an unassigned duty while /api/team is erroring", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TasksPage />);
+    await screen.findByRole("tab", { name: "Today (0)" });
+
+    await user.click(screen.getByRole("button", { name: "New duty" }));
+    const dialog = await screen.findByRole("dialog");
+    // The assignment section still announces the failure for users who DO
+    // want to assign — but it must not gate an unassigned submit.
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "team directory unavailable",
+    );
+
+    const createButton = within(dialog).getByRole("button", { name: "Create duty" });
+    expect(createButton).toBeEnabled();
+    await user.type(within(dialog).getByLabelText(/title/i), "Clean water troughs");
+    await user.click(createButton);
+
+    await waitFor(() => expect(createBody).not.toBeNull());
+    expect(createBody).toMatchObject({
+      title: "Clean water troughs",
+      assigned_role_id: null,
+      assigned_user_id: null,
+    });
   });
 });

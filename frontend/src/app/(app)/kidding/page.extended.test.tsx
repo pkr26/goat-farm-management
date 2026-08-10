@@ -533,6 +533,43 @@ describe("KiddingPage", () => {
     expect(postBody).toBeNull();
   });
 
+  // REGRESSION — birth_weight had no client-side cap although the backend's
+  // NonNegativeWeightKgFloat rejects anything above 1000 kg, so a grams-as-kg
+  // typo (5000) was only caught by an opaque server 422 that bounced the whole
+  // kidding; the purchases weight field already flagged the same value inline.
+  it("rejects a birth weight above the backend's 1000 kg cap", async () => {
+    const { user, dialog } = await openDialog();
+    expect(within(dialog).getByLabelText("Kid 1 weight (kg)")).toHaveAttribute("max", "1000");
+    fireEvent.change(within(dialog).getAllByRole("spinbutton")[0], {
+      target: { value: "5000" },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+    expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Kid 1 weight (kg)")).toHaveAccessibleDescription(
+      "At most 1000 kg",
+    );
+    expect(postBody).toBeNull();
+  });
+
+  // REGRESSION — notes had no client-side length bound although the backend
+  // caps free text at MAX_FREE_TEXT_LENGTH (4000), so a long pasted clinical
+  // note failed the whole submission with a server 422 instead of the inline
+  // field error the pregnancy-loss dialog's notes already produce.
+  it("rejects notes longer than 4000 characters", async () => {
+    const { user, dialog } = await openDialog();
+    expect(within(dialog).getByLabelText(/notes/i)).toHaveAttribute("maxlength", "4000");
+    // fireEvent bypasses the maxLength attribute the way a paste-driven
+    // programmatic set can, proving the zod bound itself holds.
+    fireEvent.change(within(dialog).getByLabelText(/notes/i), {
+      target: { value: "x".repeat(4001) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+    expect(
+      await within(dialog).findByText("Notes cannot exceed 4000 characters"),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
   it("posts mapped kids (blank tag → null, weight parsed, trimmed notes)", async () => {
     const { user, dialog } = await openDialog();
     fireEvent.change(within(dialog).getAllByPlaceholderText("auto")[0], {

@@ -527,6 +527,21 @@ describe("FeedingPage dispense dialog", () => {
     expect(dispenseCalls).toBe(0);
   });
 
+  // REGRESSION — qty_kg had no client-side maximum although the backend's
+  // QuantityKgFloat rejects anything above 1,000,000 kg, so a fat-fingered
+  // dispense passed validation and only failed with an opaque server 422.
+  it("rejects a quantity above the backend's 1,000,000 kg cap", async () => {
+    const { user, dialog } = await openDialog();
+
+    expect(within(dialog).getByLabelText(/Quantity \(kg\)/)).toHaveAttribute("max", "1000000");
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "2000000");
+    await user.click(within(dialog).getByRole("button", { name: "Record" }));
+    expect(
+      await within(dialog).findByText("Quantity cannot exceed 1,000,000 kg"),
+    ).toBeInTheDocument();
+    expect(dispenseCalls).toBe(0);
+  });
+
   it("rejects a future date (typed input bypasses the max attribute)", async () => {
     const { user, dialog } = await openDialog();
 

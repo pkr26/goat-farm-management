@@ -767,7 +767,7 @@ describe("TasksPage (extended)", () => {
     expect(within(dialog).getByRole("button", { name: "Retry create" })).toBeInTheDocument();
   });
 
-  it("announces assignment lookup failures and retries before allowing creation", async () => {
+  it("announces assignment lookup failures without blocking unassigned creation", async () => {
     let attempts = 0;
     server.use(
       http.get("/api/team", () => {
@@ -782,7 +782,9 @@ describe("TasksPage (extended)", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "team directory unavailable",
     );
-    expect(within(dialog).getByRole("button", { name: "Create duty" })).toBeDisabled();
+    // Assignment is optional: with no role/worker chosen the duty submits
+    // unassigned, so a broken team directory must not block the button.
+    expect(within(dialog).getByRole("button", { name: "Create duty" })).toBeEnabled();
     await user.click(within(dialog).getByRole("button", { name: "Retry assignments" }));
 
     await waitFor(() => expect(attempts).toBe(2));

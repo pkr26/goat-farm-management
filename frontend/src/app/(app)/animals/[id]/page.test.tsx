@@ -519,6 +519,69 @@ describe("AnimalProfilePage", () => {
       });
     });
 
+    it("resets every history offset when navigating to a different animal", async () => {
+      // The App Router reuses the mounted [id] page when only the param
+      // changes (dam/sire/kid links), and placeholderData keeps the previous
+      // profile rendered through the switch. Previously the paged offsets
+      // survived that navigation, so a kid with 3 weights was requested at
+      // the dam's leftover weights_offset=25 and showed a falsely empty
+      // history.
+      const kidRequests: URLSearchParams[] = [];
+      server.use(
+        http.get("/api/animals/1", ({ request }) => {
+          const query = new URL(request.url).searchParams;
+          return HttpResponse.json({
+            ...PROFILE,
+            weights_total: 60,
+            weights_offset: Number(query.get("weights_offset") ?? 0),
+          });
+        }),
+        http.get("/api/animals/21", ({ request }) => {
+          const query = new URL(request.url).searchParams;
+          kidRequests.push(new URLSearchParams(query));
+          return HttpResponse.json({
+            ...PROFILE,
+            animal: KID,
+            weights_offset: Number(query.get("weights_offset") ?? 0),
+          });
+        }),
+        http.get("/api/health/restrictions/21", () =>
+          HttpResponse.json({
+            animal_id: 21,
+            restriction_version: 0,
+            active: false,
+            actions: [],
+            total: 0,
+            limit: 25,
+            offset: 0,
+          }),
+        ),
+      );
+      const user = userEvent.setup();
+      const { rerender } = renderWithProviders(<AnimalProfilePage />);
+      await screen.findByRole("heading", { level: 1, name: /G-001/ });
+
+      const weightsCard = screen
+        .getByText("Weight history (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+      await user.click(within(weightsCard).getByRole("button", { name: "Next" }));
+      await screen.findByText("Showing 26–50 of 60 weight records");
+
+      // Simulate the client-side param-only navigation: same mounted page,
+      // new useParams().id.
+      nav.id = "21";
+      rerender(<AnimalProfilePage />);
+      await screen.findByRole("heading", { level: 1, name: /G-021/ });
+
+      await waitFor(() => expect(kidRequests.length).toBeGreaterThan(0));
+      const firstKidRequest = kidRequests[0];
+      expect(firstKidRequest?.get("weights_offset")).toBe("0");
+      expect(firstKidRequest?.get("moves_offset")).toBe("0");
+      expect(firstKidRequest?.get("kids_offset")).toBe("0");
+      expect(firstKidRequest?.get("health_events_offset")).toBe("0");
+      expect(firstKidRequest?.get("breedings_offset")).toBe("0");
+    });
+
     it("renders the weight history with count, formatting and bcs dash", async () => {
       await renderProfile();
       const card = screen.getByText("Weight history (2)").closest('[data-slot="card"]') as HTMLElement;

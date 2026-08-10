@@ -47,6 +47,14 @@ BreedingCandidateKind = Literal["doe", "buck"]
 # and the BreedingCreateIn Field bound both cap the column at 99).
 MAX_HEAT_CYCLE_NUMBER = 99
 
+# Oestrous biology bounds for a NOT-pregnant result. The standing heat that
+# carried the service itself extends at most ~a day past the breeding date,
+# and the next heat cannot return before ~18 days (the cycle is ~21). A
+# negative result inside the gap between those bounds asserts an observation
+# ("seen back in standing heat") that cannot physically have happened.
+STANDING_HEAT_DAYS = 1
+EARLIEST_RETURN_TO_HEAT_DAYS = 18
+
 
 def _latest_weight_as_of(reference_date: date) -> ColumnElement[float]:
     """Correlated SQL equivalent of ``Animal.latest_weight_kg_on``."""
@@ -471,6 +479,25 @@ async def record_ultrasound_result(
             "A positive pregnancy check cannot be recorded after the maximum "
             f"{MAX_GESTATION_DAYS}-day gestation window"
         )
+    if not pregnant:
+        # The negative path deliberately accepts results well before the
+        # planned +32-day scan (see the ultrasound_date block below), but
+        # "early" still has a physiological floor. A same-heat close (the
+        # breeding day or the day after — the operator watched the service
+        # fail) and a return to standing heat from ~day 18 onward are both
+        # observable facts; a negative dated in the gap between them is not,
+        # and accepting it fabricates a FAILED conception cycle: the result
+        # becomes the doe's latest reproductive boundary (permitting an
+        # immediate re-service), inflates derived_heat_cycle_number, and two
+        # such entries wrongly flag a healthy doe as a cull candidate.
+        days_since_service = (result_date - br.breeding_date).days
+        if STANDING_HEAT_DAYS < days_since_service < EARLIEST_RETURN_TO_HEAT_DAYS:
+            raise ValueError(
+                f"A not-pregnant result {days_since_service} days after service is "
+                f"not observable: standing heat ends within ~{STANDING_HEAT_DAYS} day "
+                "of the service and the next heat cannot return before "
+                f"~{EARLIEST_RETURN_TO_HEAT_DAYS} days"
+            )
     if br.ultrasound_date is not None and result_date < br.ultrasound_date:
         # A scan cannot confirm a pregnancy before the planned check window, so
         # a positive result still has to wait for it. A NEGATIVE result can be

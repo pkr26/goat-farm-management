@@ -305,11 +305,14 @@ function UltrasoundDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // Opened before the planned scan, the only recordable result is a negative
-  // one, so the form starts there instead of opening in an error state.
-  const scanDue = !record.ultrasound_date || record.ultrasound_date <= localToday();
-  const [pregnant, setPregnant] = useState(scanDue);
-  const [kidCount, setKidCount] = useState(scanDue ? "2" : "");
+  // A diagnostic outcome is never pre-filled: pre-checking "pregnant" lets an
+  // operator who trusts the form save a negative scan as a confirmed pregnancy,
+  // which moves the doe to PREGNANCY_EARLY and spawns pre-kidding follow-up
+  // tasks (record_ultrasound_result). The checkbox therefore always starts
+  // unchecked and the twins kid-count default only appears once the operator
+  // explicitly checks it.
+  const [pregnant, setPregnant] = useState(false);
+  const [kidCount, setKidCount] = useState("");
   const [resultDate, setResultDate] = useState(localToday());
   const [saving, setSaving] = useState(false);
   const saveLock = useRef(false);

@@ -453,6 +453,43 @@ def test_doe_cull_rate_removes_the_documented_annual_fraction() -> None:
         assert does(23) == pytest.approx(does(11) * (1.0 - annual), abs=1e-9), annual
 
 
+def test_buck_rotation_skipped_when_auto_purchase_is_off() -> None:
+    """Rotation cull-then-restaff is one atomic policy: with
+    ``auto_purchase_bucks=False`` there is no replacement path, so the
+    rotation must be skipped, not half-applied. Firing the cull alone zeroed
+    the sire battery at month 36 and — conception being gated on buck
+    presence — permanently sterilized the herd for the rest of the horizon."""
+    culling = CullingAssumptions(doe_cull_rate_annual=0.0, max_doe_age_months=180)
+    manual = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=48),
+        herd=HerdAssumptions(does=50, bucks=2, auto_purchase_bucks=False),
+        culling=culling,
+    )
+    res = run_simulation(manual, with_break_even=False)
+    m36 = res.months[35]  # default buck_rotation_years=3 -> rotation month 36
+    # The battery survives (adult mortality only) and no rotation cull is
+    # booked (rate/max-age doe culls are disabled above, so culls stay 0).
+    assert m36.bucks == pytest.approx(2.0 * S_ADULT**36, abs=1e-6)
+    assert m36.culls_head == pytest.approx(0.0, abs=1e-9)
+    assert m36.cull_revenue == pytest.approx(0.0, abs=1e-9)
+    # The herd keeps breeding past the rotation month: month-48 kiddings come
+    # from month-43 conceptions, which need a live buck after month 36.
+    assert res.months[-1].births > 0.0
+
+    # With auto-purchase enabled the rotation is unchanged: the same herd is
+    # culled at month 36 (battery topped up to 2.0 monthly, one month of
+    # mortality since the last top-up) and re-staffed to the 1:25 ratio the
+    # same month.
+    auto = SimulationAssumptions(
+        meta=MetaAssumptions(horizon_months=48),
+        herd=HerdAssumptions(does=50, bucks=2, auto_purchase_bucks=True),
+        culling=culling,
+    )
+    m36_auto = run_simulation(auto, with_break_even=False).months[35]
+    assert m36_auto.culls_head == pytest.approx(2.0 * S_ADULT, abs=1e-6)
+    assert m36_auto.bucks == pytest.approx(2.0, abs=1e-9)
+
+
 # ---------------------------------------------------------------------------
 # (h) Break-even meat price vs baseline NPV
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import { CalendarClock, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch, type FieldErrors } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -264,6 +264,28 @@ const eventSchema = z
   });
 type EventValues = z.infer<typeof eventSchema>;
 
+/** Every field rendered inside the collapsed "Advanced traceability &
+ * compliance" `<details>`. A visible field can make one of these mandatory
+ * (setting next_due_date requires schedule_template_name and
+ * next_due_authority), so a submit can fail purely on errors the closed
+ * section hides — and react-hook-form cannot focus an input the browser is
+ * not rendering, leaving the form silently stuck. The invalid-submit handler
+ * forces the section open whenever one of these fields carries an error. */
+const ADVANCED_COMPLIANCE_FIELDS = [
+  "schedule_template_name",
+  "next_due_authority",
+  "product_lot",
+  "administered_by",
+  "product_manufactured_on",
+  "product_expires_on",
+  "vaccine_valid_until",
+  "withdrawal_until",
+  "certificate_number",
+  "official_tag_number",
+  "authority_notified_at",
+  "isolation_started_at",
+] as const satisfies readonly (keyof EventValues)[];
+
 /** Rebuilt on every reset: a bare reset() restores react-hook-form's
  * mount-time snapshot, which dates events to the day the tab was opened. */
 function eventDefaults(): EventValues {
@@ -378,6 +400,10 @@ function HealthPageContent() {
   /** A deep-linked duty id we could not resolve — surfaced so the operator
    *  knows the event will be recorded without completing that duty. */
   const [unresolvedPrefillTask, setUnresolvedPrefillTask] = useState<string | null>(null);
+  /** Controlled open state of the Advanced `<details>`: user toggles update
+   *  it (never fought), and a failed submit with an error hidden inside the
+   *  collapsed section forces it open (see ADVANCED_COMPLIANCE_FIELDS). */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   /** value → label map for the local task select. */
   const taskItems: Record<string, string> = {
@@ -427,7 +453,20 @@ function HealthPageContent() {
     // previous duty metadata behind can make a later, manually entered value
     // look like an unchanged prefill and be cleared incorrectly.
     appliedPrefillRef.current = null;
+    setAdvancedOpen(false);
     reset(eventDefaults());
+  }
+
+  /** handleSubmit error path: validation blocked the save. If any failing
+   *  field lives inside the collapsed Advanced section, its message (and the
+   *  input react-hook-form wants to focus) is not rendered by the browser, so
+   *  the click would otherwise appear to do nothing. Open the section so the
+   *  errors are visible; runs on every failed submit, so re-closing it and
+   *  retrying cannot regress into the silent state. */
+  function revealCollapsedErrors(submissionErrors: FieldErrors<EventValues>) {
+    if (ADVANCED_COMPLIANCE_FIELDS.some((field) => submissionErrors[field] !== undefined)) {
+      setAdvancedOpen(true);
+    }
   }
 
   /** Prefill scope/target/type/product from a linked VACCINE/DEWORMING duty
@@ -935,7 +974,11 @@ function HealthPageContent() {
           <DialogHeader>
             <DialogTitle>Add health event</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <form
+            onSubmit={handleSubmit(onSubmit, revealCollapsedErrors)}
+            className="space-y-4"
+            noValidate
+          >
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Apply to</legend>
               <Controller
@@ -1267,7 +1310,11 @@ function HealthPageContent() {
                 </div>
               )}
             </div>
-            <details className="rounded-lg border p-3">
+            <details
+              className="rounded-lg border p-3"
+              open={advancedOpen}
+              onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+            >
               <summary className="cursor-pointer text-sm font-medium">
                 Advanced traceability & compliance
               </summary>

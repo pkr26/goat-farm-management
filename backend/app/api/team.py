@@ -897,7 +897,18 @@ async def change_role(
         _guard_manager_role(preflight_role, user, farm)
         _guard_role_scope(preflight_membership.role, perms, user, farm)
         _guard_role_scope(preflight_role, perms, user, farm)
-    membership = await _get_membership(db, farm, membership_id, for_update=True)
+    # FOR NO KEY UPDATE, like the status endpoint: a role change only mutates
+    # role_id, never the (farm_id, user_id) key that Task rows FK-reference,
+    # so the weaker lock suffices and does not block the KEY SHARE lock a
+    # concurrent task insert (auto-generation, duty spawning) acquires on
+    # this worker's membership row.
+    membership = await _get_membership(
+        db,
+        farm,
+        membership_id,
+        for_update=True,
+        no_key_update=True,
+    )
     # Same self-service guard as the toggle endpoint: holding team.manage
     # must not let a worker promote his own membership to a richer role.
     if membership.user_id == user.id:
@@ -999,7 +1010,18 @@ async def reset_password(
         actor_token_version=prepared.actor_token_version,
         farm_id=prepared.farm_id,
     )
-    membership = await _get_membership(db, farm, membership_id, for_update=True)
+    # FOR NO KEY UPDATE, like the status endpoint: a password reset rewrites
+    # only the separately-locked User row, never the (farm_id, user_id) key
+    # that Task rows FK-reference, so the weaker lock suffices and does not
+    # block the KEY SHARE lock a concurrent task insert (auto-generation,
+    # duty spawning) acquires on this worker's membership row.
+    membership = await _get_membership(
+        db,
+        farm,
+        membership_id,
+        for_update=True,
+        no_key_update=True,
+    )
     _guard_peer_manager(membership, user, farm)
     # Serialize with farm creation and new foreign-key affiliations before the
     # eligibility query; otherwise an account could gain a global affiliation

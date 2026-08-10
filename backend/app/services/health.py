@@ -29,7 +29,7 @@ _HEALTH_TYPE_TO_TX_CATEGORY: dict[str, str] = {
     HealthEventType.DEWORMING.value: TransactionCategory.MEDICINE.value,
     HealthEventType.TREATMENT.value: TransactionCategory.VET.value,
     HealthEventType.FOOTBATH.value: TransactionCategory.VET.value,
-    HealthEventType.VITAMIN.value: TransactionCategory.MEDICINE.value,
+    HealthEventType.VITAMIN.value: TransactionCategory.VET.value,
 }
 
 

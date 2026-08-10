@@ -159,7 +159,7 @@ export default function DashboardPage() {
     payload.kiddings_due.length < payload.kiddings_due_total ||
     payload.cull_candidates.length < (payload.cull_candidates_total ?? 0) ||
     payload.suggestions.length < payload.suggestions_total ||
-    payload.recent_weights.length < payload.recent_weights_total;
+    payload.recent_weights.length < (payload.recent_weights_total ?? 0);
 
   return (
     <div className="space-y-6">
@@ -553,7 +553,7 @@ export default function DashboardPage() {
             </Table>
           </DataTableCard>
         )}
-        {recentWeights.length < payload.recent_weights_total && (
+        {recentWeights.length < (payload.recent_weights_total ?? 0) && (
           <p className="text-sm text-muted-foreground">
             Showing {recentWeights.length} of {payload.recent_weights_total} recent weight
             records.

@@ -1,9 +1,10 @@
 /**
  * Simulation page: horizon quick presets, the herd events editor (add /
- * remove / validation / payload wiring / scenario load), the monthly
- * projection "Events" column, the numeric-input guards (blank never becomes
- * 0, NaN never reaches the assumptions object), null-safe IRR/BCR rendering,
- * and the Delete-scenario pending state.
+ * remove / validation / payload wiring / scenario load / pre-load gating),
+ * the monthly projection "Events" column, the "Use current herd" breed
+ * binding, the numeric-input guards (blank never becomes 0, NaN never
+ * reaches the assumptions object), null-safe IRR/BCR rendering, and the
+ * Delete-scenario pending state.
  */
 
 import { screen, waitFor, within } from "@testing-library/react";
@@ -299,6 +300,37 @@ describe("SimulationPage herd events", () => {
     expect(screen.getByLabelText("Price per head")).toHaveValue(2500);
   });
 
+  // REGRESSION — clicking "Add event" during the initial defaults fetch
+  // flipped acceptDefaultsRef, so the arriving payload was dropped and the
+  // editor stayed permanently stuck on "Loading defaults…" with Run disabled.
+  it("cannot cancel the pending defaults auto-load by adding an event early", async () => {
+    let releaseDefaults!: () => void;
+    registerApiHandlers();
+    server.use(
+      http.get(
+        "/api/simulation/defaults",
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseDefaults = () => resolve(HttpResponse.json(DEFAULTS));
+          }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+
+    const addEvent = await screen.findByRole("button", { name: "Add event" });
+    await waitFor(() => expect(releaseDefaults).toBeTypeOf("function"));
+    expect(addEvent).toBeDisabled();
+    await user.click(addEvent);
+
+    releaseDefaults();
+    expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+    // With the defaults loaded the editor is live again.
+    await user.click(addEvent);
+    expect(screen.getByLabelText("Month")).toHaveValue(12);
+  });
+
   it("shows event log lines in the monthly projection table", async () => {
     const user = userEvent.setup();
     await renderLoaded();
@@ -308,6 +340,51 @@ describe("SimulationPage herd events", () => {
     expect(
       await screen.findByText("Purchased 10 doe(s) at ₹8,000/head (₹80,000)"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("SimulationPage use current herd", () => {
+  // REGRESSION — the herd snapshot was keyed on the live breed dropdown, so
+  // changing the dropdown without reloading defaults imported head counts
+  // bucketed by the new breed's age-at-first-breeding thresholds into an
+  // assumption set that still belonged to the previously loaded breed.
+  it("snapshots the breed the loaded assumptions belong to, not the dropdown", async () => {
+    const snapshotBreeds: (string | null)[] = [];
+    registerApiHandlers();
+    server.use(
+      http.get("/api/simulation/defaults/breeds", () =>
+        HttpResponse.json({
+          breeds: ["osmanabadi", "sirohi"],
+          systems: ["stall_fed"],
+        }),
+      ),
+      http.get("/api/simulation/herd-snapshot", ({ request }) => {
+        snapshotBreeds.push(new URL(request.url).searchParams.get("breed"));
+        return HttpResponse.json({
+          does: 48,
+          bucks: 3,
+          f_kids: 4,
+          f_weaners: 5,
+          f_growers: 6,
+          m_kids: 3,
+          m_weaners: 2,
+          m_growers: 1,
+          total_head: 72,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+    expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
+
+    // Change the dropdown without clicking "Load defaults": the editor still
+    // holds the osmanabadi assumptions.
+    await user.click(screen.getByLabelText("Breed"));
+    await user.click(await screen.findByRole("option", { name: "sirohi" }));
+    await user.click(screen.getByRole("button", { name: "Use current herd" }));
+
+    expect(await screen.findByLabelText("Does")).toHaveValue(48);
+    expect(snapshotBreeds).toEqual(["osmanabadi"]);
   });
 });
 

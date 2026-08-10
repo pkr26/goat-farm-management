@@ -3974,7 +3974,7 @@
           "dashboard"
         ],
         "summary": "Dashboard",
-        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view``, the same permission that governs\n``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in\n``animal_out``. A caller without it gets empty lists and zero totals rather\nthan a 403, so the page still renders for e.g. the cleaner preset.",
+        "description": "Exact herd counts plus deterministic, bounded operational previews.\n\nEach ``*_total`` is calculated in the same SQL statement as its list.\nOperational lists contain at most ``preview_limit`` rows; recent weights\nuse ``recent_weights_limit``. The dedicated tasks, breeding and animals\npages remain the full paginated/history views.\n\nSections carrying a breeding-programme judgement \u2014 kiddings due, cull\ncandidates and the suggestions derived from breeding readiness or an open\npregnancy \u2014 need ``breeding.view``, the same permission that governs\n``cull_candidate`` / ``is_breeding_ready`` / ``is_currently_pregnant`` in\n``animal_out``. A caller without it gets empty lists and zero totals rather\nthan a 403, so the page still renders for e.g. the cleaner preset.\n\nRecent weights are per-animal weight/BCS rows with the animal's identity,\nso they need ``animals.view`` \u2014 the permission that guards weight history\non the animal pages \u2014 and are withheld (empty list, null total) without it.",
         "operationId": "dashboard_api_dashboard_get",
         "security": [
           {
@@ -7240,7 +7240,14 @@
             "title": "Recent Weights"
           },
           "recent_weights_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Recent Weights Total"
           },
           "preview_limit": {
