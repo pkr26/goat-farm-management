@@ -968,6 +968,10 @@ function HealthPageContent() {
                     id="event-animal"
                     value={wAnimalId || ""}
                     onValueChange={(v) => {
+                      // RemotePicker fires even when the already-selected row
+                      // is re-clicked to confirm it; only an actual change may
+                      // unlink the duty and its prefills.
+                      if (v === (wAnimalId || "")) return;
                       clearLinkedTaskPrefill();
                       setRecordError(null);
                       setValue("animal_id", v, { shouldValidate: true });
@@ -1017,6 +1021,8 @@ function HealthPageContent() {
                     id="event-batch"
                     value={wPurchaseBatchId || ""}
                     onValueChange={(v) => {
+                      // Same-value confirmation must not unlink the duty.
+                      if (v === (wPurchaseBatchId || "")) return;
                       clearLinkedTaskPrefill();
                       setRecordError(null);
                       setValue("purchase_batch_id", v, { shouldValidate: true });

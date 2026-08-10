@@ -584,12 +584,19 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             # Every rejection has exactly two bounded executor submissions and
             # pays one Argon2 plus one fixed PBKDF2 budget. A legacy hash spent
             # part of the latter above; completion adds only the remainder.
-            await complete_rejected_login_timing_async(
-                payload.password,
-                stored_hash,
-                _dummy_password_hash(),
-                did_argon_work,
-            )
+            try:
+                await complete_rejected_login_timing_async(
+                    payload.password,
+                    stored_hash,
+                    _dummy_password_hash(),
+                    did_argon_work,
+                )
+            except PasswordWorkCapacityError:
+                # The credential decision is already made. A saturated pool
+                # must not upgrade this definitive 401 into a 429, and the
+                # rejection must still reach the brute-force ledger — losing
+                # padding fidelity under overload is the lesser harm.
+                pass
             _record_login_failure(request, payload.email)
             raise invalid
 

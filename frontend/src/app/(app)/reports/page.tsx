@@ -148,7 +148,10 @@ export default function ReportsPage() {
             <TableRow>
               <TableCell>Cull candidates</TableCell>
               <TableCell className="text-right tabular-nums">
-                {breeding.cull_candidates_total}
+                {/* null = withheld (no breeding access) — never render it as a 0 count */}
+                {breeding.cull_candidates_total ?? (
+                  <span className="text-muted-foreground">Requires breeding access</span>
+                )}
                 {breeding.cull_candidates.length > 0 && (
                   <span className="ml-2 inline-flex flex-wrap gap-1">
                     {breeding.cull_candidates.map((a) =>
@@ -171,7 +174,8 @@ export default function ReportsPage() {
                     )}
                   </span>
                 )}
-                {breeding.cull_candidates.length < breeding.cull_candidates_total && (
+                {breeding.cull_candidates_total !== null &&
+                  breeding.cull_candidates.length < breeding.cull_candidates_total && (
                   <span className="ml-2 text-xs text-muted-foreground">
                     Showing {breeding.cull_candidates.length} of {breeding.cull_candidates_total};
                     this report preview is capped at {breeding.cull_candidates_limit}.{" "}

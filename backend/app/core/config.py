@@ -191,6 +191,12 @@ class Settings(BaseSettings):
     # event loop.  A small dedicated pool bounds both memory (workers ×
     # memory_cost) and queued work; excess requests fail fast with HTTP 429.
     argon2_worker_threads: int = Field(default=2, ge=1, le=4)
+    # PBKDF2 padding spent on every rejected login so aggregate work cannot
+    # reveal which kind of stored hash was looked up. Must cover the highest
+    # PBKDF2 iteration count actually present among imported legacy hashes
+    # (this repository's own history tops out at 50,000); deployments that
+    # import costlier hashes must raise it together with their import audit.
+    rejected_login_pbkdf2_work_budget: int = Field(default=50_000, ge=0, le=10_000_000)
 
     # Frontend dev server origins allowed to call the API with credentials.
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]

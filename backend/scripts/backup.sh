@@ -19,39 +19,11 @@ if [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]]; then
     PYTHON_BIN="${SCRIPT_DIR}/../.venv/bin/python"
 fi
 
-# GOATFARM_ENVIRONMENT and GOATFARM_DB_SSLMODE are *application* settings that
-# gate TLS and mandatory GPG below.  A job that exports only
-# GOATFARM_DATABASE_URL (the one variable this script reports as missing) would
-# otherwise silently fall back to the development defaults on a production
-# host: a plaintext, unsigned dump streamed over a connection this script then
-# forces to `disable`.  Read backend/.env — the same file the application reads
-# — for any value the caller did not export; an explicit export still wins.
-app_setting() {
-    local key="$1" env_file="${SCRIPT_DIR}/../.env"
-    [[ -r "${env_file}" ]] || return 3
-    "${PYTHON_BIN}" "${SCRIPT_DIR}/dotenv_value.py" "${env_file}" "${key}"
-}
-
-if [[ ${GOATFARM_DB_SSLMODE+defined} == defined ]]; then
-    DB_SSLMODE="${GOATFARM_DB_SSLMODE}"
-elif DB_SSLMODE="$(app_setting GOATFARM_DB_SSLMODE)"; then
-    :
-elif (( $? == 3 )); then
-    DB_SSLMODE="disable"
-else
-    echo "Cannot safely load GOATFARM_DB_SSLMODE from backend/.env" >&2
-    exit 2
-fi
-if [[ ${GOATFARM_ENVIRONMENT+defined} == defined ]]; then
-    ENVIRONMENT="${GOATFARM_ENVIRONMENT}"
-elif ENVIRONMENT="$(app_setting GOATFARM_ENVIRONMENT)"; then
-    :
-elif (( $? == 3 )); then
-    ENVIRONMENT="development"
-else
-    echo "Cannot safely load GOATFARM_ENVIRONMENT from backend/.env" >&2
-    exit 2
-fi
+# Settings resolution and validation live in backup_env.sh, shared verbatim
+# with restore.sh so the two scripts cannot drift apart on the safety gates.
+source "${SCRIPT_DIR}/backup_env.sh"
+load_app_setting DB_SSLMODE GOATFARM_DB_SSLMODE disable
+load_app_setting ENVIRONMENT GOATFARM_ENVIRONMENT development
 S3_URI="${GOATFARM_BACKUP_S3_URI:-}"
 GPG_RECIPIENT="${GOATFARM_BACKUP_GPG_RECIPIENT:-}"
 GPG_SIGNER="${GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT:-}"
@@ -114,6 +86,16 @@ cleanup() {
             echo "Preserving incomplete private legacy claim after initialization failure" >&2
         fi
     fi
+    # A quarantined stale legacy lock is this run's private work product; a
+    # death between its quarantine move and its inline deletion must not
+    # litter the destination with lock-shaped directories forever.
+    if [[ -n "${legacy_stale_dir:-}" && -n "${legacy_stale_snapshot:-}" ]] \
+        && [[ -e "${legacy_stale_dir}" || -L "${legacy_stale_dir}" ]]; then
+        if ! "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
+            delete-verified "${legacy_stale_dir}" "${legacy_stale_snapshot}"; then
+            echo "Refusing to clean a quarantined legacy lock whose identity changed" >&2
+        fi
+    fi
     exit "${status}"
 }
 trap cleanup EXIT
@@ -129,20 +111,7 @@ if [[ ! "${KEEP}" =~ ^[1-9][0-9]*$ ]]; then
     echo "GOATFARM_BACKUP_KEEP must be a positive integer" >&2
     exit 2
 fi
-case "${DB_SSLMODE}" in
-    disable|allow|prefer|require|verify-ca|verify-full) ;;
-    *)
-        echo "GOATFARM_DB_SSLMODE is invalid: ${DB_SSLMODE}" >&2
-        exit 2
-        ;;
-esac
-case "${ENVIRONMENT}" in
-    development|production) ;;
-    *)
-        echo "GOATFARM_ENVIRONMENT is invalid: ${ENVIRONMENT}" >&2
-        exit 2
-        ;;
-esac
+validate_app_settings
 if [[ "${ENVIRONMENT}" == "production" && "${DB_SSLMODE}" != "verify-full" ]]; then
     echo "Production backups require GOATFARM_DB_SSLMODE=verify-full" >&2
     exit 2
@@ -219,17 +188,28 @@ fi
 # flock participants and can be reclaimed once FD 9 has been acquired.
 legacy_stale_dir=""
 legacy_stale_snapshot=""
+legacy_lock_present=0
 if [[ -e "${LEGACY_LOCK_DIR}" || -L "${LEGACY_LOCK_DIR}" ]]; then
+    legacy_lock_present=1
     if legacy_snapshot_output="$(
         "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
             snapshot "${LEGACY_LOCK_DIR}"
     )"; then
         :
+    elif [[ ! -e "${LEGACY_LOCK_DIR}" && ! -L "${LEGACY_LOCK_DIR}" ]]; then
+        # A still-deployed old-version producer finished and removed its lock
+        # between the existence test above and the snapshot. Nothing remains
+        # to reclaim; do not tell the operator to delete a lock that no
+        # longer exists.
+        echo "Legacy backup lock was released while being inspected; continuing" >&2
+        legacy_lock_present=0
     else
         echo "Legacy backup lock is malformed or has untrusted identity: ${LEGACY_LOCK_DIR}" >&2
         echo "Verify its PID and all old backup children are stopped, then remove it manually" >&2
         exit 3
     fi
+fi
+if (( legacy_lock_present == 1 )); then
     IFS=' ' read -r legacy_pid legacy_format legacy_snapshot legacy_extra \
         <<< "${legacy_snapshot_output}"
     unset legacy_snapshot_output
@@ -239,29 +219,39 @@ if [[ -e "${LEGACY_LOCK_DIR}" || -L "${LEGACY_LOCK_DIR}" ]]; then
         echo "Legacy lock identity helper returned invalid metadata" >&2
         exit 3
     fi
-    if legacy_pid_status="$(
-        "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
-            pid-status "${legacy_pid}"
-    )"; then
-        :
+    if [[ "${legacy_format}" == "new" ]]; then
+        # A complete new-format claim was published by a flock participant,
+        # and FD 9 is held here: the kernel guarantees the entire producer
+        # tree that created it has exited. Its recorded PID may since have
+        # been recycled by an unrelated live process (near-certain after a
+        # reboot), so PID liveness must NOT be consulted — treating a
+        # recycled PID as a live producer wedged every subsequent backup
+        # behind a lock nothing owned until an operator deleted it by hand.
+        echo "Reclaiming complete new-format legacy backup lock for exited PID ${legacy_pid}" >&2
     else
-        echo "Cannot safely determine legacy backup lock liveness" >&2
-        exit 3
-    fi
-    if [[ "${legacy_pid_status}" == "live" ]]; then
-        echo "Backup already running (live legacy lock: ${LEGACY_LOCK_DIR})" >&2
-        exit 3
-    fi
-    if [[ "${legacy_pid_status}" != "dead" ]]; then
-        echo "Legacy lock liveness helper returned invalid metadata" >&2
-        exit 3
-    fi
-    if [[ "${legacy_format}" != "new" ]]; then
+        if legacy_pid_status="$(
+            "${PYTHON_BIN}" "${SCRIPT_DIR}/backup_legacy_lock.py" \
+                pid-status "${legacy_pid}"
+        )"; then
+            :
+        else
+            echo "Cannot safely determine legacy backup lock liveness" >&2
+            exit 3
+        fi
+        if [[ "${legacy_pid_status}" == "live" ]]; then
+            echo "Backup already running (live legacy lock: ${LEGACY_LOCK_DIR})" >&2
+            exit 3
+        fi
+        if [[ "${legacy_pid_status}" != "dead" ]]; then
+            echo "Legacy lock liveness helper returned invalid metadata" >&2
+            exit 3
+        fi
+        # A dead old-format PID is not safe to steal: its shell may have died
+        # while a pg_dump child (which never held our flock) is still running.
         echo "Dead old-format legacy backup lock requires manual verification: ${LEGACY_LOCK_DIR}" >&2
         echo "Verify PID ${legacy_pid} and all old backup children are stopped, then remove it manually" >&2
         exit 3
     fi
-    echo "Reclaiming stale new-format legacy backup lock for dead PID ${legacy_pid}" >&2
     legacy_stale_dir="${DEST_DIR}/.goatfarm-backup.legacy-stale.$$-${RANDOM}"
     if [[ -e "${legacy_stale_dir}" || -L "${legacy_stale_dir}" ]]; then
         echo "Cannot reserve a private stale-lock path: ${legacy_stale_dir}" >&2
@@ -322,6 +312,8 @@ if [[ -n "${legacy_stale_dir}" ]]; then
         echo "Refusing to delete a quarantined legacy lock whose identity changed" >&2
         exit 3
     fi
+    legacy_stale_dir=""
+    legacy_stale_snapshot=""
 fi
 
 WORK_DIR="$(mktemp -d "${DEST_DIR}/.goatfarm-backup.XXXXXX")"

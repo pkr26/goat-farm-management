@@ -204,14 +204,6 @@ def decode_snapshot(token: str) -> LockSnapshot:
     return LockSnapshot(payload[0], payload[1], pid_file, owner_file)
 
 
-def verify(lock_path: Path, token: str) -> None:
-    expected = decode_snapshot(token)
-    if snapshot(lock_path) != expected:
-        raise LegacyLockError(
-            "legacy directory or lock-file identity/content differs from its snapshot"
-        )
-
-
 def pid_status(pid: int) -> str:
     try:
         os.kill(pid, 0)
@@ -264,15 +256,52 @@ def _rename_noreplace_linux(source: bytes, destination: bytes) -> None:
         raise OSError(error, os.strerror(error))
 
 
+_RENAME_CAPABILITY_ERRNOS = frozenset(
+    {
+        errno.ENOSYS,  # syscall/libc wrapper missing (glibc < 2.28, musl, others)
+        errno.EINVAL,  # kernel or filesystem rejects RENAME_NOREPLACE (NFSv3, ...)
+        errno.ENOTSUP,  # macOS filesystems without RENAME_EXCL (SMB/NFS mounts)
+        getattr(errno, "EOPNOTSUPP", errno.ENOTSUP),
+    }
+)
+
+
+def _rename_noreplace_fallback(source: bytes, destination: bytes) -> None:
+    """Check-then-rename for platforms/filesystems without an exclusive rename.
+
+    RENAME_NOREPLACE support depends on both the OS and the destination
+    filesystem; refusing outright made every backup on an NFS/CIFS
+    destination or an older-libc host fail forever as phantom lock
+    contention. The tiny non-atomic window here is acceptable: the only
+    unsynchronized competitor is a one-release-old producer, and callers
+    re-verify the destination's identity after the move.
+    """
+    try:
+        os.lstat(destination)
+    except FileNotFoundError:
+        pass
+    else:
+        raise OSError(errno.EEXIST, os.strerror(errno.EEXIST))
+    os.rename(source, destination)
+
+
 def _platform_rename_noreplace(source: Path, destination: Path) -> None:
     encoded_source = os.fsencode(source)
     encoded_destination = os.fsencode(destination)
-    if sys.platform == "darwin":
-        _rename_noreplace_darwin(encoded_source, encoded_destination)
-    elif sys.platform.startswith("linux"):
-        _rename_noreplace_linux(encoded_source, encoded_destination)
-    else:
-        raise OSError(errno.ENOSYS, "exclusive directory rename is unavailable")
+    try:
+        if sys.platform == "darwin":
+            _rename_noreplace_darwin(encoded_source, encoded_destination)
+        elif sys.platform.startswith("linux"):
+            _rename_noreplace_linux(encoded_source, encoded_destination)
+        else:
+            raise OSError(errno.ENOSYS, "exclusive directory rename is unavailable")
+    except OSError as exc:
+        # EEXIST is a genuine lost race and must propagate as contention;
+        # only capability errors may degrade to the checked fallback.
+        if exc.errno in _RENAME_CAPABILITY_ERRNOS:
+            _rename_noreplace_fallback(encoded_source, encoded_destination)
+        else:
+            raise
 
 
 def _restore_after_mismatch(source: Path, destination: Path) -> str:
@@ -364,9 +393,6 @@ def main() -> int:
                 raise LegacyLockError("PID must be a positive integer")
             print(pid_status(int(sys.argv[2])))
             return 0
-        if len(sys.argv) == 4 and sys.argv[1] == "verify":
-            verify(Path(sys.argv[2]), sys.argv[3])
-            return 0
         if len(sys.argv) == 5 and sys.argv[1] == "move-verified":
             move_verified(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4])
             return 0
@@ -377,8 +403,7 @@ def main() -> int:
             release_verified(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4])
             return 0
         raise LegacyLockError(
-            f"usage: {sys.argv[0]} snapshot PATH | verify PATH TOKEN | "
-            "pid-status PID | "
+            f"usage: {sys.argv[0]} snapshot PATH | pid-status PID | "
             "move-verified SOURCE DESTINATION TOKEN | delete-verified PATH TOKEN | "
             "release-verified SOURCE DESTINATION TOKEN"
         )

@@ -25,6 +25,7 @@ import base64
 import fcntl
 import hashlib
 import hmac
+import logging
 import os
 import threading
 import uuid
@@ -48,6 +49,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from .core.config import get_settings
 
+_logger = logging.getLogger(__name__)
+
 LEGACY_PBKDF2_PREFIX = "pbkdf2_sha256"
 # Explicit compatibility boundary for hashes copied verbatim from the retired
 # SQLite application. The old verifier had no ceiling, while the history that
@@ -57,12 +60,6 @@ LEGACY_PBKDF2_PREFIX = "pbkdf2_sha256"
 # Deployers must audit imported hashes above this ceiling before rollout.
 LEGACY_PBKDF2_MAX_ITERATIONS = 1_000_000
 
-# Every rejected login pays this fixed PBKDF2 budget in addition to one Argon2
-# verification. Legacy accounts spend part of it checking their real hash and
-# the remainder on padding; Argon2/unknown/malformed accounts spend the whole
-# budget on padding. It must cover every supported legacy verification so the
-# aggregate work cannot reveal which kind of account was looked up.
-REJECTED_LOGIN_PBKDF2_WORK_BUDGET = LEGACY_PBKDF2_MAX_ITERATIONS
 REQUIRED_JWT_CLAIMS = ("sub", "kind", "jti", "iat", "exp", "iss", "aud")
 RESERVED_JWT_CLAIMS = frozenset(REQUIRED_JWT_CLAIMS)
 
@@ -142,19 +139,27 @@ def prime_dummy_password_hash() -> str:
 def _legacy_pbkdf2_parts(stored: str) -> tuple[int, bytes, str] | None:
     try:
         algo, raw_iterations, salt_hex, digest_hex = stored.split("$")
-        if not raw_iterations.isascii() or not raw_iterations.isdecimal():
-            return None
+        # int() tolerates the iteration spellings real importers produced
+        # ('+50000', ' 50000', '50_000'); those hashes verified in the v1
+        # application and must keep verifying here.
         iterations = int(raw_iterations)
         salt = bytes.fromhex(salt_hex)
         bytes.fromhex(digest_hex)
     except (ValueError, TypeError):
         return None
-    if (
-        algo != LEGACY_PBKDF2_PREFIX
-        or not 1 <= iterations <= LEGACY_PBKDF2_MAX_ITERATIONS
-        or not salt
-        or not digest_hex
-    ):
+    if algo != LEGACY_PBKDF2_PREFIX or not salt or not digest_hex:
+        return None
+    if not 1 <= iterations <= LEGACY_PBKDF2_MAX_ITERATIONS:
+        # Without this signal an over-ceiling import is indistinguishable
+        # from a wrong password: the account is permanently locked out and
+        # nobody learns why. Log the anomaly (never the hash or identity).
+        _logger.warning(
+            "Rejecting legacy pbkdf2 hash outside the supported iteration "
+            "range (iterations=%d, ceiling=%d); the account cannot log in "
+            "until its credential is reset or re-imported within the ceiling",
+            iterations,
+            LEGACY_PBKDF2_MAX_ITERATIONS,
+        )
         return None
     return iterations, salt, digest_hex
 
@@ -170,9 +175,16 @@ def _verify_legacy_pbkdf2(password: str, stored: str) -> bool:
 
 
 def _pad_rejected_login_pbkdf2(password: str, stored: str) -> None:
+    # Every rejected login pays this budget in addition to one Argon2
+    # verification: legacy accounts spend part of it checking their real hash
+    # and the remainder on padding; Argon2/unknown/malformed accounts spend
+    # the whole budget on padding. The budget is a deployment setting sized
+    # to the legacy corpus actually present — pegging it to the 1M validity
+    # ceiling made every rejection ~20x costlier than any real hash requires
+    # and handed attackers a matching executor-saturation amplifier.
     parts = _legacy_pbkdf2_parts(stored)
     used_iterations = parts[0] if parts is not None else 0
-    remaining = REJECTED_LOGIN_PBKDF2_WORK_BUDGET - used_iterations
+    remaining = max(get_settings().rejected_login_pbkdf2_work_budget - used_iterations, 0)
     if remaining:
         hashlib.pbkdf2_hmac(
             "sha256",

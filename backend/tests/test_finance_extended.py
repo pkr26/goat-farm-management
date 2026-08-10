@@ -2236,7 +2236,8 @@ async def test_dashboard_view_alone_reveals_no_breeding_programme(
     assert cleaner_dash["kiddings_due"] == []
     assert cleaner_dash["kiddings_due_total"] == 0
     assert cleaner_dash["cull_candidates"] == []
-    assert cleaner_dash["cull_candidates_total"] == 0
+    # null marks the section as withheld rather than genuinely empty.
+    assert cleaner_dash["cull_candidates_total"] is None
     # Selling a grown male kid is an age/weight call, not a breeding one, so it
     # survives — and the count still matches the rows actually returned.
     assert [row["animal"]["tag_number"] for row in cleaner_dash["suggestions"]] == ["GATE-MARKET"]
@@ -2657,7 +2658,9 @@ async def test_reports_cull_identities_require_breeding_view(
     analyst = await worker_headers(client, owner, analyst_role, "reports-only@farm.in")
     delegated_reports = await get_reports(client, analyst)
     assert delegated_reports["breeding"]["cull_candidates"] == []
-    assert delegated_reports["breeding"]["cull_candidates_total"] == 0
+    # A reports-only analyst sees "withheld" (null), never a fabricated zero
+    # that herd decisions could ride on.
+    assert delegated_reports["breeding"]["cull_candidates_total"] is None
 
     authorized_role = await custom_role_id(
         client, owner, "Reports and Breeding", ["reports.view", "breeding.view"]

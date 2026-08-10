@@ -20,6 +20,11 @@ FiniteFloat = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 # any real farm, small enough that cohort arithmetic can't overflow float64.
 MAX_HEAD = 100_000
 
+# Ceiling for the labour-scaling divisor only: float-exact (< 2**53) so the
+# engine's ``total_herd / threshold`` stays finite, huge so stored scenarios
+# that predate any bound keep revalidating. See CostsAssumptions.
+MAX_LABOUR_PER_HEAD_THRESHOLD = 10**15
+
 # Magnitude caps mirror schemas/common.py: finite-but-huge inputs (1e308)
 # pass the NaN/inf guard yet overflow derived math (revenue = head × kg × ₹)
 # into inf/NaN, which then crashes JSON serialization of the run (500).
@@ -249,11 +254,14 @@ class CostsAssumptions(_Group):
     vet_per_animal_per_year: FiniteFloat = Field(default=250.0, ge=0.0, le=MAX_MONEY)
     labour_per_month: FiniteFloat = Field(default=10000.0, ge=0.0, le=MAX_MONEY)
     # One labourer per this many head; labour count scales up with herd size.
-    # Keep the denominator bounded like every other head-count input: Python
-    # converts it to float for ``total_herd / threshold``, and an arbitrary-size
-    # JSON integer otherwise raises OverflowError in the engine instead of a
-    # clean validation error.
-    labour_per_head_threshold: int = Field(default=75, ge=1, le=MAX_HEAD)
+    # The bound exists only so an arbitrary-size JSON integer cannot raise
+    # OverflowError in the engine's float division — but this is a divisor,
+    # not a herd size: values far above MAX_HEAD are meaningful ("never scale
+    # labour with head count") and were accepted before any bound existed, so
+    # persisted scenarios carry them. 10**15 stays float-exact (< 2**53) and
+    # grandfathers every previously-runnable stored value; MAX_HEAD here made
+    # those scenarios retroactively fail revalidation with a 422.
+    labour_per_head_threshold: int = Field(default=75, ge=1, le=MAX_LABOUR_PER_HEAD_THRESHOLD)
     insurance_pct_stock_value_annual: FiniteFloat = Field(default=0.04, ge=0.0, le=0.25)
     misc_overhead_per_month: FiniteFloat = Field(default=2000.0, ge=0.0, le=MAX_MONEY)
     # NABARD unit costs.

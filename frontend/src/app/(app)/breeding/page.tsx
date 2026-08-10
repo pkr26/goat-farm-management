@@ -133,15 +133,24 @@ function NewBreedingDialog({
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    resetField,
+    formState: { errors, isSubmitting, dirtyFields },
   } = useForm<BreedingValues>({
     resolver: zodResolver(breedingSchema),
     defaultValues: breedingDefaults(),
   });
 
+  // Read during render so RHF's formState proxy subscribes to dirty tracking.
+  const breedingDateTouched = Boolean(dirtyFields.breeding_date);
   useEffect(() => {
-    if (open) reset(breedingDefaults());
-  }, [open, reset]);
+    // The mount-time date default goes stale at midnight, but a full
+    // reset() here discarded in-progress doe/buck selections whenever the
+    // dialog was accidentally dismissed and reopened. Refresh only the
+    // untouched date; everything else is reset after a successful save.
+    if (open && !breedingDateTouched) {
+      resetField("breeding_date", { defaultValue: breedingDefaults().breeding_date });
+    }
+  }, [open, breedingDateTouched, resetField]);
 
   async function onSubmit(values: BreedingValues) {
     await createFlight.run(async () => {

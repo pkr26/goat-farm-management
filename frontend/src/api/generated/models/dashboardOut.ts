@@ -27,7 +27,7 @@ export interface DashboardOut {
   kiddings_due: DashboardKiddingDueOut[];
   kiddings_due_total: number;
   cull_candidates: AnimalIdentityOut[];
-  cull_candidates_total: number;
+  cull_candidates_total: number | null;
   suggestions: MoveSuggestionOut[];
   suggestions_total: number;
   recent_weights: DashboardWeightOut[];

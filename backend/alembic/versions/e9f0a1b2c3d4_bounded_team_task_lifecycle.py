@@ -17,7 +17,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from sqlalchemy import text
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "e9f0a1b2c3d4"
 down_revision: str | Sequence[str] | None = "d8e9f0a1b2c3"
@@ -51,16 +51,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    deleted_role = (
-        op.get_bind()
-        .execute(text("SELECT id FROM roles WHERE deleted_at IS NOT NULL ORDER BY id LIMIT 1"))
-        .scalar_one_or_none()
-    )
-    if deleted_role is not None:
-        raise RuntimeError(
-            "Cannot downgrade role tombstones while deleted roles exist; "
-            f"restore or permanently reconcile role id {deleted_role} first"
+    if context.is_offline_mode():
+        # Offline (--sql) generation cannot inspect data; render the same
+        # tombstone guard as an in-script check that fails the apply instead.
+        op.execute(
+            "DO $$ BEGIN "
+            "IF EXISTS (SELECT 1 FROM roles WHERE deleted_at IS NOT NULL) THEN "
+            "RAISE EXCEPTION 'Cannot downgrade role tombstones while deleted "
+            "roles exist; restore or permanently reconcile them first'; "
+            "END IF; END $$"
         )
+    else:
+        deleted_role = (
+            op.get_bind()
+            .execute(text("SELECT id FROM roles WHERE deleted_at IS NOT NULL ORDER BY id LIMIT 1"))
+            .scalar_one_or_none()
+        )
+        if deleted_role is not None:
+            raise RuntimeError(
+                "Cannot downgrade role tombstones while deleted roles exist; "
+                f"restore or permanently reconcile role id {deleted_role} first"
+            )
 
     op.drop_constraint("ck_tasks_user_assignment_has_role", "tasks", type_="check")
     op.drop_index("uq_roles_farm_active_name", table_name="roles")

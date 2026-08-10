@@ -304,7 +304,9 @@ async def test_cleaner_dashboard_hides_the_breeding_programme(client: httpx.Asyn
     assert cleaner_dash["kiddings_due"] == []
     assert cleaner_dash["kiddings_due_total"] == 0
     assert cleaner_dash["cull_candidates"] == []
-    assert cleaner_dash["cull_candidates_total"] == 0
+    # null, not 0: a withheld section must be distinguishable from a
+    # genuinely empty cull list, or the UI presents the gate as fact.
+    assert cleaner_dash["cull_candidates_total"] is None
     # Withheld sections, not a 403 — the cleaner's own page still works.
     assert cleaner_dash["total_active"] == owner_dash["total_active"]
 

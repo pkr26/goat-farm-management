@@ -3,13 +3,21 @@
 Revision ID: c8f1d3a5e709
 Revises: a4d9e6f2b701
 Create Date: 2026-08-08 19:15:00.000000+00:00
+
+HISTORY CAVEAT: an earlier variant of this revision (same id) silently
+neutralized non-finite money values (``amount`` -> 0, optional prices ->
+NULL) instead of refusing. A database that migrated under that variant
+carries no marker of what was rewritten — the refusal preflight below only
+protects databases that had not yet passed this revision. Editing an applied
+revision is normally forbidden for exactly this reason; the rewrite shipped
+before any external deployment, and this note is the permanent record.
 """
 
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "c8f1d3a5e709"
 down_revision: str | Sequence[str] | None = "a4d9e6f2b701"
@@ -28,52 +36,45 @@ _MONEY_COLUMNS = (
 _MAX_NUMERIC_14_2 = "999999999999.99"
 
 
-def _sample_ids(table: str, column: str, predicate: str) -> list[int]:
-    """Return a deterministic sample so an operator can repair and retry."""
-    rows = op.get_bind().execute(
-        sa.text(
-            f'SELECT id FROM "{table}" '
-            f'WHERE "{column}" IS NOT NULL AND ({predicate}) ORDER BY id LIMIT 10'
-        )
-    )
-    return [int(row.id) for row in rows]
-
-
 def _preflight_money(table: str, column: str) -> None:
-    special_ids = _sample_ids(
-        table,
-        column,
-        f"\"{column}\"::text IN ('NaN', 'Infinity', '-Infinity')",
+    """One classifying scan per column; deterministic samples enable repair.
+
+    CASE (unlike a bare OR chain) guarantees ordered, lazy evaluation, so the
+    numeric casts in the later arms never execute on a non-finite value —
+    ``'Infinity'::numeric`` errors on PostgreSQL < 14.
+
+    float8 -> numeric canonicalizes ordinary binary representation noise; a
+    genuine sub-cent difference is meaningful legacy information that must
+    not be silently rounded into a different ledger value.
+    """
+    classify = (
+        "CASE "
+        f"WHEN \"{column}\"::text IN ('NaN', 'Infinity', '-Infinity') THEN 'non-finite' "
+        f"WHEN abs(\"{column}\"::numeric) > {_MAX_NUMERIC_14_2} THEN 'overflow' "
+        f"WHEN \"{column}\"::numeric <> round(\"{column}\"::numeric, 2) THEN 'sub-cent' "
+        "END"
     )
-    if special_ids:
+    rows = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                f'SELECT id, {classify} AS kind FROM "{table}" '
+                f'WHERE "{column}" IS NOT NULL AND {classify} IS NOT NULL '
+                "ORDER BY id LIMIT 30"
+            )
+        )
+        .all()
+    )
+    if rows:
+        problems: dict[str, list[int]] = {}
+        for row in rows:
+            problems.setdefault(str(row.kind), []).append(int(row.id))
+        details = "; ".join(
+            f"{kind} values at row ids {ids}" for kind, ids in sorted(problems.items())
+        )
         raise RuntimeError(
             f"Refusing exact-money migration: {table}.{column} contains "
-            f"non-finite values at row ids {special_ids}; correct them explicitly before retrying"
-        )
-
-    overflow_ids = _sample_ids(
-        table,
-        column,
-        f'abs("{column}"::numeric) > {_MAX_NUMERIC_14_2}',
-    )
-    if overflow_ids:
-        raise RuntimeError(
-            f"Refusing exact-money migration: {table}.{column} exceeds "
-            f"numeric(14,2) at row ids {overflow_ids}; correct them explicitly before retrying"
-        )
-
-    # float8 -> numeric canonicalizes ordinary binary representation noise.
-    # Any remaining difference is meaningful legacy sub-cent information and
-    # must not be silently rounded into a different ledger value.
-    subcent_ids = _sample_ids(
-        table,
-        column,
-        f'"{column}"::numeric <> round("{column}"::numeric, 2)',
-    )
-    if subcent_ids:
-        raise RuntimeError(
-            f"Refusing exact-money migration: {table}.{column} contains "
-            f"sub-cent values at row ids {subcent_ids}; correct them explicitly before retrying"
+            f"{details}; correct them explicitly before retrying"
         )
 
 
@@ -82,8 +83,19 @@ def upgrade() -> None:
     # float value is still available. A later corrective revision could report
     # that rounding occurred but could never recover what was discarded, so
     # fail before any DDL/data mutation and leave the whole revision retryable.
-    for table, column, _nullable in _MONEY_COLUMNS:
-        _preflight_money(table, column)
+    #
+    # Offline (--sql) generation cannot inspect data, and refusing to render
+    # would block DBA-reviewed deployments entirely; emit the caveat into the
+    # generated script instead and keep the preflight for online runs.
+    if context.is_offline_mode():
+        op.execute(
+            "-- WARNING: offline generation skipped the exact-money preflight. "
+            "Audit money columns for non-finite/overflow/sub-cent float values "
+            "(or run 'alembic upgrade' online) before applying this script."
+        )
+    else:
+        for table, column, _nullable in _MONEY_COLUMNS:
+            _preflight_money(table, column)
 
     op.add_column(
         "farms",

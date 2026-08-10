@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import and_, func, literal, or_, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
@@ -19,12 +19,10 @@ from sqlalchemy.orm import aliased, selectinload
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm, revoke_user_sessions
 from ..models import (
-    VERIFICATION_REQUIRED_CATEGORIES,
     Farm,
     FarmMembership,
     Role,
     Task,
-    TaskStatus,
     User,
 )
 from ..permissions import (
@@ -1166,13 +1164,7 @@ async def delete_role(
             .where(
                 Task.farm_id == farm.id,
                 Task.assigned_role_id == role.id,
-                or_(
-                    Task.status == TaskStatus.PENDING.value,
-                    and_(
-                        Task.status == TaskStatus.DONE.value,
-                        Task.category.in_(VERIFICATION_REQUIRED_CATEGORIES),
-                    ),
-                ),
+                Task.requires_action_clause(),
             )
             .limit(1)
         )

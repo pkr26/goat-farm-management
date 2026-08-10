@@ -270,7 +270,9 @@ async def dashboard(
     kiddings_due: list[DashboardKiddingDueOut] = []
     kiddings_due_total = 0
     cull_candidates: list[Animal] = []
-    cull_candidates_total = 0
+    # None (not 0) when the section is withheld: rendering a permission gate
+    # as a factual zero would let herd decisions ride on truncated data.
+    cull_candidates_total: int | None = None
     if can_view_breeding:
         kiddings_due, kiddings_due_total = await _kidding_due_preview(db, farm.id, now)
         cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
@@ -464,7 +466,8 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
     ).one()
 
     cull_candidates: list[Animal] = []
-    cull_candidates_total = 0
+    # None (not 0) when withheld — see the dashboard endpoint's twin comment.
+    cull_candidates_total: int | None = None
     if "breeding.view" in perms:
         cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
 

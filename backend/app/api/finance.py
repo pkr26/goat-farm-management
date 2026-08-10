@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import false, func, select
@@ -47,21 +47,6 @@ FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 FinanceManage = Annotated[set[str], Depends(require_perm("finance.manage"))]
 
 _MAX_FEED_UNIT_PRICE = Decimal("1000000000.00")
-
-
-# Free text reaches PostgreSQL as a bind parameter, and a text/varchar column
-# cannot hold a NUL byte: asyncpg raises CharacterNotInRepertoireError, which
-# no handler maps to a 4xx, so ``notes``/``reason`` containing "\x00" answered
-# an opaque 500. No ledger narrative legitimately carries a C0 control other
-# than tab/newline/carriage return.
-_ALLOWED_CONTROL_CHARACTERS = "\t\n\r"
-
-
-def _reject_control_characters(value: str | None, field: str) -> None:
-    if value is not None and any(
-        char < " " and char not in _ALLOWED_CONTROL_CHARACTERS for char in value
-    ):
-        raise HTTPException(status_code=422, detail=f"{field} cannot contain control characters")
 
 
 def _transaction_out(txn: Transaction) -> TransactionOut:
@@ -121,6 +106,27 @@ def _corrected_feed_unit_price(txn: Transaction, amount: Decimal) -> Decimal | N
     return unit_price
 
 
+def _latest_active_feed_purchase_stmt(farm_id: int, *criteria: Any) -> Any:
+    """Newest active FEED_PURCHASE under the (date, source_id) ordering contract.
+
+    Every consumer of "the latest purchase" must share this exact ordering:
+    replacement transaction ids change, but corrections inherit their source
+    pair, so date plus source_id stays deterministic even when two restocks
+    share the same business date.
+    """
+    return (
+        select(Transaction)
+        .where(
+            Transaction.farm_id == farm_id,
+            Transaction.source_type == "FEED_PURCHASE",
+            Transaction.voided_at.is_(None),
+            *criteria,
+        )
+        .order_by(Transaction.date.desc(), Transaction.source_id.desc())
+        .limit(1)
+    )
+
+
 async def _reconcile_feed_purchase(
     db: DbSession,
     farm: CurrentFarm,
@@ -140,29 +146,18 @@ async def _reconcile_feed_purchase(
         and txn.feed_quantity_kg is None
         and txn.feed_unit_price_per_kg is None
     ):
-        # Historical rows predate durable inventory/quantity provenance. Their
-        # narrative may be corrected, but changing date or money would require
-        # guessing which balance and unit price to reconcile.
-        if amount != txn.amount or payload.date != txn.date:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "This legacy feed purchase has no structured inventory/quantity "
-                    "provenance; only its notes can be corrected"
-                ),
-            )
+        # Rows recorded before durable inventory/quantity provenance existed
+        # never fed FeedInventory.last_purchase_price_per_kg, so correcting
+        # them is a pure ledger edit with nothing to reconcile. Refusing
+        # amount/date corrections here would permanently freeze every
+        # pre-provenance purchase the moment the deployment upgrades.
         return await _resolve_related_animal(db, farm, txn.related_animal_id)
-    if (
-        txn.feed_inventory_id is None
-        or txn.feed_quantity_kg is None
-        or txn.feed_unit_price_per_kg is None
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="This feed purchase has incomplete inventory provenance",
-        )
     if txn.source_id is None:
         raise HTTPException(status_code=409, detail="This feed purchase has no stable source id")
+    if amount == txn.amount and payload.date == txn.date:
+        # A notes-only correction cannot move the displayed last-purchase
+        # price; skip the inventory row lock and both ordering probes.
+        return await _resolve_related_animal(db, farm, txn.related_animal_id)
 
     inventory = (
         await db.execute(
@@ -182,22 +177,18 @@ async def _reconcile_feed_purchase(
 
     other_latest = (
         await db.execute(
-            select(Transaction)
-            .where(
-                Transaction.farm_id == farm.id,
-                Transaction.source_type == "FEED_PURCHASE",
+            _latest_active_feed_purchase_stmt(
+                farm.id,
                 Transaction.feed_inventory_id == inventory.id,
-                Transaction.voided_at.is_(None),
                 Transaction.id != txn.id,
             )
-            .order_by(Transaction.date.desc(), Transaction.source_id.desc())
-            .limit(1)
         )
     ).scalar_one_or_none()
 
     corrected_unit_price = _corrected_feed_unit_price(txn, amount)
-    if corrected_unit_price is None:  # guarded above; keeps the invariant explicit to mypy
-        raise HTTPException(status_code=409, detail="This feed purchase has incomplete pricing")
+    # The all-NULL early return plus ck_transactions_feed_purchase_provenance
+    # (columns are all-or-none) guarantee complete pricing on this path.
+    assert corrected_unit_price is not None
 
     other_key = (
         (other_latest.date, other_latest.source_id)
@@ -208,8 +199,7 @@ async def _reconcile_feed_purchase(
     corrected_key = (payload.date, txn.source_id)
     old_is_latest = other_key is None or old_key >= other_key
     corrected_is_latest = other_key is None or corrected_key >= other_key
-    changed = amount != txn.amount or payload.date != txn.date
-    if not changed or not (old_is_latest or corrected_is_latest):
+    if not (old_is_latest or corrected_is_latest):
         # Correcting an older chain cannot change the inventory's displayed
         # last-purchase price. Its replacement still retains its own unit price.
         return await _resolve_related_animal(db, farm, txn.related_animal_id)
@@ -231,19 +221,14 @@ async def _reconcile_feed_purchase(
     # cannot truthfully assert which purchase should supply this item's price.
     legacy_latest = (
         await db.execute(
-            select(Transaction.date, Transaction.source_id)
-            .where(
-                Transaction.farm_id == farm.id,
-                Transaction.source_type == "FEED_PURCHASE",
+            _latest_active_feed_purchase_stmt(
+                farm.id,
                 Transaction.feed_inventory_id.is_(None),
                 Transaction.feed_quantity_kg.is_(None),
                 Transaction.feed_unit_price_per_kg.is_(None),
-                Transaction.voided_at.is_(None),
             )
-            .order_by(Transaction.date.desc(), Transaction.source_id.desc())
-            .limit(1)
         )
-    ).one_or_none()
+    ).scalar_one_or_none()
     if (
         legacy_latest is not None
         and legacy_latest.source_id is not None
@@ -529,7 +514,6 @@ async def add_transaction(
             require_farm_not_future(payload.date, farm, "transaction date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        _reject_control_characters(payload.notes, "notes")
         animal_pk, animal_tag = await _resolve_related_animal(db, farm, payload.related_animal_id)
         txn = Transaction(
             farm_id=farm.id,
@@ -580,8 +564,6 @@ async def correct_transaction(
             require_farm_not_future(payload.date, farm, "replacement transaction date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        _reject_control_characters(payload.notes, "notes")
-        _reject_control_characters(payload.reason, "reason")
         if not 1 <= transaction_id <= MAX_INT32_ID:
             txn = None
         else:

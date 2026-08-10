@@ -28,39 +28,12 @@ if [[ -x "${SCRIPT_DIR}/../.venv/bin/python" ]]; then
     PYTHON_BIN="${SCRIPT_DIR}/../.venv/bin/python"
 fi
 
-# GOATFARM_ENVIRONMENT and GOATFARM_DB_SSLMODE are *application* settings that
-# gate TLS and the signed-and-encrypted artifact requirement below.  A job that
-# exports only the restore URL would otherwise silently fall back to the
-# development defaults on a production host and accept a plaintext dump over a
-# connection this script then forces to `disable`.  Read backend/.env — the
-# same file the application reads — for any value the caller did not export;
-# an explicit export still wins.
-app_setting() {
-    local key="$1" env_file="${SCRIPT_DIR}/../.env"
-    [[ -r "${env_file}" ]] || return 3
-    "${PYTHON_BIN}" "${SCRIPT_DIR}/dotenv_value.py" "${env_file}" "${key}"
-}
-
-if [[ ${GOATFARM_DB_SSLMODE+defined} == defined ]]; then
-    DB_SSLMODE="${GOATFARM_DB_SSLMODE}"
-elif DB_SSLMODE="$(app_setting GOATFARM_DB_SSLMODE)"; then
-    :
-elif (( $? == 3 )); then
-    DB_SSLMODE="disable"
-else
-    echo "Cannot safely load GOATFARM_DB_SSLMODE from backend/.env" >&2
-    exit 2
-fi
-if [[ ${GOATFARM_ENVIRONMENT+defined} == defined ]]; then
-    ENVIRONMENT="${GOATFARM_ENVIRONMENT}"
-elif ENVIRONMENT="$(app_setting GOATFARM_ENVIRONMENT)"; then
-    :
-elif (( $? == 3 )); then
-    ENVIRONMENT="development"
-else
-    echo "Cannot safely load GOATFARM_ENVIRONMENT from backend/.env" >&2
-    exit 2
-fi
+# Settings resolution and validation live in backup_env.sh, shared verbatim
+# with backup.sh so the two scripts cannot drift apart on the safety gates
+# (TLS and the signed-and-encrypted artifact requirement below).
+source "${SCRIPT_DIR}/backup_env.sh"
+load_app_setting DB_SSLMODE GOATFARM_DB_SSLMODE disable
+load_app_setting ENVIRONMENT GOATFARM_ENVIRONMENT development
 TMP_ROOT="${TMPDIR:-/tmp}"
 TMP_DIR=""
 
@@ -140,20 +113,7 @@ verify_checksum() {
     fi
 }
 
-case "${DB_SSLMODE}" in
-    disable|allow|prefer|require|verify-ca|verify-full) ;;
-    *)
-        echo "GOATFARM_DB_SSLMODE is invalid: ${DB_SSLMODE}" >&2
-        exit 2
-        ;;
-esac
-case "${ENVIRONMENT}" in
-    development|production) ;;
-    *)
-        echo "GOATFARM_ENVIRONMENT is invalid: ${ENVIRONMENT}" >&2
-        exit 2
-        ;;
-esac
+validate_app_settings
 if [[ "${ENVIRONMENT}" == "production" && "${DB_SSLMODE}" != "verify-full" ]]; then
     echo "Production restores require GOATFARM_DB_SSLMODE=verify-full" >&2
     exit 2

@@ -75,11 +75,14 @@ services:
       GOATFARM_MIN_PASSWORD_LENGTH: ${GOATFARM_MIN_PASSWORD_LENGTH:-8}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-development-only-idempotency-hmac-secret-change-me}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
-      # Exactly the edge container's configurable address (see the `default`
-      # network below) — never the whole bridge range, which would also cover
-      # other containers and let them spoof X-Forwarded-For. One interpolation
-      # variable supplies both sides so an override cannot make them drift.
-      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}
+      # Defaults to exactly the edge container's configurable address (see the
+      # `default` network below) — never the whole bridge range, which would
+      # also cover other containers and let them spoof X-Forwarded-For. The
+      # explicit GOATFARM_TRUSTED_PROXY_HOSTS override (README) still wins so
+      # topologies with an additional outer proxy/load balancer can trust its
+      # address too; dropping that override silently collapsed every client
+      # onto one IP for the per-IP auth ceilings behind such deployments.
+      GOATFARM_TRUSTED_PROXY_HOSTS: ${GOATFARM_TRUSTED_PROXY_HOSTS:-${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}}
       GOATFARM_JWT_PRIVATE_KEY_PATH: /app/keys/jwt_private.pem
       GOATFARM_JWT_PUBLIC_KEY_PATH: /app/keys/jwt_public.pem
     volumes:

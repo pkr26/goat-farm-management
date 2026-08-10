@@ -308,9 +308,9 @@ async def list_tasks(
             )
         ).scalars()
     )
-    # Awaiting verification: DONE + a verification-required category (CLEANING)
-    # — filtered in SQL, not by loading the whole DONE pile.
-    awaiting_query = done_base.where(Task.category.in_(VERIFICATION_REQUIRED_CATEGORIES))
+    # Awaiting verification (see Task.awaiting_verification_clause) — filtered
+    # in SQL, not by loading the whole DONE pile.
+    awaiting_query = done_base.where(Task.awaiting_verification_clause())
     awaiting_total = await total(awaiting_query)
     awaiting = list(
         (

@@ -35,6 +35,7 @@ URL_HELPER = REPO_ROOT / "backend" / "scripts" / "libpq_url.py"
 DOTENV_HELPER = REPO_ROOT / "backend" / "scripts" / "dotenv_value.py"
 FLOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_flock.py"
 LEGACY_LOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_legacy_lock.py"
+ENV_LIB = REPO_ROOT / "backend" / "scripts" / "backup_env.sh"
 SIGNER_A = "A" * 40
 SIGNER_B = "B" * 40
 
@@ -457,6 +458,31 @@ def test_backup_handles_legacy_directory_only_after_kernel_lock(
     assert (destination / ".goatfarm-backup.flock").is_file()
     assert legacy_lock.exists() is legacy_lock_remains
     assert _log_text(env).count('"tool": "pg_dump"') == (1 if expected_returncode == 0 else 0)
+
+
+def test_backup_reclaims_new_format_legacy_lock_despite_recycled_live_pid(
+    tmp_path: Path,
+) -> None:
+    """Holding the flock proves a new-format producer's whole tree exited: its
+    recorded PID being recycled by a live unrelated process (near-certain
+    after a reboot) must not wedge every subsequent backup behind a lock
+    nothing owns."""
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    destination = tmp_path / "backups"
+    legacy_lock = destination / ".goatfarm-backup.lock"
+    legacy_lock.mkdir(parents=True)
+    live_pid = os.getpid()  # definitely alive, definitely not a backup producer
+    (legacy_lock / "pid").write_text(f"{live_pid}\n")
+    (legacy_lock / ".flock-owner").write_text(f"{live_pid}-1-2\n")
+
+    result = _run_backup(destination, env)
+
+    assert result.returncode == 0, result.stderr
+    assert "Reclaiming complete new-format legacy backup lock" in result.stderr
+    assert len(list(destination.glob("goatfarm-*.dump"))) == 1
+    assert not legacy_lock.exists()
+    assert not list(destination.glob(".goatfarm-backup.legacy-stale.*"))
 
 
 def test_backup_fails_if_late_old_producer_wins_legacy_claim(tmp_path: Path) -> None:
@@ -1253,6 +1279,7 @@ def _stage_scripts(tmp_path: Path, env_file: str | None) -> Path:
         DOTENV_HELPER,
         FLOCK_HELPER,
         LEGACY_LOCK_HELPER,
+        ENV_LIB,
     ):
         shutil.copy(source, staged / source.name)
     if env_file is not None:
@@ -1373,7 +1400,15 @@ def _render_compose_network(
     *,
     subnet: str = "198.18.243.0/24",
     edge_address: str = "198.18.243.10",
+    trusted_proxy_hosts: str | None = None,
 ) -> dict:
+    """Emulate Compose interpolation for the network variables.
+
+    Inner defaults resolve first; the trusted-proxy value is the nested form
+    `${GOATFARM_TRUSTED_PROXY_HOSTS:-${GOATFARM_EDGE_PROXY_IP:-...}}`, so an
+    unset override falls back to the edge address and an explicit override
+    (an outer load balancer's addresses) wins.
+    """
     compose = (REPO_ROOT / "docker-compose.yml").read_text()
     compose = compose.replace(
         "${GOATFARM_DOCKER_SUBNET:-198.18.243.0/24}",
@@ -1381,6 +1416,10 @@ def _render_compose_network(
     ).replace(
         "${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}",
         edge_address,
+    )
+    compose = compose.replace(
+        f"${{GOATFARM_TRUSTED_PROXY_HOSTS:-{edge_address}}}",
+        trusted_proxy_hosts if trusted_proxy_hosts is not None else edge_address,
     )
     return yaml.safe_load(compose)
 
@@ -1440,6 +1479,14 @@ def test_compose_network_override_avoids_collision_without_weakening_proxy_trust
     assert ipaddress.ip_address(override_edge) in override_network
     assert override_trust == override_edge
     assert Settings(trusted_proxy_hosts=override_trust).trusted_proxy_hosts == override_edge
+
+    # An explicit GOATFARM_TRUSTED_PROXY_HOSTS still wins over the edge-IP
+    # default: deployments behind an additional outer proxy/load balancer
+    # must be able to trust its address too, or every client keys the per-IP
+    # auth ceilings as the balancer's single IP.
+    lb = _render_compose_network(trusted_proxy_hosts="198.18.243.10,203.0.113.9")
+    lb_trust = lb["services"]["backend"]["environment"]["GOATFARM_TRUSTED_PROXY_HOSTS"]
+    assert lb_trust == "198.18.243.10,203.0.113.9"
 
 
 def test_ci_cancels_only_superseded_pull_requests() -> None:

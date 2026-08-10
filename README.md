@@ -179,8 +179,15 @@ passes. Resume API replicas only after that succeeds.
   caller's effective set for the active farm; the nav and buttons mirror it.
 - Legacy `pbkdf2_sha256$iterations$salt_hex$digest_hex` password hashes
   (pre-migration users) verify transparently and are upgraded to Argon2id on
-  first login. The supported import range is a canonical decimal iteration
-  count from 1 through 1,000,000; the hard ceiling bounds login CPU. Before
+  first login. The supported import range is an iteration count from 1
+  through 1,000,000; spellings Python's `int()` accepts (`+50000`, `50_000`,
+  surrounding whitespace) verify for compatibility with historical imports,
+  and a hash outside the ceiling now logs a server-side warning so the
+  lockout is diagnosable instead of reading as a wrong password. Every
+  rejected login additionally pays
+  `GOATFARM_REJECTED_LOGIN_PBKDF2_WORK_BUDGET` PBKDF2 iterations of timing
+  padding (default 50,000); a deployment importing costlier legacy hashes
+  must raise it to at least its maximum imported iteration count. Before
   importing an external user table or deploying this boundary over existing
   rows, audit accounts that need an offline rehash/password reset:
 
@@ -341,9 +348,18 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   `GOATFARM_TRUSTED_PROXY_HOSTS` can name exactly that one host
   (`GOATFARM_EDGE_PROXY_IP`) rather than the bridge range, which would also
   cover the docker gateway. Compose uses the same edge-IP interpolation for
-  both the nginx address and backend trust configuration. If the documented
-  default conflicts with a host, VPN, or cloud route, override the subnet and
-  an address inside it in `.env`; no Compose-file edit is required. The
+  both the nginx address and backend trust configuration, and an explicit
+  `GOATFARM_TRUSTED_PROXY_HOSTS` in `.env` still overrides the trust list —
+  required when an additional outer proxy or load balancer fronts the edge,
+  whose address must also be trusted or every client keys the per-IP auth
+  ceilings as one IP. If the documented default conflicts with a host, VPN,
+  or cloud route, override the subnet and an address inside it in `.env`; no
+  Compose-file edit is required — but note that changing the subnet or edge
+  IP of an **already-created** stack (including upgrading across a release
+  that changed the defaults, e.g. `172.31.243.0/24` → `198.18.243.0/24`)
+  requires recreating the network: run `docker compose down` once before
+  `docker compose up -d`, or Compose refuses to start with an
+  "incorrect ipam config" error. The
   `frontend` service is only `expose`d, never published.
   Next's server-side rewrite still uses changeOrigin and sends
   `Host: backend:8000` for anything it does proxy, so every Compose

@@ -43,7 +43,10 @@ def main() -> int:
     # normalizing so the last spelling of a duplicate key wins the same way.
     normalized_values = {name.lower(): value for name, value in values.items()}
     normalized_key = key.lower()
-    if normalized_key not in normalized_values or normalized_values[normalized_key] is None:
+    if normalized_key not in normalized_values or normalized_values[normalized_key] in (None, ""):
+        # An empty value ("KEY=") reports absent: the backup/restore ladders
+        # historically resolved it through ${VAR:-default}, and hard-failing
+        # on an empty placeholder line silently stops cron backups.
         return 3
 
     value = normalized_values[normalized_key]

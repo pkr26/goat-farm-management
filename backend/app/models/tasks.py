@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
+    ColumnElement,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
     String,
     UniqueConstraint,
+    and_,
+    or_,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -171,6 +174,25 @@ class Task(Base):
         return (
             self.status == TaskStatus.DONE.value
             and self.category in VERIFICATION_REQUIRED_CATEGORIES
+        )
+
+    @classmethod
+    def awaiting_verification_clause(cls) -> ColumnElement[bool]:
+        """SQL twin of ``needs_verification`` — the single definition every
+        query must share, or lifecycle changes reach one consumer and not
+        another (a role became deletable while its duty awaited verification
+        exactly this way)."""
+        return and_(
+            cls.status == TaskStatus.DONE.value,
+            cls.category.in_(VERIFICATION_REQUIRED_CATEGORIES),
+        )
+
+    @classmethod
+    def requires_action_clause(cls) -> ColumnElement[bool]:
+        """A duty someone must still act on: open, or done but unverified."""
+        return or_(
+            cls.status == TaskStatus.PENDING.value,
+            cls.awaiting_verification_clause(),
         )
 
 

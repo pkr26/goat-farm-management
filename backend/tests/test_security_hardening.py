@@ -326,7 +326,9 @@ def test_rejected_login_pbkdf2_work_is_account_independent(
     """Finding #26: legacy verification consumes, rather than adds to, padding."""
     from app import security
 
-    legacy_iterations = 100_001
+    budget = security.get_settings().rejected_login_pbkdf2_work_budget
+    legacy_iterations = 30_000
+    assert legacy_iterations < budget
     legacy = make_pbkdf2_hash("realpass123", iterations=legacy_iterations)
     calls: list[int] = []
 
@@ -339,13 +341,21 @@ def test_rejected_login_pbkdf2_work_is_account_independent(
     security._pad_rejected_login_pbkdf2("wrongpass1", legacy)
     assert calls == [
         legacy_iterations,
-        security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET - legacy_iterations,
+        budget - legacy_iterations,
     ]
-    assert sum(calls) == security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET
+    assert sum(calls) == budget
 
     calls.clear()
     security._pad_rejected_login_pbkdf2("wrongpass1", "$argon2id$stored")
-    assert calls == [security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET]
+    assert calls == [budget]
+
+    # A legacy hash costlier than the padding budget clamps to zero extra
+    # work instead of passing a negative iteration count into OpenSSL.
+    calls.clear()
+    over_budget = f"pbkdf2_sha256${budget + 1}$00${'00' * 32}"
+    security._verify_legacy_pbkdf2("wrongpass1", over_budget)
+    security._pad_rejected_login_pbkdf2("wrongpass1", over_budget)
+    assert calls == [budget + 1]
 
 
 def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
@@ -361,7 +371,7 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
         return b"\x00" * 32
 
     monkeypatch.setattr(security.hashlib, "pbkdf2_hmac", fake_pbkdf2)
-    assert security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET >= security.LEGACY_PBKDF2_MAX_ITERATIONS
+    budget = security.get_settings().rejected_login_pbkdf2_work_budget
 
     def encoded(iterations: str) -> str:
         return f"pbkdf2_sha256${iterations}$00${'00' * 32}"
@@ -372,11 +382,17 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
     )
     assert calls == [security.LEGACY_PBKDF2_MAX_ITERATIONS]
 
+    # Iteration spellings int() accepted in the v1 verifier keep verifying:
+    # rejecting them would permanently lock out imported accounts.
+    for raw_iterations, parsed in [("100_001", 100_001), ("+50000", 50_000), (" 50000", 50_000)]:
+        calls.clear()
+        assert security._verify_legacy_pbkdf2("password", encoded(raw_iterations))
+        assert calls == [parsed]
+
     calls.clear()
     unsupported = [
         str(security.LEGACY_PBKDF2_MAX_ITERATIONS + 1),
         "9" * 180,
-        "100_001",
         "-1",
         "not-a-number",
     ]
@@ -385,7 +401,7 @@ def test_legacy_pbkdf2_ceiling_rejects_unbounded_or_malformed_work(
         assert security._verify_legacy_pbkdf2("password", stored) is False
         assert calls == []  # never pass the stored count into OpenSSL
         security._pad_rejected_login_pbkdf2("password", stored)
-        assert calls == [security.REJECTED_LOGIN_PBKDF2_WORK_BUDGET]
+        assert calls == [budget]
         calls.clear()
 
 

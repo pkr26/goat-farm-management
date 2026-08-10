@@ -157,7 +157,7 @@ export default function DashboardPage() {
     payload.overdue_tasks.length < payload.overdue_tasks_total ||
     payload.ultrasounds_due.length < payload.ultrasounds_due_total ||
     payload.kiddings_due.length < payload.kiddings_due_total ||
-    payload.cull_candidates.length < payload.cull_candidates_total ||
+    payload.cull_candidates.length < (payload.cull_candidates_total ?? 0) ||
     payload.suggestions.length < payload.suggestions_total ||
     payload.recent_weights.length < payload.recent_weights_total;
 
@@ -435,7 +435,9 @@ export default function DashboardPage() {
               Showing {payload.suggestions.length} of {payload.suggestions_total} move suggestions.
             </p>
           )}
-          {payload.cull_candidates_total > 0 && (
+          {/* null = withheld (no breeding access); the banner only ever
+              asserts a count the caller is allowed to see */}
+          {(payload.cull_candidates_total ?? 0) > 0 && (
             <p className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
               <TriangleAlert className="size-4 shrink-0" />
               <span>

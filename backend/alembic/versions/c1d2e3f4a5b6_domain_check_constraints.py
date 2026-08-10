@@ -13,7 +13,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "c1d2e3f4a5b6"
 down_revision: str | Sequence[str] | None = "b9e1c2d3f4a5"
@@ -496,7 +496,11 @@ def _preflight() -> None:
 
 
 def upgrade() -> None:
-    _preflight()
+    # Offline (--sql) generation cannot inspect data. The preflight only
+    # exists for a friendlier error: VALIDATE CONSTRAINT below still fails
+    # the apply on any violating row, so skipping it offline loses no safety.
+    if not context.is_offline_mode():
+        _preflight()
     for table, name, condition in _CONSTRAINTS:
         op.execute(f'ALTER TABLE "{table}" ADD CONSTRAINT "{name}" CHECK ({condition}) NOT VALID')
     for table, name, _condition in _CONSTRAINTS:

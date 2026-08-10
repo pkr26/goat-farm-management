@@ -6688,7 +6688,14 @@
             "title": "Cull Candidates"
           },
           "cull_candidates_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cull Candidates Total"
           },
           "cull_candidates_limit": {
@@ -7007,7 +7014,7 @@
           },
           "labour_per_head_threshold": {
             "type": "integer",
-            "maximum": 100000.0,
+            "maximum": 1000000000000000.0,
             "minimum": 1.0,
             "title": "Labour Per Head Threshold",
             "default": 75
@@ -7198,7 +7205,14 @@
             "title": "Cull Candidates"
           },
           "cull_candidates_total": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cull Candidates Total"
           },
           "suggestions": {

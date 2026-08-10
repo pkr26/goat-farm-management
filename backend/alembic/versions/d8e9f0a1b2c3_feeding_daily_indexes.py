@@ -14,7 +14,7 @@ from collections.abc import Sequence
 
 from sqlalchemy import text
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "d8e9f0a1b2c3"
 down_revision: str | Sequence[str] | None = "d7e8f9a0b1c2"
@@ -23,6 +23,26 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _drop_invalid_index(index_name: str) -> None:
+    if context.is_offline_mode():
+        # Offline (--sql) generation cannot inspect pg_index, and DROP INDEX
+        # CONCURRENTLY cannot be decided in-script. IF NOT EXISTS below would
+        # silently keep an *invalid* remnant, so fail the apply with the same
+        # diagnosis the online path acts on. Index names are static constants.
+        op.execute(
+            text(
+                "DO $$ BEGIN IF EXISTS ("
+                "SELECT 1 FROM pg_class AS c "
+                "JOIN pg_namespace AS n ON n.oid = c.relnamespace "
+                "LEFT JOIN pg_index AS i ON i.indexrelid = c.oid "
+                f"WHERE n.nspname = current_schema() AND c.relname = '{index_name}' "
+                "AND (i.indisvalid IS NULL "
+                "OR NOT (i.indisvalid AND i.indisready AND i.indislive))"
+                f") THEN RAISE EXCEPTION 'Schema object {index_name} exists but is "
+                "not a valid ready index; drop it manually (DROP INDEX CONCURRENTLY) "
+                "and re-apply'; END IF; END $$"
+            )
+        )
+        return
     row = (
         op.get_bind()
         .execute(

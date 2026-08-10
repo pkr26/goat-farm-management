@@ -32,7 +32,9 @@ class DashboardOut(BaseModel):
     kiddings_due: list[DashboardKiddingDueOut]
     kiddings_due_total: int
     cull_candidates: list[AnimalIdentityOut]
-    cull_candidates_total: int
+    # None means the caller lacks breeding.view — the cull preview was
+    # withheld, not empty. A literal 0 must always mean "genuinely none".
+    cull_candidates_total: int | None
     suggestions: list[MoveSuggestionOut]
     suggestions_total: int
     recent_weights: list[DashboardWeightOut]
@@ -57,7 +59,8 @@ class BreedingStatsOut(BaseModel):
     kids_per_kidding: float | None
     twin_rate: float | None
     cull_candidates: list[AnimalIdentityOut]
-    cull_candidates_total: int
+    # None means the caller lacks breeding.view — withheld, not empty.
+    cull_candidates_total: int | None
     cull_candidates_limit: int
 
 

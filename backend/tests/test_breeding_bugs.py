@@ -77,10 +77,13 @@ async def test_positive_ultrasound_after_maximum_gestation_is_rejected(
     assert boundary.json()["outcome"] == "CONFIRMED_PREGNANT"
 
 
-async def test_backdated_breeding_cannot_predate_a_real_bucket_move(
+async def test_backdated_breeding_recordable_after_a_same_day_bucket_move(
     client: httpx.AsyncClient,
 ) -> None:
-    """Finding #32: a service cannot append an earlier lifecycle move."""
+    """Moves are stamped with their *recording* day (MoveIn has no date), so a
+    breeding that physically happened before the move must stay recordable —
+    entering facts late is a supported daily workflow, and recording the
+    breeding must never append a backdated service move."""
     headers = await owner_with_farm(client)
     doe = await make_doe(client, headers, tag="MOVE-ORDER-DOE")
     buck = await make_buck(client, headers, tag="MOVE-ORDER-BUCK")
@@ -91,7 +94,7 @@ async def test_backdated_breeding_cannot_predate_a_real_bucket_move(
     )
     assert moved.status_code == 200, moved.text
 
-    refused = await client.post(
+    recorded = await client.post(
         "/api/breeding",
         json={
             "doe_id": doe["id"],
@@ -100,8 +103,8 @@ async def test_backdated_breeding_cannot_predate_a_real_bucket_move(
         },
         headers=headers,
     )
-    assert refused.status_code == 409, refused.text
-    assert "latest bucket move" in refused.json()["detail"]
+    assert recorded.status_code == 201, recorded.text
+    assert recorded.json()["breeding_date"] == iso(today() - timedelta(days=1))
 
     async with get_sessionmaker()() as db:
         breedings = list(
@@ -114,7 +117,7 @@ async def test_backdated_breeding_cannot_predate_a_real_bucket_move(
                 await db.execute(select(BucketMove).where(BucketMove.animal_id == doe["id"]))
             ).scalars()
         )
-    assert breedings == []
+    assert len(breedings) == 1
     assert len(moves) == 2  # initial placement plus the explicit move; no backdated service move
 
 

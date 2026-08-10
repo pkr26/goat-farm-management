@@ -277,7 +277,7 @@ async def test_feed_date_reorder_uses_exact_structured_unit_price(
     assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 1.0
 
 
-async def test_legacy_feed_purchase_refuses_unreconcilable_changes_and_boundary(
+async def test_legacy_feed_purchase_corrections_and_ambiguity_boundary(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client)
@@ -292,6 +292,9 @@ async def test_legacy_feed_purchase_refuses_unreconcilable_changes_and_boundary(
         row.feed_unit_price_per_kg = None
         await db.commit()
 
+    # A pre-provenance row never fed the displayed last-purchase price, so
+    # amount/date corrections are pure ledger edits: they must succeed and
+    # must leave the inventory's displayed price untouched.
     legacy_amount = await client.post(
         f"/api/finance/transactions/{legacy['id']}/correct",
         json=txn_payload(
@@ -301,8 +304,10 @@ async def test_legacy_feed_purchase_refuses_unreconcilable_changes_and_boundary(
         ),
         headers=owner,
     )
-    assert legacy_amount.status_code == 409, legacy_amount.text
-    assert "only its notes" in legacy_amount.json()["detail"]
+    assert legacy_amount.status_code == 201, legacy_amount.text
+    assert legacy_amount.json()["amount"] == legacy["amount"] + 1
+    assert legacy_amount.json()["source_id"] == legacy["source_id"]
+    assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 30.0
 
     # The newer legacy key could belong to this item, so repricing the older
     # structured chain must not guess and overwrite the displayed last price.
@@ -319,11 +324,12 @@ async def test_legacy_feed_purchase_refuses_unreconcilable_changes_and_boundary(
     assert "legacy feed purchase may be the latest" in ambiguous.json()["detail"].lower()
     assert (await _inventory_item(client, owner, item["id"]))["last_purchase_price_per_kg"] == 30.0
 
+    legacy_replacement = legacy_amount.json()
     notes_only = await client.post(
-        f"/api/finance/transactions/{legacy['id']}/correct",
+        f"/api/finance/transactions/{legacy_replacement['id']}/correct",
         json=txn_payload(
-            date=legacy["date"],
-            amount=legacy["amount"],
+            date=legacy_replacement["date"],
+            amount=legacy_replacement["amount"],
             notes="Legacy invoice reference",
             reason="Attach invoice reference",
         ),

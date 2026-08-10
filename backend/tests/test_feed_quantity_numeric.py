@@ -292,7 +292,7 @@ async def test_migration_refuses_dirty_legacy_precision_then_reupgrades_cleanly(
 
     overflow_refused = await _alembic("upgrade", "head", succeeds=False)
     output = overflow_refused.stdout + overflow_refused.stderr
-    assert "feed_inventory.qty_on_hand exceeds numeric(15,3)" in output
+    assert "feed_inventory.qty_on_hand contains overflow values" in output
     assert f"row ids [{item_id}]" in output
 
     connection = await asyncpg.connect(f"postgresql://localhost:5432/{TEST_DB}")

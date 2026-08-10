@@ -14,6 +14,6 @@ export interface BreedingStatsOut {
   kids_per_kidding: number | null;
   twin_rate: number | null;
   cull_candidates: AnimalIdentityOut[];
-  cull_candidates_total: number;
+  cull_candidates_total: number | null;
   cull_candidates_limit: number;
 }

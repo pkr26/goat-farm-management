@@ -647,14 +647,15 @@ function AnimalsPageContent() {
   const pageNavigationPending = useRef(false);
   const recordComponentNavigation = useCallback((url: string) => {
     // Next 16 gives a newly dispatched navigation priority over the currently
-    // pending one and discards the older result. Keep only the destination
-    // that can still commit; otherwise a canceled target can linger here and
-    // later make a real browser/history navigation look component-owned.
-    pendingComponentNavigations.current.clear();
-    pendingComponentNavigations.current.set(
-      paramsKeyFromUrl(url),
-      searchEditRevision.current,
-    );
+    // pending one — but on a slow device the older navigation's commit can
+    // still land first. Keep EVERY dispatched destination in insertion order:
+    // retaining only the newest one made an early commit of the older
+    // navigation look like a browser/history navigation, which reset the
+    // search input mid-typing. Stale entries are pruned when any recorded
+    // destination commits (see the params-sync effect below).
+    const key = paramsKeyFromUrl(url);
+    pendingComponentNavigations.current.delete(key);
+    pendingComponentNavigations.current.set(key, searchEditRevision.current);
   }, []);
   const replaceListUrl = useCallback(
     (url: string) => {
@@ -676,18 +677,24 @@ function AnimalsPageContent() {
   const paramsKey = searchParams.toString();
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
-    const committedSearchRevision = pendingComponentNavigations.current.get(paramsKey);
+    const pending = pendingComponentNavigations.current;
+    const committedSearchRevision = pending.get(paramsKey);
     const hasNewerSearchEdit =
       committedSearchRevision !== undefined &&
       searchEditRevision.current > committedSearchRevision;
     if (committedSearchRevision !== undefined) {
-      // `recordComponentNavigation` retains only Next's latest navigation, so
-      // a matching commit consumes the complete component-owned destination.
-      pendingComponentNavigations.current.delete(paramsKey);
-    } else if (pendingComponentNavigations.current.size > 0) {
+      // Consume the matched destination plus everything dispatched before it:
+      // once this commit landed, Next has discarded those older pending
+      // navigations, and a lingering entry would make a later browser/history
+      // navigation to the same params look component-owned.
+      for (const key of [...pending.keys()]) {
+        pending.delete(key);
+        if (key === paramsKey) break;
+      }
+    } else if (pending.size > 0) {
       // A URL that was not initiated by this list is browser/app
       // navigation and remains authoritative.
-      pendingComponentNavigations.current.clear();
+      pending.clear();
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBucket(params.get("bucket") ?? ALL);

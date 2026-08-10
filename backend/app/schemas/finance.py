@@ -10,6 +10,7 @@ from .common import (
     MoneyFloat,
     NonNegativeMoneyFloat,
     PastOrTodayDate,
+    PostgresText,
     StrictInputModel,
 )
 
@@ -34,7 +35,8 @@ class TransactionIn(StrictInputModel):
     type: TransactionTypeStr
     category: TransactionCategoryStr
     amount: MoneyFloat
-    notes: str | None = Field(default=None, max_length=255)  # transactions.notes String(255)
+    # transactions.notes String(255)
+    notes: PostgresText | None = Field(default=None, max_length=255)
     related_animal_id: BoundedId | None = None  # API verifies same-farm existence
 
 
@@ -71,9 +73,9 @@ class TransactionCorrectionIn(StrictInputModel):
     type: TransactionTypeStr
     category: TransactionCategoryStr
     amount: NonNegativeMoneyFloat
-    notes: str | None = Field(default=None, max_length=255)
+    notes: PostgresText | None = Field(default=None, max_length=255)
     related_animal_id: BoundedId | None = None
-    reason: str = Field(min_length=3, max_length=255)
+    reason: PostgresText = Field(min_length=3, max_length=255)
 
 
 class PnlRowOut(BaseModel):

@@ -22,7 +22,6 @@ from ..models import (
     BreedingOutcome,
     BreedingRecord,
     Bucket,
-    BucketMove,
     Farm,
     KiddingRecord,
     TaskCategory,
@@ -391,22 +390,11 @@ async def create_breeding_record(
             f"Breeding date must be after {doe.tag_number}'s latest reproductive "
             f"event on {latest_boundary.isoformat()}"
         )
-    latest_move_date = (
-        await db.execute(
-            select(func.max(BucketMove.effective_date)).where(
-                BucketMove.animal_id == doe.id,
-                # Initial placement can be a later historical import marker;
-                # subsequent moves are actual lifecycle facts whose ordering
-                # a newly recorded breeding must preserve.
-                BucketMove.from_bucket.is_not(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if latest_move_date is not None and breeding_date < latest_move_date:
-        raise ValueError(
-            f"Breeding date cannot predate {doe.tag_number}'s latest bucket move "
-            f"on {latest_move_date.isoformat()}"
-        )
+    # Deliberately no ordering check against bucket moves: moves are always
+    # stamped with the day they were *recorded* (MoveIn carries no date), so a
+    # breeding that physically happened before a same-day move legitimately
+    # predates it. Rejecting that ordering made every backdated breeding —
+    # which the schema explicitly supports — unrecordable after any move.
     ultrasound_date = planned_ultrasound_date(breeding_date)
     br = BreedingRecord(
         farm_id=farm.id,

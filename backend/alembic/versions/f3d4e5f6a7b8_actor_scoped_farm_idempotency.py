@@ -19,7 +19,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "f3d4e5f6a7b8"
 down_revision: str | Sequence[str] | None = "f2c3d4e5f6a7"
@@ -72,26 +72,33 @@ def _fail_on_invalid_actor_scopes() -> None:
         )
 
 
+_REPAIR_PERSONAL_TASK_ROLES_SQL = """
+    UPDATE tasks AS task
+    SET assigned_role_id = membership.role_id
+    FROM farm_memberships AS membership
+    JOIN roles AS role
+      ON role.farm_id = membership.farm_id
+     AND role.id = membership.role_id
+     AND role.deleted_at IS NULL
+    WHERE task.status = 'PENDING'
+      AND task.assigned_user_id IS NOT NULL
+      AND task.assigned_role_id IS NULL
+      AND membership.farm_id = task.farm_id
+      AND membership.user_id = task.assigned_user_id
+"""
+
+
 def _repair_and_validate_personal_task_roles() -> None:
+    if context.is_offline_mode():
+        # Offline (--sql) generation cannot count unresolved rows; render the
+        # same-farm repair and let VALIDATE CONSTRAINT fail the apply if any
+        # PENDING personal task still lacks a role. The sampled diagnostic
+        # requires an online run.
+        op.execute(sa.text(_REPAIR_PERSONAL_TASK_ROLES_SQL))
+        op.execute("ALTER TABLE tasks VALIDATE CONSTRAINT ck_tasks_user_assignment_has_role")
+        return
     bind = op.get_bind()
-    bind.execute(
-        sa.text(
-            """
-            UPDATE tasks AS task
-            SET assigned_role_id = membership.role_id
-            FROM farm_memberships AS membership
-            JOIN roles AS role
-              ON role.farm_id = membership.farm_id
-             AND role.id = membership.role_id
-             AND role.deleted_at IS NULL
-            WHERE task.status = 'PENDING'
-              AND task.assigned_user_id IS NOT NULL
-              AND task.assigned_role_id IS NULL
-              AND membership.farm_id = task.farm_id
-              AND membership.user_id = task.assigned_user_id
-            """
-        )
-    )
+    bind.execute(sa.text(_REPAIR_PERSONAL_TASK_ROLES_SQL))
     unresolved_count = int(
         bind.execute(
             sa.text(
@@ -139,7 +146,11 @@ def upgrade() -> None:
         existing_nullable=False,
         nullable=True,
     )
-    _fail_on_invalid_actor_scopes()
+    # Offline runs skip this friendlier-error preflight: the NOT VALID +
+    # VALIDATE CONSTRAINT and the unique index below enforce the same
+    # invariants at apply time.
+    if not context.is_offline_mode():
+        _fail_on_invalid_actor_scopes()
     op.create_check_constraint(
         "ck_idempotency_scope_kind",
         "idempotency_records",

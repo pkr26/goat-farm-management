@@ -15,7 +15,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 
-from alembic import op
+from alembic import context, op
 
 revision: str = "f2c3d4e5f6a7"
 down_revision: str | Sequence[str] | None = "f1b2c3d4e5f6"
@@ -34,60 +34,61 @@ _QUANTITY_COLUMNS: tuple[tuple[str, str, bool], ...] = (
 _MAX_NUMERIC_15_3 = "999999999999.999"
 
 
-def _sample_ids(table: str, column: str, predicate: str) -> list[int]:
-    """Return a small deterministic sample for an actionable deploy error."""
-    rows = op.get_bind().execute(
-        sa.text(
-            f'SELECT id FROM "{table}" '
-            f'WHERE "{column}" IS NOT NULL AND ({predicate}) ORDER BY id LIMIT 10'
-        )
-    )
-    return [int(row.id) for row in rows]
-
-
 def _preflight_quantity(table: str, column: str) -> None:
-    special_ids = _sample_ids(
-        table,
-        column,
-        f"\"{column}\"::text IN ('NaN', 'Infinity', '-Infinity')",
-    )
-    if special_ids:
-        raise RuntimeError(
-            f"Refusing exact feed-quantity migration: {table}.{column} "
-            f"contains non-finite values at row ids {special_ids}"
-        )
+    """One classifying scan per column; deterministic samples enable repair.
 
-    overflow_ids = _sample_ids(
-        table,
-        column,
-        f'abs("{column}"::numeric) > {_MAX_NUMERIC_15_3}',
-    )
-    if overflow_ids:
-        raise RuntimeError(
-            f"Refusing exact feed-quantity migration: {table}.{column} "
-            f"exceeds numeric(15,3) at row ids {overflow_ids}"
-        )
+    CASE (unlike a bare OR chain) guarantees ordered, lazy evaluation, so the
+    numeric casts in the later arms never execute on a non-finite value —
+    ``'Infinity'::numeric`` errors on PostgreSQL < 14.
 
-    # PostgreSQL's float8 -> numeric cast removes ordinary binary artifacts
-    # (for example 0.30000000000000004 becomes 0.3).  A remaining difference
-    # is therefore real legacy sub-gram information.  Do not silently decide
-    # whether that information should be rounded up or down.
-    subgram_ids = _sample_ids(
-        table,
-        column,
-        f'"{column}"::numeric <> round("{column}"::numeric, 3)',
+    PostgreSQL's float8 -> numeric cast removes ordinary binary artifacts
+    (for example 0.30000000000000004 becomes 0.3). A remaining difference is
+    therefore real legacy sub-gram information; do not silently decide
+    whether that information should be rounded up or down.
+    """
+    classify = (
+        "CASE "
+        f"WHEN \"{column}\"::text IN ('NaN', 'Infinity', '-Infinity') THEN 'non-finite' "
+        f"WHEN abs(\"{column}\"::numeric) > {_MAX_NUMERIC_15_3} THEN 'overflow' "
+        f"WHEN \"{column}\"::numeric <> round(\"{column}\"::numeric, 3) THEN 'sub-gram' "
+        "END"
     )
-    if subgram_ids:
+    rows = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                f'SELECT id, {classify} AS kind FROM "{table}" '
+                f'WHERE "{column}" IS NOT NULL AND {classify} IS NOT NULL '
+                "ORDER BY id LIMIT 30"
+            )
+        )
+        .all()
+    )
+    if rows:
+        problems: dict[str, list[int]] = {}
+        for row in rows:
+            problems.setdefault(str(row.kind), []).append(int(row.id))
+        details = "; ".join(
+            f"{kind} values at row ids {ids}" for kind, ids in sorted(problems.items())
+        )
         raise RuntimeError(
-            f"Refusing exact feed-quantity migration: {table}.{column} "
-            f"contains sub-gram values at row ids {subgram_ids}; "
-            "correct them explicitly before retrying"
+            f"Refusing exact feed-quantity migration: {table}.{column} contains "
+            f"{details}; correct them explicitly before retrying"
         )
 
 
 def upgrade() -> None:
-    for table, column, _nullable in _QUANTITY_COLUMNS:
-        _preflight_quantity(table, column)
+    # Offline (--sql) generation cannot inspect data; emit the caveat into
+    # the generated script and keep the preflight for online runs.
+    if context.is_offline_mode():
+        op.execute(
+            "-- WARNING: offline generation skipped the exact feed-quantity preflight. "
+            "Audit quantity columns for non-finite/overflow/sub-gram float values "
+            "(or run 'alembic upgrade' online) before applying this script."
+        )
+    else:
+        for table, column, _nullable in _QUANTITY_COLUMNS:
+            _preflight_quantity(table, column)
 
     for table, column, nullable in _QUANTITY_COLUMNS:
         op.alter_column(
