@@ -317,7 +317,11 @@ describe("apiFetch refresh-retry edge cases", () => {
 
   it("uses a same-origin Web Lock to coordinate refresh across tabs", async () => {
     const lockRequest = vi.fn(
-      async (_name: string, callback: () => Promise<unknown>) => callback(),
+      async (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) => callback(),
     );
     vi.stubGlobal("navigator", { locks: { request: lockRequest } });
     fetchMock.mockResolvedValueOnce(
@@ -332,6 +336,43 @@ describe("apiFetch refresh-retry edge cases", () => {
     expect(result?.access_token).toBe("coordinated-token");
     expect(lockRequest).toHaveBeenCalledTimes(1);
     expect(lockRequest.mock.calls[0][0]).toBe("goatfarm-auth-refresh");
+    // The queue wait is bounded, so one wedged tab cannot stall the rest.
+    expect(lockRequest.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("falls back to an uncoordinated refresh when the lock wait times out", async () => {
+    // A tab holding the lock behind a black-holed connection never releases
+    // it; the waiter's abort must downgrade to its own refresh rather than
+    // leaving the caller's promise pending forever.
+    const lockRequest = vi.fn(
+      (_name: string, options: LockOptions) =>
+        // Never grants: the callback is deliberately ignored.
+        new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        access_token: "uncoordinated-token",
+        user: { id: 1, email: "user@farm.in", name: null },
+      }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const pending = refreshSession();
+      await vi.advanceTimersByTimeAsync(12_000);
+      const result = await pending;
+
+      expect(result?.access_token).toBe("uncoordinated-token");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0][0])).toBe("/api/auth/refresh");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("throws the retry's 401 without looping when the retry is still unauthorized", async () => {

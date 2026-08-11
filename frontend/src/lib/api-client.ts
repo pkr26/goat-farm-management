@@ -74,15 +74,30 @@ export function setOnAuthFailure(handler: (() => void) | null): void {
   onAuthFailure = handler;
 }
 
+/** A /api/auth/refresh that never settles (black-holed network, captive-portal
+ *  re-auth, wedged proxy) must not stall this tab forever — nor, through the
+ *  cross-tab lock below, every other tab's queued 401 retry. Both waits are
+ *  bounded. The lock wait is the longer of the two so one legitimately slow
+ *  but still-bounded holder is always waited out; only a wedged holder (an
+ *  older tab, or one whose timer the browser throttled) is bypassed. */
+const REFRESH_REQUEST_TIMEOUT_MS = 10_000;
+const REFRESH_LOCK_WAIT_TIMEOUT_MS = 12_000;
+
 async function performRefresh(
   expectedEpoch: number,
   expectedActorScope: string | null,
 ): Promise<RefreshSessionResult | null> {
   if (authSessionEpoch !== expectedEpoch) return null;
+  const requestTimeout = new AbortController();
+  const requestTimer = setTimeout(
+    () => requestTimeout.abort(),
+    REFRESH_REQUEST_TIMEOUT_MS,
+  );
   try {
     const resp = await fetch("/api/auth/refresh", {
       method: "POST",
       credentials: "include",
+      signal: requestTimeout.signal,
     });
     if (!resp.ok) return null;
     const body = (await resp.json()) as RefreshSessionResult;
@@ -105,7 +120,11 @@ async function performRefresh(
     accessTokenActorScope = refreshedActorScope;
     return body;
   } catch {
+    // An aborted (timed-out) refresh is indistinguishable from any other
+    // network failure here and takes the same path: no token, auth failure.
     return null;
+  } finally {
+    clearTimeout(requestTimer);
   }
 }
 
@@ -118,12 +137,36 @@ async function performCoordinatedRefresh(
   // httpOnly cookie, so they present the current token rather than replaying
   // the old one. The backend's short replay grace remains the fallback for
   // browsers without Web Locks and network-level races.
-  if (typeof navigator !== "undefined" && navigator.locks) {
-    return navigator.locks.request("goatfarm-auth-refresh", () =>
-      performRefresh(expectedEpoch, expectedActorScope),
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks) return performRefresh(expectedEpoch, expectedActorScope);
+  // Bound the queue wait as well: without a signal a tab stuck behind a wedged
+  // holder never runs its callback, so its apiFetch promise never settles and
+  // its queries spin forever. Giving up downgrades to an uncoordinated refresh
+  // — the backend's replay grace covers that — rather than dropping it.
+  const waitTimeout = new AbortController();
+  const waitTimer = setTimeout(
+    () => waitTimeout.abort(),
+    REFRESH_LOCK_WAIT_TIMEOUT_MS,
+  );
+  let granted = false;
+  try {
+    return await locks.request(
+      "goatfarm-auth-refresh",
+      { signal: waitTimeout.signal },
+      () => {
+        // The wait is over; performRefresh's own timeout bounds the rest, so
+        // the pending abort must never reach an already-granted lock.
+        granted = true;
+        clearTimeout(waitTimer);
+        return performRefresh(expectedEpoch, expectedActorScope);
+      },
     );
+  } catch (err) {
+    if (granted || !waitTimeout.signal.aborted) throw err;
+    return performRefresh(expectedEpoch, expectedActorScope);
+  } finally {
+    clearTimeout(waitTimer);
   }
-  return performRefresh(expectedEpoch, expectedActorScope);
 }
 
 export function refreshSession(): Promise<RefreshSessionResult | null> {

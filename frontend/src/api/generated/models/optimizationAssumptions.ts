@@ -21,16 +21,8 @@ export interface OptimizationAssumptions {
      * @maximum 10
      */
   minimum_dscr?: number;
-  /**
-     * @minimum 0
-     * @maximum 1000000000
-     */
-  maximum_project_cost?: number;
-  /**
-     * @minimum 0
-     * @maximum 1000000000
-     */
-  maximum_funding_gap?: number;
+  maximum_project_cost?: number | null;
+  maximum_funding_gap?: number | null;
   /**
      * @maximum 5
      * @exclusiveMinimum 0

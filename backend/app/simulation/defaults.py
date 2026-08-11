@@ -37,8 +37,17 @@ def apply_system(a: SimulationAssumptions, system: System) -> SimulationAssumpti
     if system == "semi_intensive":
         variant = a.model_copy(deep=True)
         variant.feed.grazing_dm_fraction = 0.3  # TNAU semi-intensive budgets
-        variant.mortality.adult = 0.06  # field exposure: parasites, predators
-        variant.mortality.kid_pre_weaning = 0.12
+        # An uplift, not an assignment: the docstring promises field exposure
+        # *raises* mortality relative to stall feeding, but a flat assignment
+        # left the already-fragile breeds (Black Bengal sits at 0.12 stall-fed)
+        # showing the grazing feed saving with no offsetting loss at all.
+        # round() keeps the stall-fed floors exact (0.05 + 0.01 is
+        # 0.060000000000000005 in binary float) while still lifting a breed
+        # that already sits at or above them.
+        variant.mortality.adult = min(0.9, max(0.06, round(variant.mortality.adult + 0.01, 6)))
+        variant.mortality.kid_pre_weaning = min(
+            0.9, max(0.12, round(variant.mortality.kid_pre_weaning + 0.02, 6))
+        )
         return variant
     raise ValueError(f"unknown production system: {system!r}")
 

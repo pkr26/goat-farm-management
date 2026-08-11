@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
+    HISTORY_OVERRIDE_REASON_PREFIX,
     MIN_BREEDING_AGE_MONTHS,
     MIN_BREEDING_WEIGHT_KG,
     MIN_BUCK_BREEDING_AGE_MONTHS,
@@ -718,7 +719,7 @@ async def move_bucket(
         raise HTTPException(status_code=409, detail="Pregnancy movement requires a live pregnancy")
     move_reason = (payload.reason or "").strip()
     if payload.history_override:
-        move_reason = f"[HISTORY OVERRIDE] {move_reason}"[:255]
+        move_reason = f"{HISTORY_OVERRIDE_REASON_PREFIX}{move_reason}"[:255]
     elif context == "orphan_weaning" and not move_reason:
         move_reason = "Dam no longer active — deferred early wean after hold clearance"
     move_animal(

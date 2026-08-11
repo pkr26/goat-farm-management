@@ -15,6 +15,10 @@ export interface RiskAssumptions {
      * @maximum 2000
      */
   monte_carlo_runs?: number;
+  /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
   seed?: number;
   meat_price?: RiskVariable;
   feed_price?: RiskVariable;

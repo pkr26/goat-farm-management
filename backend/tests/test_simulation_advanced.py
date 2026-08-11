@@ -99,13 +99,29 @@ def test_green_fodder_is_physically_sourced_and_costed_by_source() -> None:
         for month in no_land_result.months
     )
 
+    # Right-sized cultivation: enough to cover the herd, not so much that the
+    # crop itself dominates the bill. Home-grown fodder is charged on what is
+    # GROWN (green_price_per_kg is a cultivation cost), so acreage is a real
+    # trade-off — substituting ₹1.00/kg home production for ₹2.50/kg purchase
+    # saves money only while the crop is actually eaten.
     with_land = no_land.model_copy(deep=True)
-    with_land.feed.cultivated_fodder_acres = 100.0
+    with_land.feed.cultivated_fodder_acres = 5.0
     with_land_result = run_simulation(with_land, with_break_even=False)
     assert all(month.feed_purchased_green_kg == 0.0 for month in with_land_result.months)
     assert sum(month.feed_cost for month in with_land_result.months) < sum(
         month.feed_cost for month in no_land_result.months
     )
+
+    # ...and over-planting costs real money, which is the whole point of
+    # costing production rather than consumption: 100 acres for this herd
+    # wastes most of the crop, and the projection must say so.
+    over_planted = no_land.model_copy(deep=True)
+    over_planted.feed.cultivated_fodder_acres = 100.0
+    over_planted_result = run_simulation(over_planted, with_break_even=False)
+    assert sum(month.feed_cost for month in over_planted_result.months) > sum(
+        month.feed_cost for month in no_land_result.months
+    )
+    assert sum(month.fodder_waste_kg_dm for month in over_planted_result.months) > 0.0
 
 
 def test_feed_and_insurance_use_the_tracked_age_cohort_weight() -> None:

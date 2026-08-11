@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from itertools import pairwise
+from math import expm1 as _expm1
+from math import log1p as _log1p
 from math import pow as _fpow  # mypy 2.x infers float ** float as Any; math.pow stays float
 
 
@@ -29,10 +31,19 @@ def monthly_emi(principal: float, annual_rate: float, n_months: int) -> float:
     if principal <= 0.0 or n_months <= 0:
         return 0.0
     r = annual_rate / 12.0
+    # Written as ``P.r / (1 - (1+r)^-n)``: algebraically identical to the
+    # textbook ``P.r(1+r)^n / ((1+r)^n - 1)``, but its denominator can be
+    # evaluated without cancellation. ``(1+r)^n - 1`` loses every significant
+    # digit as r approaches zero and, below 2**-53, cancels to exactly 0.0 —
+    # a ZeroDivisionError on a schema-valid rate. expm1/log1p never form the
+    # ``1.0 + r`` rounding error, so the annuity stays exact down to the
+    # r -> 0 limit, which is simply the straight-line repayment.
     if r == 0.0:
         return principal / n_months
-    factor = (1.0 + r) ** n_months
-    return principal * r * factor / (factor - 1.0)
+    denominator = -_expm1(-n_months * _log1p(r))  # 1 - (1+r)^-n
+    if denominator == 0.0:
+        return principal / n_months
+    return principal * r / denominator
 
 
 def amortization_schedule(
@@ -57,6 +68,14 @@ def amortization_schedule(
         if month <= moratorium_months:
             payment = interest
             principal_paid = 0.0
+        elif month == term_months:
+            # The last instalment settles whatever is left. min(emi, ...) can
+            # only clamp downwards, so any shortfall in the computed EMI — from
+            # float drift, or from the cancellation this formula used to suffer
+            # at tiny rates — silently walked off the end of the schedule as an
+            # unpaid balance that nothing ever charged.
+            principal_paid = balance
+            payment = principal_paid + interest
         else:
             payment = min(emi, balance + interest)
             principal_paid = payment - interest
@@ -118,9 +137,12 @@ IRR_BRACKET = (-0.99, 10.0)
 # Cash-flow series with several sign variations are the numerically difficult
 # IRR case: close roots and flat odd-multiplicity crossings make binary-float
 # evaluations at derivative roots lose their sign.  Decimal is used only for
-# that uncommon branch; the ordinary one-sign-change project retains the fast
-# float bisection below.  Ninety-six digits leave ample room for the <=21 annual
-# terms produced by the bounded 240-month simulation horizon.
+# that branch; the ordinary one-sign-change project retains the fast float
+# bisection below.  Several sign variations are NOT uncommon — a seasonal
+# monthly series has them routinely — so the branch is additionally bounded by
+# _DECIMAL_ISOLATION_MAX_TERMS: ninety-six digits leave ample room for a short
+# appraisal series, but the recursion is roughly quadratic in the term count
+# and does not terminate usefully on a 241-term monthly one.
 _IRR_DECIMAL_PRECISION = 96
 _IRR_DECIMAL_BISECTION_STEPS = 360
 _IRR_DECIMAL_ZERO_RELATIVE = Decimal("1e-64")
@@ -354,6 +376,41 @@ def _crossing_decimal_power_roots(
     ]
 
 
+# The recursive Decimal isolation below costs roughly O(n^2) bisections of 96
+# digits each, which is affordable for the <=21-term annual appraisal series it
+# was written for and ruinous beyond that: a 241-term monthly series (a
+# 240-month horizon) does not finish in any useful time. Longer series use a
+# sampled float scan instead — it can only miss a root pair closer together
+# than the grid, and the caller's response to several roots is to report no IRR
+# at all, so the failure mode is "reports one rate where the truth is
+# ambiguous", not a wrong rate.
+_DECIMAL_ISOLATION_MAX_TERMS = 24
+_SCAN_SAMPLES = 256
+
+
+def _scanned_power_roots(
+    terms: Sequence[tuple[float, float]],
+    lo: float,
+    hi: float,
+) -> list[float]:
+    """Every sign crossing found on a uniform grid, refined by bisection."""
+    roots: list[float] = []
+    step = (hi - lo) / _SCAN_SAMPLES
+    previous_x = lo
+    previous_f = _power_sum(lo, terms)
+    if previous_f == 0.0:
+        roots.append(lo)
+    for index in range(1, _SCAN_SAMPLES + 1):
+        x = lo + step * index
+        f = _power_sum(x, terms)
+        if f == 0.0:
+            roots.append(x)
+        elif previous_f * f < 0.0:
+            roots.append(_bisect_power_sum(previous_x, x, previous_f, terms))
+        previous_x, previous_f = x, f
+    return roots
+
+
 def _positive_power_roots(
     terms: Sequence[tuple[float, float]],
     lo: float,
@@ -391,6 +448,8 @@ def _positive_power_roots(
     # point can erase its sign.  Isolate every derivative root (including
     # tangencies) in Decimal, then keep only top-level roots whose two sides
     # really have opposite signs.
+    if len(normalised) > _DECIMAL_ISOLATION_MAX_TERMS:
+        return _scanned_power_roots(normalised, lo, hi)
     return _crossing_decimal_power_roots(normalised, lo, hi)
 
 

@@ -511,7 +511,28 @@ function TaskTable({
                 <TableCell>
                   <Badge variant="secondary">{t.category}</Badge>
                 </TableCell>
-                <TableCell>{t.assigned_role_name ?? t.assigned_user_name ?? "—"}</TableCell>
+                <TableCell>
+                  {/* A personal assignment always carries a continuity role as
+                      well (tasks.py `effective_role_id`), so the named worker
+                      must win — otherwise every personal duty is displayed as
+                      if it were assigned to the whole role. The role stays
+                      visible as a sub-label. */}
+                  {t.assigned_user_name ? (
+                    <>
+                      {t.assigned_user_name}
+                      {t.assigned_role_name && (
+                        <>
+                          <br />
+                          <span className="text-xs text-muted-foreground">
+                            via {t.assigned_role_name}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    t.assigned_role_name ?? "—"
+                  )}
+                </TableCell>
                 <TableCell>
                   {t.animal_tag && t.animal_id && canViewAnimals ? (
                     <Link

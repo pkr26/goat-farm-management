@@ -454,6 +454,10 @@ function HealthPageContent() {
     // look like an unchanged prefill and be cleared incorrectly.
     appliedPrefillRef.current = null;
     setAdvancedOpen(false);
+    // The unresolved-duty warning belongs to the deep link that opened the
+    // previous dialog. Left standing it re-appears on every later event and
+    // claims that one is failing to close a duty it never referenced.
+    setUnresolvedPrefillTask(null);
     reset(eventDefaults());
   }
 

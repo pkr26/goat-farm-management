@@ -204,7 +204,12 @@ describe("InventoryPage add-stock dialog", () => {
         addCalls += 1;
         addItemId = String(params.itemId);
         addBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json({ ok: true }, { status: 200 });
+        // The endpoint answers with the updated FeedInventoryOut; the page
+        // confirms the persisted balance from it, not from the typed value.
+        return HttpResponse.json(
+          { ...ITEM_MAIZE, id: Number(params.itemId), qty_on_hand: 55.5 },
+          { status: 200 },
+        );
       }),
     );
   });

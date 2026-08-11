@@ -13,6 +13,7 @@ from ..models import (
     Animal,
     BreedingOutcome,
     BreedingRecord,
+    Bucket,
     BucketMove,
     FeedInventory,
     HealthEvent,
@@ -358,6 +359,34 @@ async def _reconcile_source_record(
                 status_code=409,
                 detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
             )
+        if payload.date != animal.status_date:
+            # That same status_date also dated the orphan early-wean of this
+            # dam's dependent kids. Moving only the sale left those BucketMove
+            # rows on the old date, so the herd history recorded the kids as
+            # weaned because their dam left on a day she did not. The
+            # pregnancy auto-abort above already refuses a split of exactly
+            # this kind; apply the same rule instead of desynchronising.
+            orphan_move = (
+                await db.execute(
+                    select(BucketMove.id)
+                    .join(Animal, Animal.id == BucketMove.animal_id)
+                    .where(
+                        Animal.farm_id == farm.id,
+                        Animal.dam_id == animal.id,
+                        BucketMove.from_bucket == Bucket.RECOVERY.value,
+                        BucketMove.effective_date == animal.status_date,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if orphan_move is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "This sale date also anchors the early weaning of this dam's kids; "
+                        "book a compensating entry instead"
+                    ),
+                )
         animal.sale_price = amount
         animal.status_date = payload.date
         canonical_related = (animal.id, animal.tag_number)

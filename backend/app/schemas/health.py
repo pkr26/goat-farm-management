@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from ..models import MAX_BATCH_COUNT
+from ..models import MAX_BATCH_COUNT, MAX_WITHDRAWAL_DAYS
 from .common import (
     MAX_FREE_TEXT_LENGTH,
     BoundedId,
@@ -266,8 +266,19 @@ class HealthEventIn(StrictInputModel):
         if self.vaccine_valid_until and self.product_expires_on:
             if self.vaccine_valid_until > self.product_expires_on:
                 raise ValueError("vaccine validity cannot extend beyond product expiry")
-        if self.withdrawal_until and self.date and self.withdrawal_until < self.date:
-            raise ValueError("withdrawal_until cannot be before the health event date")
+        if self.withdrawal_until and self.date:
+            if self.withdrawal_until < self.date:
+                raise ValueError("withdrawal_until cannot be before the health event date")
+            # A health event is immutable and an active withdrawal blocks sale
+            # and cull outright, so only checking the lower bound let a
+            # mistyped year ("3026") retire the animal from the market for the
+            # rest of its life with no correction path. No veterinary
+            # withdrawal period comes close to this ceiling.
+            if (self.withdrawal_until - self.date).days > MAX_WITHDRAWAL_DAYS:
+                raise ValueError(
+                    f"withdrawal_until cannot be more than {MAX_WITHDRAWAL_DAYS} days "
+                    "after the health event date"
+                )
         if self.suspected_scheduled_disease and not self.disease_target:
             raise ValueError("A suspected scheduled disease requires a disease target")
         if not self.suspected_scheduled_disease and (

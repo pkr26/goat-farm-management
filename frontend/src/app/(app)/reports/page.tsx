@@ -31,6 +31,19 @@ function pct(value: number | null): string {
   return value === null ? "—" : `${value}%`;
 }
 
+/** Clinical outcomes: the API leaves these out of `status_counts` for viewers
+ * without health.view (dashboard.py `_CLINICAL_OUTCOME_STATUSES`), the same
+ * way it nulls out the mortality figures. Nothing here may assume they are
+ * present — a permitted farm with no such animals has no entry either. */
+const CLINICAL_OUTCOME_STATUSES = ["DEAD", "CULLED"] as const;
+
+/** A figure the API withheld for lack of a permission. Withheld is neither
+ * blank (reads as a load failure) nor "—" (reads as "not enough data") nor 0
+ * (a wrong number) — say which access it needs, like the cull row does. */
+function Withheld({ permission }: { permission: string }) {
+  return <span className="text-muted-foreground">Requires {permission} access</span>;
+}
+
 function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <TableRow>
@@ -44,6 +57,7 @@ export default function ReportsPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("reports.view");
   const canViewAnimals = can("animals.view");
+  const canViewHealth = can("health.view");
   const query = useReportsApiDashboardReportsGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -120,6 +134,18 @@ export default function ReportsPage() {
             {Object.entries(payload.status_counts).map(([status, count]) => (
               <SummaryRow key={status} label={`${status} (all time)`} value={count} />
             ))}
+            {/* Keep the withheld clinical rows visible as withheld instead of
+                letting them vanish silently from the table. */}
+            {!canViewHealth &&
+              CLINICAL_OUTCOME_STATUSES.filter(
+                (status) => !(status in payload.status_counts),
+              ).map((status) => (
+                <SummaryRow
+                  key={status}
+                  label={`${status} (all time)`}
+                  value={<Withheld permission="health" />}
+                />
+              ))}
           </TableBody>
         </Table>
       </DataTableCard>
@@ -201,10 +227,23 @@ export default function ReportsPage() {
       >
         <Table>
           <TableBody>
-            <SummaryRow label="Total deaths (herd)" value={mortality.total_deaths} />
+            {/* null = withheld (no health access); 0 is a real count, so only
+                null/undefined may fall through to the withheld marker. */}
+            <SummaryRow
+              label="Total deaths (herd)"
+              value={mortality.total_deaths ?? <Withheld permission="health" />}
+            />
             <SummaryRow label="Kids born (recorded)" value={mortality.total_kids_born} />
-            <SummaryRow label="Stillborn" value={mortality.stillborn} />
-            <SummaryRow label="Stillborn rate" value={pct(mortality.stillborn_rate)} />
+            <SummaryRow
+              label="Stillborn"
+              value={mortality.stillborn ?? <Withheld permission="health" />}
+            />
+            <SummaryRow
+              label="Stillborn rate"
+              value={
+                canViewHealth ? pct(mortality.stillborn_rate) : <Withheld permission="health" />
+              }
+            />
           </TableBody>
         </Table>
         <Table>
@@ -218,7 +257,9 @@ export default function ReportsPage() {
             {mortality.deaths_by_month.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={2} className="text-muted-foreground">
-                  No deaths recorded.
+                  {/* The API sends an empty list when it withholds the monthly
+                      breakdown — don't claim there were no deaths. */}
+                  {canViewHealth ? "No deaths recorded." : <Withheld permission="health" />}
                 </TableCell>
               </TableRow>
             ) : (

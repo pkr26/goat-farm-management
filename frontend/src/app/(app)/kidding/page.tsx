@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Baby, CalendarClock, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
-import { farmToday, formatDate } from "@/lib/format";
+import { addDays, farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -87,6 +87,9 @@ const KID_SEX_ITEMS: Record<string, string> = { F: "Female", M: "Male" };
 const MAX_KIDS = 10;
 const KIDDING_HISTORY_LIMIT = 50;
 const DUE_LIST_LIMIT = 25;
+/** Mirrors backend/app/models/constants.py — record_kidding() rejects a
+ * gestation shorter than this outright. */
+const MIN_GESTATION_DAYS = 100;
 
 const kidSchema = z.object({
   tag: z.string().max(50, "Max 50 characters").optional(),
@@ -130,6 +133,22 @@ const kiddingSchema = z
   });
 type KiddingValues = z.infer<typeof kiddingSchema>;
 
+/** The kidding date's floor depends on the pregnancy being closed, so it is
+ * layered on per record: record_kidding() rejects both a gestation below
+ * MIN_GESTATION_DAYS and a delivery predating its own confirmation scan.
+ * Catching them here saves the operator from entering every kid row first. */
+function kiddingSchemaFor(earliestDate: string) {
+  return kiddingSchema.superRefine((values, ctx) => {
+    if (values.date && values.date < earliestDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["date"],
+        message: `Kidding date cannot be before ${formatDate(earliestDate)}`,
+      });
+    }
+  });
+}
+
 function emptyKid(): KiddingValues["kids"][number] {
   return { tag: "", sex: "F", birth_weight: null, status: "ALIVE", mortality_reported_at: "" };
 }
@@ -146,6 +165,17 @@ function RecordKiddingDialog({
   const mutation = useCreateKiddingApiKiddingPost();
   const createFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
+  const earliestKiddingDate = useMemo(() => {
+    const minGestationDate = addDays(breeding.breeding_date, MIN_GESTATION_DAYS);
+    return breeding.ultrasound_result_date &&
+      breeding.ultrasound_result_date > minGestationDate
+      ? breeding.ultrasound_result_date
+      : minGestationDate;
+  }, [breeding.breeding_date, breeding.ultrasound_result_date]);
+  const resolver = useMemo(
+    () => zodResolver(kiddingSchemaFor(earliestKiddingDate)),
+    [earliestKiddingDate],
+  );
   const {
     control,
     register,
@@ -153,7 +183,7 @@ function RecordKiddingDialog({
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<KiddingValues>({
-    resolver: zodResolver(kiddingSchema),
+    resolver,
     defaultValues: {
       date: localToday(),
       ease: "NORMAL",
@@ -225,6 +255,7 @@ function RecordKiddingDialog({
               <Input
                 id="kidding_date"
                 type="date"
+                min={earliestKiddingDate}
                 max={localToday()}
                 aria-invalid={Boolean(errors.date) || undefined}
                 aria-describedby={errors.date ? "kidding-date-error" : undefined}

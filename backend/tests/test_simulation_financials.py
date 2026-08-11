@@ -525,13 +525,19 @@ def test_cumulative_cash_chain() -> None:
 # 5. Metric correctness
 # ---------------------------------------------------------------------------
 def npv_at_returned_irr(a: SimulationAssumptions) -> float | None:
-    """Recompute NPV at the engine's own IRR from the result's annual flows."""
+    """Recompute NPV at the engine's own IRR from the result's monthly flows.
+
+    IRR is solved from the same monthly series NPV, BCR and MIRR use, so this
+    check rebuilds that series. It used to rebuild year-end lumped blocks —
+    exactly the timing mismatch that let one response report an IRR above the
+    discount rate and a negative NPV at the same time.
+    """
     res = run_simulation(a, with_break_even=False)
     irr_value = res.metrics.irr
     if irr_value is None:
         return None
-    flows = [-res.metrics.equity, *[row.net_cash_flow for row in res.annual_pl]]
-    times = [0.0, *[(i + 1) * 1.0 for i in range(len(res.annual_pl))]]
+    flows = [-res.metrics.equity, *[row.net_cash_flow for row in res.months]]
+    times = [0.0, *[row.month / 12.0 for row in res.months]]
     return npv(irr_value, flows, times)
 
 

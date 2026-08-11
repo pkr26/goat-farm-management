@@ -26,6 +26,9 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   timeout: 60_000,
   workers: 1,
+  // A committed test.only would otherwise narrow the whole CI gate to one
+  // test and still exit 0.
+  forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : [["list"]],
   use: {
@@ -43,7 +46,7 @@ export default defineConfig({
         : "pnpm dev",
       cwd: ".",
       url: "http://localhost:3000/login",
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
     {
@@ -54,7 +57,7 @@ export default defineConfig({
         ?? (process.env.CI ? "uvicorn app.main:app --port 8000" : "../backend/.venv/bin/uvicorn app.main:app --port 8000"),
       cwd: "../backend",
       url: "http://localhost:8000/openapi.json",
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
   ],

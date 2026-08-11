@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from math import pow
+from math import exp, pow
 from statistics import median
 from typing import Literal
 
@@ -59,11 +59,103 @@ def _clamp(value: float, low: float, high: float) -> float:
     return min(high, max(low, value))
 
 
+def _months_between(start: date, end: date) -> float:
+    """Fractional months from ``start`` to ``end`` (0 when the span is empty)."""
+    if end <= start:
+        return 0.0
+    return (end - start).days / 30.44  # same convention as the engine's DAYS_PER_MONTH
+
+
 def _annualized_fraction(events: int, population: int, lookback_months: int) -> float:
     if events <= 0 or population <= 0:
         return 0.0
     observed = min(0.999999, events / population)
     return 1.0 - pow(1.0 - observed, 12.0 / lookback_months)
+
+
+def _annual_fraction_from_exposure(deaths: int, animal_months: float) -> float:
+    """Annual mortality fraction from deaths per animal-month at risk.
+
+    Dividing a multi-year death count by a point-in-time headcount is only
+    valid when the population is stationary and every member was observed for
+    the whole window. Neither holds here: a transient class such as "grower"
+    (ages 6-11 months) is emptied by the animals aging out of it, so survivors
+    end up counted in a later class while their deaths stay in this one. Rates
+    of several hundred percent came out of that mismatch. Exposure time is the
+    standard fix: ``deaths / animal-years`` is an incidence rate, and
+    ``1 - exp(-rate)`` converts it to the annual fraction the engine wants.
+    """
+    if deaths <= 0 or animal_months <= 0.0:
+        return 0.0
+    rate = deaths / (animal_months / 12.0)
+    return 1.0 - exp(-rate)
+
+
+def _isotonic_fit(points: list[tuple[int, float]]) -> list[tuple[int, float]]:
+    """Pool-adjacent-violators fit forcing a nondecreasing weight sequence.
+
+    A plain forward ``max`` would ratchet every dip up to the running maximum,
+    letting one high outlier dominate every later age. PAVA instead replaces
+    each decreasing run with its mean, so a noisy pair is averaged rather than
+    one of them being discarded.
+    """
+    blocks: list[tuple[float, int, list[int]]] = []  # (total, count, ages)
+    for age, value in points:
+        blocks.append((value, 1, [age]))
+        while len(blocks) > 1 and blocks[-2][0] / blocks[-2][1] > blocks[-1][0] / blocks[-1][1]:
+            total_b, count_b, ages_b = blocks.pop()
+            total_a, count_a, ages_a = blocks.pop()
+            blocks.append((total_a + total_b, count_a + count_b, ages_a + ages_b))
+    return [(age, total / count) for total, count, ages in blocks for age in ages]
+
+
+def _curve_from_observations(
+    observed: dict[int, float],
+    preset: list[float],
+) -> list[float]:
+    """Build a 0..12 month weight curve that actually honours the farm's data.
+
+    The previous implementation wrote the observed medians into a copy of the
+    breed preset and then took a forward ``max`` over the whole mixed array.
+    Because the unobserved slots still held preset weights, a farm whose stock
+    is smaller than the preset had every one of its own measurements ratcheted
+    back up to the preset value it sat next to — the endpoint returned the
+    preset and labelled it as the farm's evidence.
+
+    Here the isotonic fit runs over the observed ages only. Those fitted points
+    are then honoured exactly; ages between them are linearly interpolated, and
+    ages outside them keep the preset's *shape* rescaled to meet the nearest
+    fitted point, so the curve stays continuous and nondecreasing without any
+    preset weight surviving as if it were a measurement.
+    """
+    fitted = _isotonic_fit(sorted(observed.items()))
+    if not fitted:
+        return list(preset)
+    lookup = dict(fitted)
+    ages = [age for age, _ in fitted]
+    first_age, last_age = ages[0], ages[-1]
+    curve: list[float] = []
+    for age in range(len(preset)):
+        if age in lookup:
+            curve.append(lookup[age])
+        elif age < first_age:
+            # Preset shape rescaled so it lands exactly on the first fitted
+            # point. WeightKg is gt=0, so the denominator is never zero.
+            curve.append(preset[age] * (lookup[first_age] / preset[first_age]))
+        elif age > last_age:
+            curve.append(preset[age] * (lookup[last_age] / preset[last_age]))
+        else:
+            lower = max(a for a in ages if a < age)
+            upper = min(a for a in ages if a > age)
+            span = upper - lower
+            curve.append(
+                lookup[lower] + (lookup[upper] - lookup[lower]) * (age - lower) / span
+            )
+    # Interpolating between nondecreasing anchors and rescaling a nondecreasing
+    # preset are both monotone, so this only absorbs float noise.
+    for index in range(1, len(curve)):
+        curve[index] = max(curve[index], curve[index - 1])
+    return curve
 
 
 async def calibrate_farm_assumptions(
@@ -280,13 +372,10 @@ async def calibrate_farm_assumptions(
     observed_curve_points = sum(len(values) for values in weights_by_age.values())
     if observed_curve_points >= 5 and len(weights_by_age) >= 3:
         previous_curve = list(assumptions.growth.weight_by_age_months)
-        curve = previous_curve.copy()
-        for age, values in weights_by_age.items():
-            curve[age] = median(values)
-        # Isotonic upper envelope prevents noisy field measurements from
-        # creating an impossible shrinking weight curve.
-        for index in range(1, len(curve)):
-            curve[index] = max(curve[index], curve[index - 1])
+        curve = _curve_from_observations(
+            {age: median(values) for age, values in weights_by_age.items()},
+            previous_curve,
+        )
         assumptions.growth.weight_by_age_months = curve
         assumptions.growth.birth_weight_kg = curve[0]
         record(
@@ -294,7 +383,8 @@ async def calibrate_farm_assumptions(
             previous_curve,
             curve,
             observed_curve_points,
-            "Median recorded weight by whole age-month with monotonic smoothing",
+            "Median recorded weight per age-month, isotonic-fitted; unobserved ages "
+            "interpolated between fitted points and the preset shape rescaled outside them",
             "weight_records",
         )
 
@@ -303,12 +393,11 @@ async def calibrate_farm_assumptions(
         age = _age_months(dob, measured_on)
         if age is None or age >= 24:
             latest_adult_weights[sex].append(weight)
-    yearling_max = max(assumptions.growth.weight_by_age_months)
     for sex, field_name in (("F", "adult_weight_doe_kg"), ("M", "adult_weight_buck_kg")):
         values = latest_adult_weights[sex]
         if len(values) >= 3:
             adult_previous = float(getattr(assumptions.growth, field_name))
-            adult_calibrated = max(yearling_max, median(values))
+            adult_calibrated = max(max(assumptions.growth.weight_by_age_months), median(values))
             setattr(assumptions.growth, field_name, adult_calibrated)
             record(
                 f"growth.{field_name}",
@@ -430,32 +519,45 @@ async def calibrate_farm_assumptions(
                 "breeding_records/kidding_records",
             )
     kid_count = len(kidding_rows)
+    # Stillborn kids weigh far less than live-born ones, so including them
+    # drags the median down under a method string that promises live-born.
     recorded_birth_weights = [
         float(kid_row.birth_weight)
         for kid_row in kidding_rows
-        if kid_row.birth_weight is not None and kid_row.birth_weight > 0.0
+        if kid_row.status != "STILLBORN"
+        and kid_row.birth_weight is not None
+        and kid_row.birth_weight > 0.0
     ]
     if len(recorded_birth_weights) >= 5:
         previous_birth_weight = assumptions.growth.birth_weight_kg
         calibrated_birth_weight = median(recorded_birth_weights)
-        curve = list(assumptions.growth.weight_by_age_months)
+        previous_curve = list(assumptions.growth.weight_by_age_months)
+        curve = list(previous_curve)
         curve[0] = calibrated_birth_weight
         for index in range(1, len(curve)):
             curve[index] = max(curve[index], curve[index - 1])
         assumptions.growth.birth_weight_kg = calibrated_birth_weight
         assumptions.growth.weight_by_age_months = curve
-        assumptions.growth.adult_weight_doe_kg = max(
-            assumptions.growth.adult_weight_doe_kg, curve[-1]
+        curve_evidence = next(
+            (item for item in evidence if item.path == "growth.weight_by_age_months"), None
         )
-        assumptions.growth.adult_weight_buck_kg = max(
-            assumptions.growth.adult_weight_buck_kg, curve[-1]
-        )
-        for item in evidence:
-            if item.path == "growth.weight_by_age_months":
-                item.calibrated_value = curve
-                item.method += "; age zero set from median recorded birth weight"
-                item.source += "/kid_entries"
-                break
+        if curve_evidence is not None:
+            curve_evidence.calibrated_value = curve
+            curve_evidence.method += "; age zero set from median recorded birth weight"
+            curve_evidence.source += "/kid_entries"
+        elif curve != previous_curve:
+            # Without the growth-curve branch there is no row to amend, yet the
+            # forward max above can still lift later ages. Record that change
+            # rather than mutating the returned curve with no stated basis.
+            record(
+                "growth.weight_by_age_months",
+                previous_curve,
+                curve,
+                len(recorded_birth_weights),
+                "Age zero set from median recorded live-born birth weight, "
+                "later ages raised only where the curve would otherwise decrease",
+                "kid_entries",
+            )
         record(
             "growth.birth_weight_kg",
             previous_birth_weight,
@@ -469,13 +571,22 @@ async def calibrate_farm_assumptions(
         alive_rows = [kid_row for kid_row in kidding_rows if kid_row.status != "STILLBORN"]
         female_alive = sum(kid_row.sex == "F" for kid_row in alive_rows)
         previous_stillbirth = assumptions.reproduction.stillbirth_rate
-        assumptions.reproduction.stillbirth_rate = stillborn / kid_count
+        # ReproductionAssumptions.stillbirth_rate is le=0.5. An unclamped ratio
+        # from a disease year sailed past that ceiling and made the final
+        # model_validate — and therefore the whole endpoint — fail.
+        observed_stillbirth = stillborn / kid_count
+        assumptions.reproduction.stillbirth_rate = min(0.5, observed_stillbirth)
+        if observed_stillbirth > 0.5:
+            warnings.append(
+                f"Observed stillbirth rate {observed_stillbirth:.0%} exceeds the model "
+                "ceiling of 50%; it was capped at 50%."
+            )
         record(
             "reproduction.stillbirth_rate",
             previous_stillbirth,
             assumptions.reproduction.stillbirth_rate,
             kid_count,
-            "Stillborn kid entries divided by all kid entries",
+            "Stillborn kid entries divided by all kid entries, capped at the model ceiling",
             "kid_entries",
         )
         if alive_rows:
@@ -489,65 +600,107 @@ async def calibrate_farm_assumptions(
                 "Female live-born entries divided by all live-born entries",
                 "kid_entries",
             )
-        died = sum(kid_row.status == "DIED" for kid_row in alive_rows)
-        previous_kid_mortality = assumptions.mortality.kid_pre_weaning
-        # The engine expects an annualized class rate but each kid is exposed
-        # to the pre-weaning class for three model months, not for the whole
-        # historical lookback window.
-        calibrated_kid_mortality = _annualized_fraction(died, len(alive_rows), 3)
-        assumptions.mortality.kid_pre_weaning = min(0.9, calibrated_kid_mortality)
-        record(
-            "mortality.kid_pre_weaning",
-            previous_kid_mortality,
-            assumptions.mortality.kid_pre_weaning,
-            len(alive_rows),
-            "Dependent-kid deaths annualized from three months of pre-weaning exposure",
-            "kid_entries",
-        )
+        # A kid born last month cannot yet have died of anything in months two
+        # or three of its pre-weaning life. Counting it in the denominator
+        # dilutes the rate, so only kiddings old enough to have completed the
+        # exposure are eligible.
+        weaning_cutoff = add_months(reference_date, -3)
+        weaned_rows = [row for row in alive_rows if row.date <= weaning_cutoff]
+        if weaned_rows:
+            died = sum(kid_row.status == "DIED" for kid_row in weaned_rows)
+            previous_kid_mortality = assumptions.mortality.kid_pre_weaning
+            # The engine expects an annualized class rate but each kid is
+            # exposed to the pre-weaning class for three model months, not for
+            # the whole historical lookback window.
+            calibrated_kid_mortality = _annualized_fraction(died, len(weaned_rows), 3)
+            assumptions.mortality.kid_pre_weaning = min(0.9, calibrated_kid_mortality)
+            record(
+                "mortality.kid_pre_weaning",
+                previous_kid_mortality,
+                assumptions.mortality.kid_pre_weaning,
+                len(weaned_rows),
+                "Dependent-kid deaths annualized from three months of pre-weaning exposure, "
+                "counting only kids born early enough to have completed it",
+                "kid_entries",
+            )
 
-    # Status-history mortality is exposure-approximate because the operational
-    # schema does not store daily animal-at-risk snapshots. The method and low
-    # sample confidence make that limitation visible to the user.
-    mortality_population: dict[str, int] = defaultdict(int)
+    # Class mortality is measured as deaths per animal-month at risk. Counting
+    # heads instead put survivors in whatever class they had aged into by the
+    # reference date while their class-mates' deaths stayed behind, so the two
+    # transient classes (post-weaning kid, grower) could report a death count
+    # larger than the population it was divided by.
+    mortality_exposure: dict[str, float] = defaultdict(float)
+    mortality_animals: dict[str, int] = defaultdict(int)
     mortality_deaths: dict[str, int] = defaultdict(int)
+    # (class, first age-month inclusive, last age-month exclusive; None = open)
+    _CLASSES: tuple[tuple[str, int, int | None], ...] = (
+        ("kid_post_weaning", 3, 6),
+        ("grower", 6, 12),
+        ("adult", 12, None),
+    )
     for mortality_row in animal_rows:
-        event_date = mortality_row.status_date or reference_date
         dob = mortality_row.date_of_birth or mortality_row.estimated_dob
-        age = _age_months(dob, event_date)
-        if age is None or age >= 12:
-            group = "adult"
-        elif age >= 6:
-            group = "grower"
-        elif age >= 3:
-            group = "kid_post_weaning"
-        else:
-            continue  # kid_entries are the less ambiguous pre-weaning source
-        mortality_population[group] += 1
-        if (
+        died_in_window = (
             mortality_row.status == AnimalStatus.DEAD.value
             and mortality_row.status_date is not None
             and period_start <= mortality_row.status_date <= reference_date
-        ):
-            mortality_deaths[group] += 1
+        )
+        # An animal stops being at risk when it leaves the herd; an ACTIVE one
+        # is at risk right up to the reference date.
+        left_on = (
+            mortality_row.status_date
+            if mortality_row.status != AnimalStatus.ACTIVE.value
+            and mortality_row.status_date is not None
+            else reference_date
+        )
+        observed_end = min(reference_date, left_on)
+        if dob is None:
+            # Unknown age counts as adult for the whole observed span, matching
+            # the herd-snapshot convention used above.
+            exposure_start = max(period_start, mortality_row.purchase_date or period_start)
+            months = _months_between(exposure_start, observed_end)
+            if months > 0.0:
+                mortality_exposure["adult"] += months
+                mortality_animals["adult"] += 1
+                if died_in_window:
+                    mortality_deaths["adult"] += 1
+            continue
+        for group, from_age, to_age in _CLASSES:
+            class_start = add_months(dob, from_age)
+            class_end = add_months(dob, to_age) if to_age is not None else observed_end
+            overlap = _months_between(
+                max(period_start, class_start), min(observed_end, class_end)
+            )
+            if overlap <= 0.0:
+                continue
+            mortality_exposure[group] += overlap
+            mortality_animals[group] += 1
+            if died_in_window and class_start <= mortality_row.status_date < (
+                add_months(dob, to_age) if to_age is not None else date.max
+            ):
+                mortality_deaths[group] += 1
     for group, field_name in (
         ("adult", "adult"),
         ("grower", "grower"),
         ("kid_post_weaning", "kid_post_weaning"),
     ):
-        population = mortality_population[group]
-        if population >= 10:
+        # Twelve animal-months is one animal-year: below that a single death
+        # implies an absurd rate, so it is not evidence of anything.
+        if mortality_exposure[group] >= 12.0 and mortality_animals[group] >= 10:
             mortality_previous = float(getattr(assumptions.mortality, field_name))
             mortality_calibrated = min(
                 0.9,
-                _annualized_fraction(mortality_deaths[group], population, lookback_months),
+                _annual_fraction_from_exposure(
+                    mortality_deaths[group], mortality_exposure[group]
+                ),
             )
             setattr(assumptions.mortality, field_name, mortality_calibrated)
             record(
                 f"mortality.{field_name}",
                 mortality_previous,
                 mortality_calibrated,
-                population,
-                "Terminal deaths divided by observed class population, annualized",
+                mortality_animals[group],
+                "Deaths per animal-month at risk in the class, converted to an annual rate",
                 "animals",
             )
 
@@ -734,10 +887,32 @@ async def calibrate_farm_assumptions(
                 "transactions/feed_inventory",
             )
 
+    # A per-month cost must be divided by the months the ledger actually
+    # covers, not by the window the caller happened to ask for. A six-month-old
+    # farm queried with the default lookback_months=24 had every recurring cost
+    # reported at a quarter of its real level, which is the direction that makes
+    # an unviable project look financeable.
+    expense_dates = [
+        transaction_row.date
+        for transaction_row in transaction_rows
+        if transaction_row.type == "EXPENSE"
+    ]
+    if expense_dates:
+        observed_months = max(1, round(_months_between(min(expense_dates), reference_date)) + 1)
+        cost_months = min(lookback_months, observed_months)
+    else:
+        cost_months = lookback_months
+    if cost_months < lookback_months:
+        warnings.append(
+            f"Recurring costs were averaged over the {cost_months} month(s) of ledger "
+            f"history that exist, not the {lookback_months} month(s) requested."
+        )
+    cost_basis = f"divided by the {cost_months} month(s) of ledger history"
+
     labour_total = category_expense["LABOUR"]
     if labour_total > 0.0:
         labour_previous = assumptions.costs.labour_per_month
-        labour_calibrated = min(MAX_MONEY, labour_total / lookback_months)
+        labour_calibrated = min(MAX_MONEY, labour_total / cost_months)
         assumptions.costs.labour_per_month = labour_calibrated
         sample_size = sum(
             1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
@@ -747,13 +922,13 @@ async def calibrate_farm_assumptions(
             labour_previous,
             labour_calibrated,
             sample_size,
-            "Total labour expense divided by calibration months",
+            f"Total labour expense {cost_basis}",
             "transactions",
         )
     vet_total = category_expense["VET"] + category_expense["MEDICINE"]
     if vet_total > 0.0 and current_head > 0:
         vet_previous = assumptions.costs.vet_per_animal_per_year
-        vet_calibrated = min(MAX_MONEY, vet_total * 12.0 / lookback_months / current_head)
+        vet_calibrated = min(MAX_MONEY, vet_total * 12.0 / cost_months / current_head)
         assumptions.costs.vet_per_animal_per_year = vet_calibrated
         sample_size = sum(
             1
@@ -765,13 +940,13 @@ async def calibrate_farm_assumptions(
             vet_previous,
             vet_calibrated,
             sample_size,
-            "Annualized vet and medicine spend divided by current active head",
+            f"Vet and medicine spend {cost_basis}, annualized and divided by active head",
             "transactions/animals",
         )
     misc_total = category_expense["OTHER"]
     if misc_total > 0.0:
         misc_previous = assumptions.costs.misc_overhead_per_month
-        misc_calibrated = min(MAX_MONEY, misc_total / lookback_months)
+        misc_calibrated = min(MAX_MONEY, misc_total / cost_months)
         assumptions.costs.misc_overhead_per_month = misc_calibrated
         sample_size = sum(
             1 for transaction_row in transaction_rows if transaction_row.category == "OTHER"
@@ -781,9 +956,30 @@ async def calibrate_farm_assumptions(
             misc_previous,
             misc_calibrated,
             sample_size,
-            "Total other operating expense divided by calibration months",
+            f"Total other operating expense {cost_basis}",
             "transactions",
         )
+
+    # SimulationAssumptions._adult_weight_above_yearling_curve requires both
+    # adult weights to be at least the heaviest point of the 0-12 month curve.
+    # Several branches above can raise that curve, and the adult weights are
+    # only recalibrated when three animals aged 24 months or more carry a
+    # weight record — a young herd trips the validator and the whole endpoint
+    # answered 400. Reconcile once, here, after every curve mutation.
+    calibrated_yearling_max = max(assumptions.growth.weight_by_age_months)
+    for field_name in ("adult_weight_doe_kg", "adult_weight_buck_kg"):
+        if float(getattr(assumptions.growth, field_name)) < calibrated_yearling_max:
+            raised_from = float(getattr(assumptions.growth, field_name))
+            setattr(assumptions.growth, field_name, calibrated_yearling_max)
+            record(
+                f"growth.{field_name}",
+                raised_from,
+                calibrated_yearling_max,
+                observed_curve_points,
+                "Raised to the heaviest calibrated yearling weight; the breed preset's "
+                "adult weight was below the growth this farm actually records",
+                "weight_records",
+            )
 
     covered_groups = {item.path.split(".", maxsplit=1)[0] for item in evidence}
     target_groups = {"herd", "growth", "reproduction", "mortality", "sales", "feed", "costs"}

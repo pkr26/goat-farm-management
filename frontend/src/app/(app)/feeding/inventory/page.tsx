@@ -155,11 +155,18 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
 
   async function onSubmit(values: AddStockValues) {
     try {
-      await mut.mutateAsync({
+      const res = await mut.mutateAsync({
         itemId: item.id,
         data: { qty_kg: values.qty_kg, price_per_kg: values.price_per_kg ?? null },
       });
-      toast.success(`Added ${values.qty_kg} kg of ${item.ingredient}.`);
+      // The API quantizes qty_kg to 3 dp (ROUND_HALF_UP) before it touches the
+      // balance, so confirming the typed value would put a quantity that was
+      // never stored in writing. Report the balance the server came back with.
+      toast.success(
+        res.status === 200
+          ? `Stock added — ${item.ingredient} is now at ${formatPersistedKg(res.data.qty_on_hand)} kg.`
+          : `Stock added — ${item.ingredient}.`,
+      );
       invalidateFarmData(queryClient);
       reset();
       setOpen(false);

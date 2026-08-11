@@ -21,6 +21,13 @@ MIN_BREEDING_WEIGHT_KG = 22.0
 MIN_BUCK_BREEDING_AGE_MONTHS = 12
 MIN_BUCK_BREEDING_WEIGHT_KG = 25.0
 WEANING_DAYS = 60
+# Every BucketMove written under ``history_override`` carries this prefix. A
+# history correction can round-trip an animal RECOVERY -> anything -> RECOVERY
+# without it ever weaning, so "did this kid genuinely leave its birth cohort?"
+# is answered by "it has a RECOVERY departure that is NOT an override" — never
+# by matching one particular reason string, which silently excluded the
+# orphan/early-wean exits that write their own wording.
+HISTORY_OVERRIDE_REASON_PREFIX = "[HISTORY OVERRIDE] "
 # A kidding with no surviving kids has no weaning event to move the doe out
 # of RECOVERY. Keep that maternal recovery period explicit and deterministic.
 POSTPARTUM_RECOVERY_DAYS = 14
@@ -36,6 +43,11 @@ MAX_FAILED_CYCLES_BEFORE_CULL = 2
 MAX_BATCH_COUNT = 1000  # SPEC plans ~50 animals/batch; cap runaway row creation
 MAX_AGE_MONTHS = 240  # 20 years — far beyond any goat's lifespan
 MAX_RECUR_DAYS = 3650  # sanity cap: ~10 years; larger values overflow date arithmetic
+# Ceiling on a medicine withdrawal window. The longest real veterinary
+# withdrawal is measured in weeks; two years is generous. The bound exists
+# because health events are immutable and an active withdrawal blocks sale
+# and cull, so a mistyped year would permanently strand the animal.
+MAX_WITHDRAWAL_DAYS = 730
 MAX_ANIMAL_TAG_LENGTH = 50
 MAX_TASK_TITLE_LENGTH = 200
 

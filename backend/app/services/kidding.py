@@ -4,11 +4,12 @@ import secrets
 from datetime import date, timedelta
 from typing import TypedDict
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     GESTATION_DAYS,
+    HISTORY_OVERRIDE_REASON_PREFIX,
     MAX_ANIMAL_TAG_LENGTH,
     MAX_GESTATION_DAYS,
     MIN_GESTATION_DAYS,
@@ -332,12 +333,16 @@ async def replan_dam_after_last_kid_death(
     # LEGAL_BUCKET_TRANSITIONS entirely (bucket_transition_error returns None
     # for that context), so an owner correcting a data-entry mistake can
     # round-trip RECOVERY -> anything -> RECOVERY without the kid ever
-    # weaning. The WEANING task's own completion (complete_task in
-    # services/tasks.py) is the only writer of the "Weaned (day 60)" reason,
-    # and history_override always prefixes its reason with
-    # "[HISTORY OVERRIDE] ", so matching that exact reason is what actually
-    # proves a genuine weaning-flow departure. Returning before any lock
-    # keeps non-kid deaths out of the entry/kidding/dam lock chain entirely.
+    # weaning. So the test is "left RECOVERY for any reason that is not a
+    # history override". Matching the single reason "Weaned (day 60)" written
+    # by the WEANING task looked equivalent but was not: a dam sold or culled
+    # before day 60 early-weans her kids through change_status (or the deferred
+    # orphan path), and those exits write their own wording. Such kids counted
+    # as never-weaned forever — so if one grew up, kidded (which returns her to
+    # RECOVERY as a dam) and later died, her own immutable birth entry was
+    # rewritten ALIVE -> DIED, corrupting kids-per-kidding and twin rate.
+    # Returning before any lock keeps non-kid deaths out of the
+    # entry/kidding/dam lock chain entirely.
     if child.current_bucket != Bucket.RECOVERY.value:
         return False
     weaned_out = (
@@ -346,7 +351,9 @@ async def replan_dam_after_last_kid_death(
             .where(
                 BucketMove.animal_id == child.id,
                 BucketMove.from_bucket == Bucket.RECOVERY.value,
-                BucketMove.reason == "Weaned (day 60)",
+                func.coalesce(BucketMove.reason, "").not_like(
+                    f"{HISTORY_OVERRIDE_REASON_PREFIX}%"
+                ),
             )
             .limit(1)
         )

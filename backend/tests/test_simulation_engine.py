@@ -784,8 +784,11 @@ def test_purchase_events_per_class_jump_and_price() -> None:
         ("male_kid", lambda r: r.m_kids, S_KID, weight_at_age(1, g, doe_w) * meat),
         ("female_weaner", lambda r: r.f_weaners, s_weaner, weight_at_age(4, g, doe_w) * meat),
         ("male_weaner", lambda r: r.m_weaners, s_weaner, weight_at_age(4, g, doe_w) * meat),
-        ("female_grower", lambda r: r.f_growers, s_grower, weight_at_age(8, g, doe_w) * meat),
-        ("male_grower", lambda r: r.m_growers, s_grower, weight_at_age(8, g, buck_w) * meat),
+        # Mid-class is the slot the engine actually fills: a chain covering
+        # ages 6..11 is filled at index 3, i.e. age 9 — not the age-8
+        # midpoint of the class bounds the valuation constant used to use.
+        ("female_grower", lambda r: r.f_growers, s_grower, weight_at_age(9, g, doe_w) * meat),
+        ("male_grower", lambda r: r.m_growers, s_grower, weight_at_age(9, g, buck_w) * meat),
     ]
     for animal_class, accessor, survival, price in cases:
         event = HerdEventAssumptions.model_validate(
@@ -950,7 +953,8 @@ def test_event_purchase_cost_reaches_annual_pl_and_lowers_npv() -> None:
 
 def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     # Month 12 is before the first organic meat sale (month 13), so the event
-    # sale is the only year-1 meat-revenue delta: 3 x 18.5 kg x ₹350/kg.
+    # sale is the only year-1 meat-revenue delta: 3 x 20.5 kg x ₹350/kg
+    # (20.5 kg is the age-9 mid-class slot the engine stocks growers in).
     event = HerdEventAssumptions(month=12, kind="sale", animal_class="male_grower", count=3)
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24), events=[event])
     res = run_simulation(a, with_break_even=False)
@@ -959,7 +963,7 @@ def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     )
     assert res.months[11].sales_head - base.months[11].sales_head == pytest.approx(3.0)
     assert res.annual_pl[0].meat_revenue - base.annual_pl[0].meat_revenue == pytest.approx(
-        3.0 * 18.5 * 350.0
+        3.0 * 20.5 * 350.0
     )
 
 

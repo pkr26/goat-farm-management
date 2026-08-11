@@ -211,6 +211,10 @@ const FIELD_BOUNDS: Record<
   "sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },
   "sales.selling_cost_fraction": { min: 0, max: 0.5 },
   "sales.lactation_milk_litres": { min: 0, max: 100_000 },
+  // The sales money heuristic below only matches "price"/"income", so this is
+  // the one money field on the form that would otherwise reach the API with no
+  // client-side floor and 422 on a negative "rebate".
+  "sales.transport_cost_per_head": { min: 0, max: 1e9 },
   "feed.cultivated_fodder_acres": { min: 0, max: 1_000_000 },
   "feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 0, max: 1000 },
   "feed.annual_feed_price_growth_rate": { exclusiveMin: -1, max: 1 },
@@ -238,6 +242,10 @@ const FIELD_BOUNDS: Record<
   "finance.terminal_working_capital_recovery_fraction": { min: 0, max: 1 },
   "finance.reinvestment_rate_annual": { min: 0, max: 0.5 },
   "risk.monte_carlo_runs": { min: 1, max: 2000 },
+  // 2**31-1: the backend bounds the seed so it survives a browser round-trip.
+  // No naming heuristic covers "seed", so without this entry the field carries
+  // no bounds at all and a negative seed only fails at the API.
+  "risk.seed": { min: 0, max: 2_147_483_647 },
   "risk.correlation_strength": { min: 0, max: 0.95 },
   "risk.disease_outbreak_probability_annual": { min: 0, max: 1 },
   "risk.disease_outbreak_duration_months": { min: 1, max: 24 },
@@ -253,8 +261,12 @@ const FIELD_BOUNDS: Record<
   "risk.market_crash_price_multiplier": { exclusiveMin: 0, max: 1 },
   "optimization.max_candidates": { min: 1, max: 300 },
   "optimization.minimum_dscr": { min: 0, max: 10 },
-  "optimization.maximum_project_cost": { min: 0, max: 1e9 },
-  "optimization.maximum_funding_gap": { min: 0, max: 1e9 },
+  // Optional ceilings: the backend takes any non-negative amount (null = no
+  // ceiling). They must not be capped at MAX_MONEY here — that is a *per-input*
+  // magnitude cap, while a project cost is a product of several such inputs and
+  // legitimately exceeds it on a large farm.
+  "optimization.maximum_project_cost": { min: 0 },
+  "optimization.maximum_funding_gap": { min: 0 },
   "optimization.doe_scale_low": { exclusiveMin: 0, max: 5 },
   "optimization.doe_scale_high": { exclusiveMin: 0, max: 5 },
   "optimization.doe_scale_steps": { min: 1, max: 9 },
@@ -273,7 +285,27 @@ const FIELD_UNITS: Record<string, string> = {
   "costs.planned_capacity_head": "head",
   "optimization.maximum_project_cost": "₹",
   "optimization.maximum_funding_gap": "₹",
+  // Fractions and multipliers whose names also contain a money or duration
+  // substring, which the heuristic chain settles first. Captioning a 0-0.6 tax
+  // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
+  // because the money/duration tests cannot simply be moved (see numericRule).
+  "sales.selling_cost_fraction": "fraction",
+  "sales.annual_livestock_price_growth_rate": "fraction",
+  "feed.annual_feed_price_growth_rate": "fraction",
+  "feed.fodder_storage_loss_fraction_monthly": "fraction",
+  "costs.operating_cost_growth_rate_annual": "fraction",
+  "finance.income_tax_rate": "fraction",
+  "risk.drought_feed_price_multiplier": "multiplier",
+  "risk.market_crash_price_multiplier": "multiplier",
 };
+
+/** Fields the backend models as "amount, or null for no ceiling". They arrive
+ * as null by default, which every typed branch of renderField would drop —
+ * taking the whole row off the form. Render them as blankable inputs instead. */
+const NULLABLE_NUMBER_FIELDS = new Set([
+  "optimization.maximum_project_cost",
+  "optimization.maximum_funding_gap",
+]);
 
 const STRING_FIELD_OPTIONS: Record<string, Record<string, string>> = {
   "herd.foundation_flock_state": { mixed: "Mixed", open: "Open" },
@@ -404,6 +436,10 @@ function numericRule(section: string, key: string): NumericRule {
   else if (key.includes("weight") || key.includes("_kg")) rule.unit = "kg";
   else if (key.includes("litre")) rule.unit = "litres";
   else if (key.includes("acre")) rule.unit = "acres";
+  // This test stays last: hoisting it above the money/duration ones captions
+  // concent*rate*_price_per_kg and *_duration_months as "fraction". Fields it
+  // therefore cannot reach (income_tax_rate, selling_cost_fraction, …) belong
+  // in FIELD_UNITS, not in a reordering of this chain.
   else if (/rate|ratio|fraction|pct|share|dmi_/.test(key)) rule.unit = "fraction";
   return rule;
 }
@@ -493,9 +529,14 @@ function formatFigure(key: string, value: number | string): string {
   if (/_fraction$|_margin$/.test(key) || /rate|irr|percent|pct|prob/i.test(key))
     return formatPercent(value);
   const isDuration = /_months?$|_years$|_runs$/.test(key);
+  // terminal_value, tax_total and *_profit_total are rupee figures that share
+  // no substring with the money vocabulary above; without them the explain
+  // dialog printed a bare 150000 next to "Livestock ₹1,00,000".
   if (
     !isDuration &&
-    /cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash/i.test(key)
+    /cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash|terminal_value|tax_total|profit/i.test(
+      key,
+    )
   )
     return formatMoney(value);
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -1103,8 +1144,17 @@ export default function SimulationPage() {
       assumptionErrors.push("Doe scale low must be less than or equal to doe scale high.");
 
     const growth = assumptions.growth;
-    const yearling = growth?.weight_by_age_months
-      ? Math.max(...growth.weight_by_age_months.slice(0, 13))
+    const weightCurve = growth?.weight_by_age_months;
+    // updateField mirrors birth_weight_kg into weight_by_age_months[0], and
+    // that path never runs NumberArrayInput's `nondecreasing` rule — so raising
+    // the birth weight past month 1 must be caught here or the run only fails
+    // at the API with a message that never names the birth weight field.
+    if (weightCurve?.some((weight, i) => i > 0 && weight < weightCurve[i - 1]))
+      assumptionErrors.push(
+        "Weight by age months must not decrease from birth to month 12 — lower the birth weight or raise the curve.",
+      );
+    const yearling = weightCurve
+      ? Math.max(...weightCurve.slice(0, 13))
       : null;
     if (
       growth &&
@@ -1241,10 +1291,16 @@ export default function SimulationPage() {
   }
 
   async function onCalibrateFromFarm() {
+    // A calibration that never lands must hand the latch back exactly as it
+    // found it: clearing it unconditionally makes a failed calibration swallow
+    // an in-flight defaults response, stranding the editor on "Loading
+    // defaults…" with Run, Save and Add-event disabled and no way back.
+    const wasAcceptingDefaults = acceptDefaultsRef.current;
     acceptDefaultsRef.current = false;
     try {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
+        acceptDefaultsRef.current = wasAcceptingDefaults;
         toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
         return;
       }
@@ -1262,6 +1318,7 @@ export default function SimulationPage() {
         `Calibrated ${calibrated.evidence.length} assumptions from farm records.`,
       );
     } catch (err) {
+      acceptDefaultsRef.current = wasAcceptingDefaults;
       toast.error(errorMessage(err, "Could not calibrate from farm records."));
     }
   }
@@ -1444,6 +1501,28 @@ export default function SimulationPage() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+      );
+    }
+    if (
+      NULLABLE_NUMBER_FIELDS.has(`${section}.${key}`) &&
+      (value === null || typeof value === "number")
+    ) {
+      const rule = numericRule(section, key);
+      return (
+        <div key={id} className="space-y-1.5">
+          <Label htmlFor={id}>{humanize(key)}</Label>
+          <NumberInput
+            id={id}
+            value={value}
+            nullable
+            {...rule}
+            onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
+            onCommit={(n) => updateField(section, key, n)}
+          />
+          <p className="text-xs text-muted-foreground">
+            {rule.unit ? `Unit: ${rule.unit} — ` : ""}blank means no limit
+          </p>
         </div>
       );
     }
@@ -2055,11 +2134,13 @@ export default function SimulationPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {/* Tints follow the sign, as every other NPV/cash card does:
+                    a hard-coded emerald painted a loss-making mean as success. */}
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_mean)}
                   label="NPV mean"
                   icon={IndianRupee}
-                  tint="emerald"
+                  tint={r.monte_carlo.npv_mean >= 0 ? "emerald" : "red"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_std)}
@@ -2085,7 +2166,7 @@ export default function SimulationPage() {
                   value={`${(r.monte_carlo.prob_npv_negative * 100).toFixed(1)}%`}
                   label="P(NPV < 0)"
                   icon={TriangleAlert}
-                  tint="red"
+                  tint={r.monte_carlo.prob_npv_negative > 0 ? "red" : "emerald"}
                 />
                 <MetricCard
                   value={formatPercent(r.monte_carlo.prob_liquidity_shortfall)}
@@ -2384,7 +2465,7 @@ export default function SimulationPage() {
                 <Button
                   variant="outline"
                   onClick={() => void onCalibrateFromFarm()}
-                  disabled={calibrationQuery.isFetching}
+                  disabled={!assumptions || calibrationQuery.isFetching}
                 >
                   <Database />
                   {calibrationQuery.isFetching ? "Calibrating…" : "Calibrate from farm"}

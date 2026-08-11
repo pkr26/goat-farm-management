@@ -45,7 +45,10 @@ _FACTOR_LOADINGS: dict[str, tuple[float, float, float]] = {
     "adult_mortality": (0.00, 0.20, 0.70),
     "kid_mortality": (0.00, 0.25, 0.80),
     "litter_size": (0.00, 0.00, -0.35),
-    "conception_rate": (0.00, 0.10, -0.60),
+    # Negative, like every other adverse-climate response here: a positive
+    # climate factor is a drought (it raises feed price and mortality and cuts
+    # fodder yield), so it must depress conception, not lift it.
+    "conception_rate": (0.00, -0.10, -0.60),
     "fodder_yield": (0.00, -0.80, 0.00),
     "operating_cost": (0.20, 0.30, 0.20),
 }
@@ -90,6 +93,11 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
         0.9, variant.mortality.kid_post_weaning * draws["kid_mortality"]
     )
     variant.mortality.adult = min(0.9, variant.mortality.adult * draws["adult_mortality"])
+    # The engine already applies the adult-mortality *event* shock to growers
+    # (engine.py, s_grower). Leaving the run-level draw off them made every
+    # Monte Carlo path finish its sale cohort at the deterministic grower rate,
+    # understating the downside of the class that carries the meat revenue.
+    variant.mortality.grower = min(0.9, variant.mortality.grower * draws["adult_mortality"])
     # Risk runs are executions of the same public model, not a second hidden
     # model with wider bounds. Clamp both sides of every bounded perturbation.
     variant.reproduction.litter_size = max(
@@ -101,9 +109,15 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     variant.reproduction.conception_rate = min(
         1.0, variant.reproduction.conception_rate * draws["conception_rate"]
     )
-    variant.feed.fodder_yield_t_dm_per_acre_year = min(
-        MAX_FODDER_YIELD_T,
-        variant.feed.fodder_yield_t_dm_per_acre_year * draws["fodder_yield"],
+    # Two-sided, like the litter-size clamp above: the field is gt=0.0, and a
+    # near-denormal base multiplied by a draw below 1 rounds to exactly 0.0,
+    # which fails revalidation and 500s from inside the Monte Carlo loop.
+    variant.feed.fodder_yield_t_dm_per_acre_year = max(
+        5e-324,
+        min(
+            MAX_FODDER_YIELD_T,
+            variant.feed.fodder_yield_t_dm_per_acre_year * draws["fodder_yield"],
+        ),
     )
     operating_factor = draws["operating_cost"]
     variant.costs.vet_per_animal_per_year = min(
@@ -216,9 +230,15 @@ def _event_shock_path(a: SimulationAssumptions, rng: random.Random) -> MonthlySh
 def _histogram(values: list[float], bins: int = 20) -> tuple[list[int], list[float]]:
     """Equal-width histogram; returns (counts, edges) with len(edges) = bins + 1."""
     lo, hi = min(values), max(values)
-    if hi == lo:
-        hi = lo + 1.0
+    if hi <= lo:
+        # Widening by a fixed 1.0 is a no-op once |lo| >= 2**53, which left
+        # width at exactly 0.0 and raised ZeroDivisionError on the bin lookup.
+        # Pad relative to the magnitude so the range is always representable.
+        pad = max(1.0, abs(lo) * 1e-9)
+        lo, hi = lo - pad, lo + pad
     width = (hi - lo) / bins
+    if width <= 0.0:  # unreachable after the pad; keeps the division total
+        return [len(values)] + [0] * (bins - 1), [lo + index for index in range(bins + 1)]
     edges = [lo + i * width for i in range(bins + 1)]
     counts = [0] * bins
     for v in values:

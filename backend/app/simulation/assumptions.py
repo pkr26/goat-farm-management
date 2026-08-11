@@ -446,7 +446,11 @@ class RiskAssumptions(_Group):
     """Monte Carlo controls and per-variable triangular spreads."""
 
     monte_carlo_runs: int = Field(default=500, ge=1, le=2000)
-    seed: int = 42
+    # Bounded so the value survives a browser round-trip: OpenAPI "integer"
+    # becomes a TypeScript number, and anything past 2**53 silently changes
+    # when the page loads a scenario and saves it back, quietly reseeding the
+    # run. 2**31-1 is well inside the exactly-representable range.
+    seed: int = Field(default=42, ge=0, le=2**31 - 1)
     meat_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.80, high=1.20))
     feed_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.90, high=1.25))
     adult_mortality: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.60, high=1.80))
@@ -479,8 +483,12 @@ class OptimizationAssumptions(_Group):
     objective: Literal["balanced", "npv", "liquidity"] = "balanced"
     max_candidates: int = Field(default=120, ge=1, le=300)
     minimum_dscr: FiniteFloat = Field(default=1.20, ge=0.0, le=10.0)
-    maximum_project_cost: FiniteFloat = Field(default=MAX_MONEY, ge=0.0, le=MAX_MONEY)
-    maximum_funding_gap: FiniteFloat = Field(default=MAX_MONEY, ge=0.0, le=MAX_MONEY)
+    # None = no ceiling. MAX_MONEY is a *per-input* magnitude cap; reusing it as
+    # the "unconstrained" sentinel silently failed every candidate for a large
+    # farm, whose derived project cost is a product of several MAX_MONEY-bounded
+    # inputs and legitimately exceeds it.
+    maximum_project_cost: FiniteFloat | None = Field(default=None, ge=0.0)
+    maximum_funding_gap: FiniteFloat | None = Field(default=None, ge=0.0)
     doe_scale_low: FiniteFloat = Field(default=0.75, gt=0.0, le=5.0)
     doe_scale_high: FiniteFloat = Field(default=1.25, gt=0.0, le=5.0)
     doe_scale_steps: int = Field(default=3, ge=1, le=9)

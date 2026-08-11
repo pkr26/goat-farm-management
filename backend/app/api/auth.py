@@ -110,9 +110,15 @@ def _refresh_preverification_limit(max_attempts: int) -> int:
 # that rotating source addresses cannot reset. `_reserve_password_work` only
 # serializes concurrent verifies for one account; it is not a budget.
 CHANGE_PASSWORD_SCOPE = "change-password"
-CHANGE_PASSWORD_ACCOUNT_SCOPE = "change-password-account"
 ACCOUNT_DELETE_SCOPE = "account-delete"
-ACCOUNT_DELETE_ACCOUNT_SCOPE = "account-delete-account"
+# Both endpoints confirm the SAME secret and answer a miss with the same
+# distinguishable 400, so they must share the IP-agnostic ceiling — otherwise
+# an attacker who exhausted one endpoint's budget simply switches to the other
+# and doubles their guesses per window, exactly the way rotating source
+# addresses would if the per-account counter did not exist. This mirrors
+# _hash_team_password, where worker-create and password-reset already share
+# both the reservation and the ledger.
+ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE = "account-password-confirm"
 # Both account password workflows share one reservation, as the two team
 # password endpoints do: with a scope each, one account could hold two of the
 # global Argon slots at once and 429 every other user's login.
@@ -970,7 +976,7 @@ async def change_password(
     rate_key = f"{_client_key(request)}|{user_id}"
     # (composite scope, account scope, composite key, account id) for the
     # budget helpers above.
-    scopes = (CHANGE_PASSWORD_SCOPE, CHANGE_PASSWORD_ACCOUNT_SCOPE, rate_key, user_id)
+    scopes = (CHANGE_PASSWORD_SCOPE, ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE, rate_key, user_id)
     if _account_password_blocked(*scopes):
         raise _too_many_attempts()
     _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
@@ -1144,7 +1150,7 @@ async def delete_account(
     rate_key = f"{_client_key(request)}|{user_id}"
     # (composite scope, account scope, composite key, account id) for the
     # budget helpers above.
-    scopes = (ACCOUNT_DELETE_SCOPE, ACCOUNT_DELETE_ACCOUNT_SCOPE, rate_key, user_id)
+    scopes = (ACCOUNT_DELETE_SCOPE, ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE, rate_key, user_id)
     if _account_password_blocked(*scopes):
         raise _too_many_attempts()
     _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))

@@ -801,7 +801,15 @@ async def test_farm_calibration_uses_operational_biology_market_and_cost_records
     assert assumptions["sales"]["meat_price_per_kg"] == pytest.approx(400.0)
     assert assumptions["herd"]["doe_purchase_price"] == pytest.approx(9_000.0)
     assert assumptions["feed"]["purchased_green_price_per_kg"] == pytest.approx(3.0)
-    assert assumptions["costs"]["labour_per_month"] == pytest.approx(1_000.0)
+    # Recurring costs are averaged over the ledger history that exists, not
+    # over the window the caller asked for. This fixture books ₹24,000 of
+    # labour against a ledger barely a year old, so dividing by the full
+    # 24-month request understated it — the direction that makes an
+    # unviable project look financeable (a 6-month-old farm queried with the
+    # default lookback reported a quarter of its real labour bill).
+    labour_per_month = assumptions["costs"]["labour_per_month"]
+    assert 24_000.0 / 24 < labour_per_month <= 24_000.0
+    assert any("ledger history" in warning for warning in resp.json()["warnings"])
     evidence_paths = {item["path"] for item in resp.json()["evidence"]}
     assert {
         "reproduction.conception_rate",

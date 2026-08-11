@@ -28,7 +28,10 @@ test.describe("feeding and finance", () => {
     });
     await stockDialog.getByLabel(/Quantity/).fill("10");
     await stockDialog.getByRole("button", { name: "Add", exact: true }).click();
-    await expect(page.getByText("Added 10 kg of Dry jowar stover.")).toBeVisible();
+    // The toast confirms the balance the API persisted, not the typed input.
+    await expect(
+      page.getByText(/Stock added — Dry jowar stover is now at [\d,.]+ kg\./),
+    ).toBeVisible();
     await expect(stockDialog).toBeHidden();
 
     await page.goto("/feeding");

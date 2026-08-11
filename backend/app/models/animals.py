@@ -181,7 +181,13 @@ class Animal(Base):
     dam_id: Mapped[int | None] = mapped_column(
         ForeignKey("animals.id", ondelete="SET NULL"), index=True
     )
-    sire_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id", ondelete="SET NULL"))
+    # Indexed like dam_id: the animal profile matches offspring with
+    # ``dam_id = :id OR sire_id = :id``, so leaving one half unindexed made
+    # every profile view scan the farm's entire lifetime herd — SOLD and DEAD
+    # rows included — and did the same for the SET NULL cascade of a deletion.
+    sire_id: Mapped[int | None] = mapped_column(
+        ForeignKey("animals.id", ondelete="SET NULL"), index=True
+    )
     birth_weight: Mapped[float | None]
 
     current_bucket: Mapped[str] = mapped_column(String(20))  # Bucket enum

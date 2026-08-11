@@ -1,6 +1,8 @@
 """Deterministic bounded search for farm-size and operating decisions."""
 
+from collections.abc import Sequence
 from itertools import product
+from typing import Any
 
 from .assumptions import MAX_HEAD, MAX_MONEY, SimulationAssumptions
 from .engine import _ceil_head_ratio, _CoreResult, _run_core
@@ -25,9 +27,12 @@ def _candidate_from_core(
 ) -> OptimizationCandidate:
     policy = assumptions.optimization
     violations: list[str] = []
-    if core.project_cost > policy.maximum_project_cost:
+    if policy.maximum_project_cost is not None and core.project_cost > policy.maximum_project_cost:
         violations.append("project cost exceeds the configured maximum")
-    if core.additional_working_capital_required > policy.maximum_funding_gap:
+    if (
+        policy.maximum_funding_gap is not None
+        and core.additional_working_capital_required > policy.maximum_funding_gap
+    ):
         violations.append("liquidity funding gap exceeds the configured maximum")
     if core.min_dscr is not None and core.min_dscr < policy.minimum_dscr:
         violations.append("minimum DSCR is below the configured floor")
@@ -69,10 +74,47 @@ def _rank_key(candidate: OptimizationCandidate, objective: str) -> tuple[float, 
 def _sample_evenly[T](values: list[T], limit: int) -> list[T]:
     if len(values) <= limit:
         return values
+    if limit <= 0:
+        return []
     if limit == 1:
         return [values[len(values) // 2]]
     indices = {round(index * (len(values) - 1) / (limit - 1)) for index in range(limit)}
     return [values[index] for index in sorted(indices)]
+
+
+def _sample_grid(axes: Sequence[Sequence[Any]], limit: int) -> list[tuple[Any, ...]]:
+    """Thin each decision axis until their product fits ``limit``.
+
+    Striding across the flattened Cartesian product instead aliases against its
+    period: a constant stride over ``retentions x loan_fractions`` can land on
+    the same loan fraction every time, silently dropping a whole decision
+    dimension from the search while still spending the full candidate budget.
+    Thinning the axes keeps every dimension represented.
+    """
+    if limit <= 0:
+        return []
+    counts = [len(axis) for axis in axes]
+
+    def product_size(sizes: list[int]) -> int:
+        size = 1
+        for count in sizes:
+            size *= count
+        return size
+
+    # Shed one value at a time from whichever axis is currently widest, so the
+    # grid lands as close under the budget as it can. Halving overshot: three
+    # retentions x three loan fractions capped at six collapsed the retentions
+    # to one and spent only three of the six available slots.
+    while product_size(counts) > limit:
+        widest = max(range(len(counts)), key=lambda index: counts[index])
+        if counts[widest] <= 1:
+            break
+        counts[widest] -= 1
+    thinned = [
+        _sample_evenly(list(axis), count) for axis, count in zip(axes, counts, strict=True)
+    ]
+    grid: list[tuple[Any, ...]] = [tuple(combination) for combination in product(*thinned)]
+    return grid[:limit]
 
 
 def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
@@ -121,34 +163,50 @@ def run_optimization(a: SimulationAssumptions) -> OptimizationResult:
         0.0,
         max_loan,
     )
-    raw_grid = list(product(doe_scales, sale_ages, retentions, loan_fractions))
     # The configured ceiling includes the submitted baseline. Reserving its
     # slot guarantees both a fair comparison and a hard bound on CPU work.
-    grid = _sample_evenly(raw_grid, max(0, policy.max_candidates - 1))
+    grid: list[tuple[Any, ...]] = _sample_grid(
+        (doe_scales, sale_ages, retentions, loan_fractions),
+        max(0, policy.max_candidates - 1),
+    )
 
     seen: set[tuple[int, int, int, int, float, float]] = {baseline_key}
     evaluated: list[OptimizationCandidate] = [baseline]
     for doe_scale, sale_age, retention, loan_fraction in grid:
         variant = a.model_copy(deep=True)
         variant.herd.does = min(MAX_HEAD, max(0, round(a.herd.does * doe_scale)))
-        base_target = a.herd.max_breeding_does or max(a.herd.does, 1)
-        variant.herd.max_breeding_does = min(
-            MAX_HEAD,
-            max(variant.herd.does, round(base_target * doe_scale)),
-        )
+        if a.herd.max_breeding_does == 0:
+            # 0 is the documented "no cap" sentinel, not an unset value. Scaling
+            # it turned an unconstrained-growth baseline into a hard-capped one
+            # in every candidate, so the search never contained the policy the
+            # user actually submitted.
+            variant.herd.max_breeding_does = 0
+        else:
+            # ...and the same sentinel must never be produced by arithmetic:
+            # round() reaches 0 for any small scale, which the engine would then
+            # read as "unlimited" — the exact opposite of a zero cap.
+            variant.herd.max_breeding_does = min(
+                MAX_HEAD,
+                max(variant.herd.does, round(a.herd.max_breeding_does * doe_scale), 1),
+            )
         if variant.herd.auto_purchase_bucks:
             variant.herd.bucks = (
                 _ceil_head_ratio(variant.herd.does, variant.culling.buck_doe_ratio)
                 if variant.herd.does > 0
                 else 0
             )
-        if variant.finance.initial_stock_cost > 0.0:
+        if a.finance.initial_stock_cost > 0.0:
             stock_cost_delta = (variant.herd.does - a.herd.does) * a.herd.doe_purchase_price + (
                 variant.herd.bucks - a.herd.bucks
             ) * a.herd.buck_purchase_price
+            # Floor above the sentinel, not at it. 0.0 does not mean "free" for
+            # this field — engine.py reads it as "auto-compute from the herd",
+            # so a candidate whose delta drove the explicit cost to zero was
+            # silently re-priced off the herd and charged MORE for a SMALLER
+            # flock, inverting its rank.
             variant.finance.initial_stock_cost = min(
                 MAX_MONEY,
-                max(0.0, a.finance.initial_stock_cost + stock_cost_delta),
+                max(0.01, a.finance.initial_stock_cost + stock_cost_delta),
             )
         variant.growth.sale_age_months = sale_age
         variant.herd.female_retention_fraction = retention

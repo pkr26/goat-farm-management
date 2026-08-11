@@ -11177,18 +11177,28 @@
             "default": 1.2
           },
           "maximum_project_cost": {
-            "type": "number",
-            "maximum": 1000000000.0,
-            "minimum": 0.0,
-            "title": "Maximum Project Cost",
-            "default": 1000000000
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum Project Cost"
           },
           "maximum_funding_gap": {
-            "type": "number",
-            "maximum": 1000000000.0,
-            "minimum": 0.0,
-            "title": "Maximum Funding Gap",
-            "default": 1000000000
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum Funding Gap"
           },
           "doe_scale_low": {
             "type": "number",
@@ -12300,6 +12310,8 @@
           },
           "seed": {
             "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
             "title": "Seed",
             "default": 42
           },

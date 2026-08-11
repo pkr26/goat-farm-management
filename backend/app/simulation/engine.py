@@ -47,6 +47,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
+from functools import cached_property
 
 from .assumptions import (
     MAX_MONEY,
@@ -59,10 +60,12 @@ from .finance import (
     AmortizationRow,
     amortization_schedule,
     bcr,
-    irr,
     mirr,
     npv,
     payback_month,
+)
+from .finance import (
+    irr as _irr_of_flows,
 )
 from .market import (
     annual_growth_multiplier,
@@ -192,7 +195,13 @@ class _CoreResult:
     subsidy_amount: float
     equity: float
     npv: float
-    irr: float | None
+    # The monthly cash-flow series IRR is solved from. Stored rather than
+    # solved eagerly: Monte Carlo (up to 2000 passes), the break-even search
+    # (52) and the sensitivity tornado (17) all read only ``npv``, and IRR is
+    # by far the most expensive metric here. Computing it on demand keeps it
+    # off every one of those hot paths.
+    cash_flows: list[float]
+    discount_times: list[float]
     mirr: float | None
     bcr: float | None
     dscr_per_year: list[float]
@@ -206,6 +215,10 @@ class _CoreResult:
     minimum_cash_month: int
     additional_working_capital_required: float
     operating_margin: float | None
+
+    @cached_property
+    def irr(self) -> float | None:
+        return _irr_of_flows(self.cash_flows, self.discount_times)
 
 
 def _scale(values: list[float], factor: float) -> list[float]:
@@ -314,14 +327,27 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     # avoids an artificial mass max-age cull when a synchronized cohort would
     # otherwise cross max_doe_age_months together.
     doe_ages = [0.0] * (cull.max_doe_age_months + 1)
-    if a.herd.does > 0:
+
+    def _add_purchased_does(count: float) -> None:
+        """Spread bought-in adult does over the mixed-age range, like foundation stock.
+
+        A purchased doe is a proven adult, not a maiden that has just cleared
+        the grower chain. Writing her to ``doe_ages[afb]`` gave every scheduled
+        purchase the full ``max_doe_age_months - afb`` of breeding life ahead of
+        it — five years at the defaults — and made a restocking event look far
+        more productive than buying real animals is.
+        """
+        if count <= 0.0:
+            return
         span_lo, span_hi = 24, min(60, cull.max_doe_age_months - 12)
         # Defense past the schema floor (ge=36 guarantees span_hi >= span_lo):
         # never spread over an empty range (ZeroDivisionError).
         slots = list(range(span_lo, span_hi + 1)) or [span_lo]
-        per_slot = float(a.herd.does) / len(slots)
+        per_slot = count / len(slots)
         for age in slots:
-            doe_ages[age] = per_slot
+            doe_ages[age] += per_slot
+
+    _add_purchased_does(float(a.herd.does))
     bucks = float(a.herd.bucks)
 
     # Same annual -> monthly compounding converter as the mortality classes:
@@ -329,8 +355,14 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     monthly_cull_rate = monthly_mortality_rate(cull.doe_cull_rate_annual)
 
     start_month = int(a.meta.start_year_month.split("-")[1])
-    f_grower_mid_age = (6 + afb - 1) // 2
-    m_grower_mid_age = (6 + sale_age - 1) // 2
+    # Derived from the placement index, never from the class bounds: a grower
+    # chain covering ages 6..L-1 is filled at index len//2, i.e. age
+    # 6 + (L-6)//2. Computing the valuation age as (6+L-1)//2 instead put it a
+    # month lower for every even-length chain — which includes both schema
+    # defaults — so opening and event-purchased growers were charged for a
+    # lighter animal than the one the engine actually stocked.
+    f_grower_mid_age = 6 + (afb - 6) // 2
+    m_grower_mid_age = 6 + (sale_age - 6) // 2
 
     records: list[_MonthRecord] = []
     fodder_stock_kg_dm = feed.initial_fodder_stock_kg_dm
@@ -391,7 +423,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 n = event.count
                 if event.animal_class == "doe":
                     open_ready += n
-                    doe_ages[afb] += n
+                    _add_purchased_does(n)
                     default_price = doe_purchase_price
                 elif event.animal_class == "buck":
                     bucks += n
@@ -410,12 +442,18 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     m_weaner[1] += n
                     default_price = weight_at_age(4, g, doe_w) * meat_price
                 elif event.animal_class == "female_grower":
-                    default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
                     if f_grower:
+                        default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
                         f_grower[len(f_grower) // 2] += n  # mid-class
-                    else:  # afb == 6: a grower is already breeding-age
+                    else:
+                        # afb == 6: the chain is empty, so this animal is
+                        # delivered straight into the breeding pool. Price her
+                        # as the breeding doe she becomes, not as young stock —
+                        # the male empty-chain branch below already values its
+                        # stock at the class it actually lands in.
+                        default_price = doe_purchase_price
                         open_ready += n
-                        doe_ages[afb] += n
+                        _add_purchased_does(n)
                 else:  # male_grower
                     if m_grower:
                         default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
@@ -759,9 +797,14 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         fodder_waste_kg_dm = storage_loss_kg_dm + max(
             0.0, unused_homegrown_kg_dm - feed.fodder_storage_capacity_kg_dm
         )
-        fodder_surplus = available_homegrown_kg_dm - feed_total.green_dm_kg
+        # This month's own production balance. Including the opening carry-over
+        # made the figure the running stock level rather than a surplus, so it
+        # compounded every month and contradicted the field's documented
+        # meaning; the carry-over is published separately as fodder_stock_kg_dm.
+        fodder_surplus = cultivated_supply_kg_dm - feed_total.green_dm_kg
         homegrown_green_kg = homegrown_green_kg_dm / feed.green_dm_pct
         purchased_green_kg = purchased_green_kg_dm / feed.green_dm_pct
+        cultivated_green_kg = cultivated_supply_kg_dm / feed.green_dm_pct
         home_green_price, purchased_green_price, dry_price, concentrate_price = (
             feed_prices_for_month(
                 feed,
@@ -770,8 +813,14 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 shock_multiplier=shocks.feed_price[shock_index],
             )
         )
+        # Home-grown fodder is charged on what is GROWN, not on what is eaten:
+        # green_price_per_kg is a cultivation cost, and seed, irrigation and
+        # labour are spent on the whole crop whether or not the herd gets to it.
+        # Costing it per kg consumed made storage spoilage and every tonne above
+        # storage capacity free, so adding acreage could never cost anything and
+        # the acreage decision had no downside to weigh.
         feed_cost = (
-            homegrown_green_kg * home_green_price
+            cultivated_green_kg * home_green_price
             + purchased_green_kg * purchased_green_price
             + feed_total.dry_kg * dry_price
             + feed_total.concentrate_kg * concentrate_price
@@ -1083,8 +1132,6 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         )
 
     annual_pl: list[AnnualPLRow] = []
-    annual_flows = [-equity]
-    annual_times = [0.0]
     for start in range(0, horizon, 12):
         block = months[start : start + 12]
         year = start // 12 + 1
@@ -1142,8 +1189,6 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 net_cash_flow=net_cash,
             )
         )
-        annual_flows.append(net_cash)
-        annual_times.append(block[-1].month / 12.0)
 
     # Discount the cash flows when they actually occur. The biological and
     # financing engine is monthly; pushing every receipt and payment to each
@@ -1257,7 +1302,12 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         subsidy_amount=subsidy_amount,
         equity=equity,
         npv=npv(fin.discount_rate_annual, cash_flows, discount_times),
-        irr=irr(annual_flows, annual_times),
+        # The same monthly series NPV, BCR and MIRR use. Solving IRR on
+        # year-end lumped blocks while NPV discounted the real monthly timing
+        # let one response say the project clears the hurdle rate and misses it
+        # at the same time.
+        cash_flows=cash_flows,
+        discount_times=discount_times,
         mirr=mirr(
             cash_flows,
             discount_times,
@@ -1391,6 +1441,8 @@ def run_simulation(
     # Explanations are built last so the risk section can see MC/sensitivity.
     from .explain import build_metric_explanations, build_narrative_report
 
-    result.metric_explanations = build_metric_explanations(assumptions, result)
+    result.metric_explanations = build_metric_explanations(
+        assumptions, result, break_even_computed=with_break_even
+    )
     result.narrative_report = build_narrative_report(assumptions, result)
     return result

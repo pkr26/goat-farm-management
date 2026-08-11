@@ -76,6 +76,19 @@ function localToday(): string {
   return farmToday();
 }
 
+/** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000);
+}
+
+/** Mirrors services/breeding.py: standing heat ends within ~1 day of the
+ * service and the next heat cannot return before ~18 days, so a not-pregnant
+ * result dated strictly between them reports an unobservable event. */
+const STANDING_HEAT_DAYS = 1;
+const EARLIEST_RETURN_TO_HEAT_DAYS = 18;
+
 function errorText(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
 }
@@ -89,6 +102,12 @@ const OUTCOME_TINTS: Record<string, string> = {
   ABORTED:
     "border-transparent bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
 };
+
+/** value → label map for the root `items` prop: without it, Base UI's
+ * Select.Value renders the raw enum value in the closed trigger. */
+const LOSS_CAUSE_ITEMS: Record<string, string> = Object.fromEntries(
+  Object.values(PregnancyLossInCause).map((value) => [value, value.replace(/_/g, " ")]),
+);
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
   return (
@@ -326,13 +345,23 @@ function UltrasoundDialog({
   const earliestResultDate = pregnant
     ? (record.ultrasound_date ?? record.breeding_date)
     : record.breeding_date;
+  // …but "the day it was observed" still has to be a day on which the failure
+  // IS observable: the service itself (day 0/1) or the return to heat (~day
+  // 18 on). The server rejects the gap between them with a 409, so bound it
+  // here rather than after the operator has saved.
+  const negativeResultGapDays =
+    !pregnant && resultDate ? daysBetween(record.breeding_date, resultDate) : null;
   const resultDateError = !resultDate
     ? "Result date is required"
     : resultDate < earliestResultDate
       ? `Result date cannot be before ${formatDate(earliestResultDate)}`
       : resultDate > localToday()
         ? "Result date can't be in the future"
-        : null;
+        : negativeResultGapDays !== null &&
+            negativeResultGapDays > STANDING_HEAT_DAYS &&
+            negativeResultGapDays < EARLIEST_RETURN_TO_HEAT_DAYS
+          ? `A not-pregnant result ${negativeResultGapDays} days after service is not observable — record it on the service day or the day after, or from day ${EARLIEST_RETURN_TO_HEAT_DAYS} (return to heat).`
+          : null;
   const kidCountError = pregnant && !["1", "2", "3"].includes(kidCount)
     ? "Select the detected kid count"
     : null;
@@ -408,8 +437,10 @@ function UltrasoundDialog({
             )}
             <p className="text-xs text-muted-foreground">
               Planned check: {formatDate(record.ultrasound_date)}. A pregnant result needs that
-              scan; a not-pregnant one (doe back in heat) can be recorded from the breeding date.
-              Use the actual historical date for backdated entry.
+              scan. A not-pregnant one is recordable on the service day or the day after (the
+              service was watched and failed), or from day {EARLIEST_RETURN_TO_HEAT_DAYS} onwards
+              (doe back in heat) — not in the gap between, where neither is observable. Use the
+              actual historical date for backdated entry.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -560,6 +591,7 @@ function PregnancyLossDialog({
             <Select
               value={cause}
               onValueChange={(value) => setCause(value as PregnancyLossInCause)}
+              items={LOSS_CAUSE_ITEMS}
             >
               <SelectTrigger id={`pregnancy-loss-cause-${record.id}`} className="w-full">
                 <SelectValue />

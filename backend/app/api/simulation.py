@@ -6,9 +6,17 @@ transport, persistence (assumptions stored as JSON text, like
 ``Role.permissions``) and RBAC. Runs are synchronous CPU work — horizon and
 Monte Carlo runs are bounded by the assumption schema (monte_carlo_runs <=
 2000), which still leaves a worst-case run (240-month horizon + max Monte
-Carlo + sensitivity + break-even) at 15-25 s of single-threaded CPU. Runs are
-offloaded to a worker thread, but the work is pure Python: the GIL is held
-throughout, so offloading bounds neither latency nor CPU on its own.
+Carlo + sensitivity + optimization + break-even) at ~25 s of single-threaded
+CPU, measured. Runs are offloaded to a worker thread, but the work is pure
+Python: the GIL is held throughout, so offloading bounds neither latency nor
+CPU on its own.
+
+``_run_cost`` prices a request as engine passes x simulated months, which is
+only honest while one pass is linear in the horizon. It is: IRR — the one
+super-linear metric, and formerly ~86% of a 240-month pass — is now computed
+lazily off ``_CoreResult`` and solved with a sampled scan past the term count
+the exact Decimal isolation was designed for. Keep it that way, or re-derive
+the budget.
 
 Three limits therefore apply to every run/compare request:
 - one in-flight run per farm and per user, plus two process-wide, so
@@ -601,7 +609,17 @@ async def farm_calibration(
             system=system,
             lookback_months=lookback_months,
         )
+    except ValidationError as exc:
+        # pydantic's ValidationError subclasses ValueError, so the branch below
+        # used to swallow it and answer 400 with a raw pydantic dump — turning
+        # an internal bug into what looked like a caller error. A calibrated
+        # value that its own schema rejects is ours to fix, not the caller's.
+        raise HTTPException(
+            status_code=500,
+            detail="Calibration produced an assumption set the model rejects.",
+        ) from exc
     except ValueError as exc:
+        # Deliberate rejections only (unknown breed / system from get_preset).
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
@@ -801,7 +819,10 @@ async def update_scenario(
         raise HTTPException(
             status_code=400, detail="A scenario with that name already exists."
         ) from None
-    return _scenario_out(scenario)
+    # The write is already committed, so a row whose stored assumptions predate
+    # a schema tightening must not answer 422 as though nothing happened —
+    # report it the way the list endpoint does, with valid=False.
+    return _scenario_out(scenario, allow_invalid=True)
 
 
 @router.delete("/scenarios/{scenario_id}", status_code=204)

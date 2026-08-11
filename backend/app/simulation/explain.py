@@ -36,6 +36,14 @@ def _year_of(month: int) -> str:
     return f"month {month} (year {(month - 1) // 12 + 1})"
 
 
+def _outstanding_at_horizon(a: SimulationAssumptions, result: SimulationResult) -> float:
+    """Loan balance the engine force-repays in the final simulated month."""
+    horizon = a.meta.horizon_months
+    if horizon >= len(result.amortization):
+        return 0.0
+    return result.amortization[horizon - 1].closing_balance
+
+
 def _ranked(items: list[tuple[str, float]], total: float) -> str:
     """'labour ₹12.00 lakh (64.4%), feed … and vet …', largest first.
 
@@ -49,9 +57,19 @@ def _ranked(items: list[tuple[str, float]], total: float) -> str:
 
 
 def build_metric_explanations(
-    a: SimulationAssumptions, result: SimulationResult
+    a: SimulationAssumptions,
+    result: SimulationResult,
+    *,
+    break_even_computed: bool = True,
 ) -> list[MetricExplanation]:
-    """One explanation per viability metric, in display order."""
+    """One explanation per viability metric, in display order.
+
+    ``break_even_computed`` distinguishes the two reasons
+    ``metrics.break_even_meat_price_per_kg`` can be ``None``: the search ran
+    and failed at the schema ceiling, or it was never run for this request.
+    Without it, a run that simply skipped the search was reported as a
+    project no market price could rescue.
+    """
     m = result.metrics
     b = result.project_cost_breakdown
     fin = a.finance
@@ -65,10 +83,13 @@ def build_metric_explanations(
                 f"The total capital needed to start the project: shed {_inr(b.shed_cost)} "
                 f"+ equipment {_inr(b.equipment_cost)} + starting stock {_inr(b.stock_cost)} "
                 f"+ working capital {_inr(b.working_capital)} ("
-                f"{fin.working_capital_months} month(s) of average year-1 operating cost). "
+                f"{fin.working_capital_months} month(s) of average year-1 recurring "
+                f"operating cost — feed, vet, labour, insurance, overheads and selling; "
+                f"stock purchases are excluded). "
                 f"Shed and equipment are funded for {b.capacity_places:.1f} animal places "
-                f"using the {b.capacity_basis.replace('_', ' ')} capacity basis; the projected "
-                f"peak monthly closing herd is {b.projected_peak_head:.1f} head."
+                f"using the {b.capacity_basis.replace('_', ' ')} capacity basis; the peak funded "
+                f"headcount — the larger of the opening herd and the projected monthly "
+                f"peak — is {b.projected_peak_head:.1f} head."
             ),
             figures={
                 "project_cost": m.project_cost,
@@ -93,8 +114,19 @@ def build_metric_explanations(
                 f"{_pct(fin.interest_rate_annual)} annual interest"
                 + (
                     f", with an interest-only moratorium for the first "
-                    f"{fin.moratorium_months} month(s)."
+                    f"{fin.moratorium_months} month(s)"
                     if fin.moratorium_months > 0
+                    else ""
+                )
+                # When the loan outlives the projection the engine charges the
+                # whole outstanding balance in the final month. Saying only
+                # "repaid over N months" hid a balloon the reader is asked to
+                # fund.
+                + (
+                    f". The {a.meta.horizon_months}-month projection ends first, so the "
+                    f"{_inr(_outstanding_at_horizon(a, result))} still outstanding is charged "
+                    f"as a single balloon repayment in the final month."
+                    if _outstanding_at_horizon(a, result) > 0.0
                     else "."
                 )
             ),
@@ -133,19 +165,31 @@ def build_metric_explanations(
             figures={"equity": m.equity},
         )
     )
-    npv_text = (
+    # Three disjoint branches. ">= 0" here against "<= 0" in the verdict below
+    # meant an NPV of exactly zero was called positive in one paragraph and
+    # negative in the next, and still came out NOT VIABLE.
+    npv_method = (
         f"Net present value: every month's net cash flow, including the recoverable closing "
         f"assets of {_inr(m.terminal_value)}, is discounted to today at "
         f"{_pct(fin.discount_rate_annual)} per year, and the {_inr(m.equity)} equity outflow "
-        f"is subtracted. A positive NPV of {_inr(m.npv)} means the project creates that much "
-        f"wealth over and above a {_pct(fin.discount_rate_annual)} annual return."
-        if m.npv >= 0.0
-        else f"Net present value: every month's net cash flow, including the recoverable "
-        f"closing assets of {_inr(m.terminal_value)}, is discounted to today at "
-        f"{_pct(fin.discount_rate_annual)} per year, and the {_inr(m.equity)} equity outflow "
-        f"is subtracted. The NPV is {_inr(m.npv)} — negative, so at this discount rate the "
-        f"project destroys value; improve margins, prices or costs before investing."
+        f"is subtracted. "
     )
+    if m.npv > 0.0:
+        npv_text = (
+            f"{npv_method}A positive NPV of {_inr(m.npv)} means the project creates that much "
+            f"wealth over and above a {_pct(fin.discount_rate_annual)} annual return."
+        )
+    elif m.npv == 0.0:
+        npv_text = (
+            f"{npv_method}The NPV is exactly zero: the project earns the "
+            f"{_pct(fin.discount_rate_annual)} discount rate and nothing more, so it breaks "
+            f"even against the required return with no margin for error."
+        )
+    else:
+        npv_text = (
+            f"{npv_method}The NPV is {_inr(m.npv)} — negative, so at this discount rate the "
+            f"project destroys value; improve margins, prices or costs before investing."
+        )
     out.append(
         MetricExplanation(
             key="npv",
@@ -179,20 +223,20 @@ def build_metric_explanations(
             key="irr",
             title="Internal rate of return (IRR)",
             explanation=(
-                f"The discount rate that zeroes the annual appraisal cash-flow blocks — the "
+                f"The discount rate that zeroes the same monthly cash-flow series as NPV — "
                 f"project's implied annual return: {_pct(m.irr)}. It exceeds your "
                 f"{_pct(fin.discount_rate_annual)} discount rate, so the project beats the "
                 f"required return."
                 if m.irr is not None and m.irr >= fin.discount_rate_annual
                 else (
-                    f"The discount rate that zeroes the annual appraisal cash-flow blocks — the "
+                    f"The discount rate that zeroes the same monthly cash-flow series as NPV — "
                     f"project's implied annual return: {_pct(m.irr)}. This is below your "
                     f"{_pct(fin.discount_rate_annual)} discount rate, so the project falls "
                     f"short of the required return."
                     if m.irr is not None
-                    else "The annual appraisal IRR is undefined for this cash-flow pattern: "
-                    "the flows either never cross zero or admit several mathematically valid "
-                    "rates. Judge the project on monthly NPV and MIRR instead."
+                    else "IRR is undefined for this cash-flow pattern: the flows either "
+                    "never cross zero or admit several mathematically valid rates. "
+                    "Judge the project on NPV and MIRR instead."
                 )
             ),
             figures={"irr": m.irr, "discount_rate_annual": fin.discount_rate_annual},
@@ -244,6 +288,15 @@ def build_metric_explanations(
             f"any part of the instalment out of operations and must fund it from the "
             f"promoter's pocket, a longer moratorium or a rescheduling."
         )
+    elif m.min_dscr < 1.0:
+        # State the fact, not the hypothetical: this reading has already fallen
+        # below 1.0, and "if this dips below 1.0" read as reassurance about the
+        # very number that failed.
+        min_dscr_text = (
+            f"The worst single debt year: {m.min_dscr:.2f}. That is below 1.0, so the farm "
+            f"cannot cover that year's repayment from operations and needs a cash buffer "
+            f"or a rescheduling."
+        )
     else:
         min_dscr_text = (
             f"The worst single debt year: {m.min_dscr:.2f}. If this dips below 1.0 the "
@@ -265,7 +318,8 @@ def build_metric_explanations(
                 title="Funded capacity",
                 explanation=(
                     f"The project funds {m.peak_capacity_head:.1f} animal places against a "
-                    f"peak monthly closing herd of {b.projected_peak_head:.1f} head. "
+                    f"peak funded headcount of {b.projected_peak_head:.1f} head — the "
+                    f"larger of the opening herd and the projected monthly peak. "
                     f"The reserve is {m.peak_capacity_head - b.projected_peak_head:.1f} places."
                 ),
                 figures={
@@ -373,13 +427,19 @@ def build_metric_explanations(
     )
     be = m.break_even_meat_price_per_kg
     assumed = a.sales.meat_price_per_kg
-    if be is None:
+    if be is None and not break_even_computed:
+        be_text = (
+            "The break-even meat price was not computed for this run. Re-run with the "
+            "break-even search enabled to see how far the price can fall."
+        )
+        margin: float | None = None
+    elif be is None:
         be_text = (
             "Even at the break-even search ceiling the project cannot reach NPV = 0 — "
             "the economics need structural changes (costs, herd size, financing), not just "
             "a better market price."
         )
-        margin: float | None = None
+        margin = None
     elif be <= 0.0:
         be_text = (
             "The project is profitable even with meat revenue at zero — the break-even "
@@ -432,9 +492,9 @@ def build_narrative_report(
     sales_events = [e for e in a.events if e.kind == "sale"]
     event_bits: list[str] = []
     if purchases:
-        event_bits.append(f"buy {sum(e.count for e in purchases):g} head")
+        event_bits.append(f"buy {sum(e.count for e in purchases):,.0f} head")
     if sales_events:
-        event_bits.append(f"sell {sum(e.count for e in sales_events):g} head")
+        event_bits.append(f"sell {sum(e.count for e in sales_events):,.0f} head")
     events_text = (
         f" You have scheduled {len(a.events)} herd event(s) along the way — "
         + " and ".join(event_bits)
@@ -611,8 +671,11 @@ def build_narrative_report(
     # --- 5. viability verdict -------------------------------------------------
     ebitda_total = total_revenue - total_opex
     problems: list[str] = []
-    if m.npv <= 0.0:
+    if m.npv < 0.0:
         problems.append("the NPV is negative")
+    elif m.npv == 0.0:
+        problems.append("the NPV is exactly zero — the project only just clears the "
+                        "discount rate, with no margin")
     if m.bcr is not None and m.bcr < 1.0:
         problems.append("the benefit-cost ratio is below 1.0")
     if m.irr is None:
@@ -643,7 +706,9 @@ def build_narrative_report(
             f"the projected peak herd exceeds funded housing and equipment capacity by "
             f"{capacity_shortfall:.1f} head"
         )
-    if m.npv <= 0.0 or (m.bcr is not None and m.bcr < 1.0) or capacity_shortfall > 1e-9:
+    # An NPV of exactly zero meets the required return; it is a caution, not
+    # a rejection, so only a strictly negative NPV condemns the project.
+    if m.npv < 0.0 or (m.bcr is not None and m.bcr < 1.0) or capacity_shortfall > 1e-9:
         verdict = "NOT VIABLE"
     elif problems:
         verdict = "VIABLE WITH CAUTION"

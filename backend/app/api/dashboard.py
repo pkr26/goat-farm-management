@@ -56,6 +56,11 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 DASHBOARD_PERM = Annotated[set[str], Depends(require_perm("dashboard.view"))]
 REPORTS_PERM = Annotated[set[str], Depends(require_perm("reports.view"))]
 DASHBOARD_PREVIEW_LIMIT = 100
+
+# Statuses that are clinical outcomes rather than inventory facts. The
+# reports payload withholds these from callers without health.view, the same
+# way the mortality block is withheld.
+_CLINICAL_OUTCOME_STATUSES = frozenset({AnimalStatus.DEAD.value, AnimalStatus.CULLED.value})
 RECENT_WEIGHTS_LIMIT = 10
 KIDDING_DUE_WINDOW_DAYS = 14
 
@@ -379,20 +384,30 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         .correlate(Animal)
         .scalar_subquery()
     )
-    effective_weight = func.coalesce(latest_weight, Animal.birth_weight)
+    # Project the correlated weight lookup once, then aggregate over that
+    # column. Naming the same expression three times inside one aggregate made
+    # PostgreSQL build a separate SubPlan per occurrence, running the
+    # weight_records lookup three times for every active animal. avg() already
+    # ignores NULLs, so the is_not(None) predicate was redundant as well.
+    weighted_animals = (
+        select(
+            Animal.current_bucket.label("bucket"),
+            func.coalesce(latest_weight, Animal.birth_weight).label("effective_weight"),
+        )
+        .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
+        .subquery()
+    )
     bucket_stats = (
         await db.execute(
             select(
-                Animal.current_bucket,
+                weighted_animals.c.bucket,
                 func.count(),
                 # avg over animals with a usable weight only (the old Python
                 # version skipped None and 0.0 weights).
-                func.avg(effective_weight).filter(
-                    effective_weight.is_not(None), effective_weight != 0
+                func.avg(weighted_animals.c.effective_weight).filter(
+                    weighted_animals.c.effective_weight != 0
                 ),
-            )
-            .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
-            .group_by(Animal.current_bucket)
+            ).group_by(weighted_animals.c.bucket)
         )
     ).all()
     per_bucket = {code: (int(count), avg) for code, count, avg in bucket_stats}
@@ -547,7 +562,19 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
         bucket_rows=bucket_rows,
         total_active=total_active,
         sex_counts=sex_counts,
-        status_counts=status_counts,
+        # The withheld total_deaths above is literally status_counts[DEAD], so
+        # returning the raw breakdown handed the same clinical figure straight
+        # back to a caller without health.view. Apply the withheld convention
+        # to the statuses that are clinical outcomes.
+        status_counts=(
+            status_counts
+            if can_view_health
+            else {
+                status: count
+                for status, count in status_counts.items()
+                if status not in _CLINICAL_OUTCOME_STATUSES
+            }
+        ),
         breeding=breeding_stats,
         mortality=mortality,
     )
