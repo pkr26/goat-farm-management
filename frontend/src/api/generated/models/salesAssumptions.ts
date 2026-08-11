@@ -6,7 +6,12 @@
  */
 
 /**
- * Prices and non-meat revenue streams (₹).
+ * Market prices, seasonality and selling costs (₹).
+ *
+ * The twelve monthly multipliers are indexed by calendar month (January at
+ * index 0). ``festival_sale_months`` is indexed by simulation month instead,
+ * because Eid al-Adha moves through the Gregorian calendar. The legacy
+ * ``eid_month`` input remains supported for existing saved scenarios.
  */
 export interface SalesAssumptions {
   /**
@@ -25,6 +30,16 @@ export interface SalesAssumptions {
      */
   cull_buck_price_per_kg?: number;
   /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_meat_price_multipliers?: number[];
+  /**
+     * @maximum 1
+     * @exclusiveMinimum -1
+     */
+  annual_livestock_price_growth_rate?: number;
+  /**
      * @minimum 0
      * @maximum 12
      */
@@ -34,6 +49,18 @@ export interface SalesAssumptions {
      * @maximum 2
      */
   eid_price_uplift?: number;
+  /** @maxItems 40 */
+  festival_sale_months?: number[];
+  /**
+     * @minimum 0
+     * @maximum 0.5
+     */
+  selling_cost_fraction?: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
+  transport_cost_per_head?: number;
   /**
      * @minimum 0
      * @maximum 1000000000

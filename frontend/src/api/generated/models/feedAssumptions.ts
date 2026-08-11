@@ -103,12 +103,37 @@ export interface FeedAssumptions {
      * @minimum 0
      * @maximum 1000000000
      */
+  purchased_green_price_per_kg?: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   dry_price_per_kg?: number;
   /**
      * @minimum 0
      * @maximum 1000000000
      */
   concentrate_price_per_kg?: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum -1
+     */
+  annual_feed_price_growth_rate?: number;
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_green_price_multipliers?: number[];
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_dry_price_multipliers?: number[];
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_concentrate_price_multipliers?: number[];
   /**
      * @minimum 0
      * @maximum 1
@@ -124,4 +149,24 @@ export interface FeedAssumptions {
      * @exclusiveMinimum 0
      */
   fodder_yield_t_dm_per_acre_year?: number;
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_fodder_yield_multipliers?: number[];
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
+  initial_fodder_stock_kg_dm?: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
+  fodder_storage_capacity_kg_dm?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  fodder_storage_loss_fraction_monthly?: number;
 }

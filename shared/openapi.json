@@ -4705,6 +4705,90 @@
         }
       }
     },
+    "/api/simulation/calibration": {
+      "get": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Farm Calibration",
+        "description": "Calibrate a complete model from this farm's operational evidence.\n\nThe endpoint reads animal, breeding, kidding, feeding and finance history,\nso each corresponding view permission is required in addition to\n``simulation.view``. Results are advisory and never mutate a saved scenario\nor farm record.",
+        "operationId": "farm_calibration_api_simulation_calibration_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "breed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "osmanabadi",
+              "title": "Breed"
+            }
+          },
+          {
+            "name": "system",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "stall_fed",
+                "semi_intensive"
+              ],
+              "type": "string",
+              "default": "stall_fed",
+              "title": "System"
+            }
+          },
+          {
+            "name": "lookback_months",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 60,
+              "minimum": 6,
+              "default": 24,
+              "title": "Lookback Months"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmCalibrationOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/simulation/run": {
       "post": {
         "tags": [
@@ -5174,6 +5258,16 @@
               "type": "boolean",
               "default": false,
               "title": "Sensitivity"
+            }
+          },
+          {
+            "name": "optimization",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Optimization"
             }
           },
           {
@@ -6189,6 +6283,10 @@
             "type": "number",
             "title": "Misc Cost"
           },
+          "selling_cost": {
+            "type": "number",
+            "title": "Selling Cost"
+          },
           "stock_purchases": {
             "type": "number",
             "title": "Stock Purchases"
@@ -6201,9 +6299,29 @@
             "type": "number",
             "title": "Ebitda"
           },
+          "depreciation": {
+            "type": "number",
+            "title": "Depreciation"
+          },
+          "ebit": {
+            "type": "number",
+            "title": "Ebit"
+          },
           "interest": {
             "type": "number",
             "title": "Interest"
+          },
+          "profit_before_tax": {
+            "type": "number",
+            "title": "Profit Before Tax"
+          },
+          "tax": {
+            "type": "number",
+            "title": "Tax"
+          },
+          "profit_after_tax": {
+            "type": "number",
+            "title": "Profit After Tax"
           },
           "principal": {
             "type": "number",
@@ -6212,6 +6330,10 @@
           "debt_service": {
             "type": "number",
             "title": "Debt Service"
+          },
+          "terminal_value": {
+            "type": "number",
+            "title": "Terminal Value"
           },
           "net_cash_flow": {
             "type": "number",
@@ -6231,12 +6353,19 @@
           "labour_cost",
           "insurance_cost",
           "misc_cost",
+          "selling_cost",
           "stock_purchases",
           "total_opex",
           "ebitda",
+          "depreciation",
+          "ebit",
           "interest",
+          "profit_before_tax",
+          "tax",
+          "profit_after_tax",
           "principal",
           "debt_service",
+          "terminal_value",
           "net_cash_flow"
         ],
         "title": "AnnualPLRow",
@@ -6980,6 +7109,105 @@
         ],
         "title": "BucketReportRow"
       },
+      "CalibrationEvidence": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "previous_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Previous Value"
+          },
+          "calibrated_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              }
+            ],
+            "title": "Calibrated Value"
+          },
+          "sample_size": {
+            "type": "integer",
+            "title": "Sample Size"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence"
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "previous_value",
+          "calibrated_value",
+          "sample_size",
+          "confidence",
+          "method",
+          "source"
+        ],
+        "title": "CalibrationEvidence",
+        "description": "One farm-derived assumption and the evidence behind it."
+      },
       "ChangePasswordIn": {
         "properties": {
           "current_password": {
@@ -7039,6 +7267,13 @@
             "title": "Misc Overhead Per Month",
             "default": 2000.0
           },
+          "operating_cost_growth_rate_annual": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": -1.0,
+            "title": "Operating Cost Growth Rate Annual",
+            "default": 0.0
+          },
           "shed_cost_per_animal_place": {
             "type": "number",
             "maximum": 1000000000.0,
@@ -7052,6 +7287,58 @@
             "minimum": 0.0,
             "title": "Equipment Cost Per Animal",
             "default": 500.0
+          },
+          "capacity_basis": {
+            "type": "string",
+            "enum": [
+              "projected_peak",
+              "planned",
+              "opening_herd"
+            ],
+            "title": "Capacity Basis",
+            "default": "projected_peak"
+          },
+          "planned_capacity_head": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Planned Capacity Head",
+            "default": 0
+          },
+          "capacity_buffer_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Capacity Buffer Fraction",
+            "default": 0.1
+          },
+          "shed_useful_life_years": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Shed Useful Life Years",
+            "default": 20
+          },
+          "equipment_useful_life_years": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Equipment Useful Life Years",
+            "default": 7
+          },
+          "shed_residual_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Shed Residual Fraction",
+            "default": 0.1
+          },
+          "equipment_residual_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Equipment Residual Fraction",
+            "default": 0.05
           }
         },
         "additionalProperties": false,
@@ -7435,6 +7722,53 @@
         "title": "DispensingAggregateOut",
         "description": "Exact full-day quantity for one plan allocation and shift."
       },
+      "FarmCalibrationOut": {
+        "properties": {
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "coverage_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Coverage Score"
+          },
+          "reference_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Reference Date"
+          },
+          "lookback_months": {
+            "type": "integer",
+            "title": "Lookback Months"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assumptions",
+          "evidence",
+          "warnings",
+          "coverage_score",
+          "reference_date",
+          "lookback_months"
+        ],
+        "title": "FarmCalibrationOut",
+        "description": "A complete runnable assumption set calibrated from one farm."
+      },
       "FarmCreateIn": {
         "properties": {
           "name": {
@@ -7644,6 +7978,13 @@
             "title": "Green Price Per Kg",
             "default": 1.0
           },
+          "purchased_green_price_per_kg": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Purchased Green Price Per Kg",
+            "default": 2.5
+          },
           "dry_price_per_kg": {
             "type": "number",
             "maximum": 1000000000.0,
@@ -7657,6 +7998,40 @@
             "minimum": 0.0,
             "title": "Concentrate Price Per Kg",
             "default": 25.0
+          },
+          "annual_feed_price_growth_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": -1.0,
+            "title": "Annual Feed Price Growth Rate",
+            "default": 0.0
+          },
+          "monthly_green_price_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Green Price Multipliers"
+          },
+          "monthly_dry_price_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Dry Price Multipliers"
+          },
+          "monthly_concentrate_price_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Concentrate Price Multipliers"
           },
           "grazing_dm_fraction": {
             "type": "number",
@@ -7678,6 +8053,36 @@
             "exclusiveMinimum": 0.0,
             "title": "Fodder Yield T Dm Per Acre Year",
             "default": 6.0
+          },
+          "monthly_fodder_yield_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Fodder Yield Multipliers"
+          },
+          "initial_fodder_stock_kg_dm": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Initial Fodder Stock Kg Dm",
+            "default": 0.0
+          },
+          "fodder_storage_capacity_kg_dm": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Fodder Storage Capacity Kg Dm",
+            "default": 0.0
+          },
+          "fodder_storage_loss_fraction_monthly": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Fodder Storage Loss Fraction Monthly",
+            "default": 0.02
           }
         },
         "additionalProperties": false,
@@ -7849,6 +8254,20 @@
             "type": "array",
             "title": "Annual Green Kg"
           },
+          "annual_homegrown_green_kg": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Homegrown Green Kg"
+          },
+          "annual_purchased_green_kg": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Purchased Green Kg"
+          },
           "annual_dry_kg": {
             "items": {
               "type": "number"
@@ -7870,6 +8289,13 @@
             "type": "array",
             "title": "Annual Feed Cost"
           },
+          "annual_fodder_waste_kg_dm": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Annual Fodder Waste Kg Dm"
+          },
           "land_requirement_acres": {
             "type": "number",
             "title": "Land Requirement Acres"
@@ -7877,16 +8303,24 @@
           "fodder_deficit_months": {
             "type": "integer",
             "title": "Fodder Deficit Months"
+          },
+          "peak_fodder_stock_kg_dm": {
+            "type": "number",
+            "title": "Peak Fodder Stock Kg Dm"
           }
         },
         "type": "object",
         "required": [
           "annual_green_kg",
+          "annual_homegrown_green_kg",
+          "annual_purchased_green_kg",
           "annual_dry_kg",
           "annual_concentrate_kg",
           "annual_feed_cost",
+          "annual_fodder_waste_kg_dm",
           "land_requirement_acres",
-          "fodder_deficit_months"
+          "fodder_deficit_months",
+          "peak_fodder_stock_kg_dm"
         ],
         "title": "FeedSummary",
         "description": "Annual feed totals and the fodder land requirement."
@@ -8067,6 +8501,51 @@
             "minimum": 0.0,
             "title": "Working Capital Months",
             "default": 3
+          },
+          "income_tax_rate": {
+            "type": "number",
+            "maximum": 0.6,
+            "minimum": 0.0,
+            "title": "Income Tax Rate",
+            "default": 0.0
+          },
+          "tax_loss_carryforward": {
+            "type": "boolean",
+            "title": "Tax Loss Carryforward",
+            "default": true
+          },
+          "include_terminal_value": {
+            "type": "boolean",
+            "title": "Include Terminal Value",
+            "default": true
+          },
+          "terminal_livestock_realization_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Terminal Livestock Realization Fraction",
+            "default": 0.9
+          },
+          "terminal_asset_realization_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Terminal Asset Realization Fraction",
+            "default": 1.0
+          },
+          "terminal_working_capital_recovery_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Terminal Working Capital Recovery Fraction",
+            "default": 1.0
+          },
+          "reinvestment_rate_annual": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Reinvestment Rate Annual",
+            "default": 0.08
           }
         },
         "additionalProperties": false,
@@ -10009,6 +10488,9 @@
           "cash_percentiles": {
             "$ref": "#/components/schemas/PercentileBand"
           },
+          "liquidity_percentiles": {
+            "$ref": "#/components/schemas/PercentileBand"
+          },
           "npv_mean": {
             "type": "number",
             "title": "Npv Mean"
@@ -10032,6 +10514,42 @@
           "prob_npv_negative": {
             "type": "number",
             "title": "Prob Npv Negative"
+          },
+          "prob_liquidity_shortfall": {
+            "type": "number",
+            "title": "Prob Liquidity Shortfall"
+          },
+          "prob_dscr_below_one": {
+            "type": "number",
+            "title": "Prob Dscr Below One"
+          },
+          "minimum_cash_p5": {
+            "type": "number",
+            "title": "Minimum Cash P5"
+          },
+          "minimum_cash_p50": {
+            "type": "number",
+            "title": "Minimum Cash P50"
+          },
+          "ending_cash_p5": {
+            "type": "number",
+            "title": "Ending Cash P5"
+          },
+          "ending_cash_p50": {
+            "type": "number",
+            "title": "Ending Cash P50"
+          },
+          "mean_disease_outbreaks": {
+            "type": "number",
+            "title": "Mean Disease Outbreaks"
+          },
+          "mean_drought_events": {
+            "type": "number",
+            "title": "Mean Drought Events"
+          },
+          "mean_market_crashes": {
+            "type": "number",
+            "title": "Mean Market Crashes"
           },
           "npv_histogram_counts": {
             "items": {
@@ -10058,12 +10576,22 @@
           "seed",
           "herd_percentiles",
           "cash_percentiles",
+          "liquidity_percentiles",
           "npv_mean",
           "npv_std",
           "npv_p5",
           "npv_p50",
           "npv_p95",
           "prob_npv_negative",
+          "prob_liquidity_shortfall",
+          "prob_dscr_below_one",
+          "minimum_cash_p5",
+          "minimum_cash_p50",
+          "ending_cash_p5",
+          "ending_cash_p50",
+          "mean_disease_outbreaks",
+          "mean_drought_events",
+          "mean_market_crashes",
           "npv_histogram_counts",
           "npv_histogram_edges"
         ],
@@ -10140,6 +10668,10 @@
             "type": "number",
             "title": "Sales Revenue"
           },
+          "meat_price_per_kg": {
+            "type": "number",
+            "title": "Meat Price Per Kg"
+          },
           "culls_head": {
             "type": "number",
             "title": "Culls Head"
@@ -10167,6 +10699,14 @@
           "feed_green_kg": {
             "type": "number",
             "title": "Feed Green Kg"
+          },
+          "feed_homegrown_green_kg": {
+            "type": "number",
+            "title": "Feed Homegrown Green Kg"
+          },
+          "feed_purchased_green_kg": {
+            "type": "number",
+            "title": "Feed Purchased Green Kg"
           },
           "feed_dry_kg": {
             "type": "number",
@@ -10196,6 +10736,22 @@
             "type": "number",
             "title": "Misc Cost"
           },
+          "selling_cost": {
+            "type": "number",
+            "title": "Selling Cost"
+          },
+          "depreciation": {
+            "type": "number",
+            "title": "Depreciation"
+          },
+          "tax": {
+            "type": "number",
+            "title": "Tax"
+          },
+          "terminal_value": {
+            "type": "number",
+            "title": "Terminal Value"
+          },
           "debt_service": {
             "type": "number",
             "title": "Debt Service"
@@ -10208,9 +10764,21 @@
             "type": "number",
             "title": "Cumulative Cash Flow"
           },
+          "cash_balance": {
+            "type": "number",
+            "title": "Cash Balance"
+          },
           "fodder_surplus_kg": {
             "type": "number",
             "title": "Fodder Surplus Kg"
+          },
+          "fodder_stock_kg_dm": {
+            "type": "number",
+            "title": "Fodder Stock Kg Dm"
+          },
+          "fodder_waste_kg_dm": {
+            "type": "number",
+            "title": "Fodder Waste Kg Dm"
           },
           "events": {
             "items": {
@@ -10239,6 +10807,7 @@
           "deaths",
           "sales_head",
           "sales_revenue",
+          "meat_price_per_kg",
           "culls_head",
           "cull_revenue",
           "milk_revenue",
@@ -10246,6 +10815,8 @@
           "purchases_head",
           "purchase_cost",
           "feed_green_kg",
+          "feed_homegrown_green_kg",
+          "feed_purchased_green_kg",
           "feed_dry_kg",
           "feed_concentrate_kg",
           "feed_cost",
@@ -10253,10 +10824,17 @@
           "labour_cost",
           "insurance_cost",
           "misc_cost",
+          "selling_cost",
+          "depreciation",
+          "tax",
+          "terminal_value",
           "debt_service",
           "net_cash_flow",
           "cumulative_cash_flow",
-          "fodder_surplus_kg"
+          "cash_balance",
+          "fodder_surplus_kg",
+          "fodder_stock_kg_dm",
+          "fodder_waste_kg_dm"
         ],
         "title": "MonthlyRow",
         "description": "One simulation month: end-of-month headcounts and that month's flows."
@@ -10572,6 +11150,250 @@
         ],
         "title": "MovementRestrictionHistoryOut"
       },
+      "OptimizationAssumptions": {
+        "properties": {
+          "objective": {
+            "type": "string",
+            "enum": [
+              "balanced",
+              "npv",
+              "liquidity"
+            ],
+            "title": "Objective",
+            "default": "balanced"
+          },
+          "max_candidates": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Max Candidates",
+            "default": 120
+          },
+          "minimum_dscr": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Minimum Dscr",
+            "default": 1.2
+          },
+          "maximum_project_cost": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Maximum Project Cost",
+            "default": 1000000000
+          },
+          "maximum_funding_gap": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Maximum Funding Gap",
+            "default": 1000000000
+          },
+          "doe_scale_low": {
+            "type": "number",
+            "maximum": 5.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Doe Scale Low",
+            "default": 0.75
+          },
+          "doe_scale_high": {
+            "type": "number",
+            "maximum": 5.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Doe Scale High",
+            "default": 1.25
+          },
+          "doe_scale_steps": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 1.0,
+            "title": "Doe Scale Steps",
+            "default": 3
+          },
+          "sale_age_radius_months": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Sale Age Radius Months",
+            "default": 2
+          },
+          "retention_step": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Retention Step",
+            "default": 0.25
+          },
+          "loan_fraction_step": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Loan Fraction Step",
+            "default": 0.15
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "OptimizationAssumptions",
+        "description": "Bounded decision search and lender-style feasibility constraints."
+      },
+      "OptimizationCandidate": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          },
+          "starting_does": {
+            "type": "integer",
+            "title": "Starting Does"
+          },
+          "starting_bucks": {
+            "type": "integer",
+            "title": "Starting Bucks"
+          },
+          "max_breeding_does": {
+            "type": "integer",
+            "title": "Max Breeding Does"
+          },
+          "sale_age_months": {
+            "type": "integer",
+            "title": "Sale Age Months"
+          },
+          "female_retention_fraction": {
+            "type": "number",
+            "title": "Female Retention Fraction"
+          },
+          "loan_fraction": {
+            "type": "number",
+            "title": "Loan Fraction"
+          },
+          "project_cost": {
+            "type": "number",
+            "title": "Project Cost"
+          },
+          "capacity_places": {
+            "type": "number",
+            "title": "Capacity Places"
+          },
+          "projected_peak_head": {
+            "type": "number",
+            "title": "Projected Peak Head"
+          },
+          "npv": {
+            "type": "number",
+            "title": "Npv"
+          },
+          "irr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Irr"
+          },
+          "min_dscr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Dscr"
+          },
+          "minimum_cash_balance": {
+            "type": "number",
+            "title": "Minimum Cash Balance"
+          },
+          "funding_gap": {
+            "type": "number",
+            "title": "Funding Gap"
+          },
+          "feasible": {
+            "type": "boolean",
+            "title": "Feasible"
+          },
+          "constraint_violations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Constraint Violations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rank",
+          "starting_does",
+          "starting_bucks",
+          "max_breeding_does",
+          "sale_age_months",
+          "female_retention_fraction",
+          "loan_fraction",
+          "project_cost",
+          "capacity_places",
+          "projected_peak_head",
+          "npv",
+          "irr",
+          "min_dscr",
+          "minimum_cash_balance",
+          "funding_gap",
+          "feasible"
+        ],
+        "title": "OptimizationCandidate",
+        "description": "One feasible or near-feasible management/financing decision set."
+      },
+      "OptimizationResult": {
+        "properties": {
+          "objective": {
+            "type": "string",
+            "title": "Objective"
+          },
+          "evaluated_candidates": {
+            "type": "integer",
+            "title": "Evaluated Candidates"
+          },
+          "feasible_candidates": {
+            "type": "integer",
+            "title": "Feasible Candidates"
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/OptimizationCandidate"
+          },
+          "recommended": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationCandidate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizationCandidate"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          }
+        },
+        "type": "object",
+        "required": [
+          "objective",
+          "evaluated_candidates",
+          "feasible_candidates",
+          "baseline",
+          "recommended"
+        ],
+        "title": "OptimizationResult",
+        "description": "Bounded search result, ranked under the selected objective."
+      },
       "OwnedFarmExport": {
         "properties": {
           "id": {
@@ -10866,6 +11688,18 @@
           "working_capital": {
             "type": "number",
             "title": "Working Capital"
+          },
+          "capacity_places": {
+            "type": "number",
+            "title": "Capacity Places"
+          },
+          "capacity_basis": {
+            "type": "string",
+            "title": "Capacity Basis"
+          },
+          "projected_peak_head": {
+            "type": "number",
+            "title": "Projected Peak Head"
           }
         },
         "type": "object",
@@ -10873,7 +11707,10 @@
           "shed_cost",
           "equipment_cost",
           "stock_cost",
-          "working_capital"
+          "working_capital",
+          "capacity_places",
+          "capacity_basis",
+          "projected_peak_head"
         ],
         "title": "ProjectCostBreakdown",
         "description": "Components of the month-0 project cost (sums to metrics.project_cost)."
@@ -11483,6 +12320,103 @@
           },
           "conception_rate": {
             "$ref": "#/components/schemas/RiskVariable"
+          },
+          "fodder_yield": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "operating_cost": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
+          "correlation_strength": {
+            "type": "number",
+            "maximum": 0.95,
+            "minimum": 0.0,
+            "title": "Correlation Strength",
+            "default": 0.6
+          },
+          "disease_outbreak_probability_annual": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Disease Outbreak Probability Annual",
+            "default": 0.1
+          },
+          "disease_outbreak_duration_months": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 1.0,
+            "title": "Disease Outbreak Duration Months",
+            "default": 3
+          },
+          "disease_adult_mortality_multiplier": {
+            "type": "number",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Disease Adult Mortality Multiplier",
+            "default": 2.0
+          },
+          "disease_kid_mortality_multiplier": {
+            "type": "number",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Disease Kid Mortality Multiplier",
+            "default": 2.5
+          },
+          "disease_conception_multiplier": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Disease Conception Multiplier",
+            "default": 0.7
+          },
+          "drought_probability_annual": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Drought Probability Annual",
+            "default": 0.15
+          },
+          "drought_duration_months": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 1.0,
+            "title": "Drought Duration Months",
+            "default": 4
+          },
+          "drought_fodder_yield_multiplier": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Drought Fodder Yield Multiplier",
+            "default": 0.5
+          },
+          "drought_feed_price_multiplier": {
+            "type": "number",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Drought Feed Price Multiplier",
+            "default": 1.3
+          },
+          "market_crash_probability_annual": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Market Crash Probability Annual",
+            "default": 0.1
+          },
+          "market_crash_duration_months": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 1.0,
+            "title": "Market Crash Duration Months",
+            "default": 3
+          },
+          "market_crash_price_multiplier": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Market Crash Price Multiplier",
+            "default": 0.75
           }
         },
         "additionalProperties": false,
@@ -11638,6 +12572,11 @@
             "type": "boolean",
             "title": "Sensitivity",
             "default": false
+          },
+          "optimization": {
+            "type": "boolean",
+            "title": "Optimization",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -11670,6 +12609,22 @@
             "title": "Cull Buck Price Per Kg",
             "default": 200.0
           },
+          "monthly_meat_price_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Meat Price Multipliers"
+          },
+          "annual_livestock_price_growth_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": -1.0,
+            "title": "Annual Livestock Price Growth Rate",
+            "default": 0.0
+          },
           "eid_month": {
             "type": "integer",
             "maximum": 12.0,
@@ -11683,6 +12638,28 @@
             "minimum": 0.0,
             "title": "Eid Price Uplift",
             "default": 0.3
+          },
+          "festival_sale_months": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Festival Sale Months"
+          },
+          "selling_cost_fraction": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Selling Cost Fraction",
+            "default": 0.0
+          },
+          "transport_cost_per_head": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Transport Cost Per Head",
+            "default": 0.0
           },
           "milk_price_per_litre": {
             "type": "number",
@@ -11709,7 +12686,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "SalesAssumptions",
-        "description": "Prices and non-meat revenue streams (\u20b9)."
+        "description": "Market prices, seasonality and selling costs (\u20b9).\n\nThe twelve monthly multipliers are indexed by calendar month (January at\nindex 0). ``festival_sale_months`` is indexed by simulation month instead,\nbecause Eid al-Adha moves through the Gregorian calendar. The legacy\n``eid_month`` input remains supported for existing saved scenarios."
       },
       "ScenarioCompareOut": {
         "properties": {
@@ -12080,6 +13057,9 @@
           "risk": {
             "$ref": "#/components/schemas/RiskAssumptions"
           },
+          "optimization": {
+            "$ref": "#/components/schemas/OptimizationAssumptions"
+          },
           "events": {
             "items": {
               "$ref": "#/components/schemas/HerdEventAssumptions"
@@ -12126,6 +13106,17 @@
           "project_cost_breakdown": {
             "$ref": "#/components/schemas/ProjectCostBreakdown"
           },
+          "terminal_value_breakdown": {
+            "$ref": "#/components/schemas/TerminalValueBreakdown"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "assumptions_fingerprint": {
+            "type": "string",
+            "title": "Assumptions Fingerprint"
+          },
           "metric_explanations": {
             "items": {
               "$ref": "#/components/schemas/MetricExplanation"
@@ -12163,6 +13154,16 @@
               }
             ],
             "title": "Sensitivity"
+          },
+          "optimization": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -12172,7 +13173,10 @@
           "metrics",
           "amortization",
           "feed_summary",
-          "project_cost_breakdown"
+          "project_cost_breakdown",
+          "terminal_value_breakdown",
+          "model_version",
+          "assumptions_fingerprint"
         ],
         "title": "SimulationResult",
         "description": "Full deterministic result; Monte Carlo / sensitivity blocks are optional."
@@ -12890,6 +13894,40 @@
         ],
         "title": "TeamOut"
       },
+      "TerminalValueBreakdown": {
+        "properties": {
+          "livestock": {
+            "type": "number",
+            "title": "Livestock"
+          },
+          "shed": {
+            "type": "number",
+            "title": "Shed"
+          },
+          "equipment": {
+            "type": "number",
+            "title": "Equipment"
+          },
+          "working_capital": {
+            "type": "number",
+            "title": "Working Capital"
+          },
+          "total": {
+            "type": "number",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "livestock",
+          "shed",
+          "equipment",
+          "working_capital",
+          "total"
+        ],
+        "title": "TerminalValueBreakdown",
+        "description": "Recoverable closing assets included in the final project cash flow."
+      },
       "TokenOut": {
         "properties": {
           "access_token": {
@@ -13366,6 +14404,17 @@
             ],
             "title": "Irr"
           },
+          "mirr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mirr"
+          },
           "bcr": {
             "anyOf": [
               {
@@ -13427,6 +14476,45 @@
               }
             ],
             "title": "Break Even Meat Price Per Kg"
+          },
+          "peak_capacity_head": {
+            "type": "number",
+            "title": "Peak Capacity Head"
+          },
+          "terminal_value": {
+            "type": "number",
+            "title": "Terminal Value"
+          },
+          "tax_total": {
+            "type": "number",
+            "title": "Tax Total"
+          },
+          "accounting_profit_total": {
+            "type": "number",
+            "title": "Accounting Profit Total"
+          },
+          "minimum_cash_balance": {
+            "type": "number",
+            "title": "Minimum Cash Balance"
+          },
+          "minimum_cash_month": {
+            "type": "integer",
+            "title": "Minimum Cash Month"
+          },
+          "additional_working_capital_required": {
+            "type": "number",
+            "title": "Additional Working Capital Required"
+          },
+          "operating_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operating Margin"
           }
         },
         "type": "object",
@@ -13437,12 +14525,21 @@
           "equity",
           "npv",
           "irr",
+          "mirr",
           "bcr",
           "dscr_per_year",
           "avg_dscr",
           "min_dscr",
           "payback_month",
-          "break_even_meat_price_per_kg"
+          "break_even_meat_price_per_kg",
+          "peak_capacity_head",
+          "terminal_value",
+          "tax_total",
+          "accounting_profit_total",
+          "minimum_cash_balance",
+          "minimum_cash_month",
+          "additional_working_capital_required",
+          "operating_margin"
         ],
         "title": "ViabilityMetrics",
         "description": "NABARD-style project viability metrics."

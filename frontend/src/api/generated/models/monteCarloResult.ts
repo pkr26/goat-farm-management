@@ -14,12 +14,22 @@ export interface MonteCarloResult {
   seed: number;
   herd_percentiles: PercentileBand;
   cash_percentiles: PercentileBand;
+  liquidity_percentiles: PercentileBand;
   npv_mean: number;
   npv_std: number;
   npv_p5: number;
   npv_p50: number;
   npv_p95: number;
   prob_npv_negative: number;
+  prob_liquidity_shortfall: number;
+  prob_dscr_below_one: number;
+  minimum_cash_p5: number;
+  minimum_cash_p50: number;
+  ending_cash_p5: number;
+  ending_cash_p50: number;
+  mean_disease_outbreaks: number;
+  mean_drought_events: number;
+  mean_market_crashes: number;
   /**
      * @minItems 20
      * @maxItems 20

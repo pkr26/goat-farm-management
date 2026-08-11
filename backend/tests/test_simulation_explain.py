@@ -1,6 +1,6 @@
 """Tests for the explainability layer (app/simulation/explain.py).
 
-Every simulation result carries 11 metric explanations and a 6-section
+Every simulation result carries a complete viability-metric explanation set and a 6-section
 narrative report, generated deterministically from the run's own numbers.
 Runs use ``with_break_even=False`` unless the metric under test needs the
 bisection, to keep the file cheap.
@@ -19,11 +19,18 @@ METRIC_KEYS = {
     "equity",
     "npv",
     "irr",
+    "mirr",
     "bcr",
     "avg_dscr",
     "min_dscr",
     "payback_month",
     "break_even_meat_price_per_kg",
+    "peak_capacity_head",
+    "terminal_value",
+    "tax_total",
+    "accounting_profit_total",
+    "minimum_cash_balance",
+    "operating_margin",
 }
 
 SECTION_KEYS = {
@@ -44,7 +51,7 @@ def _verdict(result: SimulationResult) -> str:
 def test_every_run_has_all_explanations_and_sections() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     assert {e.key for e in res.metric_explanations} == METRIC_KEYS
-    assert len(res.metric_explanations) == 11
+    assert len(res.metric_explanations) == len(METRIC_KEYS)
     for entry in res.metric_explanations:
         assert entry.title.strip()
         assert entry.explanation.strip()
@@ -67,11 +74,22 @@ def test_explanation_figures_match_metrics() -> None:
     assert by_key["npv"]["npv"] == pytest.approx(m.npv)
     assert by_key["npv"]["discount_rate_annual"] == pytest.approx(0.12)
     assert by_key["irr"]["irr"] == pytest.approx(m.irr)
+    assert by_key["mirr"]["mirr"] == pytest.approx(m.mirr)
     assert by_key["bcr"]["bcr"] == pytest.approx(m.bcr)
     assert by_key["avg_dscr"]["avg_dscr"] == pytest.approx(m.avg_dscr)
     assert by_key["min_dscr"]["min_dscr"] == pytest.approx(m.min_dscr)
     assert by_key["payback_month"]["payback_month"] == m.payback_month
     assert by_key["break_even_meat_price_per_kg"]["assumed_meat_price_per_kg"] == 350.0
+    assert by_key["peak_capacity_head"]["capacity_places"] == pytest.approx(m.peak_capacity_head)
+    assert by_key["terminal_value"]["terminal_value"] == pytest.approx(m.terminal_value)
+    assert by_key["tax_total"]["tax_total"] == pytest.approx(m.tax_total)
+    assert by_key["accounting_profit_total"]["accounting_profit_total"] == pytest.approx(
+        m.accounting_profit_total
+    )
+    assert by_key["minimum_cash_balance"]["minimum_cash_balance"] == pytest.approx(
+        m.minimum_cash_balance
+    )
+    assert by_key["operating_margin"]["operating_margin"] == pytest.approx(m.operating_margin)
 
 
 def test_project_cost_explanation_figures_sum_to_project_cost() -> None:
@@ -104,6 +122,7 @@ def _viable_assumptions() -> SimulationAssumptions:
     a.finance.loan_term_months = 12
     a.finance.moratorium_months = 6
     a.finance.loan_fraction_of_project_cost = 0.5
+    a.finance.working_capital_months = 6
     return a
 
 
@@ -117,18 +136,33 @@ def test_verdict_viable_when_all_checks_pass() -> None:
     assert m.irr is not None and m.irr >= a.finance.discount_rate_annual
     assert m.payback_month is not None
     assert m.min_dscr is not None and m.min_dscr >= 1.0
+    assert m.additional_working_capital_required == 0.0
     assert _verdict(res) == "VIABLE"
     section = next(s for s in res.narrative_report if s.key == "viability_verdict")
     assert any("All standard checks pass" in p for p in section.paragraphs)
+
+
+def test_verdict_rejects_a_projected_herd_above_funded_capacity() -> None:
+    a = _viable_assumptions()
+    a.costs.capacity_basis = "planned"
+    a.costs.planned_capacity_head = 1
+
+    res = run_simulation(a, with_break_even=False)
+
+    assert res.metrics.npv > 0.0
+    assert res.project_cost_breakdown.projected_peak_head > 1.0
+    assert _verdict(res) == "NOT VIABLE"
+    section = next(s for s in res.narrative_report if s.key == "viability_verdict")
+    assert any("exceeds funded housing and equipment capacity" in p for p in section.paragraphs)
 
 
 def test_verdict_viable_with_caution_for_borderline_run() -> None:
     # Positive NPV but the weakest debt year cannot cover its repayment
     # (min_dscr in (0, 1)): viable, with a warning.
     a = SimulationAssumptions()
-    a.herd.male_growers = 60  # early meat revenue keeps year-1 EBITDA positive
+    a.herd.male_growers = 40  # early meat revenue keeps year-1 EBITDA positive
     a.finance.moratorium_months = 0  # full EMI from month 1 squeezes year-1 DSCR
-    a.sales.meat_price_per_kg = 500.0
+    a.sales.meat_price_per_kg = 600.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
@@ -246,6 +280,9 @@ def test_risks_section_uses_monte_carlo_and_sensitivity() -> None:
     assert risks.figures["npv_mean"] == pytest.approx(res.monte_carlo.npv_mean)
     assert risks.figures["npv_p5"] == pytest.approx(res.monte_carlo.npv_p5)
     assert risks.figures["prob_npv_negative"] == pytest.approx(res.monte_carlo.prob_npv_negative)
+    assert risks.figures["prob_liquidity_shortfall"] == pytest.approx(
+        res.monte_carlo.prob_liquidity_shortfall
+    )
     # Sensitivity movers are named; meat price dominates the tornado ranking.
     assert any("move NPV the most" in p for p in risks.paragraphs)
     assert any("meat price" in p for p in risks.paragraphs)
@@ -281,16 +318,12 @@ def test_revenue_and_cost_mix_totals_match_annual_pl() -> None:
     assert cost["feed_cost"] == pytest.approx(sum(r.feed_cost for r in res.annual_pl))
     assert cost["labour_cost"] == pytest.approx(sum(r.labour_cost for r in res.annual_pl))
     assert cost["stock_purchases"] == pytest.approx(sum(r.stock_purchases for r in res.annual_pl))
+    assert cost["selling_cost"] == pytest.approx(sum(r.selling_cost for r in res.annual_pl))
     assert cost["total_opex"] == pytest.approx(sum(r.total_opex for r in res.annual_pl))
 
 
 def test_fodder_deficit_narrative_matches_engine_costing() -> None:
-    """A land-balance deficit is reported but does not trigger extra purchases.
-
-    The engine values every required kg of green fodder at the configured
-    green-feed price regardless of cultivated acres.  The narrative must not
-    claim a separate purchased-feed cost that the cash flows never apply.
-    """
+    """A land-balance deficit is purchased and disclosed at the market price."""
     assumptions = SimulationAssumptions()
     result = run_simulation(assumptions, with_break_even=False)
     assert result.feed_summary.fodder_deficit_months > 0
@@ -298,9 +331,21 @@ def test_fodder_deficit_narrative_matches_engine_costing() -> None:
     cost_mix = next(section for section in result.narrative_report if section.key == "cost_mix")
     land_paragraph = cost_mix.paragraphs[1]
 
-    assert "costed as purchased feed" not in land_paragraph
-    assert "does not add a separate shortfall purchase charge" in land_paragraph
-    assert f"₹{assumptions.feed.green_price_per_kg:,.0f}/kg" in land_paragraph
+    purchased = sum(result.feed_summary.annual_purchased_green_kg)
+    assert purchased > 0.0
+    assert f"{purchased:,.0f}" in land_paragraph
+    assert "bought at the configured market price" in land_paragraph
+    assert "on-farm supply is costed separately" in land_paragraph
+
+
+def test_optimizer_report_never_labels_an_infeasible_plan_recommended() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
+    a.optimization.max_candidates = 3
+    a.optimization.maximum_project_cost = 0.0
+    result = run_simulation(a, with_break_even=False, with_optimization=True)
+    assert result.optimization is not None and result.optimization.recommended is None
+    section = next(item for item in result.narrative_report if item.key == "optimization")
+    assert "No plan is labelled as recommended" in section.paragraphs[0]
 
 
 def test_payback_explanation_says_never_covers_when_no_payback() -> None:

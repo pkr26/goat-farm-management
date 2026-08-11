@@ -80,6 +80,39 @@ def npv(rate_annual: float, flows: Sequence[float], times_years: Sequence[float]
     return sum(cf / _fpow(1.0 + rate_annual, t) for cf, t in zip(flows, times_years, strict=True))
 
 
+def mirr(
+    flows: Sequence[float],
+    times_years: Sequence[float],
+    finance_rate_annual: float,
+    reinvestment_rate_annual: float,
+) -> float | None:
+    """Modified internal rate of return for irregularly timed cash flows.
+
+    Negative cash flows are discounted to time zero at the finance rate and
+    positive cash flows are compounded to the final observation at the
+    reinvestment rate. Unlike ordinary IRR this has a single answer for any
+    series containing at least one positive and one negative flow.
+    """
+    if len(flows) != len(times_years) or not flows:
+        return None
+    horizon = max(times_years)
+    if horizon <= 0.0:
+        return None
+    present_costs = -sum(
+        cash_flow / _fpow(1.0 + finance_rate_annual, time)
+        for cash_flow, time in zip(flows, times_years, strict=True)
+        if cash_flow < 0.0
+    )
+    future_benefits = sum(
+        cash_flow * _fpow(1.0 + reinvestment_rate_annual, horizon - time)
+        for cash_flow, time in zip(flows, times_years, strict=True)
+        if cash_flow > 0.0
+    )
+    if present_costs <= 0.0 or future_benefits <= 0.0:
+        return None
+    return _fpow(future_benefits / present_costs, 1.0 / horizon) - 1.0
+
+
 IRR_BRACKET = (-0.99, 10.0)
 
 # Cash-flow series with several sign variations are the numerically difficult

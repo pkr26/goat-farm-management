@@ -66,8 +66,8 @@ export function StatCard({
           <Icon />
         </span>
         <div className="min-w-0 space-y-1">
-          <p className="truncate text-sm text-muted-foreground">{label}</p>
-          <p className="text-2xl font-semibold tracking-tight">{value}</p>
+          <p className="text-sm leading-tight text-muted-foreground">{label}</p>
+          <p className="text-2xl font-semibold tracking-normal">{value}</p>
           {(trend || hint) && (
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
               {trend && TrendIcon && (

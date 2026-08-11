@@ -8,4 +8,5 @@
 export type RunScenarioApiSimulationScenariosScenarioIdRunPostParams = {
 monte_carlo?: boolean;
 sensitivity?: boolean;
+optimization?: boolean;
 };

@@ -20,6 +20,56 @@ function monthlyTable(page: Page) {
   });
 }
 
+async function pageOverflow(page: Page) {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const containedByOverflowBoundary = (element: HTMLElement) => {
+      let ancestor = element.parentElement;
+      while (ancestor && ancestor !== document.body) {
+        const style = getComputedStyle(ancestor);
+        if (
+          style.position === "fixed" ||
+          ["auto", "clip", "hidden", "scroll"].includes(style.overflowX)
+        )
+          return true;
+        ancestor = ancestor.parentElement;
+      }
+      return false;
+    };
+    const elements =
+      root.scrollWidth <= root.clientWidth + 1
+        ? []
+        : [...document.querySelectorAll<HTMLElement>("body *")]
+            .map((element) => {
+              const rect = element.getBoundingClientRect();
+              return {
+                element,
+                details: {
+                  tag: element.tagName.toLowerCase(),
+                  slot: element.dataset.slot ?? "",
+                  className: typeof element.className === "string" ? element.className : "",
+                  right: Math.round(rect.right),
+                  width: Math.round(rect.width),
+                  text: (element.textContent ?? "").trim().slice(0, 80),
+                },
+              };
+            })
+            .filter(
+              ({ element, details }) =>
+                details.width > 0 &&
+                details.right > root.clientWidth + 1 &&
+                !containedByOverflowBoundary(element),
+            )
+            .map(({ details }) => details)
+            .slice(0, 20);
+    return {
+      overflow: root.scrollWidth - root.clientWidth,
+      scrollX: window.scrollX,
+      elements,
+    };
+  });
+}
+
 test.describe("simulation", () => {
   test("defaults + herd events run end-to-end; save and re-run as a scenario", async ({
     page,
@@ -147,5 +197,74 @@ test.describe("simulation", () => {
     await expect(page.getByRole("button", { name: "Run simulation" })).toBeDisabled();
     await expect(page.getByRole("heading", { name: "Results", exact: true })).toHaveCount(0);
     await expect(page.getByText("Must be at most 120.", { exact: true })).toBeVisible();
+  });
+
+  test("farm calibration and all decision analyses render responsively", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(180_000);
+    await signIn(page);
+    await page.goto("/simulation");
+
+    const horizonInput = page.locator("#sim-meta-horizon_months");
+    await expect(horizonInput).toBeVisible({ timeout: 20_000 });
+    await horizonInput.fill("24");
+    await horizonInput.blur();
+
+    await page.getByRole("button", { name: "Calibrate from farm" }).click();
+    await expect(
+      page.getByText("Farm calibration evidence", { exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+
+    await horizonInput.fill("24");
+    await horizonInput.blur();
+    await page.locator("#sim-herd-does").fill("20");
+    await page.locator("#sim-herd-does").blur();
+    await page.locator("#sim-herd-bucks").fill("1");
+    await page.locator("#sim-herd-bucks").blur();
+
+    const riskSection = page.locator("details", {
+      has: page.getByText("Risk", { exact: true }),
+    });
+    await riskSection.locator("summary").click();
+    await riskSection.locator("#sim-risk-monte_carlo_runs").fill("20");
+    await riskSection.locator("#sim-risk-monte_carlo_runs").blur();
+
+    const optimizationSection = page.locator("details", {
+      has: page.getByText("Optimization", { exact: true }),
+    });
+    await optimizationSection.locator("summary").click();
+    await optimizationSection.locator("#sim-optimization-max_candidates").fill("8");
+    await optimizationSection.locator("#sim-optimization-max_candidates").blur();
+
+    for (const option of ["Monte Carlo", "Sensitivity", "Optimization"]) {
+      await page.getByRole("checkbox", { name: option, exact: true }).click();
+    }
+
+    await page.getByRole("button", { name: "Run simulation" }).click();
+    const resultsHeading = page.getByRole("heading", { name: "Results", exact: true });
+    await expect(resultsHeading).toBeVisible({ timeout: 120_000 });
+    const monteCarloTitle = page.getByText(/Monte Carlo \(20 runs/);
+    await expect(monteCarloTitle).toBeVisible();
+    await expect(page.getByLabel("NPV histogram")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Annual uncertainty checkpoints" }),
+    ).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Does / bucks / ceiling" })).toBeVisible();
+    await expect(page.getByText("Sensitivity (ΔNPV)", { exact: true })).toBeVisible();
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    expect(await pageOverflow(page)).toEqual({ overflow: 0, scrollX: 0, elements: [] });
+    await resultsHeading.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("results-desktop.png") });
+    await monteCarloTitle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("advanced-desktop.png") });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await resultsHeading.scrollIntoViewIfNeeded();
+    expect(await pageOverflow(page)).toEqual({ overflow: 0, scrollX: 0, elements: [] });
+    await page.screenshot({ path: testInfo.outputPath("results-mobile.png") });
+    await monteCarloTitle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("advanced-mobile.png") });
   });
 });

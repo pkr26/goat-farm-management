@@ -22,4 +22,71 @@ export interface RiskAssumptions {
   kid_mortality?: RiskVariable;
   litter_size?: RiskVariable;
   conception_rate?: RiskVariable;
+  fodder_yield?: RiskVariable;
+  operating_cost?: RiskVariable;
+  /**
+     * @minimum 0
+     * @maximum 0.95
+     */
+  correlation_strength?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  disease_outbreak_probability_annual?: number;
+  /**
+     * @minimum 1
+     * @maximum 24
+     */
+  disease_outbreak_duration_months?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  disease_adult_mortality_multiplier?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  disease_kid_mortality_multiplier?: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  disease_conception_multiplier?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  drought_probability_annual?: number;
+  /**
+     * @minimum 1
+     * @maximum 24
+     */
+  drought_duration_months?: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  drought_fodder_yield_multiplier?: number;
+  /**
+     * @minimum 1
+     * @maximum 20
+     */
+  drought_feed_price_multiplier?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  market_crash_probability_annual?: number;
+  /**
+     * @minimum 1
+     * @maximum 24
+     */
+  market_crash_duration_months?: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  market_crash_price_multiplier?: number;
 }

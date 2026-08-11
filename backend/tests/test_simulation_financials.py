@@ -125,6 +125,7 @@ def opex_of(row: MonthlyRow) -> float:
         + row.labour_cost
         + row.insurance_cost
         + row.misc_cost
+        + row.selling_cost
         + row.purchase_cost
     )
 
@@ -201,12 +202,14 @@ def test_terminal_balance_charged_in_final_month() -> None:
     # The balloon is part of the final month's debt service (as principal).
     assert final.debt_service == pytest.approx(res.amortization[23].payment + balance_at_24)
     assert final.net_cash_flow == pytest.approx(
-        revenue_of(final) - opex_of(final) - final.debt_service
+        revenue_of(final) + final.terminal_value - opex_of(final) - final.debt_service - final.tax
     )
     # Non-final months carry only scheduled debt service.
     mid = res.months[-2]
     assert mid.debt_service == pytest.approx(res.amortization[22].payment)
-    assert mid.net_cash_flow == pytest.approx(revenue_of(mid) - opex_of(mid) - mid.debt_service)
+    assert mid.net_cash_flow == pytest.approx(
+        revenue_of(mid) - opex_of(mid) - mid.debt_service - mid.tax
+    )
 
 
 def test_terminal_balance_reaches_annual_pl_and_dscr() -> None:
@@ -240,15 +243,31 @@ def test_terminal_balance_reaches_npv_and_cumulative_cash() -> None:
     )
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
-    flows = [-m.equity, res.annual_pl[0].net_cash_flow, res.annual_pl[1].net_cash_flow]
-    times = [0.0, 1.0, 2.0]
+    flows = [-m.equity, *[month.net_cash_flow for month in res.months]]
+    times = [0.0, *[month.month / 12.0 for month in res.months]]
     assert m.npv == pytest.approx(npv(a.finance.discount_rate_annual, flows, times))
     assert res.months[-1].cumulative_cash_flow == pytest.approx(
         -m.equity + sum(row.net_cash_flow for row in res.months)
     )
 
 
-def test_no_terminal_charge_when_loan_ends_within_horizon() -> None:
+def test_npv_uses_monthly_cash_timing_not_year_end_lumping() -> None:
+    a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+    result = run_simulation(a, with_break_even=False)
+    monthly_flows = [-result.metrics.equity, *[row.net_cash_flow for row in result.months]]
+    monthly_times = [0.0, *[row.month / 12.0 for row in result.months]]
+    annual_flows = [-result.metrics.equity, *[row.net_cash_flow for row in result.annual_pl]]
+    annual_times = [0.0, 1.0, 2.0]
+
+    assert result.metrics.npv == pytest.approx(
+        npv(a.finance.discount_rate_annual, monthly_flows, monthly_times)
+    )
+    assert result.metrics.npv != pytest.approx(
+        npv(a.finance.discount_rate_annual, annual_flows, annual_times)
+    )
+
+
+def test_no_terminal_debt_balloon_when_loan_ends_within_horizon() -> None:
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
         finance=FinanceAssumptions(loan_term_months=24, moratorium_months=12),
@@ -257,16 +276,19 @@ def test_no_terminal_charge_when_loan_ends_within_horizon() -> None:
     assert res.amortization[-1].closing_balance == pytest.approx(0.0, abs=1e-6)
     final = res.months[-1]
     assert final.net_cash_flow == pytest.approx(
-        revenue_of(final) - opex_of(final) - final.debt_service
+        revenue_of(final) + final.terminal_value - opex_of(final) - final.debt_service - final.tax
     )
 
 
-def test_no_terminal_charge_for_default_run() -> None:
-    # 72-month loan inside a 120-month horizon: behaviour unchanged.
+def test_default_final_cash_includes_asset_recovery_but_no_debt_balloon() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     final = res.months[-1]
     assert final.debt_service == 0.0
-    assert final.net_cash_flow == pytest.approx(revenue_of(final) - opex_of(final))
+    assert final.terminal_value == pytest.approx(res.terminal_value_breakdown.total)
+    assert final.terminal_value > 0.0
+    assert final.net_cash_flow == pytest.approx(
+        revenue_of(final) + final.terminal_value - opex_of(final) - final.tax
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -311,8 +333,12 @@ def test_starting_growers_without_a_chain_are_kept_not_deleted() -> None:
     assert m1.f_growers == 0.0 and m1.m_growers == 0.0
     does = m1.open_does + m1.pregnant_does + m1.lactating_does
     assert does == pytest.approx(30.0 * S_ADULT, abs=1e-6)  # 10 foundation + 20 growers
-    # And the same head are what the project cost was charged for.
-    assert res.project_cost_breakdown.shed_cost == pytest.approx(61 * 4500.0)
+    # Opening head are preserved, and capacity also funds the larger projected
+    # peak rather than pretending the month-0 population is the maximum.
+    breakdown = res.project_cost_breakdown
+    assert breakdown.projected_peak_head >= 61.0
+    assert breakdown.capacity_places == pytest.approx(breakdown.projected_peak_head * 1.10)
+    assert breakdown.shed_cost == pytest.approx(breakdown.capacity_places * 4500.0)
 
 
 def test_starting_growers_match_the_one_slot_chain_at_the_boundary() -> None:
@@ -582,7 +608,14 @@ def test_break_even_price_never_exceeds_the_public_schema_ceiling() -> None:
     a.feed.concentrate_price_per_kg = 1_000_000.0
     a.sales.meat_price_per_kg = MAX_MONEY
 
-    assert run_simulation(a).metrics.break_even_meat_price_per_kg is None
+    break_even = run_simulation(a).metrics.break_even_meat_price_per_kg
+    assert break_even is not None
+    assert 0.0 <= break_even <= MAX_MONEY
+    variant = a.model_copy(deep=True)
+    variant.sales.meat_price_per_kg = break_even
+    assert run_simulation(variant, with_break_even=False).metrics.npv == pytest.approx(
+        0.0, abs=10.0
+    )
 
 
 def test_break_even_searches_the_full_public_price_domain() -> None:
@@ -601,15 +634,16 @@ def test_break_even_searches_the_full_public_price_domain() -> None:
 def test_feed_price_sensitivity_labels_all_prices_not_only_green_fodder() -> None:
     a = SimulationAssumptions()
     a.feed.green_price_per_kg = 0.0
-    a.feed.dry_price_per_kg = 10.0
-    a.feed.concentrate_price_per_kg = 30.0
+    a.feed.purchased_green_price_per_kg = 10.0
+    a.feed.dry_price_per_kg = 0.0
+    a.feed.concentrate_price_per_kg = 0.0
 
     feed = next(item for item in run_sensitivity(a) if item.parameter == "feed_prices")
 
     assert feed.label_low == "-20.0%"
     assert feed.label_high == "+20.0%"
-    assert feed.delta_npv_low != 0.0
-    assert feed.delta_npv_high != 0.0
+    assert feed.delta_npv_low > 0.0
+    assert feed.delta_npv_high < 0.0
 
 
 def test_dscr_consistency() -> None:
@@ -663,21 +697,27 @@ def test_npv_bcr_sign_agreement_across_grid() -> None:
 
 
 def test_bcr_is_gross_benefits_over_gross_costs() -> None:
-    """BCR must be PV(revenue) / PV(capital + opex + debt service), the ratio
-    the documentation promises and a lender compares to 1.5. Splitting the
-    *net* annual flows by sign instead gives 1 + NPV/PV(negative years) —
-    algebraically just a restatement of NPV, and 1.5-3x off in magnitude
-    (0.21 instead of 0.83 at the default price, 4.16 instead of 1.45 at 700)."""
+    """BCR includes terminal recovery as a benefit and cash tax as a cost."""
     for meat_price in (350.0, 500.0, 700.0):
         a = SimulationAssumptions()
         a.sales.meat_price_per_kg = meat_price
         res = run_simulation(a, with_break_even=False)
         rate = a.finance.discount_rate_annual
-        times = [0.0, *[float(row.year) for row in res.annual_pl]]
-        benefits = [0.0, *[row.total_revenue for row in res.annual_pl]]
+        times = [0.0, *[row.month / 12.0 for row in res.months]]
+        benefits = [
+            0.0,
+            *[
+                row.sales_revenue
+                + row.cull_revenue
+                + row.milk_revenue
+                + row.manure_revenue
+                + row.terminal_value
+                for row in res.months
+            ],
+        ]
         costs = [
             res.metrics.equity,
-            *[row.total_opex + row.debt_service for row in res.annual_pl],
+            *[opex_of(row) + row.debt_service + row.tax for row in res.months],
         ]
         expected = npv(rate, benefits, times) / npv(rate, costs, times)
         assert res.metrics.bcr == pytest.approx(expected), meat_price
@@ -707,18 +747,19 @@ def test_zero_bucks_means_no_conception() -> None:
     assert all(row.f_kids == 0.0 and row.m_kids == 0.0 for row in res.months)
 
 
-def test_auto_purchased_buck_enables_conception_from_month2() -> None:
-    """bucks=0 with auto-purchase on: month 1 breeds nothing (no sire at
-    breeding time — the buck is bought in that month's buck-management step);
-    the first conceptions land in month 2."""
+def test_auto_purchased_buck_enables_conception_in_purchase_month() -> None:
+    """Automatic sire procurement happens before service, so the accounting
+    month that buys the buck must also receive its conception capacity."""
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
         herd=HerdAssumptions(does=10, bucks=0, foundation_flock_state="open"),
     )
     res = run_simulation(a, with_break_even=False)
-    assert res.months[0].pregnant_does == 0.0
-    assert res.months[0].bucks == pytest.approx(1.0)  # auto-purchased in month 1
-    assert res.months[1].pregnant_does > 0.0
+    month1 = res.months[0]
+    expected_conceptions = 10.0 * a.reproduction.conception_rate * S_ADULT
+    assert month1.pregnant_does == pytest.approx(expected_conceptions)
+    assert month1.purchases_head >= 1.0
+    assert month1.bucks == pytest.approx(1.0)
 
 
 def test_selling_all_bucks_stops_conception() -> None:
@@ -808,9 +849,11 @@ def test_auto_buck_purchase_scales_with_doe_count() -> None:
     )
     res = run_simulation(a, with_break_even=False)
     m1 = res.months[0]
-    # ceil(51 x survival / 25) = 3 bucks bought in month 1 at ₹12,000 each.
-    assert m1.purchases_head == pytest.approx(3.0)
-    assert m1.purchase_cost == pytest.approx(3.0 * 12000.0)
+    # Three sires arrive before service. Expected mortality then removes a
+    # fractional head and the end-of-month policy top-up restores three.
+    expected_purchases = 3.0 + 3.0 * (1.0 - S_ADULT)
+    assert m1.purchases_head == pytest.approx(expected_purchases)
+    assert m1.purchase_cost == pytest.approx(expected_purchases * 12000.0)
     assert m1.bucks == pytest.approx(3.0)
 
 
@@ -889,9 +932,13 @@ def test_feed_dm_conservation_identity() -> None:
             + row.feed_concentrate_kg * feed.concentrate_dm_pct
         )
         assert dm_back > 0.0
-        # Cost is the as-fed kg times the as-fed prices.
+        assert row.feed_homegrown_green_kg + row.feed_purchased_green_kg == pytest.approx(
+            row.feed_green_kg
+        )
+        # Each physical source is valued at its own as-fed price.
         assert row.feed_cost == pytest.approx(
-            row.feed_green_kg * feed.green_price_per_kg
+            row.feed_homegrown_green_kg * feed.green_price_per_kg
+            + row.feed_purchased_green_kg * feed.purchased_green_price_per_kg
             + row.feed_dry_kg * feed.dry_price_per_kg
             + row.feed_concentrate_kg * feed.concentrate_price_per_kg
         )

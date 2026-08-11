@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { CostsAssumptionsCapacityBasis } from './costsAssumptionsCapacityBasis';
 
 /**
  * Recurring and capital costs (₹).
@@ -35,6 +36,11 @@ export interface CostsAssumptions {
      */
   misc_overhead_per_month?: number;
   /**
+     * @maximum 1
+     * @exclusiveMinimum -1
+     */
+  operating_cost_growth_rate_annual?: number;
+  /**
      * @minimum 0
      * @maximum 1000000000
      */
@@ -44,4 +50,35 @@ export interface CostsAssumptions {
      * @maximum 1000000000
      */
   equipment_cost_per_animal?: number;
+  capacity_basis?: CostsAssumptionsCapacityBasis;
+  /**
+     * @minimum 0
+     * @maximum 100000
+     */
+  planned_capacity_head?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  capacity_buffer_fraction?: number;
+  /**
+     * @minimum 1
+     * @maximum 100
+     */
+  shed_useful_life_years?: number;
+  /**
+     * @minimum 1
+     * @maximum 50
+     */
+  equipment_useful_life_years?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  shed_residual_fraction?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  equipment_residual_fraction?: number;
 }

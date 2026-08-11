@@ -40,6 +40,10 @@ MAX_FODDER_ACRES = 1_000_000
 MAX_FODDER_YIELD_T = 1000
 # Monte Carlo spread multipliers: a 100x swing is already absurd.
 MAX_RISK_MULTIPLIER = 100.0
+# Price/yield seasonality is deliberately bounded more tightly than an
+# arbitrary Monte Carlo spread: a 10x month-to-month multiplier is already well
+# beyond a useful farm-planning input while still allowing severe stress cases.
+MAX_SEASONAL_MULTIPLIER = 10.0
 
 # A live weight in kg, bounded so head × kg × ₹ products stay finite.
 WeightKg = Annotated[FiniteFloat, Field(gt=0.0, le=MAX_WEIGHT_KG)]
@@ -188,22 +192,59 @@ class GrowthAssumptions(_Group):
             raise ValueError("weight_by_age_months must be nondecreasing from birth to month 12")
         return value
 
+    @model_validator(mode="after")
+    def _birth_weight_matches_curve(self) -> "GrowthAssumptions":
+        if self.weight_by_age_months[0] != self.birth_weight_kg:
+            raise ValueError(
+                "birth_weight_kg must equal weight_by_age_months[0] "
+                "(both describe age-zero live weight)"
+            )
+        return self
+
 
 class SalesAssumptions(_Group):
-    """Prices and non-meat revenue streams (₹)."""
+    """Market prices, seasonality and selling costs (₹).
+
+    The twelve monthly multipliers are indexed by calendar month (January at
+    index 0). ``festival_sale_months`` is indexed by simulation month instead,
+    because Eid al-Adha moves through the Gregorian calendar. The legacy
+    ``eid_month`` input remains supported for existing saved scenarios.
+    """
 
     meat_price_per_kg: FiniteFloat = Field(default=350.0, ge=0.0, le=MAX_MONEY)  # ₹/kg live weight
     cull_doe_price_per_kg: FiniteFloat = Field(default=180.0, ge=0.0, le=MAX_MONEY)
     cull_buck_price_per_kg: FiniteFloat = Field(default=200.0, ge=0.0, le=MAX_MONEY)
+    monthly_meat_price_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
+    annual_livestock_price_growth_rate: FiniteFloat = Field(default=0.0, gt=-1.0, le=1.0)
     # Calendar month (1-12) in which the Bakrid price uplift applies; 0 disables it.
     eid_month: int = Field(default=0, ge=0, le=12)
     eid_price_uplift: FiniteFloat = Field(default=0.30, ge=0.0, le=2.0)
+    # Explicit 1-based simulation months are the accurate way to model a lunar
+    # festival over a multi-year Gregorian forecast. Empty keeps legacy/default
+    # behaviour; the same uplift is never applied twice in one month.
+    festival_sale_months: list[int] = Field(default_factory=list, max_length=40)
+    # Direct selling/mandi commission on livestock revenue and per-head
+    # transport/handling. Both are reported as selling cost, not netted out of
+    # the observed market price, so the revenue bridge remains auditable.
+    selling_cost_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=0.5)
+    transport_cost_per_head: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
     milk_price_per_litre: FiniteFloat = Field(default=30.0, ge=0.0, le=MAX_MONEY)
     # Total litres per lactation per doe; 0 for meat breeds (Osmanabadi),
     # ~110 Sirohi, ~175 Beetal, ~200 Jamunapari (NBAGR descriptors).
     lactation_milk_litres: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_LACTATION_LITRES)
     # ₹, TNAU budgets.
     manure_income_per_adult_per_year: FiniteFloat = Field(default=900.0, ge=0.0, le=MAX_MONEY)
+
+    @field_validator("monthly_meat_price_multipliers")
+    @classmethod
+    def _bounded_meat_multipliers(cls, value: list[float]) -> list[float]:
+        if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
+            raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
+        return value
 
 
 class FeedAssumptions(_Group):
@@ -232,19 +273,66 @@ class FeedAssumptions(_Group):
     green_dm_pct: FiniteFloat = Field(default=0.25, gt=0.0, le=1.0)
     dry_dm_pct: FiniteFloat = Field(default=0.88, gt=0.0, le=1.0)
     concentrate_dm_pct: FiniteFloat = Field(default=0.90, gt=0.0, le=1.0)
-    # Prices per kg as-fed (₹). Green fodder is costed at home-grown production
-    # cost (~₹1/kg, TNAU fodder budgets — the land requirement is reported
-    # separately); ₹2-3/kg applies when all green is purchased at market.
+    # Prices per kg as-fed (₹). ``green_price_per_kg`` is the home-grown
+    # production cost; a physical shortfall is purchased at the separate market
+    # price. Keeping them separate fixes the old model's economically impossible
+    # result where zero acres and ample fodder land had exactly the same cost.
     green_price_per_kg: FiniteFloat = Field(default=1.0, ge=0.0, le=MAX_MONEY)
+    purchased_green_price_per_kg: FiniteFloat = Field(default=2.5, ge=0.0, le=MAX_MONEY)
     dry_price_per_kg: FiniteFloat = Field(default=5.0, ge=0.0, le=MAX_MONEY)  # paddy straw ₹4-6/kg
     concentrate_price_per_kg: FiniteFloat = Field(
         default=25.0, ge=0.0, le=MAX_MONEY
     )  # commercial goat feed ₹22-28
+    annual_feed_price_growth_rate: FiniteFloat = Field(default=0.0, gt=-1.0, le=1.0)
+    monthly_green_price_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
+    monthly_dry_price_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
+    monthly_concentrate_price_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
     # Fraction of total DM obtained free from grazing (0 = stall-fed, ~0.3 semi-intensive).
     grazing_dm_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=1.0)
     # Cultivated fodder: area and DM yield (6 t DM/acre/yr ≈ hybrid napier/lucerne, TNAU).
     cultivated_fodder_acres: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_FODDER_ACRES)
     fodder_yield_t_dm_per_acre_year: FiniteFloat = Field(default=6.0, gt=0.0, le=MAX_FODDER_YIELD_T)
+    # Monthly production factors (average 1.0 is a full stated annual yield).
+    # They need not sum to 12: the engine normalizes them, so the annual yield
+    # remains exactly the user's stated agronomic assumption.
+    monthly_fodder_yield_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
+    initial_fodder_stock_kg_dm: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
+    fodder_storage_capacity_kg_dm: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
+    fodder_storage_loss_fraction_monthly: FiniteFloat = Field(default=0.02, ge=0.0, le=1.0)
+
+    @field_validator(
+        "monthly_green_price_multipliers",
+        "monthly_dry_price_multipliers",
+        "monthly_concentrate_price_multipliers",
+        "monthly_fodder_yield_multipliers",
+    )
+    @classmethod
+    def _bounded_monthly_multipliers(cls, value: list[float]) -> list[float]:
+        if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
+            raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
+        return value
+
+    @model_validator(mode="after")
+    def _initial_fodder_fits_storage(self) -> "FeedAssumptions":
+        if self.initial_fodder_stock_kg_dm > self.fodder_storage_capacity_kg_dm:
+            raise ValueError("initial_fodder_stock_kg_dm must be <= fodder_storage_capacity_kg_dm")
+        return self
 
 
 class CostsAssumptions(_Group):
@@ -264,9 +352,25 @@ class CostsAssumptions(_Group):
     labour_per_head_threshold: int = Field(default=75, ge=1, le=MAX_LABOUR_PER_HEAD_THRESHOLD)
     insurance_pct_stock_value_annual: FiniteFloat = Field(default=0.04, ge=0.0, le=0.25)
     misc_overhead_per_month: FiniteFloat = Field(default=2000.0, ge=0.0, le=MAX_MONEY)
+    operating_cost_growth_rate_annual: FiniteFloat = Field(default=0.0, gt=-1.0, le=1.0)
     # NABARD unit costs.
     shed_cost_per_animal_place: FiniteFloat = Field(default=4500.0, ge=0.0, le=MAX_MONEY)
     equipment_cost_per_animal: FiniteFloat = Field(default=500.0, ge=0.0, le=MAX_MONEY)
+    # Capacity can be driven by the projected physical peak (recommended), a
+    # user-approved plan, or the opening herd for legacy comparisons.
+    capacity_basis: Literal["projected_peak", "planned", "opening_herd"] = "projected_peak"
+    planned_capacity_head: int = Field(default=0, ge=0, le=MAX_HEAD)
+    capacity_buffer_fraction: FiniteFloat = Field(default=0.10, ge=0.0, le=1.0)
+    shed_useful_life_years: int = Field(default=20, ge=1, le=100)
+    equipment_useful_life_years: int = Field(default=7, ge=1, le=50)
+    shed_residual_fraction: FiniteFloat = Field(default=0.10, ge=0.0, le=1.0)
+    equipment_residual_fraction: FiniteFloat = Field(default=0.05, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _planned_capacity_is_present(self) -> "CostsAssumptions":
+        if self.capacity_basis == "planned" and self.planned_capacity_head <= 0:
+            raise ValueError("planned_capacity_head must be > 0 when capacity_basis is 'planned'")
+        return self
 
 
 class FinanceAssumptions(_Group):
@@ -284,6 +388,21 @@ class FinanceAssumptions(_Group):
     discount_rate_annual: FiniteFloat = Field(default=0.12, ge=0.0, le=0.5)
     # Months of operating cost held as working capital inside the project cost.
     working_capital_months: int = Field(default=3, ge=0, le=24)
+    # Tax is configurable rather than hard-coded: farm/entity tax treatment is
+    # jurisdiction- and structure-specific. Straight-line depreciation is used
+    # for the model accounts and tax shield.
+    income_tax_rate: FiniteFloat = Field(default=0.0, ge=0.0, le=0.6)
+    tax_loss_carryforward: bool = True
+    # A continuing-business forecast still owns livestock, facilities and the
+    # working-capital reserve at its horizon. Their recoverable value prevents
+    # a short forecast from pretending every closing asset disappears.
+    include_terminal_value: bool = True
+    terminal_livestock_realization_fraction: FiniteFloat = Field(default=0.90, ge=0.0, le=1.0)
+    terminal_asset_realization_fraction: FiniteFloat = Field(default=1.0, ge=0.0, le=1.0)
+    terminal_working_capital_recovery_fraction: FiniteFloat = Field(default=1.0, ge=0.0, le=1.0)
+    # Used by modified IRR, which remains meaningful for cash-flow patterns
+    # where ordinary IRR is ambiguous or has multiple roots.
+    reinvestment_rate_annual: FiniteFloat = Field(default=0.08, ge=0.0, le=0.5)
 
     @model_validator(mode="after")
     def _financing_is_coherent(self) -> "FinanceAssumptions":
@@ -334,6 +453,46 @@ class RiskAssumptions(_Group):
     kid_mortality: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.60, high=1.60))
     litter_size: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.85, high=1.10))
     conception_rate: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.80, high=1.05))
+    fodder_yield: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.65, high=1.10))
+    operating_cost: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.90, high=1.20))
+    # Strength of the model's documented market, climate and disease latent
+    # factors. A Gaussian copula maps those correlated factors into each
+    # triangular marginal without changing its low/mode/high definition.
+    correlation_strength: FiniteFloat = Field(default=0.60, ge=0.0, le=0.95)
+    disease_outbreak_probability_annual: FiniteFloat = Field(default=0.10, ge=0.0, le=1.0)
+    disease_outbreak_duration_months: int = Field(default=3, ge=1, le=24)
+    disease_adult_mortality_multiplier: FiniteFloat = Field(default=2.0, ge=1.0, le=20.0)
+    disease_kid_mortality_multiplier: FiniteFloat = Field(default=2.5, ge=1.0, le=20.0)
+    disease_conception_multiplier: FiniteFloat = Field(default=0.70, gt=0.0, le=1.0)
+    drought_probability_annual: FiniteFloat = Field(default=0.15, ge=0.0, le=1.0)
+    drought_duration_months: int = Field(default=4, ge=1, le=24)
+    drought_fodder_yield_multiplier: FiniteFloat = Field(default=0.50, gt=0.0, le=1.0)
+    drought_feed_price_multiplier: FiniteFloat = Field(default=1.30, ge=1.0, le=20.0)
+    market_crash_probability_annual: FiniteFloat = Field(default=0.10, ge=0.0, le=1.0)
+    market_crash_duration_months: int = Field(default=3, ge=1, le=24)
+    market_crash_price_multiplier: FiniteFloat = Field(default=0.75, gt=0.0, le=1.0)
+
+
+class OptimizationAssumptions(_Group):
+    """Bounded decision search and lender-style feasibility constraints."""
+
+    objective: Literal["balanced", "npv", "liquidity"] = "balanced"
+    max_candidates: int = Field(default=120, ge=1, le=300)
+    minimum_dscr: FiniteFloat = Field(default=1.20, ge=0.0, le=10.0)
+    maximum_project_cost: FiniteFloat = Field(default=MAX_MONEY, ge=0.0, le=MAX_MONEY)
+    maximum_funding_gap: FiniteFloat = Field(default=MAX_MONEY, ge=0.0, le=MAX_MONEY)
+    doe_scale_low: FiniteFloat = Field(default=0.75, gt=0.0, le=5.0)
+    doe_scale_high: FiniteFloat = Field(default=1.25, gt=0.0, le=5.0)
+    doe_scale_steps: int = Field(default=3, ge=1, le=9)
+    sale_age_radius_months: int = Field(default=2, ge=0, le=9)
+    retention_step: FiniteFloat = Field(default=0.25, ge=0.0, le=1.0)
+    loan_fraction_step: FiniteFloat = Field(default=0.15, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _range_order(self) -> "OptimizationAssumptions":
+        if self.doe_scale_low > self.doe_scale_high:
+            raise ValueError("doe_scale_low must be <= doe_scale_high")
+        return self
 
 
 class HerdEventAssumptions(_Group):
@@ -378,6 +537,7 @@ class SimulationAssumptions(_Group):
     costs: CostsAssumptions = Field(default_factory=CostsAssumptions)
     finance: FinanceAssumptions = Field(default_factory=FinanceAssumptions)
     risk: RiskAssumptions = Field(default_factory=RiskAssumptions)
+    optimization: OptimizationAssumptions = Field(default_factory=OptimizationAssumptions)
     # Bounded like every other list input: an unbounded events payload is an
     # unbounded work/payload vector.
     events: list[HerdEventAssumptions] = Field(default_factory=list, max_length=500)
@@ -389,6 +549,17 @@ class SimulationAssumptions(_Group):
                 raise ValueError(
                     f"event month {event.month} exceeds the simulation horizon "
                     f"({self.meta.horizon_months} months)"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _festival_months_within_horizon(self) -> "SimulationAssumptions":
+        if len(set(self.sales.festival_sale_months)) != len(self.sales.festival_sale_months):
+            raise ValueError("sales.festival_sale_months must not contain duplicates")
+        for month in self.sales.festival_sale_months:
+            if month < 1 or month > self.meta.horizon_months:
+                raise ValueError(
+                    "sales.festival_sale_months must contain 1-based months inside the horizon"
                 )
         return self
 

@@ -31,6 +31,8 @@ def _share(part: float, total: float) -> str:
 
 
 def _year_of(month: int) -> str:
+    if month <= 0:
+        return "project start (month 0)"
     return f"month {month} (year {(month - 1) // 12 + 1})"
 
 
@@ -63,7 +65,10 @@ def build_metric_explanations(
                 f"The total capital needed to start the project: shed {_inr(b.shed_cost)} "
                 f"+ equipment {_inr(b.equipment_cost)} + starting stock {_inr(b.stock_cost)} "
                 f"+ working capital {_inr(b.working_capital)} ("
-                f"{fin.working_capital_months} month(s) of average year-1 operating cost)."
+                f"{fin.working_capital_months} month(s) of average year-1 operating cost). "
+                f"Shed and equipment are funded for {b.capacity_places:.1f} animal places "
+                f"using the {b.capacity_basis.replace('_', ' ')} capacity basis; the projected "
+                f"peak monthly closing herd is {b.projected_peak_head:.1f} head."
             ),
             figures={
                 "project_cost": m.project_cost,
@@ -71,6 +76,9 @@ def build_metric_explanations(
                 "equipment_cost": b.equipment_cost,
                 "stock_cost": b.stock_cost,
                 "working_capital": b.working_capital,
+                "capacity_places": b.capacity_places,
+                "capacity_basis": b.capacity_basis,
+                "projected_peak_head": b.projected_peak_head,
             },
         )
     )
@@ -126,12 +134,14 @@ def build_metric_explanations(
         )
     )
     npv_text = (
-        f"Net present value: every year's net cash flow is discounted to today at "
+        f"Net present value: every month's net cash flow, including the recoverable closing "
+        f"assets of {_inr(m.terminal_value)}, is discounted to today at "
         f"{_pct(fin.discount_rate_annual)} per year, and the {_inr(m.equity)} equity outflow "
         f"is subtracted. A positive NPV of {_inr(m.npv)} means the project creates that much "
         f"wealth over and above a {_pct(fin.discount_rate_annual)} annual return."
         if m.npv >= 0.0
-        else f"Net present value: every year's net cash flow is discounted to today at "
+        else f"Net present value: every month's net cash flow, including the recoverable "
+        f"closing assets of {_inr(m.terminal_value)}, is discounted to today at "
         f"{_pct(fin.discount_rate_annual)} per year, and the {_inr(m.equity)} equity outflow "
         f"is subtracted. The NPV is {_inr(m.npv)} — negative, so at this discount rate the "
         f"project destroys value; improve margins, prices or costs before investing."
@@ -146,24 +156,43 @@ def build_metric_explanations(
     )
     out.append(
         MetricExplanation(
+            key="mirr",
+            title="Modified IRR (MIRR)",
+            explanation=(
+                f"MIRR is {_pct(m.mirr)} using the loan rate "
+                f"({_pct(fin.interest_rate_annual)}) to finance negative cash flows and "
+                f"{_pct(fin.reinvestment_rate_annual)} to reinvest positive cash flows. "
+                "It gives one conservative annual return even when ordinary IRR is ambiguous."
+                if m.mirr is not None
+                else "MIRR is undefined because this projection does not contain both a "
+                "negative and a positive cash flow."
+            ),
+            figures={
+                "mirr": m.mirr,
+                "finance_rate_annual": fin.interest_rate_annual,
+                "reinvestment_rate_annual": fin.reinvestment_rate_annual,
+            },
+        )
+    )
+    out.append(
+        MetricExplanation(
             key="irr",
             title="Internal rate of return (IRR)",
             explanation=(
-                f"The discount rate at which the NPV would be exactly zero — the project's "
-                f"implied annual return: {_pct(m.irr)}. It exceeds your "
+                f"The discount rate that zeroes the annual appraisal cash-flow blocks — the "
+                f"project's implied annual return: {_pct(m.irr)}. It exceeds your "
                 f"{_pct(fin.discount_rate_annual)} discount rate, so the project beats the "
                 f"required return."
                 if m.irr is not None and m.irr >= fin.discount_rate_annual
                 else (
-                    f"The discount rate at which the NPV would be exactly zero — the project's "
-                    f"implied annual return: {_pct(m.irr)}. This is below your "
+                    f"The discount rate that zeroes the annual appraisal cash-flow blocks — the "
+                    f"project's implied annual return: {_pct(m.irr)}. This is below your "
                     f"{_pct(fin.discount_rate_annual)} discount rate, so the project falls "
                     f"short of the required return."
                     if m.irr is not None
-                    else "The IRR is undefined for this cash-flow pattern: the flows either "
-                    "never change sign (the investment is never recovered) or change sign "
-                    "more than once, which admits several mathematically valid rates. Judge "
-                    "the project on its NPV instead."
+                    else "The annual appraisal IRR is undefined for this cash-flow pattern: "
+                    "the flows either never cross zero or admit several mathematically valid "
+                    "rates. Judge the project on monthly NPV and MIRR instead."
                 )
             ),
             figures={"irr": m.irr, "discount_rate_annual": fin.discount_rate_annual},
@@ -174,11 +203,11 @@ def build_metric_explanations(
             key="bcr",
             title="Benefit-cost ratio (BCR)",
             explanation=(
-                f"Present value of the project's gross revenue divided by the present value "
-                f"of its gross costs (capital, operating cost and debt service): {m.bcr:.2f}. "
+                f"Present value of gross operating revenue plus terminal recovery divided by "
+                f"the present value of equity, operating cost, tax and debt service: {m.bcr:.2f}. "
                 f"Above 1.0 the project earns more than it costs (at the "
-                f"{_pct(fin.discount_rate_annual)} discount rate); banks typically look for "
-                f"1.5 or better."
+                f"{_pct(fin.discount_rate_annual)} discount rate); use your lender's own "
+                f"required threshold for approval."
                 if m.bcr is not None
                 else "Benefit-cost ratio is undefined because the project has no "
                 "discounted costs at all (e.g. a fully subsidised, immediately "
@@ -195,7 +224,7 @@ def build_metric_explanations(
             key="avg_dscr",
             title="Average DSCR",
             explanation=(
-                f"Debt-service coverage ratio: operating surplus (EBITDA) divided by the "
+                f"Debt-service coverage ratio: operating surplus after cash tax divided by the "
                 f"year's loan repayment, averaged over the {debt_years} "
                 f"year(s) with debt outstanding: {m.avg_dscr:.2f}. Above 1.0 the farm can "
                 f"service the loan from operations; banks usually want 1.5 or better."
@@ -228,6 +257,105 @@ def build_metric_explanations(
             explanation=min_dscr_text,
             figures={"min_dscr": m.min_dscr},
         )
+    )
+    out.extend(
+        [
+            MetricExplanation(
+                key="peak_capacity_head",
+                title="Funded capacity",
+                explanation=(
+                    f"The project funds {m.peak_capacity_head:.1f} animal places against a "
+                    f"peak monthly closing herd of {b.projected_peak_head:.1f} head. "
+                    f"The reserve is {m.peak_capacity_head - b.projected_peak_head:.1f} places."
+                ),
+                figures={
+                    "capacity_places": m.peak_capacity_head,
+                    "projected_peak_head": b.projected_peak_head,
+                    "capacity_reserve_head": m.peak_capacity_head - b.projected_peak_head,
+                },
+            ),
+            MetricExplanation(
+                key="terminal_value",
+                title="Terminal value",
+                explanation=(
+                    f"The final cash flow recovers {_inr(m.terminal_value)}: livestock "
+                    f"{_inr(result.terminal_value_breakdown.livestock)}, shed "
+                    f"{_inr(result.terminal_value_breakdown.shed)}, equipment "
+                    f"{_inr(result.terminal_value_breakdown.equipment)} and working capital "
+                    f"{_inr(result.terminal_value_breakdown.working_capital)}. These are "
+                    "closing assets, not operating revenue."
+                    if fin.include_terminal_value
+                    else "Terminal value is disabled, so the projection assumes no livestock, "
+                    "facility or working-capital recovery at the horizon."
+                ),
+                figures={
+                    "terminal_value": m.terminal_value,
+                    "livestock": result.terminal_value_breakdown.livestock,
+                    "shed": result.terminal_value_breakdown.shed,
+                    "equipment": result.terminal_value_breakdown.equipment,
+                    "working_capital": result.terminal_value_breakdown.working_capital,
+                },
+            ),
+            MetricExplanation(
+                key="tax_total",
+                title="Cash tax",
+                explanation=(
+                    f"The model pays {_inr(m.tax_total)} of cash tax at an assumed "
+                    f"{_pct(fin.income_tax_rate)} rate after interest, straight-line "
+                    f"depreciation and "
+                    + (
+                        "carried-forward losses."
+                        if fin.tax_loss_carryforward
+                        else "current-period losses only."
+                    )
+                ),
+                figures={"tax_total": m.tax_total, "income_tax_rate": fin.income_tax_rate},
+            ),
+            MetricExplanation(
+                key="accounting_profit_total",
+                title="Accounting profit",
+                explanation=(
+                    f"Cumulative profit after depreciation, interest and tax is "
+                    f"{_inr(m.accounting_profit_total)}. This accrual profit excludes terminal "
+                    "asset recovery and differs from cash flow because depreciation is non-cash "
+                    "while principal repayment is not an expense."
+                ),
+                figures={"accounting_profit_total": m.accounting_profit_total},
+            ),
+            MetricExplanation(
+                key="minimum_cash_balance",
+                title="Liquidity low point",
+                explanation=(
+                    f"The operating cash reserve reaches its low point of "
+                    f"{_inr(m.minimum_cash_balance)} in {_year_of(m.minimum_cash_month)}. "
+                    + (
+                        f"The plan therefore needs at least another "
+                        f"{_inr(m.additional_working_capital_required)} beyond the funded "
+                        "working-capital reserve to avoid a cash shortfall."
+                        if m.additional_working_capital_required > 0.0
+                        else "The funded working-capital reserve remains non-negative throughout."
+                    )
+                ),
+                figures={
+                    "minimum_cash_balance": m.minimum_cash_balance,
+                    "minimum_cash_month": m.minimum_cash_month,
+                    "additional_working_capital_required": m.additional_working_capital_required,
+                },
+            ),
+            MetricExplanation(
+                key="operating_margin",
+                title="Operating margin",
+                explanation=(
+                    f"EBITDA is {_pct(m.operating_margin)} of operating revenue over the "
+                    "projection. This isolates farm operations before depreciation, financing "
+                    "and tax."
+                    if m.operating_margin is not None
+                    else "Operating margin is undefined because the projection has no "
+                    "operating revenue."
+                ),
+                figures={"operating_margin": m.operating_margin},
+            ),
+        ]
     )
     out.append(
         MetricExplanation(
@@ -430,8 +558,9 @@ def build_narrative_report(
     labour = sum(row.labour_cost for row in result.annual_pl)
     insurance = sum(row.insurance_cost for row in result.annual_pl)
     misc = sum(row.misc_cost for row in result.annual_pl)
+    selling = sum(row.selling_cost for row in result.annual_pl)
     stock_purchases = sum(row.stock_purchases for row in result.annual_pl)
-    total_opex = feed + vet + labour + insurance + misc + stock_purchases
+    total_opex = feed + vet + labour + insurance + misc + selling + stock_purchases
     sections.append(
         ReportSection(
             key="cost_mix",
@@ -444,6 +573,7 @@ def build_narrative_report(
                         ("feed", feed),
                         ("labour", labour),
                         ("stock purchases", stock_purchases),
+                        ("selling", selling),
                         ("vet", vet),
                         ("insurance", insurance),
                         ("overheads", misc),
@@ -456,9 +586,10 @@ def build_narrative_report(
                 + (
                     f"; your cultivated area falls short in "
                     f"{result.feed_summary.fodder_deficit_months} month(s). This is a "
-                    f"land-planning indicator: feed cost still values all required green "
-                    f"fodder at {_inr(a.feed.green_price_per_kg)}/kg and does not add a "
-                    f"separate shortfall purchase charge."
+                    f"physical and financial shortfall: "
+                    f"{sum(result.feed_summary.annual_purchased_green_kg):,.0f} "
+                    f"kg as-fed is bought at the configured market price, while on-farm supply "
+                    f"is costed separately."
                     if result.feed_summary.fodder_deficit_months > 0
                     else "."
                 ),
@@ -468,6 +599,7 @@ def build_narrative_report(
                 "feed_cost": feed,
                 "labour_cost": labour,
                 "stock_purchases": stock_purchases,
+                "selling_cost": selling,
                 "vet_cost": vet,
                 "insurance_cost": insurance,
                 "misc_cost": misc,
@@ -498,7 +630,20 @@ def build_narrative_report(
         problems.append("the weakest debt year has a DSCR below 1.0")
     if m.payback_month is None:
         problems.append("the equity is never paid back inside the horizon")
-    if m.npv <= 0.0 or (m.bcr is not None and m.bcr < 1.0):
+    if m.additional_working_capital_required > 0.0:
+        problems.append(
+            "the funded working-capital reserve becomes negative and additional liquidity is needed"
+        )
+    capacity_shortfall = (
+        result.project_cost_breakdown.projected_peak_head
+        - result.project_cost_breakdown.capacity_places
+    )
+    if capacity_shortfall > 1e-9:
+        problems.append(
+            f"the projected peak herd exceeds funded housing and equipment capacity by "
+            f"{capacity_shortfall:.1f} head"
+        )
+    if m.npv <= 0.0 or (m.bcr is not None and m.bcr < 1.0) or capacity_shortfall > 1e-9:
         verdict = "NOT VIABLE"
     elif problems:
         verdict = "VIABLE WITH CAUTION"
@@ -544,10 +689,12 @@ def build_narrative_report(
     if result.monte_carlo is not None:
         mc = result.monte_carlo
         risk_paragraphs.append(
-            f"Across {mc.runs} Monte Carlo runs (varying prices, mortality, litter size "
-            f"and conception within your risk spreads), the NPV averages {_inr(mc.npv_mean)} "
+            f"Across {mc.runs} correlated Monte Carlo runs (varying prices, feed, fodder yield, "
+            f"operating cost, mortality and reproduction, plus monthly adverse events), the NPV "
+            f"averages {_inr(mc.npv_mean)} "
             f"with a 90% range of {_inr(mc.npv_p5)} to {_inr(mc.npv_p95)}. The project "
-            f"loses money in {_pct(mc.prob_npv_negative)} of the runs."
+            f"loses money in {_pct(mc.prob_npv_negative)} of runs and runs short of operating "
+            f"cash in {_pct(mc.prob_liquidity_shortfall)}."
         )
         risk_figures.update(
             {
@@ -556,6 +703,8 @@ def build_narrative_report(
                 "npv_p5": mc.npv_p5,
                 "npv_p95": mc.npv_p95,
                 "prob_npv_negative": mc.prob_npv_negative,
+                "prob_liquidity_shortfall": mc.prob_liquidity_shortfall,
+                "prob_dscr_below_one": mc.prob_dscr_below_one,
             }
         )
     if result.sensitivity:
@@ -598,5 +747,48 @@ def build_narrative_report(
             figures=risk_figures,
         )
     )
+
+    if result.optimization is not None:
+        optimization = result.optimization
+        if optimization.recommended is None:
+            recommendation_paragraphs = [
+                f"None of the {optimization.evaluated_candidates} tested plans met every "
+                f"configured financing, liquidity, capacity and DSCR constraint. No plan is "
+                f"labelled as recommended; revise the constraints or economics before acting."
+            ]
+            recommendation_figures: dict[str, float | str | None] = {
+                "objective": optimization.objective,
+                "evaluated_candidates": float(optimization.evaluated_candidates),
+                "feasible_candidates": 0.0,
+            }
+        else:
+            recommended = optimization.recommended
+            recommendation_paragraphs = [
+                f"Under the {optimization.objective} objective, the highest-ranked feasible "
+                f"plan starts with {recommended.starting_does} does and "
+                f"{recommended.starting_bucks} bucks, targets "
+                f"{recommended.max_breeding_does} breeding does, sells at "
+                f"{recommended.sale_age_months} months, retains "
+                f"{_pct(recommended.female_retention_fraction)} of eligible females and uses "
+                f"{_pct(recommended.loan_fraction)} debt. Its NPV is {_inr(recommended.npv)} "
+                f"with a minimum DSCR of "
+                + (f"{recommended.min_dscr:.2f}." if recommended.min_dscr is not None else "N/A.")
+            ]
+            recommendation_figures = {
+                "objective": optimization.objective,
+                "evaluated_candidates": float(optimization.evaluated_candidates),
+                "feasible_candidates": float(optimization.feasible_candidates),
+                "recommended_npv": recommended.npv,
+                "recommended_starting_does": float(recommended.starting_does),
+                "recommended_min_dscr": recommended.min_dscr,
+            }
+        sections.append(
+            ReportSection(
+                key="optimization",
+                title="Decision optimization",
+                paragraphs=recommendation_paragraphs,
+                figures=recommendation_figures,
+            )
+        )
 
     return sections

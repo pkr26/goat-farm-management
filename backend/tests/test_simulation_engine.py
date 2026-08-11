@@ -292,13 +292,22 @@ def test_default_run_herd_grows_and_sales_timing() -> None:
     assert all(row.sales_head == 0.0 for row in months[:12])
 
 
-def test_default_run_ebitda_positive_by_year3() -> None:
-    """NABARD sanity: the default 50+2 Osmanabadi stall-fed unit is viable at
-    the operating level — EBITDA positive from year 3 and in steady state."""
+def test_default_run_reports_purchased_fodder_and_honest_operating_result() -> None:
+    """A zero-acre stall-fed plan must buy its entire green-fodder requirement.
+
+    The old engine priced zero acres exactly like sufficient land and could
+    therefore promise positive steady-state EBITDA without paying for the
+    shortfall. The revised default is allowed to be unattractive; the identity
+    and physical purchase disclosure are what must remain true.
+    """
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
-    assert res.annual_pl[2].ebitda > 0.0
-    for row in res.annual_pl[6:]:  # steady state, years 7-10
-        assert row.ebitda > 0.0
+    assert res.feed_summary.fodder_deficit_months == 120
+    assert sum(res.feed_summary.annual_homegrown_green_kg) == 0.0
+    assert sum(res.feed_summary.annual_purchased_green_kg) == pytest.approx(
+        sum(res.feed_summary.annual_green_kg)
+    )
+    for row in res.annual_pl:
+        assert row.ebitda == pytest.approx(row.total_revenue - row.total_opex)
 
 
 def test_default_run_npv_bcr_consistency() -> None:
@@ -558,6 +567,11 @@ def test_weight_curve() -> None:
 def test_weight_curve_rejects_nonphysical_or_wrong_length(curve: list[float]) -> None:
     with pytest.raises(ValidationError):
         SimulationAssumptions.model_validate({"growth": {"weight_by_age_months": curve}})
+
+
+def test_birth_weight_must_match_age_zero_growth_curve() -> None:
+    with pytest.raises(ValidationError, match="birth_weight_kg must equal"):
+        SimulationAssumptions.model_validate({"growth": {"birth_weight_kg": 3.0}})
 
 
 def test_breed_presets_and_systems() -> None:
@@ -824,11 +838,10 @@ def test_female_grower_purchase_without_grower_chain_joins_doe_pool() -> None:
     assert _doe_pool(m3) - _doe_pool(m3_base) == pytest.approx(3.0 * S_ADULT, abs=1e-6)
 
 
-def test_male_grower_purchase_at_sale_age_books_purchase_only() -> None:
-    # sale_age == 6: no grower slots, so the purchase has nowhere to age
-    # through — it must book as a purchase only (mid-class weight), not also
-    # as an immediate same-month meat sale (which used to manufacture a
-    # phantom round trip at the mismatched mid-age vs sale-age valuation).
+def test_male_grower_purchase_at_sale_age_preserves_mass_and_value() -> None:
+    # sale_age == 6: no grower slots exist because the purchased animals are
+    # already market-ready. They graduate and sell in the event month at the
+    # same age-based value used for the purchase, rather than disappearing.
     a = event_toy(
         [HerdEventAssumptions(month=3, kind="purchase", animal_class="male_grower", count=3)],
         horizon=12,
@@ -840,10 +853,11 @@ def test_male_grower_purchase_at_sale_age_books_purchase_only() -> None:
     base = run_simulation(base_a, with_break_even=False)
     m3, m3_base = res.months[2], base.months[2]
     assert m3.m_growers == 0.0
-    assert m3.sales_head == pytest.approx(m3_base.sales_head, abs=1e-9)
-    assert m3.sales_revenue == pytest.approx(m3_base.sales_revenue, abs=1e-9)
+    assert m3.sales_head - m3_base.sales_head == pytest.approx(3.0)
     assert m3.purchases_head == pytest.approx(3.0)
-    assert m3.purchase_cost == pytest.approx(3.0 * weight_at_age(5, a.growth, 34.0) * 350.0)
+    expected_value = 3.0 * weight_at_age(6, a.growth, 34.0) * 350.0
+    assert m3.purchase_cost == pytest.approx(expected_value)
+    assert m3.sales_revenue - m3_base.sales_revenue == pytest.approx(expected_value)
 
 
 def test_sale_event_does_booked_as_culls() -> None:
@@ -1038,7 +1052,7 @@ def test_event_validation() -> None:
         SimulationAssumptions(events=[event_payload(bogus=1)])  # type: ignore[list-item]
 
 
-def test_project_cost_breakdown_sums_and_ignores_events() -> None:
+def test_project_cost_breakdown_sums_and_funds_scheduled_peak_capacity() -> None:
     event = HerdEventAssumptions(month=14, kind="purchase", animal_class="doe", count=10)
     res = run_simulation(event_toy([event]), with_break_even=False)
     base = run_simulation(event_toy([]), with_break_even=False)
@@ -1046,9 +1060,14 @@ def test_project_cost_breakdown_sums_and_ignores_events() -> None:
     assert b.shed_cost + b.equipment_cost + b.stock_cost + b.working_capital == pytest.approx(
         res.metrics.project_cost
     )
-    # Mid-run purchases are opex: the month-0 project cost is untouched.
-    assert res.metrics.project_cost == base.metrics.project_cost
-    assert res.project_cost_breakdown == base.project_cost_breakdown
+    # The animals themselves remain a month-14 operating purchase, but their
+    # forecast housing/equipment requirement must be funded at project start.
+    assert res.months[13].purchase_cost > 0.0
+    assert b.stock_cost == pytest.approx(base.project_cost_breakdown.stock_cost)
+    assert b.working_capital == pytest.approx(base.project_cost_breakdown.working_capital)
+    assert b.projected_peak_head > base.project_cost_breakdown.projected_peak_head
+    assert b.shed_cost > base.project_cost_breakdown.shed_cost
+    assert res.metrics.project_cost > base.metrics.project_cost
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,14 @@ vi.mock("next/navigation", () => ({
 }));
 
 const MANAGE_PERMS = ["simulation.view", "simulation.manage"];
+const CALIBRATION_PERMS = [
+  ...MANAGE_PERMS,
+  "animals.view",
+  "breeding.view",
+  "kidding.view",
+  "feeding.view",
+  "finance.view",
+];
 
 /** Sparse but valid full assumptions object (only present keys render). */
 const DEFAULTS = {
@@ -52,6 +60,7 @@ function monthRow(overrides: Record<string, unknown> = {}) {
     deaths: 0,
     sales_head: 0,
     sales_revenue: 0,
+    meat_price_per_kg: 350,
     culls_head: 0,
     cull_revenue: 0,
     milk_revenue: 0,
@@ -59,6 +68,8 @@ function monthRow(overrides: Record<string, unknown> = {}) {
     purchases_head: 0,
     purchase_cost: 0,
     feed_green_kg: 0,
+    feed_homegrown_green_kg: 0,
+    feed_purchased_green_kg: 0,
     feed_dry_kg: 0,
     feed_concentrate_kg: 0,
     feed_cost: 4000,
@@ -66,10 +77,17 @@ function monthRow(overrides: Record<string, unknown> = {}) {
     labour_cost: 2000,
     insurance_cost: 100,
     misc_cost: 400,
+    selling_cost: 0,
+    depreciation: 0,
+    tax: 0,
+    terminal_value: 0,
     debt_service: 0,
     net_cash_flow: -7000,
     cumulative_cash_flow: -7000,
+    cash_balance: 43000,
     fodder_surplus_kg: 0,
+    fodder_stock_kg_dm: 0,
+    fodder_waste_kg_dm: 0,
     ...overrides,
   };
 }
@@ -87,41 +105,79 @@ const RESULT = {
     equity: 150000,
     npv: 234567,
     irr: 0.18,
+    mirr: 0.16,
     bcr: 1.42,
     dscr_per_year: [1.8],
     avg_dscr: 1.8,
     min_dscr: 1.8,
     payback_month: 30,
     break_even_meat_price_per_kg: 320,
+    peak_capacity_head: 58,
+    terminal_value: 150000,
+    tax_total: 0,
+    accounting_profit_total: 25000,
+    minimum_cash_balance: 43000,
+    minimum_cash_month: 1,
+    additional_working_capital_required: 0,
+    operating_margin: 0.25,
   },
   amortization: [],
   feed_summary: {
     annual_green_kg: [],
+    annual_homegrown_green_kg: [],
+    annual_purchased_green_kg: [],
     annual_dry_kg: [],
     annual_concentrate_kg: [],
     annual_feed_cost: [],
+    annual_fodder_waste_kg_dm: [],
     land_requirement_acres: 0,
     fodder_deficit_months: 0,
+    peak_fodder_stock_kg_dm: 0,
   },
   project_cost_breakdown: {
     shed_cost: 200000,
     equipment_cost: 50000,
     stock_cost: 200000,
     working_capital: 50000,
+    capacity_places: 58,
+    capacity_basis: "projected_peak",
+    projected_peak_head: 52.4,
   },
+  terminal_value_breakdown: {
+    livestock: 100000,
+    shed: 30000,
+    equipment: 5000,
+    working_capital: 15000,
+    total: 150000,
+  },
+  model_version: "3.0.0",
+  assumptions_fingerprint: "0123456789abcdef0123456789abcdef",
   metric_explanations: [],
   narrative_report: [],
   monte_carlo: null,
   sensitivity: null,
+  optimization: null,
 };
 
 interface RunBody {
   assumptions: {
     meta?: { horizon_months?: number };
+    sales?: {
+      monthly_meat_price_multipliers?: number[];
+      festival_sale_months?: number[];
+      annual_livestock_price_growth_rate?: number;
+    };
+    feed?: {
+      monthly_green_price_multipliers?: number[];
+      annual_feed_price_growth_rate?: number;
+    };
+    costs?: { operating_cost_growth_rate_annual?: number };
+    growth?: { birth_weight_kg?: number; weight_by_age_months?: number[] };
     events?: unknown[];
   };
   monte_carlo: boolean;
   sensitivity: boolean;
+  optimization: boolean;
 }
 
 /** Breeds + defaults + scenario list; the run POST captures its body. */
@@ -129,13 +185,19 @@ function registerApiHandlers(options: {
   scenarios?: unknown[];
   onRun?: (body: RunBody) => void;
   runResult?: unknown;
+  defaults?: unknown;
+  permissions?: string[];
+  calibrationResult?: unknown;
+  onCalibration?: (params: URLSearchParams) => void;
 } = {}) {
   server.use(
-    permissionsHandler(MANAGE_PERMS),
+    permissionsHandler(options.permissions ?? MANAGE_PERMS),
     http.get("/api/simulation/defaults/breeds", () =>
       HttpResponse.json({ breeds: ["osmanabadi"], systems: ["stall_fed"] }),
     ),
-    http.get("/api/simulation/defaults", () => HttpResponse.json(DEFAULTS)),
+    http.get("/api/simulation/defaults", () =>
+      HttpResponse.json(options.defaults ?? DEFAULTS),
+    ),
     http.get("/api/simulation/scenarios", ({ request }) => {
       const scenarios = options.scenarios ?? [];
       const params = new URL(request.url).searchParams;
@@ -161,6 +223,10 @@ function registerApiHandlers(options: {
         total_head: 72,
       }),
     ),
+    http.get("/api/simulation/calibration", ({ request }) => {
+      options.onCalibration?.(new URL(request.url).searchParams);
+      return HttpResponse.json(options.calibrationResult ?? {});
+    }),
     http.post("/api/simulation/run", async ({ request }) => {
       options.onRun?.((await request.json()) as RunBody);
       return HttpResponse.json(options.runResult ?? RESULT);
@@ -560,5 +626,303 @@ describe("SimulationPage results and scenario management", () => {
     resolveDelete!();
     await waitFor(() => expect(deleteCalls).toBe(1));
     await waitFor(() => expect(deleteButton).toBeEnabled());
+  });
+});
+
+describe("SimulationPage advanced financial controls", () => {
+  it("keeps birth weight synchronized with age zero in the growth curve", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        growth: {
+          birth_weight_kg: 2.5,
+          adult_weight_doe_kg: 32,
+          adult_weight_buck_kg: 34,
+          sale_age_months: 12,
+          weight_by_age_months: [
+            2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5,
+            24.5, 26.5,
+          ],
+        },
+      },
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
+
+    await user.click(screen.getByText("Growth"));
+    const birthWeight = screen.getByLabelText("Birth Weight Kg");
+    await user.clear(birthWeight);
+    await user.type(birthWeight, "3.1");
+    expect((screen.getByLabelText(/Weight By Age Months/) as HTMLInputElement).value).toMatch(
+      /^3\.1,/,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(captured.body?.assumptions.growth?.birth_weight_kg).toBe(3.1);
+    expect(captured.body?.assumptions.growth?.weight_by_age_months?.[0]).toBe(3.1);
+  });
+
+  it("validates and sends seasonal arrays and explicit festival months", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        sales: {
+          monthly_meat_price_multipliers: Array(12).fill(1),
+          festival_sale_months: [],
+          annual_livestock_price_growth_rate: 0,
+        },
+        feed: {
+          monthly_green_price_multipliers: Array(12).fill(1),
+          annual_feed_price_growth_rate: 0,
+        },
+        costs: { operating_cost_growth_rate_annual: 0 },
+      },
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
+
+    await user.click(screen.getByText("Sales"));
+    const meatSeasonality = screen.getByLabelText(/Monthly Meat Price Multipliers/);
+    await user.clear(meatSeasonality);
+    await user.type(meatSeasonality, "1,1,1,1,1,1,1,1,1,1,1");
+    expect(
+      screen.getByText("Enter exactly 12 monthly multipliers (Jan-Dec)."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    await user.clear(meatSeasonality);
+    await user.type(meatSeasonality, "1,1.01,1,1,1,1,1,1,1,1,1,0.99");
+    await user.type(screen.getByLabelText(/Festival Sale Months/), "12,24");
+    const livestockGrowth = screen.getByLabelText("Annual Livestock Price Growth Rate");
+    await user.clear(livestockGrowth);
+    await user.type(livestockGrowth, "-0.05");
+
+    await user.click(screen.getByText("Feed"));
+    const greenSeasonality = screen.getByLabelText(/Monthly Green Price Multipliers/);
+    await user.clear(greenSeasonality);
+    await user.type(greenSeasonality, "1,1,1,1,1,1.1,1.1,1,1,1,1,1");
+    const feedGrowth = screen.getByLabelText("Annual Feed Price Growth Rate");
+    await user.clear(feedGrowth);
+    await user.type(feedGrowth, "-0.03");
+
+    await user.click(screen.getByText("Costs"));
+    const costGrowth = screen.getByLabelText("Operating Cost Growth Rate Annual");
+    await user.clear(costGrowth);
+    await user.type(costGrowth, "-0.02");
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect(captured.body?.assumptions.sales).toMatchObject({
+      monthly_meat_price_multipliers: [1, 1.01, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.99],
+      festival_sale_months: [12, 24],
+      annual_livestock_price_growth_rate: -0.05,
+    });
+    expect(captured.body?.assumptions.feed?.monthly_green_price_multipliers).toEqual([
+      1, 1, 1, 1, 1, 1.1, 1.1, 1, 1, 1, 1, 1,
+    ]);
+    expect(captured.body?.assumptions.feed?.annual_feed_price_growth_rate).toBe(-0.03);
+    expect(captured.body?.assumptions.costs?.operating_cost_growth_rate_annual).toBe(-0.02);
+  });
+
+  it("blocks a run when initial fodder exceeds storage and recovers after correction", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        feed: {
+          initial_fodder_stock_kg_dm: 0,
+          fodder_storage_capacity_kg_dm: 100,
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Feed"));
+    const initialStock = screen.getByLabelText("Initial Fodder Stock Kg Dm");
+    await user.clear(initialStock);
+    await user.type(initialStock, "200");
+
+    expect(
+      screen.getByText("Initial fodder stock must fit within fodder storage capacity."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    const capacity = screen.getByLabelText("Fodder Storage Capacity Kg Dm");
+    await user.clear(capacity);
+    await user.type(capacity, "300");
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          "Initial fodder stock must fit within fodder storage capacity.",
+        ),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
+  it("calibrates assumptions from permitted farm records and shows the evidence", async () => {
+    const captured: { breed?: string; system?: string; lookback?: string } = {};
+    const user = userEvent.setup();
+    await renderLoaded({
+      permissions: CALIBRATION_PERMS,
+      onCalibration: (params) => {
+        captured.breed = params.get("breed") ?? undefined;
+        captured.system = params.get("system") ?? undefined;
+        captured.lookback = params.get("lookback_months") ?? undefined;
+      },
+      calibrationResult: {
+        assumptions: {
+          ...DEFAULTS,
+          herd: { ...DEFAULTS.herd, does: 73, bucks: 3 },
+        },
+        evidence: [
+          {
+            path: "herd.does",
+            previous_value: 50,
+            calibrated_value: 73,
+            sample_size: 73,
+            confidence: "high",
+            method: "Counted active adult female animals",
+            source: "Animal registry",
+            period_start: "2024-08-10",
+            period_end: "2026-08-10",
+          },
+        ],
+        warnings: ["Feed invoice history was too sparse for a reliable price estimate."],
+        coverage_score: 0.72,
+        reference_date: "2026-08-10",
+        lookback_months: 24,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
+
+    expect(await screen.findByText("Animal registry")).toBeInTheDocument();
+    expect(screen.getByText("Herd / Does")).toBeInTheDocument();
+    expect(screen.getByLabelText("Does")).toHaveValue(73);
+    expect(screen.getByText("72.0% coverage")).toBeInTheDocument();
+    expect(
+      screen.getByText("Feed invoice history was too sparse for a reliable price estimate."),
+    ).toBeInTheDocument();
+    expect(captured).toEqual({
+      breed: "osmanabadi",
+      system: "stall_fed",
+      lookback: "24",
+    });
+  });
+
+  it("sends the optimization flag and never recommends an infeasible candidate", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      onRun: (body) => {
+        captured.body = body;
+      },
+      runResult: {
+        ...RESULT,
+        optimization: {
+          objective: "balanced",
+          evaluated_candidates: 24,
+          feasible_candidates: 0,
+          baseline: {
+            rank: 0,
+            starting_does: 50,
+            starting_bucks: 2,
+            max_breeding_does: 100,
+            sale_age_months: 12,
+            female_retention_fraction: 0.5,
+            loan_fraction: 0.5,
+            project_cost: 500000,
+            capacity_places: 58,
+            projected_peak_head: 70,
+            npv: -25000,
+            irr: null,
+            min_dscr: 0.7,
+            minimum_cash_balance: -30000,
+            funding_gap: 30000,
+            feasible: false,
+            constraint_violations: [
+              "Minimum DSCR is below 1.20",
+              "Projected peak exceeds funded capacity",
+            ],
+          },
+          recommended: null,
+          alternatives: [],
+        },
+      },
+    });
+
+    await user.click(screen.getByRole("checkbox", { name: "Optimization" }));
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+
+    expect(
+      await screen.findByText(/No evaluated candidate satisfies every financing/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Infeasible")).toBeInTheDocument();
+    expect(screen.getByText(/Projected peak exceeds funded capacity/)).toBeInTheDocument();
+    expect(captured.body?.optimization).toBe(true);
+  });
+
+  it("renders Monte Carlo liquidity probabilities and annual path bands", async () => {
+    const user = userEvent.setup();
+    const band = {
+      p5: Array.from({ length: 24 }, (_, index) => 40 + index),
+      p25: Array.from({ length: 24 }, (_, index) => 45 + index),
+      p50: Array.from({ length: 24 }, (_, index) => 50 + index),
+      p75: Array.from({ length: 24 }, (_, index) => 55 + index),
+      p95: Array.from({ length: 24 }, (_, index) => 60 + index),
+    };
+    const liquidityBand = {
+      p5: Array.from({ length: 24 }, (_, index) => -10000 + index * 1000),
+      p25: Array.from({ length: 24 }, (_, index) => index * 1000),
+      p50: Array.from({ length: 24 }, (_, index) => 10000 + index * 1000),
+      p75: Array.from({ length: 24 }, (_, index) => 20000 + index * 1000),
+      p95: Array.from({ length: 24 }, (_, index) => 30000 + index * 1000),
+    };
+    await renderLoaded({
+      runResult: {
+        ...RESULT,
+        monte_carlo: {
+          runs: 500,
+          seed: 42,
+          herd_percentiles: band,
+          cash_percentiles: liquidityBand,
+          liquidity_percentiles: liquidityBand,
+          npv_mean: 180000,
+          npv_std: 50000,
+          npv_p5: -10000,
+          npv_p50: 175000,
+          npv_p95: 260000,
+          prob_npv_negative: 0.08,
+          prob_liquidity_shortfall: 0.22,
+          prob_dscr_below_one: 0.12,
+          minimum_cash_p5: -30000,
+          minimum_cash_p50: 12000,
+          ending_cash_p5: 20000,
+          ending_cash_p50: 90000,
+          mean_disease_outbreaks: 0.4,
+          mean_drought_events: 0.25,
+          mean_market_crashes: 0.1,
+          npv_histogram_counts: Array(20).fill(25),
+          npv_histogram_edges: Array.from(
+            { length: 21 },
+            (_, index) => -100000 + index * 25000,
+          ),
+        },
+      },
+    });
+
+    await user.click(screen.getByRole("checkbox", { name: "Monte Carlo" }));
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+
+    expect(await screen.findByText("P(cash shortfall)")).toBeInTheDocument();
+    expect(screen.getByText("22.0%")).toBeInTheDocument();
+    expect(screen.getByText("Annual uncertainty checkpoints")).toBeInTheDocument();
+    expect(screen.getByText(/0.40 disease, 0.25 drought/)).toBeInTheDocument();
   });
 });

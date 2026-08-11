@@ -5,7 +5,8 @@ are re-exported here so the OpenAPI schema picks them up next to the
 transport schemas.
 """
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,8 @@ from .common import PostgresText, StrictBool, StrictInputModel
 
 __all__ = [
     "BreedsOut",
+    "CalibrationEvidence",
+    "FarmCalibrationOut",
     "HerdSnapshotOut",
     "MonteCarloResult",
     "RunIn",
@@ -70,6 +73,32 @@ class RunIn(StrictInputModel):
     assumptions: SimulationAssumptions
     monte_carlo: StrictBool = False
     sensitivity: StrictBool = False
+    optimization: StrictBool = False
+
+
+class CalibrationEvidence(BaseModel):
+    """One farm-derived assumption and the evidence behind it."""
+
+    path: str
+    previous_value: int | float | list[float]
+    calibrated_value: int | float | list[float]
+    sample_size: int
+    confidence: Literal["low", "medium", "high"]
+    method: str
+    source: str
+    period_start: date | None = None
+    period_end: date | None = None
+
+
+class FarmCalibrationOut(BaseModel):
+    """A complete runnable assumption set calibrated from one farm."""
+
+    assumptions: SimulationAssumptions
+    evidence: list[CalibrationEvidence]
+    warnings: list[str]
+    coverage_score: float = Field(ge=0.0, le=1.0)
+    reference_date: date
+    lookback_months: int
 
 
 class HerdSnapshotOut(BaseModel):

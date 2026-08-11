@@ -10,4 +10,5 @@ export interface RunIn {
   assumptions: SimulationAssumptions;
   monte_carlo?: boolean;
   sensitivity?: boolean;
+  optimization?: boolean;
 }

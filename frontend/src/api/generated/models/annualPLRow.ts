@@ -20,11 +20,18 @@ export interface AnnualPLRow {
   labour_cost: number;
   insurance_cost: number;
   misc_cost: number;
+  selling_cost: number;
   stock_purchases: number;
   total_opex: number;
   ebitda: number;
+  depreciation: number;
+  ebit: number;
   interest: number;
+  profit_before_tax: number;
+  tax: number;
+  profit_after_tax: number;
   principal: number;
   debt_service: number;
+  terminal_value: number;
   net_cash_flow: number;
 }

@@ -43,6 +43,7 @@ from ..models import Animal, AnimalStatus, SimulationScenario
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.simulation import (
     BreedsOut,
+    FarmCalibrationOut,
     HerdSnapshotOut,
     RunIn,
     ScenarioCompareOut,
@@ -52,6 +53,7 @@ from ..schemas.simulation import (
     ScenarioUpdateIn,
 )
 from ..services import IdempotencyKey, execute_idempotent
+from ..services.simulation_calibration import calibrate_farm_assumptions
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
 from ..simulation.engine import run_simulation
@@ -66,6 +68,11 @@ SCENARIO_QUOTA_LOCK_NAMESPACE = 4713
 
 SimView = Annotated[set[str], Depends(require_perm("simulation.view"))]
 SimManage = Annotated[set[str], Depends(require_perm("simulation.manage"))]
+AnimalsView = Annotated[set[str], Depends(require_perm("animals.view"))]
+BreedingView = Annotated[set[str], Depends(require_perm("breeding.view"))]
+KiddingView = Annotated[set[str], Depends(require_perm("kidding.view"))]
+FeedingView = Annotated[set[str], Depends(require_perm("feeding.view"))]
+FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 
 # A compare re-runs a full simulation per id — cap the work per request.
 MAX_COMPARE_IDS = 5
@@ -163,12 +170,16 @@ def _finite_payload(value: object) -> bool:
 
 
 def _run(
-    assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool
+    assumptions: SimulationAssumptions,
+    monte_carlo: bool,
+    sensitivity: bool,
+    optimization: bool,
 ) -> SimulationResult:
     result = run_simulation(
         assumptions,
         with_monte_carlo=monte_carlo,
         with_sensitivity=sensitivity,
+        with_optimization=optimization,
     )
     # Defense in depth past the input caps: bounded inputs can still overflow
     # derived math (a near-zero fodder yield makes the land requirement 1/ε →
@@ -180,13 +191,16 @@ def _run(
 
 
 async def _run_offloaded(
-    assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool
+    assumptions: SimulationAssumptions,
+    monte_carlo: bool,
+    sensitivity: bool,
+    optimization: bool,
 ) -> SimulationResult:
     """Runs are synchronous CPU work — push them off the event loop so the
     request handler itself does not block. The engine is pure Python and holds
     the GIL, so this alone does not protect other requests; the concurrency
     caps and the CPU budget above are what bound the damage."""
-    return await run_in_threadpool(_run, assumptions, monte_carlo, sensitivity)
+    return await run_in_threadpool(_run, assumptions, monte_carlo, sensitivity, optimization)
 
 
 # One run per farm and per user, plus a process-wide ceiling. This prevents a
@@ -201,22 +215,29 @@ _global_run_slots = asyncio.BoundedSemaphore(2)
 # which measures as a ~200x latency hit on every other tenant's ordinary read.
 # So each run is priced before it starts and charged against a sliding window.
 # The unit is one engine pass over one simulated month, which tracks measured
-# CPU closely: a default 120-month run costs ~6.4k, the schema-maximal body
-# (240 months, 2,000 Monte Carlo runs, sensitivity) ~497k.
+# CPU closely: a default 120-month run costs ~6.4k, while the schema-maximal
+# body with Monte Carlo, sensitivity and optimization costs under 570k.
 _RUN_BUDGET_WINDOW_SECONDS = 300
-_RUN_BUDGET_UNITS = 500_000
+_RUN_BUDGET_UNITS = 650_000
 _BREAK_EVEN_PASSES = 52  # npv_at(0), npv_at(schema ceiling) + 50 bisection steps
 _SENSITIVITY_PASSES = 17  # base + 8 parameters x (low, high)
 _RUN_BUDGET_MAX_KEYS = 50_000  # cardinality ceiling, mirroring app.ratelimit
 
 
-def _run_cost(assumptions: SimulationAssumptions, monte_carlo: bool, sensitivity: bool) -> int:
+def _run_cost(
+    assumptions: SimulationAssumptions,
+    monte_carlo: bool,
+    sensitivity: bool,
+    optimization: bool = False,
+) -> int:
     """Engine passes x simulated months — what this request will cost."""
     passes = 1 + _BREAK_EVEN_PASSES
     if monte_carlo:
         passes += assumptions.risk.monte_carlo_runs
     if sensitivity:
         passes += _SENSITIVITY_PASSES
+    if optimization:
+        passes += assumptions.optimization.max_candidates
     return passes * assumptions.meta.horizon_months
 
 
@@ -453,15 +474,16 @@ async def _run_for_farm(
     assumptions: SimulationAssumptions,
     monte_carlo: bool,
     sensitivity: bool,
+    optimization: bool,
 ) -> SimulationResult:
-    cost = _run_cost(assumptions, monte_carlo, sensitivity)
+    cost = _run_cost(assumptions, monte_carlo, sensitivity, optimization)
 
     async def run() -> SimulationResult:
         # Charged on admission, not at the gate: a request the concurrency
         # limiter turns away never runs and must not spend the budget.
         _check_run_budget(farm_id, user_id, cost)
         _charge_run_budget(farm_id, user_id, cost)
-        return await _run_offloaded(assumptions, monte_carlo, sensitivity)
+        return await _run_offloaded(assumptions, monte_carlo, sensitivity, optimization)
 
     return await _with_run_limits(farm_id, user_id, run)
 
@@ -550,13 +572,51 @@ async def herd_snapshot(
     return HerdSnapshotOut(**{field: int(value) for field, value in counts_row._mapping.items()})
 
 
+@router.get("/calibration")
+async def farm_calibration(
+    db: DbSession,
+    farm: CurrentFarm,
+    sim_perms: SimView,
+    animal_perms: AnimalsView,
+    breeding_perms: BreedingView,
+    kidding_perms: KiddingView,
+    feeding_perms: FeedingView,
+    finance_perms: FinanceView,
+    breed: str = "osmanabadi",
+    system: System = "stall_fed",
+    lookback_months: Annotated[int, Query(ge=6, le=60)] = 24,
+) -> FarmCalibrationOut:
+    """Calibrate a complete model from this farm's operational evidence.
+
+    The endpoint reads animal, breeding, kidding, feeding and finance history,
+    so each corresponding view permission is required in addition to
+    ``simulation.view``. Results are advisory and never mutate a saved scenario
+    or farm record.
+    """
+    try:
+        return await calibrate_farm_assumptions(
+            db,
+            farm,
+            breed=breed,
+            system=system,
+            lookback_months=lookback_months,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
 @router.post("/run")
 async def run_adhoc(
     payload: RunIn, user: CurrentUser, farm: CurrentFarm, perms: SimView
 ) -> SimulationResult:
     """Run a simulation from posted assumptions (no persistence)."""
     return await _run_for_farm(
-        farm.id, user.id, payload.assumptions, payload.monte_carlo, payload.sensitivity
+        farm.id,
+        user.id,
+        payload.assumptions,
+        payload.monte_carlo,
+        payload.sensitivity,
+        payload.optimization,
     )
 
 
@@ -696,13 +756,13 @@ async def compare_scenarios(
     async def run_compare() -> ScenarioCompareOut:
         scenarios = [await _get_scenario(db, farm.id, scenario_id) for scenario_id in id_list]
         loaded = [_load_assumptions(scenario) for scenario in scenarios]
-        cost = sum(_run_cost(a, False, False) for a in loaded)
+        cost = sum(_run_cost(a, False, False, False) for a in loaded)
         # Charged once the scenarios are known, before any engine work starts.
         _check_run_budget(farm.id, user.id, cost)
         _charge_run_budget(farm.id, user.id, cost)
         return ScenarioCompareOut(
             scenarios=[_scenario_out(scenario) for scenario in scenarios],
-            results=[await _run_offloaded(a, False, False) for a in loaded],
+            results=[await _run_offloaded(a, False, False, False) for a in loaded],
         )
 
     return await _with_run_limits(farm.id, user.id, run_compare)
@@ -763,9 +823,15 @@ async def run_scenario(
     scenario_id: int,
     monte_carlo: bool = False,
     sensitivity: bool = False,
+    optimization: bool = False,
 ) -> SimulationResult:
     """Run a stored scenario's assumptions (optionally with MC / sensitivity)."""
     scenario = await _get_scenario(db, farm.id, scenario_id)
     return await _run_for_farm(
-        farm.id, user.id, _load_assumptions(scenario), monte_carlo, sensitivity
+        farm.id,
+        user.id,
+        _load_assumptions(scenario),
+        monte_carlo,
+        sensitivity,
+        optimization,
     )

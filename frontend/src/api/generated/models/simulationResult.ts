@@ -10,9 +10,11 @@ import type { FeedSummary } from './feedSummary';
 import type { MetricExplanation } from './metricExplanation';
 import type { MonteCarloResult } from './monteCarloResult';
 import type { MonthlyRow } from './monthlyRow';
+import type { OptimizationResult } from './optimizationResult';
 import type { ProjectCostBreakdown } from './projectCostBreakdown';
 import type { ReportSection } from './reportSection';
 import type { SensitivityItem } from './sensitivityItem';
+import type { TerminalValueBreakdown } from './terminalValueBreakdown';
 import type { ViabilityMetrics } from './viabilityMetrics';
 
 /**
@@ -25,8 +27,12 @@ export interface SimulationResult {
   amortization: AmortizationRowModel[];
   feed_summary: FeedSummary;
   project_cost_breakdown: ProjectCostBreakdown;
+  terminal_value_breakdown: TerminalValueBreakdown;
+  model_version: string;
+  assumptions_fingerprint: string;
   metric_explanations?: MetricExplanation[];
   narrative_report?: ReportSection[];
   monte_carlo?: MonteCarloResult | null;
   sensitivity?: SensitivityItem[] | null;
+  optimization?: OptimizationResult | null;
 }

@@ -45,6 +45,8 @@ import type {
   CompareScenariosApiSimulationScenariosCompareGetParams,
   DashboardOut,
   DispenseIn,
+  FarmCalibrationApiSimulationCalibrationGetParams,
+  FarmCalibrationOut,
   FarmCreateIn,
   FarmOut,
   FeedInventoryOut,
@@ -7893,6 +7895,139 @@ export function useHerdSnapshotApiSimulationHerdSnapshotGet<TData = Awaited<Retu
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getHerdSnapshotApiSimulationHerdSnapshotGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type farmCalibrationApiSimulationCalibrationGetResponse200 = {
+  data: FarmCalibrationOut
+  status: 200
+}
+
+export type farmCalibrationApiSimulationCalibrationGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type farmCalibrationApiSimulationCalibrationGetResponseSuccess = (farmCalibrationApiSimulationCalibrationGetResponse200) & {
+  headers: Headers;
+};
+export type farmCalibrationApiSimulationCalibrationGetResponseError = (farmCalibrationApiSimulationCalibrationGetResponse422) & {
+  headers: Headers;
+};
+
+export type farmCalibrationApiSimulationCalibrationGetResponse = (farmCalibrationApiSimulationCalibrationGetResponseSuccess | farmCalibrationApiSimulationCalibrationGetResponseError)
+
+export const getFarmCalibrationApiSimulationCalibrationGetUrl = (params?: FarmCalibrationApiSimulationCalibrationGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/simulation/calibration?${stringifiedParams}` : `/api/simulation/calibration`
+}
+
+/**
+ * Calibrate a complete model from this farm's operational evidence.
+ *
+ * The endpoint reads animal, breeding, kidding, feeding and finance history,
+ * so each corresponding view permission is required in addition to
+ * ``simulation.view``. Results are advisory and never mutate a saved scenario
+ * or farm record.
+ * @summary Farm Calibration
+ */
+export const farmCalibrationApiSimulationCalibrationGet = async (params?: FarmCalibrationApiSimulationCalibrationGetParams, options?: Parameters<typeof customInstance>[1]): Promise<farmCalibrationApiSimulationCalibrationGetResponse> => {
+
+  return customInstance<farmCalibrationApiSimulationCalibrationGetResponse>(getFarmCalibrationApiSimulationCalibrationGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getFarmCalibrationApiSimulationCalibrationGetQueryKey = (params?: FarmCalibrationApiSimulationCalibrationGetParams,) => {
+    return [
+    `/api/simulation/calibration`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getFarmCalibrationApiSimulationCalibrationGetQueryOptions = <TData = Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError = ErrorType<HTTPValidationError>>(params?: FarmCalibrationApiSimulationCalibrationGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getFarmCalibrationApiSimulationCalibrationGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>> = ({ signal }) => farmCalibrationApiSimulationCalibrationGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type FarmCalibrationApiSimulationCalibrationGetQueryResult = NonNullable<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>>
+export type FarmCalibrationApiSimulationCalibrationGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useFarmCalibrationApiSimulationCalibrationGet<TData = Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  FarmCalibrationApiSimulationCalibrationGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>,
+          TError,
+          Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useFarmCalibrationApiSimulationCalibrationGet<TData = Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: FarmCalibrationApiSimulationCalibrationGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>,
+          TError,
+          Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useFarmCalibrationApiSimulationCalibrationGet<TData = Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: FarmCalibrationApiSimulationCalibrationGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Farm Calibration
+ */
+
+export function useFarmCalibrationApiSimulationCalibrationGet<TData = Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: FarmCalibrationApiSimulationCalibrationGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof farmCalibrationApiSimulationCalibrationGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getFarmCalibrationApiSimulationCalibrationGetQueryOptions(params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

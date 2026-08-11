@@ -10,9 +10,13 @@
  */
 export interface FeedSummary {
   annual_green_kg: number[];
+  annual_homegrown_green_kg: number[];
+  annual_purchased_green_kg: number[];
   annual_dry_kg: number[];
   annual_concentrate_kg: number[];
   annual_feed_cost: number[];
+  annual_fodder_waste_kg_dm: number[];
   land_requirement_acres: number;
   fodder_deficit_months: number;
+  peak_fodder_stock_kg_dm: number;
 }

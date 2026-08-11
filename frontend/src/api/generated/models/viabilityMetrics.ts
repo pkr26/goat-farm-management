@@ -15,10 +15,19 @@ export interface ViabilityMetrics {
   equity: number;
   npv: number;
   irr: number | null;
+  mirr: number | null;
   bcr: number | null;
   dscr_per_year: number[];
   avg_dscr: number | null;
   min_dscr: number | null;
   payback_month: number | null;
   break_even_meat_price_per_kg: number | null;
+  peak_capacity_head: number;
+  terminal_value: number;
+  tax_total: number;
+  accounting_profit_total: number;
+  minimum_cash_balance: number;
+  minimum_cash_month: number;
+  additional_working_capital_required: number;
+  operating_margin: number | null;
 }

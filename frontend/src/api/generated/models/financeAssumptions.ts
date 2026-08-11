@@ -49,4 +49,31 @@ export interface FinanceAssumptions {
      * @maximum 24
      */
   working_capital_months?: number;
+  /**
+     * @minimum 0
+     * @maximum 0.6
+     */
+  income_tax_rate?: number;
+  tax_loss_carryforward?: boolean;
+  include_terminal_value?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  terminal_livestock_realization_fraction?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  terminal_asset_realization_fraction?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  terminal_working_capital_recovery_fraction?: number;
+  /**
+     * @minimum 0
+     * @maximum 0.5
+     */
+  reinvestment_rate_annual?: number;
 }

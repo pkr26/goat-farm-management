@@ -253,6 +253,7 @@ async def test_simulation_lists_are_capped(client: httpx.AsyncClient) -> None:
     # The curve has one value for each exact age 0..12; accepting longer
     # tables used to bypass the adult-weight branch in the engine.
     assumptions["growth"]["weight_by_age_months"] = [10.0] * 13  # at the cap: runs
+    assumptions["growth"]["birth_weight_kg"] = 10.0
     resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )

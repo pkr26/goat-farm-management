@@ -39,28 +39,53 @@ const RESULT = {
     equity: 150000,
     npv: 234567,
     irr: 0.18,
+    mirr: 0.16,
     bcr: 1.42,
     dscr_per_year: [1.8],
     avg_dscr: 1.8,
     min_dscr: 1.8,
     payback_month: null,
     break_even_meat_price_per_kg: 320,
+    peak_capacity_head: 58,
+    terminal_value: 150000,
+    tax_total: 0,
+    accounting_profit_total: 25000,
+    minimum_cash_balance: 43000,
+    minimum_cash_month: 1,
+    additional_working_capital_required: 0,
+    operating_margin: 0.25,
   },
   amortization: [],
   feed_summary: {
     annual_green_kg: [],
+    annual_homegrown_green_kg: [],
+    annual_purchased_green_kg: [],
     annual_dry_kg: [],
     annual_concentrate_kg: [],
     annual_feed_cost: [],
+    annual_fodder_waste_kg_dm: [],
     land_requirement_acres: 0,
     fodder_deficit_months: 0,
+    peak_fodder_stock_kg_dm: 0,
   },
   project_cost_breakdown: {
     shed_cost: 200000,
     equipment_cost: 50000,
     stock_cost: 200000,
     working_capital: 50000,
+    capacity_places: 58,
+    capacity_basis: "projected_peak",
+    projected_peak_head: 52.4,
   },
+  terminal_value_breakdown: {
+    livestock: 100000,
+    shed: 30000,
+    equipment: 5000,
+    working_capital: 15000,
+    total: 150000,
+  },
+  model_version: "3.0.0",
+  assumptions_fingerprint: "0123456789abcdef0123456789abcdef",
   metric_explanations: [
     {
       key: "npv",
@@ -135,9 +160,10 @@ const RESULT = {
   ],
   monte_carlo: null,
   sensitivity: null,
+  optimization: null,
 };
 
-async function renderWithResult() {
+async function renderWithResult(result = RESULT) {
   server.use(
     permissionsHandler(MANAGE_PERMS),
     http.get("/api/simulation/defaults/breeds", () =>
@@ -147,7 +173,7 @@ async function renderWithResult() {
     http.get("/api/simulation/scenarios", () =>
       HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0 }),
     ),
-    http.post("/api/simulation/run", () => HttpResponse.json(RESULT)),
+    http.post("/api/simulation/run", () => HttpResponse.json(result)),
   );
   const user = userEvent.setup();
   renderWithProviders(<SimulationPage />);
@@ -236,5 +262,20 @@ describe("SimulationPage explainability", () => {
     const paybackLabel = screen.getByText("Payback month");
     const card = paybackLabel.closest("div.rounded-xl") as HTMLElement;
     expect(within(card).getByText("—")).toBeInTheDocument();
+  });
+
+  it("shows a hard warning when the projected herd exceeds funded capacity", async () => {
+    await renderWithResult({
+      ...RESULT,
+      project_cost_breakdown: {
+        ...RESULT.project_cost_breakdown,
+        capacity_places: 40,
+        projected_peak_head: 52.4,
+      },
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Projected peak herd exceeds funded housing and equipment capacity by 12.4 head",
+    );
   });
 });

@@ -13,6 +13,7 @@ import type { HerdAssumptions } from './herdAssumptions';
 import type { HerdEventAssumptions } from './herdEventAssumptions';
 import type { MetaAssumptions } from './metaAssumptions';
 import type { MortalityAssumptions } from './mortalityAssumptions';
+import type { OptimizationAssumptions } from './optimizationAssumptions';
 import type { ReproductionAssumptions } from './reproductionAssumptions';
 import type { RiskAssumptions } from './riskAssumptions';
 import type { SalesAssumptions } from './salesAssumptions';
@@ -32,6 +33,7 @@ export interface SimulationAssumptions {
   costs?: CostsAssumptions;
   finance?: FinanceAssumptions;
   risk?: RiskAssumptions;
+  optimization?: OptimizationAssumptions;
   /** @maxItems 500 */
   events?: HerdEventAssumptions[];
 }

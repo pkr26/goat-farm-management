@@ -13,4 +13,7 @@ export interface ProjectCostBreakdown {
   equipment_cost: number;
   stock_cost: number;
   working_capital: number;
+  capacity_places: number;
+  capacity_basis: string;
+  projected_peak_head: number;
 }

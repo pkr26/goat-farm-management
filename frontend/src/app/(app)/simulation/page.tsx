@@ -9,8 +9,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Beef,
+  Building2,
   CalendarClock,
   ChartColumn,
+  Database,
   FolderOpen,
   Gauge,
   GitCompareArrows,
@@ -22,11 +24,16 @@ import {
   PiggyBank,
   Play,
   Plus,
+  RefreshCw,
   Save,
   Scale,
+  ShieldAlert,
   Sigma,
+  Target,
+  TrendingUp,
   TriangleAlert,
   Wallet,
+  Wheat,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
@@ -40,6 +47,7 @@ import {
   useCompareScenariosApiSimulationScenariosCompareGet,
   useCreateScenarioApiSimulationScenariosPost,
   useDeleteScenarioApiSimulationScenariosScenarioIdDelete,
+  useFarmCalibrationApiSimulationCalibrationGet,
   useHerdSnapshotApiSimulationHerdSnapshotGet,
   useListBreedsApiSimulationDefaultsBreedsGet,
   useListScenariosApiSimulationScenariosGet,
@@ -48,8 +56,12 @@ import {
   useUpdateScenarioApiSimulationScenariosScenarioIdPatch,
 } from "@/api/generated/endpoints";
 import type {
+  CalibrationEvidence,
+  FarmCalibrationOut,
   HerdEventAssumptions,
   MetricExplanation,
+  OptimizationCandidate,
+  PercentileBand,
   ScenarioOut,
   SimulationAssumptions,
   SimulationResult,
@@ -126,6 +138,19 @@ type NumericRule = {
   unit?: string;
 };
 
+type NumberArrayRule = {
+  exactLength?: number;
+  maxLength?: number;
+  integer?: boolean;
+  min?: number;
+  max?: number;
+  exclusiveMin?: number;
+  allowEmpty?: boolean;
+  unique?: boolean;
+  nondecreasing?: boolean;
+  itemLabel: string;
+};
+
 const INTEGER_FIELDS = new Set([
   "meta.horizon_months",
   "herd.does",
@@ -147,11 +172,20 @@ const INTEGER_FIELDS = new Set([
   "growth.sale_age_months",
   "sales.eid_month",
   "costs.labour_per_head_threshold",
+  "costs.planned_capacity_head",
+  "costs.shed_useful_life_years",
+  "costs.equipment_useful_life_years",
   "finance.loan_term_months",
   "finance.moratorium_months",
   "finance.working_capital_months",
   "risk.monte_carlo_runs",
   "risk.seed",
+  "risk.disease_outbreak_duration_months",
+  "risk.drought_duration_months",
+  "risk.market_crash_duration_months",
+  "optimization.max_candidates",
+  "optimization.doe_scale_steps",
+  "optimization.sale_age_radius_months",
 ]);
 
 const FIELD_BOUNDS: Record<
@@ -174,18 +208,59 @@ const FIELD_BOUNDS: Record<
   "growth.sale_age_months": { min: 6, max: 24 },
   "sales.eid_month": { min: 0, max: 12 },
   "sales.eid_price_uplift": { min: 0, max: 2 },
+  "sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },
+  "sales.selling_cost_fraction": { min: 0, max: 0.5 },
   "sales.lactation_milk_litres": { min: 0, max: 100_000 },
   "feed.cultivated_fodder_acres": { min: 0, max: 1_000_000 },
   "feed.fodder_yield_t_dm_per_acre_year": { exclusiveMin: 0, max: 1000 },
+  "feed.annual_feed_price_growth_rate": { exclusiveMin: -1, max: 1 },
+  "feed.initial_fodder_stock_kg_dm": { min: 0, max: 1e9 },
+  "feed.fodder_storage_capacity_kg_dm": { min: 0, max: 1e9 },
+  "feed.fodder_storage_loss_fraction_monthly": { min: 0, max: 1 },
   "costs.labour_per_head_threshold": { min: 1 },
   "costs.insurance_pct_stock_value_annual": { min: 0, max: 0.25 },
+  "costs.operating_cost_growth_rate_annual": { exclusiveMin: -1, max: 1 },
+  "costs.planned_capacity_head": { min: 0, max: 100_000 },
+  "costs.capacity_buffer_fraction": { min: 0, max: 1 },
+  "costs.shed_useful_life_years": { min: 1, max: 100 },
+  "costs.equipment_useful_life_years": { min: 1, max: 50 },
+  "costs.shed_residual_fraction": { min: 0, max: 1 },
+  "costs.equipment_residual_fraction": { min: 0, max: 1 },
   "finance.interest_rate_annual": { min: 0, max: 0.5 },
   "finance.loan_term_months": { min: 1, max: 180 },
   "finance.moratorium_months": { min: 0, max: 60 },
   "finance.subsidy_fraction": { min: 0, max: 0.9 },
   "finance.discount_rate_annual": { min: 0, max: 0.5 },
   "finance.working_capital_months": { min: 0, max: 24 },
+  "finance.income_tax_rate": { min: 0, max: 0.6 },
+  "finance.terminal_livestock_realization_fraction": { min: 0, max: 1 },
+  "finance.terminal_asset_realization_fraction": { min: 0, max: 1 },
+  "finance.terminal_working_capital_recovery_fraction": { min: 0, max: 1 },
+  "finance.reinvestment_rate_annual": { min: 0, max: 0.5 },
   "risk.monte_carlo_runs": { min: 1, max: 2000 },
+  "risk.correlation_strength": { min: 0, max: 0.95 },
+  "risk.disease_outbreak_probability_annual": { min: 0, max: 1 },
+  "risk.disease_outbreak_duration_months": { min: 1, max: 24 },
+  "risk.disease_adult_mortality_multiplier": { min: 1, max: 20 },
+  "risk.disease_kid_mortality_multiplier": { min: 1, max: 20 },
+  "risk.disease_conception_multiplier": { exclusiveMin: 0, max: 1 },
+  "risk.drought_probability_annual": { min: 0, max: 1 },
+  "risk.drought_duration_months": { min: 1, max: 24 },
+  "risk.drought_fodder_yield_multiplier": { exclusiveMin: 0, max: 1 },
+  "risk.drought_feed_price_multiplier": { min: 1, max: 20 },
+  "risk.market_crash_probability_annual": { min: 0, max: 1 },
+  "risk.market_crash_duration_months": { min: 1, max: 24 },
+  "risk.market_crash_price_multiplier": { exclusiveMin: 0, max: 1 },
+  "optimization.max_candidates": { min: 1, max: 300 },
+  "optimization.minimum_dscr": { min: 0, max: 10 },
+  "optimization.maximum_project_cost": { min: 0, max: 1e9 },
+  "optimization.maximum_funding_gap": { min: 0, max: 1e9 },
+  "optimization.doe_scale_low": { exclusiveMin: 0, max: 5 },
+  "optimization.doe_scale_high": { exclusiveMin: 0, max: 5 },
+  "optimization.doe_scale_steps": { min: 1, max: 9 },
+  "optimization.sale_age_radius_months": { min: 0, max: 9 },
+  "optimization.retention_step": { min: 0, max: 1 },
+  "optimization.loan_fraction_step": { min: 0, max: 1 },
 };
 
 /** Units the naming heuristics in numericRule cannot infer. Explicit paths
@@ -193,7 +268,63 @@ const FIELD_BOUNDS: Record<
 const FIELD_UNITS: Record<string, string> = {
   "costs.labour_per_head_threshold": "head per labourer",
   "feed.fodder_yield_t_dm_per_acre_year": "t DM/acre/yr",
+  "feed.initial_fodder_stock_kg_dm": "kg DM",
+  "feed.fodder_storage_capacity_kg_dm": "kg DM",
+  "costs.planned_capacity_head": "head",
+  "optimization.maximum_project_cost": "₹",
+  "optimization.maximum_funding_gap": "₹",
 };
+
+const STRING_FIELD_OPTIONS: Record<string, Record<string, string>> = {
+  "herd.foundation_flock_state": { mixed: "Mixed", open: "Open" },
+  "costs.capacity_basis": {
+    projected_peak: "Projected peak",
+    planned: "Planned capacity",
+    opening_herd: "Opening herd",
+  },
+  "optimization.objective": {
+    balanced: "Balanced",
+    npv: "Highest NPV",
+    liquidity: "Strongest liquidity",
+  },
+};
+
+function numberArrayRule(
+  section: string,
+  key: string,
+  horizonMonths: number,
+): NumberArrayRule {
+  const path = `${section}.${key}`;
+  if (path === "growth.weight_by_age_months") {
+    return {
+      exactLength: 13,
+      exclusiveMin: 0,
+      max: 1000,
+      nondecreasing: true,
+      itemLabel: "weights (ages 0-12)",
+    };
+  }
+  if (path === "sales.festival_sale_months") {
+    return {
+      maxLength: 40,
+      integer: true,
+      min: 1,
+      max: horizonMonths,
+      allowEmpty: true,
+      unique: true,
+      itemLabel: "simulation months",
+    };
+  }
+  if (key.startsWith("monthly_")) {
+    return {
+      exactLength: 12,
+      exclusiveMin: 0,
+      max: 10,
+      itemLabel: "monthly multipliers (Jan-Dec)",
+    };
+  }
+  return { itemLabel: "values" };
+}
 
 function numericRule(section: string, key: string): NumericRule {
   const path = `${section}.${key}`;
@@ -237,10 +368,17 @@ function numericRule(section: string, key: string): NumericRule {
       key === "initial_stock_cost" ? { min: 0, max: 1e9 } : { min: 0, max: 1 },
     );
 
-  // Explicit backend-derived limits are authoritative and must win over the
-  // broad naming heuristics above (for example stillbirth_rate <= 0.5 and
-  // eid_price_uplift <= 2).
-  Object.assign(rule, FIELD_BOUNDS[path]);
+  // Explicit backend-derived limits replace the broad naming heuristics. A
+  // plain Object.assign left stale bounds behind: annual price/cost growth
+  // correctly supplied exclusiveMin=-1 but retained heuristic min=0, making
+  // every legal decline rate impossible to enter in the browser.
+  const explicitBounds = FIELD_BOUNDS[path];
+  if (explicitBounds) {
+    delete rule.min;
+    delete rule.max;
+    delete rule.exclusiveMin;
+    Object.assign(rule, explicitBounds);
+  }
 
   if (FIELD_UNITS[path]) rule.unit = FIELD_UNITS[path];
   else if (
@@ -280,8 +418,12 @@ function assumptionsFingerprint(assumptions: SimulationAssumptions): string {
 
 /** Run options belong to a result's identity: toggling Monte Carlo or
  * sensitivity after a run leaves the displayed figures incomplete. */
-function runOptionsFingerprint(monteCarlo: boolean, sensitivity: boolean): string {
-  return JSON.stringify({ monte_carlo: monteCarlo, sensitivity });
+function runOptionsFingerprint(
+  monteCarlo: boolean,
+  sensitivity: boolean,
+  optimization: boolean,
+): string {
+  return JSON.stringify({ monte_carlo: monteCarlo, sensitivity, optimization });
 }
 
 function scenarioUsable(scenario: ScenarioRow): scenario is ScenarioRow & {
@@ -375,8 +517,10 @@ function formatRatio(value: number | null | undefined, digits = 2): string {
 }
 
 /** IRR is a fraction (0.18 → "18.0%"); null → "—". */
-function formatPercent(value: number | null): string {
-  return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
+function formatPercent(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : `${(value * 100).toFixed(1)}%`;
 }
 
 /** Cohort head counts are expected values (float64), so they are almost never
@@ -385,6 +529,12 @@ function formatHead(value: number | null | undefined): string {
   return value === null || value === undefined || !Number.isFinite(value)
     ? "—"
     : value.toFixed(1);
+}
+
+function formatCalibrationValue(value: CalibrationEvidence["calibrated_value"]): string {
+  if (Array.isArray(value)) return value.map((item) => formatRatio(item, 3)).join(", ");
+  if (!Number.isFinite(value)) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(3);
 }
 
 /** Headline metric: shared StatCard with tabular numerals, plus an optional
@@ -528,11 +678,13 @@ function NumberInput(props: NumberInputProps) {
 function NumberArrayInput({
   id,
   value,
+  rule,
   onCommit,
   onValidityChange,
 }: {
   id: string;
   value: number[];
+  rule: NumberArrayRule;
   onCommit: (value: number[]) => void;
   onValidityChange: (valid: boolean) => void;
 }) {
@@ -542,16 +694,39 @@ function NumberArrayInput({
 
   function update(raw: string) {
     setDraft(raw);
+    if (raw.trim() === "" && rule.allowEmpty) {
+      setError(null);
+      onValidityChange(true);
+      onCommit([]);
+      return;
+    }
     const tokens = raw.split(",").map((token) => token.trim());
     let message: string | null = null;
     const parsed = tokens.map(Number);
     if (tokens.some((token) => token === "") || parsed.some((n) => !Number.isFinite(n)))
       message = "Enter only comma-separated numbers.";
-    else if (parsed.length !== 13) message = "Enter exactly 13 weights (ages 0–12).";
-    else if (parsed.some((n) => n <= 0 || n > 1000))
-      message = "Every weight must be greater than 0 and at most 1000 kg.";
-    else if (parsed.some((n, index) => index > 0 && n < parsed[index - 1]))
-      message = "Weights must not decrease with age.";
+    else if (rule.exactLength !== undefined && parsed.length !== rule.exactLength)
+      message = `Enter exactly ${rule.exactLength} ${rule.itemLabel}.`;
+    else if (rule.maxLength !== undefined && parsed.length > rule.maxLength)
+      message = `Enter at most ${rule.maxLength} ${rule.itemLabel}.`;
+    else if (rule.integer && parsed.some((n) => !Number.isInteger(n)))
+      message = `Every ${rule.itemLabel} entry must be a whole number.`;
+    else if (
+      rule.exclusiveMin !== undefined &&
+      parsed.some((n) => n <= rule.exclusiveMin!)
+    )
+      message = `Every entry must be greater than ${rule.exclusiveMin}.`;
+    else if (rule.min !== undefined && parsed.some((n) => n < rule.min!))
+      message = `Every entry must be at least ${rule.min}.`;
+    else if (rule.max !== undefined && parsed.some((n) => n > rule.max!))
+      message = `Every entry must be at most ${rule.max}.`;
+    else if (rule.unique && new Set(parsed).size !== parsed.length)
+      message = `${humanize(rule.itemLabel)} must not contain duplicates.`;
+    else if (
+      rule.nondecreasing &&
+      parsed.some((n, index) => index > 0 && n < parsed[index - 1])
+    )
+      message = `${humanize(rule.itemLabel)} must not decrease.`;
 
     setError(message);
     onValidityChange(!message);
@@ -584,15 +759,41 @@ function NumberArrayInput({
 const COMPARE_ROWS: {
   key: keyof Pick<
     ViabilityMetrics,
-    "npv" | "irr" | "bcr" | "avg_dscr" | "payback_month"
+    | "npv"
+    | "irr"
+    | "mirr"
+    | "bcr"
+    | "avg_dscr"
+    | "min_dscr"
+    | "payback_month"
+    | "minimum_cash_balance"
+    | "additional_working_capital_required"
+    | "operating_margin"
   >;
   label: string;
   format: (m: ViabilityMetrics) => string;
 }[] = [
   { key: "npv", label: "NPV", format: (m) => formatMoney(m.npv) },
   { key: "irr", label: "IRR", format: (m) => formatPercent(m.irr) },
+  { key: "mirr", label: "MIRR", format: (m) => formatPercent(m.mirr) },
   { key: "bcr", label: "BCR", format: (m) => formatRatio(m.bcr) },
   { key: "avg_dscr", label: "Avg DSCR", format: (m) => formatRatio(m.avg_dscr) },
+  { key: "min_dscr", label: "Minimum DSCR", format: (m) => formatRatio(m.min_dscr) },
+  {
+    key: "operating_margin",
+    label: "Operating margin",
+    format: (m) => formatPercent(m.operating_margin),
+  },
+  {
+    key: "minimum_cash_balance",
+    label: "Minimum cash",
+    format: (m) => formatMoney(m.minimum_cash_balance),
+  },
+  {
+    key: "additional_working_capital_required",
+    label: "Additional working capital",
+    format: (m) => formatMoney(m.additional_working_capital_required),
+  },
   {
     key: "payback_month",
     label: "Payback month",
@@ -614,6 +815,13 @@ export default function SimulationPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
+  const canCalibrate = [
+    "animals.view",
+    "breeding.view",
+    "kidding.view",
+    "feeding.view",
+    "finance.view",
+  ].every((permission) => can(permission));
   const queryClient = useQueryClient();
 
   const [breed, setBreed] = useState(DEFAULT_BREED);
@@ -641,9 +849,12 @@ export default function SimulationPage() {
   const eventKeyCounter = useRef(0);
   const [eventKeys, setEventKeys] = useState<string[]>([]);
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
+  const [calibration, setCalibration] = useState<FarmCalibrationOut | null>(null);
+  const [calibrationLookback, setCalibrationLookback] = useState(24);
 
   const [monteCarlo, setMonteCarlo] = useState(false);
   const [sensitivity, setSensitivity] = useState(false);
+  const [optimization, setOptimization] = useState(false);
   const [result, setResult] = useState<BoundResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningScenarioId, setRunningScenarioId] = useState<number | null>(null);
@@ -680,6 +891,7 @@ export default function SimulationPage() {
       setEvents(nextEvents);
       setEventKeys(nextEvents.map(() => `event-${eventKeyCounter.current++}`));
       setLoadedScenario(null);
+      setCalibration(null);
       setInvalidFields(new Set());
       setEditorVersion((version) => version + 1);
     }
@@ -695,6 +907,11 @@ export default function SimulationPage() {
     {
       query: { enabled: false },
     },
+  );
+
+  const calibrationQuery = useFarmCalibrationApiSimulationCalibrationGet(
+    { breed, system, lookback_months: calibrationLookback },
+    { query: { enabled: false } },
   );
 
   const scenariosQuery = useListScenariosApiSimulationScenariosGet(
@@ -781,6 +998,22 @@ export default function SimulationPage() {
     setAssumptions((prev) => {
       if (!prev) return prev;
       const current = (prev as Record<string, SectionValues>)[section] ?? {};
+      if (section === "growth" && key === "birth_weight_kg" && typeof value === "number") {
+        const curve = Array.isArray(current.weight_by_age_months)
+          ? [...(current.weight_by_age_months as number[])]
+          : [];
+        if (curve.length > 0) curve[0] = value;
+        return {
+          ...prev,
+          growth: { ...current, birth_weight_kg: value, weight_by_age_months: curve },
+        };
+      }
+      if (section === "growth" && key === "weight_by_age_months" && Array.isArray(value)) {
+        return {
+          ...prev,
+          growth: { ...current, weight_by_age_months: value, birth_weight_kg: value[0] },
+        };
+      }
       return { ...prev, [section]: { ...current, [key]: value } };
     });
   }
@@ -830,6 +1063,45 @@ export default function SimulationPage() {
     )
       assumptionErrors.push("Moratorium must be shorter than the loan term.");
 
+    const feed = assumptions.feed;
+    if (
+      feed &&
+      typeof feed.initial_fodder_stock_kg_dm === "number" &&
+      typeof feed.fodder_storage_capacity_kg_dm === "number" &&
+      feed.initial_fodder_stock_kg_dm > feed.fodder_storage_capacity_kg_dm
+    )
+      assumptionErrors.push("Initial fodder stock must fit within fodder storage capacity.");
+
+    const costs = assumptions.costs;
+    if (
+      costs?.capacity_basis === "planned" &&
+      (costs.planned_capacity_head ?? 0) <= 0
+    )
+      assumptionErrors.push(
+        "Planned capacity must be greater than 0 when the capacity basis is planned.",
+      );
+
+    const festivalMonths = assumptions.sales?.festival_sale_months ?? [];
+    if (new Set(festivalMonths).size !== festivalMonths.length)
+      assumptionErrors.push("Festival sale months must not contain duplicates.");
+    if (
+      festivalMonths.some(
+        (month) => !Number.isInteger(month) || month < 1 || month > horizonMonths,
+      )
+    )
+      assumptionErrors.push(
+        `Festival sale months must be whole numbers between 1 and ${horizonMonths}.`,
+      );
+
+    const optimizationAssumptions = assumptions.optimization;
+    if (
+      optimizationAssumptions &&
+      typeof optimizationAssumptions.doe_scale_low === "number" &&
+      typeof optimizationAssumptions.doe_scale_high === "number" &&
+      optimizationAssumptions.doe_scale_low > optimizationAssumptions.doe_scale_high
+    )
+      assumptionErrors.push("Doe scale low must be less than or equal to doe scale high.");
+
     const growth = assumptions.growth;
     const yearling = growth?.weight_by_age_months
       ? Math.max(...growth.weight_by_age_months.slice(0, 13))
@@ -868,7 +1140,7 @@ export default function SimulationPage() {
     invalidFields.size > 0 || assumptionErrors.length > 0 || eventErrors.length > 0;
   const currentPayload = assumptions ? { ...assumptions, events } : null;
   const currentFingerprint = currentPayload ? assumptionsFingerprint(currentPayload) : null;
-  const currentOptions = runOptionsFingerprint(monteCarlo, sensitivity);
+  const currentOptions = runOptionsFingerprint(monteCarlo, sensitivity, optimization);
 
   /** The basis a result claims to describe, as it stands right now: the editor
    * for an ad-hoc run — and for a scenario run while the editor is showing
@@ -968,6 +1240,32 @@ export default function SimulationPage() {
     }
   }
 
+  async function onCalibrateFromFarm() {
+    acceptDefaultsRef.current = false;
+    try {
+      const res = await calibrationQuery.refetch();
+      if (res.isError || res.data?.status !== 200) {
+        toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
+        return;
+      }
+      const calibrated = res.data.data;
+      setAssumptions(calibrated.assumptions);
+      const nextEvents = calibrated.assumptions.events ?? [];
+      setEvents(nextEvents);
+      setEventKeys(nextEvents.map(() => `event-${eventKeyCounter.current++}`));
+      setSubmittedParams({ breed, system });
+      setLoadedScenario(null);
+      setCalibration(calibrated);
+      setInvalidFields(new Set());
+      setEditorVersion((version) => version + 1);
+      toast.success(
+        `Calibrated ${calibrated.evidence.length} assumptions from farm records.`,
+      );
+    } catch (err) {
+      toast.error(errorMessage(err, "Could not calibrate from farm records."));
+    }
+  }
+
   async function onRun() {
     await simulationExecution.run(async () => {
       const payload = assumptionsWithEvents();
@@ -975,13 +1273,18 @@ export default function SimulationPage() {
       setRunError(null);
       try {
         const res = await runMutation.mutateAsync({
-          data: { assumptions: payload, monte_carlo: monteCarlo, sensitivity },
+          data: {
+            assumptions: payload,
+            monte_carlo: monteCarlo,
+            sensitivity,
+            optimization,
+          },
         });
         if (res.status === 200)
           setResult({
             data: res.data,
             fingerprint: assumptionsFingerprint(payload),
-            options: runOptionsFingerprint(monteCarlo, sensitivity),
+            options: runOptionsFingerprint(monteCarlo, sensitivity, optimization),
             scenarioId: null,
             source: "Current editor assumptions",
           });
@@ -1001,13 +1304,13 @@ export default function SimulationPage() {
       try {
         const res = await runScenarioMutation.mutateAsync({
           scenarioId: scenario.id,
-          params: { monte_carlo: monteCarlo, sensitivity },
+          params: { monte_carlo: monteCarlo, sensitivity, optimization },
         });
         if (res.status === 200)
           setResult({
             data: res.data,
             fingerprint: assumptionsFingerprint(scenario.assumptions),
-            options: runOptionsFingerprint(monteCarlo, sensitivity),
+            options: runOptionsFingerprint(monteCarlo, sensitivity, optimization),
             scenarioId: scenario.id,
             source: `Saved scenario “${scenario.name}”`,
           });
@@ -1120,20 +1423,25 @@ export default function SimulationPage() {
   /** One editor row; the input type follows the value type. */
   function renderField(section: string, key: string, value: unknown) {
     const id = `sim-${section}-${key}`;
-    if (section === "herd" && key === "foundation_flock_state") {
+    const stringOptions = STRING_FIELD_OPTIONS[`${section}.${key}`];
+    if (stringOptions) {
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>Foundation Flock State</Label>
+          <Label htmlFor={id}>{humanize(key)}</Label>
           <Select
             value={String(value)}
             onValueChange={(v) => updateField(section, key, v)}
+            items={stringOptions}
           >
             <SelectTrigger id={id} className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="open">open</SelectItem>
-              <SelectItem value="mixed">mixed</SelectItem>
+              {Object.entries(stringOptions).map(([option, label]) => (
+                <SelectItem key={option} value={option}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -1202,12 +1510,16 @@ export default function SimulationPage() {
       );
     }
     if (Array.isArray(value)) {
+      const rule = numberArrayRule(section, key, horizonMonths);
       return (
         <div key={id} className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-          <Label htmlFor={id}>{humanize(key)} (comma-separated)</Label>
+          <Label htmlFor={id}>
+            {humanize(key)} ({rule.itemLabel}, comma-separated)
+          </Label>
           <NumberArrayInput
             id={id}
             value={value as number[]}
+            rule={rule}
             onValidityChange={(valid) => setFieldValidity(`field:${id}`, valid)}
             onCommit={(numbers) => updateField(section, key, numbers)}
           />
@@ -1288,6 +1600,11 @@ export default function SimulationPage() {
 
   function renderResults(r: SimulationResult) {
     const m = r.metrics;
+    const capacityShortfall = Math.max(
+      0,
+      r.project_cost_breakdown.projected_peak_head -
+        r.project_cost_breakdown.capacity_places,
+    );
     const explanationsByKey = new Map(
       (r.metric_explanations ?? []).map((entry) => [entry.key, entry]),
     );
@@ -1304,32 +1621,75 @@ export default function SimulationPage() {
       : null;
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <MetricCard
             value={formatMoney(m.npv)}
             label="NPV"
             icon={IndianRupee}
-            tint="emerald"
+            tint={m.npv >= 0 ? "emerald" : "red"}
             onInfo={infoFor("npv")}
           />
           <MetricCard
             value={formatPercent(m.irr)}
             label="IRR"
             icon={Percent}
-            tint="emerald"
             onInfo={infoFor("irr")}
+          />
+          <MetricCard
+            value={formatPercent(m.mirr)}
+            label="MIRR"
+            icon={TrendingUp}
+            onInfo={infoFor("mirr")}
           />
           <MetricCard
             value={formatRatio(m.bcr)}
             label="BCR"
             icon={Scale}
+            tint={m.bcr === null ? "default" : m.bcr >= 1 ? "emerald" : "red"}
             onInfo={infoFor("bcr")}
           />
           <MetricCard
             value={formatRatio(m.avg_dscr)}
             label="Avg DSCR"
             icon={Gauge}
+            tint={
+              m.avg_dscr === null
+                ? "default"
+                : m.avg_dscr >= 1.2
+                  ? "emerald"
+                  : m.avg_dscr >= 1
+                    ? "amber"
+                    : "red"
+            }
             onInfo={infoFor("avg_dscr")}
+          />
+          <MetricCard
+            value={formatRatio(m.min_dscr)}
+            label="Minimum DSCR"
+            icon={ShieldAlert}
+            tint={
+              m.min_dscr === null
+                ? "default"
+                : m.min_dscr >= 1.2
+                  ? "emerald"
+                  : m.min_dscr >= 1
+                    ? "amber"
+                    : "red"
+            }
+            onInfo={infoFor("min_dscr")}
+          />
+          <MetricCard
+            value={formatPercent(m.operating_margin)}
+            label="Operating margin"
+            icon={TrendingUp}
+            tint={
+              m.operating_margin === null
+                ? "default"
+                : m.operating_margin >= 0
+                  ? "emerald"
+                  : "red"
+            }
+            onInfo={infoFor("operating_margin")}
           />
           <MetricCard
             value={m.payback_month === null ? "—" : String(m.payback_month)}
@@ -1373,6 +1733,43 @@ export default function SimulationPage() {
             label="Equity"
             icon={PiggyBank}
             onInfo={infoFor("equity")}
+          />
+          <MetricCard
+            value={formatHead(m.peak_capacity_head)}
+            label="Funded capacity (head)"
+            icon={Building2}
+            onInfo={infoFor("peak_capacity_head")}
+          />
+          <MetricCard
+            value={formatMoney(m.terminal_value)}
+            label="Terminal value"
+            icon={Wallet}
+            onInfo={infoFor("terminal_value")}
+          />
+          <MetricCard
+            value={formatMoney(m.minimum_cash_balance)}
+            label={`Minimum cash (month ${m.minimum_cash_month})`}
+            icon={Wallet}
+            tint={m.minimum_cash_balance < 0 ? "red" : "emerald"}
+            onInfo={infoFor("minimum_cash_balance")}
+          />
+          <MetricCard
+            value={formatMoney(m.additional_working_capital_required)}
+            label="Additional working capital"
+            icon={HandCoins}
+            tint={m.additional_working_capital_required > 0 ? "red" : "emerald"}
+            onInfo={infoFor("additional_working_capital_required")}
+          />
+          <MetricCard
+            value={`${formatRatio(r.feed_summary.land_requirement_acres)} acres`}
+            label="Fodder land required"
+            icon={Wheat}
+          />
+          <MetricCard
+            value={String(r.feed_summary.fodder_deficit_months)}
+            label="Fodder deficit months"
+            icon={Wheat}
+            tint={r.feed_summary.fodder_deficit_months > 0 ? "amber" : "emerald"}
           />
         </div>
 
@@ -1418,38 +1815,130 @@ export default function SimulationPage() {
           </Card>
         )}
 
+        {capacityShortfall > 0 && (
+          <div
+            role="alert"
+            className="flex gap-3 border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+          >
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <p>
+              Projected peak herd exceeds funded housing and equipment capacity by{" "}
+              {formatHead(capacityShortfall)} head. This plan is not physically feasible at
+              the configured capacity.
+            </p>
+          </div>
+        )}
+
         <DataTableCard
-          title="Annual P&amp;L"
-          description="Yearly revenue, operating costs and cash flow."
+          title="Capital and terminal-value bridge"
+          description={`${humanize(r.project_cost_breakdown.capacity_basis)} basis funds ${formatHead(r.project_cost_breakdown.capacity_places)} places against a projected peak of ${formatHead(r.project_cost_breakdown.projected_peak_head)} head.`}
         >
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Year</TableHead>
-                <TableHead>Revenue</TableHead>
-                <TableHead>Opex</TableHead>
-                <TableHead>EBITDA</TableHead>
-                <TableHead>Debt service</TableHead>
-                <TableHead>Net cash flow</TableHead>
+                <TableHead>Component</TableHead>
+                <TableHead className="text-right">Opening project cost</TableHead>
+                <TableHead className="text-right">Closing recovery</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {r.annual_pl.map((row) => (
-                <TableRow key={row.year}>
-                  <TableCell>{row.year}</TableCell>
-                  <TableCell>{formatMoney(row.total_revenue)}</TableCell>
-                  <TableCell>{formatMoney(row.total_opex)}</TableCell>
-                  <TableCell>{formatMoney(row.ebitda)}</TableCell>
-                  <TableCell>{formatMoney(row.debt_service)}</TableCell>
-                  <TableCell
-                    className={row.net_cash_flow < 0 ? "text-destructive" : undefined}
-                  >
-                    {formatMoney(row.net_cash_flow)}
+              {[
+                {
+                  label: "Shed",
+                  opening: r.project_cost_breakdown.shed_cost,
+                  closing: r.terminal_value_breakdown.shed,
+                },
+                {
+                  label: "Equipment",
+                  opening: r.project_cost_breakdown.equipment_cost,
+                  closing: r.terminal_value_breakdown.equipment,
+                },
+                {
+                  label: "Livestock",
+                  opening: r.project_cost_breakdown.stock_cost,
+                  closing: r.terminal_value_breakdown.livestock,
+                },
+                {
+                  label: "Working capital",
+                  opening: r.project_cost_breakdown.working_capital,
+                  closing: r.terminal_value_breakdown.working_capital,
+                },
+              ].map((row) => (
+                <TableRow key={row.label}>
+                  <TableCell className="font-medium">{row.label}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatMoney(row.opening)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {formatMoney(row.closing)}
                   </TableCell>
                 </TableRow>
               ))}
+              <TableRow>
+                <TableCell className="font-semibold">Total</TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {formatMoney(m.project_cost)}
+                </TableCell>
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {formatMoney(r.terminal_value_breakdown.total)}
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
+        </DataTableCard>
+
+        <DataTableCard
+          title="Annual P&amp;L"
+          description="Accrual profit, tax, debt service and project cash flow by year."
+        >
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Year</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right">Opex</TableHead>
+                  <TableHead className="text-right">EBITDA</TableHead>
+                  <TableHead className="text-right">Depreciation</TableHead>
+                  <TableHead className="text-right">EBIT</TableHead>
+                  <TableHead className="text-right">Interest</TableHead>
+                  <TableHead className="text-right">Tax</TableHead>
+                  <TableHead className="text-right">PAT</TableHead>
+                  <TableHead className="text-right">Debt service</TableHead>
+                  <TableHead className="text-right">Terminal value</TableHead>
+                  <TableHead className="text-right">Net cash flow</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {r.annual_pl.map((row) => (
+                  <TableRow key={row.year}>
+                    <TableCell>{row.year}</TableCell>
+                    {[
+                      row.total_revenue,
+                      row.total_opex,
+                      row.ebitda,
+                      row.depreciation,
+                      row.ebit,
+                      row.interest,
+                      row.tax,
+                      row.profit_after_tax,
+                      row.debt_service,
+                      row.terminal_value,
+                    ].map((value, index) => (
+                      <TableCell key={index} className="text-right tabular-nums">
+                        {formatMoney(value)}
+                      </TableCell>
+                    ))}
+                    <TableCell
+                      className={`text-right tabular-nums ${row.net_cash_flow < 0 ? "text-destructive" : ""}`}
+                    >
+                      {formatMoney(row.net_cash_flow)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </DataTableCard>
 
         <DataTableCard
@@ -1465,11 +1954,18 @@ export default function SimulationPage() {
                   <TableHead>Births</TableHead>
                   <TableHead>Deaths</TableHead>
                   <TableHead>Sales head</TableHead>
-                  <TableHead>Sales revenue</TableHead>
-                  <TableHead>Feed cost</TableHead>
-                  <TableHead>Debt service</TableHead>
-                  <TableHead>Net cash flow</TableHead>
-                  <TableHead>Cumulative cash flow</TableHead>
+                  <TableHead className="text-right">Meat ₹/kg</TableHead>
+                  <TableHead className="text-right">Sales revenue</TableHead>
+                  <TableHead className="text-right">Purchased green kg</TableHead>
+                  <TableHead className="text-right">Feed cost</TableHead>
+                  <TableHead className="text-right">Selling cost</TableHead>
+                  <TableHead className="text-right">Tax</TableHead>
+                  <TableHead className="text-right">Debt service</TableHead>
+                  <TableHead className="text-right">Terminal value</TableHead>
+                  <TableHead className="text-right">Net cash flow</TableHead>
+                  <TableHead className="text-right">Cash balance</TableHead>
+                  <TableHead className="text-right">Cumulative cash flow</TableHead>
+                  <TableHead className="text-right">Fodder stock (kg DM)</TableHead>
                   <TableHead>Events</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1488,20 +1984,49 @@ export default function SimulationPage() {
                     <TableCell>{formatHead(row.births)}</TableCell>
                     <TableCell>{formatHead(row.deaths)}</TableCell>
                     <TableCell>{formatHead(row.sales_head)}</TableCell>
-                    <TableCell>{formatMoney(row.sales_revenue)}</TableCell>
-                    <TableCell>{formatMoney(row.feed_cost)}</TableCell>
-                    <TableCell>{formatMoney(row.debt_service)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.meat_price_per_kg)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.sales_revenue)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatHead(row.feed_purchased_green_kg)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.feed_cost)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.selling_cost)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.tax)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.debt_service)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.terminal_value)}
+                    </TableCell>
                     <TableCell
-                      className={row.net_cash_flow < 0 ? "text-destructive" : undefined}
+                      className={`text-right tabular-nums ${row.net_cash_flow < 0 ? "text-destructive" : ""}`}
                     >
                       {formatMoney(row.net_cash_flow)}
                     </TableCell>
                     <TableCell
+                      className={`text-right tabular-nums ${row.cash_balance < 0 ? "text-destructive" : ""}`}
+                    >
+                      {formatMoney(row.cash_balance)}
+                    </TableCell>
+                    <TableCell
                       className={
-                        row.cumulative_cash_flow < 0 ? "text-destructive" : undefined
+                        `text-right tabular-nums ${row.cumulative_cash_flow < 0 ? "text-destructive" : ""}`
                       }
                     >
                       {formatMoney(row.cumulative_cash_flow)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatHead(row.fodder_stock_kg_dm)}
                     </TableCell>
                     <TableCell>
                       {row.events && row.events.length > 0 ? (
@@ -1529,7 +2054,7 @@ export default function SimulationPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_mean)}
                   label="NPV mean"
@@ -1562,14 +2087,52 @@ export default function SimulationPage() {
                   icon={TriangleAlert}
                   tint="red"
                 />
+                <MetricCard
+                  value={formatPercent(r.monte_carlo.prob_liquidity_shortfall)}
+                  label="P(cash shortfall)"
+                  icon={Wallet}
+                  tint={
+                    r.monte_carlo.prob_liquidity_shortfall > 0 ? "red" : "emerald"
+                  }
+                />
+                <MetricCard
+                  value={formatPercent(r.monte_carlo.prob_dscr_below_one)}
+                  label="P(DSCR < 1)"
+                  icon={ShieldAlert}
+                  tint={r.monte_carlo.prob_dscr_below_one > 0 ? "red" : "emerald"}
+                />
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.minimum_cash_p5)}
+                  label="Minimum cash P5"
+                  icon={Wallet}
+                  tint={r.monte_carlo.minimum_cash_p5 < 0 ? "red" : "emerald"}
+                />
+                <MetricCard
+                  value={formatMoney(r.monte_carlo.minimum_cash_p50)}
+                  label="Minimum cash P50"
+                  icon={Wallet}
+                  tint={r.monte_carlo.minimum_cash_p50 < 0 ? "red" : "emerald"}
+                />
               </div>
               <MonteCarloHistogram
                 counts={r.monte_carlo.npv_histogram_counts}
                 edges={r.monte_carlo.npv_histogram_edges}
               />
+              <p className="text-sm text-muted-foreground">
+                Mean path events: {formatRatio(r.monte_carlo.mean_disease_outbreaks, 2)}
+                {" disease, "}
+                {formatRatio(r.monte_carlo.mean_drought_events, 2)} drought, and{" "}
+                {formatRatio(r.monte_carlo.mean_market_crashes, 2)} market crash.
+              </p>
+              <RiskBandTable
+                herd={r.monte_carlo.herd_percentiles}
+                liquidity={r.monte_carlo.liquidity_percentiles}
+              />
             </CardContent>
           </Card>
         )}
+
+        {r.optimization && <OptimizationResults result={r.optimization} />}
 
         {sortedSensitivity && sortedSensitivity.length > 0 && (
           <DataTableCard
@@ -1781,6 +2344,7 @@ export default function SimulationPage() {
               }}
               disabled={defaultsQuery.isFetching}
             >
+              <RefreshCw />
               {defaultsQuery.isFetching ? "Loading…" : "Load defaults"}
             </Button>
             <Button
@@ -1788,8 +2352,45 @@ export default function SimulationPage() {
               onClick={() => void onUseCurrentHerd()}
               disabled={!assumptions || snapshotQuery.isFetching}
             >
+              <Building2 />
               {snapshotQuery.isFetching ? "Loading…" : "Use current herd"}
             </Button>
+            {canCalibrate && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sim-calibration-lookback">Calibration history</Label>
+                  <Select
+                    value={String(calibrationLookback)}
+                    onValueChange={(value) => setCalibrationLookback(Number(value))}
+                    items={{
+                      "12": "12 months",
+                      "24": "24 months",
+                      "36": "36 months",
+                      "60": "60 months",
+                    }}
+                  >
+                    <SelectTrigger id="sim-calibration-lookback">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[12, 24, 36, 60].map((months) => (
+                        <SelectItem key={months} value={String(months)}>
+                          {months} months
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => void onCalibrateFromFarm()}
+                  disabled={calibrationQuery.isFetching}
+                >
+                  <Database />
+                  {calibrationQuery.isFetching ? "Calibrating…" : "Calibrate from farm"}
+                </Button>
+              </>
+            )}
           </div>
           {defaultsQuery.isError && (
             <p role="alert" className="text-sm text-destructive">
@@ -1805,6 +2406,75 @@ export default function SimulationPage() {
           )}
         </CardContent>
       </Card>
+
+      {calibration && (
+        <DataTableCard
+          title="Farm calibration evidence"
+          description={`Records through ${calibration.reference_date}, using a ${calibration.lookback_months}-month lookback.`}
+          actions={
+            <span className="text-sm font-medium tabular-nums">
+              {formatPercent(calibration.coverage_score)} coverage
+            </span>
+          }
+          contentClassName="space-y-4"
+        >
+          {calibration.warnings.length > 0 && (
+            <div
+              role="status"
+              className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            >
+              <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <div className="space-y-1">
+                {calibration.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            </div>
+          )}
+          {calibration.evidence.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No farm observations met the evidence thresholds; breed-system defaults remain
+              in use.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Assumption</TableHead>
+                    <TableHead>Baseline</TableHead>
+                    <TableHead>Calibrated</TableHead>
+                    <TableHead>Sample</TableHead>
+                    <TableHead>Confidence</TableHead>
+                    <TableHead>Evidence</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {calibration.evidence.map((item) => (
+                    <TableRow key={item.path}>
+                      <TableCell className="font-medium">
+                        {item.path.split(".").map(humanize).join(" / ")}
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {formatCalibrationValue(item.previous_value)}
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {formatCalibrationValue(item.calibrated_value)}
+                      </TableCell>
+                      <TableCell className="tabular-nums">{item.sample_size}</TableCell>
+                      <TableCell>{humanize(item.confidence)}</TableCell>
+                      <TableCell>
+                        <div>{item.source}</div>
+                        <p className="text-xs text-muted-foreground">{item.method}</p>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DataTableCard>
+      )}
 
       <Card>
         <CardHeader>
@@ -2048,6 +2718,16 @@ export default function SimulationPage() {
               Sensitivity
             </Label>
           </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="sim-optimization"
+              checked={optimization}
+              onCheckedChange={(checked) => setOptimization(checked === true)}
+            />
+            <Label htmlFor="sim-optimization" className="font-normal">
+              Optimization
+            </Label>
+          </div>
         </div>
         {loadedScenario && (
           <p className="text-sm text-muted-foreground">
@@ -2065,6 +2745,12 @@ export default function SimulationPage() {
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Results</h2>
           <p className="text-sm text-muted-foreground">Source: {result.source}</p>
+          <p className="text-xs text-muted-foreground">
+            Model {result.data.model_version} · assumptions fingerprint{" "}
+            <span className="font-mono" title={result.data.assumptions_fingerprint}>
+              {result.data.assumptions_fingerprint.slice(0, 12)}
+            </span>
+          </p>
           {resultIsStale && (
             <p
               role="status"
@@ -2174,6 +2860,7 @@ export default function SimulationPage() {
                               ),
                             );
                             setLoadedScenario(scenario);
+                            setCalibration(null);
                             setInvalidFields(new Set());
                             setEditorVersion((version) => version + 1);
                           }}
@@ -2310,5 +2997,211 @@ function MonteCarloHistogram({ counts, edges }: { counts: number[]; edges: numbe
         />
       ))}
     </div>
+  );
+}
+
+function RiskBandTable({
+  herd,
+  liquidity,
+}: {
+  herd: PercentileBand;
+  liquidity: PercentileBand;
+}) {
+  const monthCount = Math.min(herd.p50.length, liquidity.p50.length);
+  const indices = Array.from(
+    new Set([
+      0,
+      ...Array.from({ length: monthCount }, (_, index) => index).filter(
+        (index) => (index + 1) % 12 === 0,
+      ),
+      monthCount - 1,
+    ]),
+  ).filter((index) => index >= 0 && index < monthCount);
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-medium">Annual uncertainty checkpoints</h3>
+      <div className="overflow-x-auto rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Month</TableHead>
+              <TableHead className="text-right">Herd P5</TableHead>
+              <TableHead className="text-right">Herd P50</TableHead>
+              <TableHead className="text-right">Herd P95</TableHead>
+              <TableHead className="text-right">Cash P5</TableHead>
+              <TableHead className="text-right">Cash P50</TableHead>
+              <TableHead className="text-right">Cash P95</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {indices.map((index) => (
+              <TableRow key={index}>
+                <TableCell>{index + 1}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatHead(herd.p5[index])}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatHead(herd.p50[index])}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatHead(herd.p95[index])}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatMoney(liquidity.p5[index])}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatMoney(liquidity.p50[index])}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatMoney(liquidity.p95[index])}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function optimizationCandidateIdentity(candidate: OptimizationCandidate): string {
+  return [
+    candidate.starting_does,
+    candidate.starting_bucks,
+    candidate.max_breeding_does,
+    candidate.sale_age_months,
+    candidate.female_retention_fraction,
+    candidate.loan_fraction,
+  ].join(":");
+}
+
+function OptimizationResults({
+  result,
+}: {
+  result: NonNullable<SimulationResult["optimization"]>;
+}) {
+  const baselineIdentity = optimizationCandidateIdentity(result.baseline);
+  const recommendedIdentity = result.recommended
+    ? optimizationCandidateIdentity(result.recommended)
+    : null;
+  const rows: { label: string; candidate: OptimizationCandidate }[] = [
+    {
+      label:
+        recommendedIdentity === baselineIdentity ? "Baseline / recommended" : "Baseline",
+      candidate: result.baseline,
+    },
+  ];
+  if (result.recommended && recommendedIdentity !== baselineIdentity) {
+    rows.push({ label: "Recommended", candidate: result.recommended });
+  }
+  const seen = new Set(rows.map((row) => optimizationCandidateIdentity(row.candidate)));
+  for (const candidate of result.alternatives ?? []) {
+    const identity = optimizationCandidateIdentity(candidate);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    rows.push({ label: `Alternative ${candidate.rank}`, candidate });
+  }
+
+  return (
+    <DataTableCard
+      title={
+        <span className="flex items-center gap-2">
+          <Target className="size-4" aria-hidden />
+          Optimization
+        </span>
+      }
+      description={`${result.feasible_candidates} of ${result.evaluated_candidates} evaluated candidates satisfy the ${humanize(result.objective)} objective constraints.`}
+      contentClassName="space-y-4"
+    >
+      {result.recommended === null && (
+        <div
+          role="alert"
+          className="flex gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+        >
+          <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          No evaluated candidate satisfies every financing and capacity constraint. The
+          baseline below is diagnostic, not a recommendation.
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Decision set</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Does / bucks / ceiling</TableHead>
+              <TableHead className="text-right">Sale age</TableHead>
+              <TableHead className="text-right">Retention</TableHead>
+              <TableHead className="text-right">Debt share</TableHead>
+              <TableHead className="text-right">Project cost</TableHead>
+              <TableHead className="text-right">Capacity / peak</TableHead>
+              <TableHead className="text-right">NPV</TableHead>
+              <TableHead className="text-right">IRR</TableHead>
+              <TableHead className="text-right">Min DSCR</TableHead>
+              <TableHead className="text-right">Minimum cash</TableHead>
+              <TableHead className="text-right">Funding gap</TableHead>
+              <TableHead>Constraint findings</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(({ label, candidate }) => (
+              <TableRow key={`${label}:${optimizationCandidateIdentity(candidate)}`}>
+                <TableCell className="font-medium">{label}</TableCell>
+                <TableCell
+                  className={candidate.feasible ? "text-emerald-700" : "text-destructive"}
+                >
+                  {candidate.feasible ? "Feasible" : "Infeasible"}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {candidate.starting_does} / {candidate.starting_bucks} /{" "}
+                  {candidate.max_breeding_does}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {candidate.sale_age_months} mo
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatPercent(candidate.female_retention_fraction)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatPercent(candidate.loan_fraction)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatMoney(candidate.project_cost)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatHead(candidate.capacity_places)} /{" "}
+                  {formatHead(candidate.projected_peak_head)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatMoney(candidate.npv)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatPercent(candidate.irr)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatRatio(candidate.min_dscr)}
+                </TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${candidate.minimum_cash_balance < 0 ? "text-destructive" : ""}`}
+                >
+                  {formatMoney(candidate.minimum_cash_balance)}
+                </TableCell>
+                <TableCell
+                  className={`text-right tabular-nums ${candidate.funding_gap > 0 ? "text-destructive" : ""}`}
+                >
+                  {formatMoney(candidate.funding_gap)}
+                </TableCell>
+                <TableCell className="min-w-56 text-xs">
+                  {(candidate.constraint_violations ?? []).length > 0
+                    ? candidate.constraint_violations?.join("; ")
+                    : "None"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </DataTableCard>
   );
 }

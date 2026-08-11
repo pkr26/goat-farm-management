@@ -9,6 +9,7 @@ keys, so this doubles as a contract check on the defaults endpoint.
 
 import asyncio
 from datetime import date, timedelta
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -30,6 +31,7 @@ from app.api.simulation import (
 )
 from app.core.config import get_settings
 from app.db import get_sessionmaker
+from app.models import BreedingRecord, FeedInventory, KiddingRecord, KidEntry, Transaction
 from app.schemas.common import MAX_PAGE_OFFSET
 from app.simulation import SimulationAssumptions
 
@@ -100,6 +102,36 @@ async def make_animal(
     if dob_days is not None:
         payload["date_of_birth"] = (date.today() - timedelta(days=dob_days)).isoformat()
     resp = await client.post("/api/animals", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def make_historical_animal(
+    client: httpx.AsyncClient,
+    headers: dict,
+    *,
+    tag: str,
+    sex: str,
+    purchase_price: float | None,
+    weight_kg: float,
+) -> dict:
+    purchased_on = date.today() - timedelta(days=400)
+    resp = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": tag,
+            "sex": sex,
+            "source": "PURCHASED",
+            "current_bucket": "BREEDING",
+            "date_of_birth": (date.today() - timedelta(days=800)).isoformat(),
+            "purchase_date": purchased_on.isoformat(),
+            "purchase_price": purchase_price,
+            "weight_kg": weight_kg,
+            "weight_date": date.today().isoformat(),
+            "historical_import_reason": "Simulation calibration integration fixture",
+        },
+        headers=headers,
+    )
     assert resp.status_code == 201, resp.text
     return resp.json()
 
@@ -584,6 +616,252 @@ async def test_herd_snapshot_unknown_breed_400(client: httpx.AsyncClient) -> Non
     assert resp.status_code == 400
 
 
+async def test_farm_calibration_returns_exact_herd_and_auditable_evidence(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    await make_animal(client, headers, "D-1", "F", 550)
+    await make_animal(client, headers, "D-2", "F", 400)
+    await make_animal(client, headers, "B-1", "M", None)
+    await make_animal(client, headers, "K-1", "F", 30)
+    await make_animal(client, headers, "W-1", "F", 120)
+    await make_animal(client, headers, "G-1", "M", 240)
+
+    resp = await client.get(
+        "/api/simulation/calibration",
+        params={"breed": "osmanabadi", "system": "stall_fed", "lookback_months": 24},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    herd = body["assumptions"]["herd"]
+    assert {
+        key: herd[key]
+        for key in (
+            "does",
+            "bucks",
+            "female_kids",
+            "female_weaners",
+            "female_growers",
+            "male_kids",
+            "male_weaners",
+            "male_growers",
+        )
+    } == {
+        "does": 2,
+        "bucks": 1,
+        "female_kids": 1,
+        "female_weaners": 1,
+        "female_growers": 0,
+        "male_kids": 0,
+        "male_weaners": 0,
+        "male_growers": 1,
+    }
+    # Current head is an opening balance, not evidence that the farmer intends
+    # a permanent two-doe ceiling; preserve the breed preset's expansion plan.
+    assert herd["max_breeding_does"] == 50
+    evidence = {item["path"]: item for item in body["evidence"]}
+    assert evidence["herd.does"]["calibrated_value"] == 2
+    assert evidence["herd.does"]["sample_size"] == 6
+    assert evidence["herd.does"]["confidence"] == "high"
+    assert body["coverage_score"] == pytest.approx(1.0 / 7.0)
+    assert body["warnings"]
+    SimulationAssumptions.model_validate(body["assumptions"])
+
+
+async def test_farm_calibration_uses_operational_biology_market_and_cost_records(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    does = [
+        await make_historical_animal(
+            client,
+            headers,
+            tag=f"CAL-D-{index}",
+            sex="F",
+            purchase_price=9_000.0,
+            weight_kg=30.0,
+        )
+        for index in range(5)
+    ]
+    buck = await make_historical_animal(
+        client,
+        headers,
+        tag="CAL-B-1",
+        sex="M",
+        purchase_price=12_000.0,
+        weight_kg=35.0,
+    )
+    sale_animals = [
+        await make_historical_animal(
+            client,
+            headers,
+            tag=f"CAL-S-{index}",
+            sex="M",
+            purchase_price=None,
+            weight_kg=30.0,
+        )
+        for index in range(5)
+    ]
+    for animal in sale_animals:
+        response = await client.post(
+            f"/api/animals/{animal['id']}/status",
+            json={"new_status": "SOLD", "sale_price": 12_000.0},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+
+    async with get_sessionmaker()() as db:
+        for index, doe in enumerate(does):
+            bred_on = date.today() - timedelta(days=300 - index * 10)
+            breeding = BreedingRecord(
+                farm_id=farm_id,
+                doe_id=doe["id"],
+                buck_id=buck["id"],
+                breeding_date=bred_on,
+                ultrasound_date=bred_on + timedelta(days=35),
+                ultrasound_result_date=bred_on + timedelta(days=35),
+                ultrasound_done=True,
+                pregnant=True,
+                expected_kidding_date=bred_on + timedelta(days=150),
+                outcome="CONFIRMED_PREGNANT",
+            )
+            db.add(breeding)
+            await db.flush()
+            kidding = KiddingRecord(
+                farm_id=farm_id,
+                doe_id=doe["id"],
+                date=bred_on + timedelta(days=150),
+                breeding_record_id=breeding.id,
+            )
+            db.add(kidding)
+            await db.flush()
+            db.add_all(
+                [
+                    KidEntry(
+                        farm_id=farm_id,
+                        kidding_record_id=kidding.id,
+                        sex=sex,
+                        birth_weight=3.25,
+                        status="ALIVE",
+                    )
+                    for sex in ("F", "M")
+                ]
+            )
+        inventory = FeedInventory(
+            farm_id=farm_id,
+            ingredient="Calibration green fodder",
+            category="ROUGHAGE_WET",
+            unit="kg",
+            qty_on_hand=100.0,
+            last_purchase_price_per_kg=Decimal("3.00"),
+        )
+        db.add(inventory)
+        await db.flush()
+        db.add_all(
+            [
+                Transaction(
+                    farm_id=farm_id,
+                    date=date.today(),
+                    type="EXPENSE",
+                    category="FEED",
+                    amount=Decimal("300.00"),
+                    source_type="FEED_PURCHASE",
+                    source_id=999_001,
+                    feed_inventory_id=inventory.id,
+                    feed_quantity_kg=Decimal("100.000"),
+                    feed_unit_price_per_kg=Decimal("3.00"),
+                ),
+                Transaction(
+                    farm_id=farm_id,
+                    date=date.today(),
+                    type="EXPENSE",
+                    category="LABOUR",
+                    amount=Decimal("24000.00"),
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await client.get(
+        "/api/simulation/calibration",
+        params={"lookback_months": 24},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assumptions = resp.json()["assumptions"]
+    assert assumptions["growth"]["adult_weight_doe_kg"] == pytest.approx(30.0)
+    assert assumptions["growth"]["birth_weight_kg"] == pytest.approx(3.25)
+    assert assumptions["growth"]["weight_by_age_months"][0] == pytest.approx(3.25)
+    assert assumptions["reproduction"]["conception_rate"] == pytest.approx(1.0)
+    assert assumptions["reproduction"]["litter_size"] == pytest.approx(2.0)
+    assert assumptions["reproduction"]["gestation_months"] == 5
+    assert assumptions["reproduction"]["sex_ratio_female"] == pytest.approx(0.5)
+    assert assumptions["sales"]["meat_price_per_kg"] == pytest.approx(400.0)
+    assert assumptions["herd"]["doe_purchase_price"] == pytest.approx(9_000.0)
+    assert assumptions["feed"]["purchased_green_price_per_kg"] == pytest.approx(3.0)
+    assert assumptions["costs"]["labour_per_month"] == pytest.approx(1_000.0)
+    evidence_paths = {item["path"] for item in resp.json()["evidence"]}
+    assert {
+        "reproduction.conception_rate",
+        "reproduction.litter_size",
+        "growth.birth_weight_kg",
+        "sales.meat_price_per_kg",
+        "feed.purchased_green_price_per_kg",
+        "costs.labour_per_month",
+    } <= evidence_paths
+
+
+async def test_farm_calibration_validates_inputs_and_cross_domain_permissions(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    viewer = await worker_headers(client, owner, ["simulation.view"], "cal-view@farm.in")
+    assert (await client.get("/api/simulation/calibration", headers=viewer)).status_code == 403
+
+    all_views = await worker_headers(
+        client,
+        owner,
+        [
+            "simulation.view",
+            "animals.view",
+            "breeding.view",
+            "kidding.view",
+            "feeding.view",
+            "finance.view",
+        ],
+        "cal-all@farm.in",
+    )
+    assert (await client.get("/api/simulation/calibration", headers=all_views)).status_code == 200
+    assert (
+        await client.get("/api/simulation/calibration", params={"breed": "merino"}, headers=owner)
+    ).status_code == 400
+    assert (
+        await client.get(
+            "/api/simulation/calibration", params={"lookback_months": 5}, headers=owner
+        )
+    ).status_code == 422
+
+
+async def test_run_can_return_bounded_optimization(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    assumptions["optimization"]["max_candidates"] = 3
+    resp = await client.post(
+        "/api/simulation/run",
+        json={"assumptions": assumptions, "optimization": True},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["model_version"] == "3.0.0"
+    assert len(body["assumptions_fingerprint"]) == 64
+    assert body["optimization"]["evaluated_candidates"] <= 3
+    assert body["optimization"]["feasible_candidates"] >= 0
+
+
 # ---------------------------------------------------------------------------
 # Per-farm run limiter (9-3): one in-flight run per farm, 429 while busy
 # ---------------------------------------------------------------------------
@@ -644,10 +922,12 @@ def test_run_cost_prices_horizon_and_monte_carlo() -> None:
     assert _run_cost(a, False, False) == base_passes * 120
     assert _run_cost(a, True, False) == (base_passes + 500) * 120
     assert _run_cost(a, False, True) == (base_passes + _SENSITIVITY_PASSES) * 120
+    assert _run_cost(a, False, False, True) == (base_passes + a.optimization.max_candidates) * 120
     a.meta.horizon_months = 240
     a.risk.monte_carlo_runs = 2000
     # The worst case the schema allows must not fit in the window twice.
-    assert _run_cost(a, True, True) > _RUN_BUDGET_UNITS / 2
+    assert _run_cost(a, True, True, True) > _RUN_BUDGET_UNITS / 2
+    assert _run_cost(a, True, True, True) <= _RUN_BUDGET_UNITS
 
 
 def test_run_cost_window_expires_and_keeps_scopes_apart() -> None:

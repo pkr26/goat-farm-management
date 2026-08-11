@@ -26,6 +26,7 @@ export interface MonthlyRow {
   deaths: number;
   sales_head: number;
   sales_revenue: number;
+  meat_price_per_kg: number;
   culls_head: number;
   cull_revenue: number;
   milk_revenue: number;
@@ -33,6 +34,8 @@ export interface MonthlyRow {
   purchases_head: number;
   purchase_cost: number;
   feed_green_kg: number;
+  feed_homegrown_green_kg: number;
+  feed_purchased_green_kg: number;
   feed_dry_kg: number;
   feed_concentrate_kg: number;
   feed_cost: number;
@@ -40,9 +43,16 @@ export interface MonthlyRow {
   labour_cost: number;
   insurance_cost: number;
   misc_cost: number;
+  selling_cost: number;
+  depreciation: number;
+  tax: number;
+  terminal_value: number;
   debt_service: number;
   net_cash_flow: number;
   cumulative_cash_flow: number;
+  cash_balance: number;
   fodder_surplus_kg: number;
+  fodder_stock_kg_dm: number;
+  fodder_waste_kg_dm: number;
   events?: string[];
 }

@@ -315,7 +315,10 @@ export async function recordUltrasoundPregnant(page: Page, doeTag: string): Prom
   await row.getByRole("button", { name: "Ultrasound result" }).click();
   const dialog = page.getByRole("dialog", { name: "Ultrasound result" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("checkbox", { name: "Pregnant — confirmed" })).toBeChecked();
+  const pregnantCheckbox = dialog.getByRole("checkbox", { name: "Pregnant — confirmed" });
+  await expect(pregnantCheckbox).not.toBeChecked();
+  await pregnantCheckbox.click();
+  await expect(pregnantCheckbox).toBeChecked();
   // Kid count defaults to 2 — assert the default rather than re-picking it.
   await expect(selectTrigger(dialog, "Kid count detected")).toContainText("2");
   await dialog.getByRole("button", { name: "Save result" }).click();

@@ -21,14 +21,18 @@ export function PageHeader({
       )}
     >
       <div className="space-y-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">
+        <h1 className="font-heading text-2xl font-semibold tracking-normal">
           {title}
         </h1>
         {description && (
           <p className="text-sm text-muted-foreground">{description}</p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
