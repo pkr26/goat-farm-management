@@ -18,11 +18,10 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     # pytest drives a real PostgreSQL and is the only slow step here — every
-    # other step in this job finishes inside a minute. At ~3,000 tests it needs
-    # a little over 20 minutes on a hosted runner, so a 20-minute job budget
-    # cancelled it mid-run. Keep enough headroom that growing the suite does not
-    # turn into a red build for the wrong reason.
-    timeout-minutes: 35
+    # other step in this job finishes inside a minute. With 3,200+ tests it can
+    # exceed 35 minutes on a hosted runner, so keep enough headroom for runner
+    # variance and the dependency audit after pytest.
+    timeout-minutes: 50
     services:
       postgres:
         image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
