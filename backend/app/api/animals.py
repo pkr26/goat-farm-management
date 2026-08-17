@@ -79,6 +79,7 @@ router = APIRouter(prefix="/api/animals", tags=["animals"])
 NOT_FOUND = "Animal not found"
 PROFILE_HISTORY_DEFAULT_LIMIT = 25
 PROFILE_HISTORY_MAX_LIMIT = 100
+SALE_CAPABLE_STATUSES = frozenset({AnimalStatus.SOLD.value, AnimalStatus.CULLED.value})
 
 
 def _unique_constraint_name(exc: IntegrityError) -> str | None:
@@ -684,6 +685,20 @@ async def move_bucket(
                     KiddingRecord.doe_id == animal.dam_id,
                     Animal.farm_id == farm.id,
                     Animal.status != AnimalStatus.ACTIVE.value,
+                    # KidEntry is an immutable birth fact: an adult daughter
+                    # keeps it after weaning and can later return to RECOVERY
+                    # for her own kidding. A genuine prior RECOVERY exit proves
+                    # this is no longer a dependent orphan. History overrides
+                    # are corrections and deliberately do not prove weaning.
+                    ~select(BucketMove.id)
+                    .where(
+                        BucketMove.animal_id == animal.id,
+                        BucketMove.from_bucket == Bucket.RECOVERY.value,
+                        func.coalesce(BucketMove.reason, "").not_like(
+                            f"{HISTORY_OVERRIDE_REASON_PREFIX}%"
+                        ),
+                    )
+                    .exists(),
                 )
                 .limit(1)
             )
@@ -807,7 +822,7 @@ async def change_status(
             status_code=400,
             detail=f"{animal.tag_number} is already {animal.status.lower()}.",
         )
-    if payload.new_status in (AnimalStatus.SOLD.value, AnimalStatus.CULLED.value) and (
+    if payload.new_status in SALE_CAPABLE_STATUSES and (
         animal.movement_restricted or animal.suspected_scheduled_disease
     ):
         raise HTTPException(
@@ -833,7 +848,7 @@ async def change_status(
             )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    if payload.new_status in (AnimalStatus.SOLD.value, AnimalStatus.CULLED.value):
+    if payload.new_status in SALE_CAPABLE_STATUSES:
         withdrawal = (
             await db.execute(
                 select(func.max(HealthEvent.withdrawal_until)).where(
@@ -963,6 +978,21 @@ async def change_status(
                 Animal.dam_id == animal.id,
                 Animal.status == AnimalStatus.ACTIVE.value,
                 Animal.current_bucket == Bucket.RECOVERY.value,
+                # A farm-born adult retains dam_id and can later return to
+                # RECOVERY for her own litter. Only children that have never
+                # genuinely left their birth RECOVERY cohort are dependants of
+                # this retiring dam; history overrides are data corrections,
+                # not evidence of weaning.
+                ~select(BucketMove.id)
+                .where(
+                    BucketMove.animal_id == Animal.id,
+                    BucketMove.from_bucket == Bucket.RECOVERY.value,
+                    func.coalesce(BucketMove.reason, "").not_like(
+                        f"{HISTORY_OVERRIDE_REASON_PREFIX}%"
+                    ),
+                )
+                .correlate(Animal)
+                .exists(),
             )
             .order_by(Animal.id)
             .with_for_update()
@@ -990,7 +1020,7 @@ async def change_status(
         await db.flush()
         await skip_pending_tasks_for_empty_batch(db, farm.id, animal.purchase_batch_id)
 
-    if payload.new_status == AnimalStatus.SOLD.value:
+    if payload.new_status in SALE_CAPABLE_STATUSES:
         animal.sale_price = money(payload.sale_price) if payload.sale_price is not None else None
         animal.buyer_name = (payload.buyer_name or "").strip() or None
         if payload.sale_price is not None:

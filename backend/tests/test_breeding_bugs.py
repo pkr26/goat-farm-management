@@ -23,13 +23,14 @@ import httpx
 from sqlalchemy import select
 
 from app.db import get_sessionmaker
-from app.models import BreedingOutcome, BreedingRecord, BucketMove, KidEntry
+from app.models import Animal, BreedingOutcome, BreedingRecord, BucketMove, KidEntry
 from app.utils import today
 
 from .conftest import owner_with_farm
 from .test_breeding_extended import (
     POSTPARTUM_RECOVERY_DAYS,
     all_tasks,
+    backdate_latest_bucket_move,
     bred_doe,
     confirm,
     get_animal,
@@ -38,6 +39,8 @@ from .test_breeding_extended import (
     kid_on_ekd,
     kid_on_ekd_raw,
     kidding_list,
+    list_animals,
+    make_breeding,
     make_buck,
     make_doe,
     move_to,
@@ -382,3 +385,189 @@ async def test_history_override_round_trip_does_not_fake_weaning(
     ]
     assert len(postpartum) == 1
     assert postpartum[0]["due_date"] == iso(today() + timedelta(days=POSTPARTUM_RECOVERY_DAYS))
+
+
+async def _doe_with_two_retained_recovery_litters(
+    client: httpx.AsyncClient, headers: dict
+) -> tuple[dict, dict, dict, dict, dict]:
+    """Create the supported historical-correction shape that exposed litter bleed.
+
+    The first weaning duty is retained and overdue; its kid remains in RECOVERY.
+    A history correction returns only the doe to RESTING so a second, current
+    kidding can be recorded with its own dependent kid and future weaning duty.
+    """
+    doe, buck, first = await bred_doe(
+        client,
+        headers,
+        tag="TWO-LITTER-DOE",
+        breeding_date=today() - timedelta(days=310),
+    )
+    first = await confirm(client, headers, first["id"], kid_count=1)
+    await kid_on_ekd(
+        client,
+        headers,
+        first,
+        kids=[{"tag": "OLDER-LITTER-KID", "sex": "M"}],
+    )
+
+    await move_to(client, headers, doe["id"], "RESTING", history_override=True)
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=155))
+    second = await make_breeding(
+        client,
+        headers,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=150)),
+    )
+    second = await confirm(client, headers, second["id"], kid_count=1)
+    await kid_on_ekd(
+        client,
+        headers,
+        second,
+        kids=[{"tag": "NEWER-LITTER-KID", "sex": "F"}],
+    )
+    animals = {animal["tag_number"]: animal for animal in await list_animals(client, headers)}
+    return (
+        doe,
+        first,
+        second,
+        animals["OLDER-LITTER-KID"],
+        animals["NEWER-LITTER-KID"],
+    )
+
+
+async def test_old_weaning_duty_does_not_wean_a_newer_litter(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, first, second, older_kid, newer_kid = await _doe_with_two_retained_recovery_litters(
+        client, headers
+    )
+    pending_weaning = sorted(
+        (
+            task
+            for task in await all_tasks(client, headers)
+            if task["category"] == "WEANING" and task["status"] == "PENDING"
+        ),
+        key=lambda task: task["due_date"],
+    )
+    assert [task["breeding_record_id"] for task in pending_weaning] == [
+        first["id"],
+        second["id"],
+    ]
+
+    # A history correction does not prove that the newer kid was weaned. The
+    # old duty must still recognize it as dependent after this round trip.
+    await move_to(client, headers, newer_kid["id"], "FOUNDATION", history_override=True)
+    await move_to(client, headers, newer_kid["id"], "RECOVERY", history_override=True)
+
+    completed = await client.post(
+        f"/api/tasks/{pending_weaning[0]['id']}/complete",
+        headers=headers,
+    )
+    assert completed.status_code == 200, completed.text
+
+    assert (await get_animal(client, headers, older_kid["id"]))["current_bucket"] == "MALE_KIDS"
+    assert (await get_animal(client, headers, newer_kid["id"]))["current_bucket"] == "RECOVERY"
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RECOVERY"
+    newer_duty = next(
+        task for task in await all_tasks(client, headers) if task["id"] == pending_weaning[1]["id"]
+    )
+    assert newer_duty["status"] == "PENDING"
+
+
+async def test_weaning_ignores_an_adult_daughter_in_her_own_recovery(
+    client: httpx.AsyncClient,
+) -> None:
+    """A retained dam_id does not make an already-weaned adult dependent."""
+    headers = await owner_with_farm(client)
+    doe, _buck, breeding = await pregnant_doe(
+        client,
+        headers,
+        tag="ADULT-DAUGHTER-DAM",
+        gestation_days=220,
+    )
+    record = await kid_on_ekd(
+        client,
+        headers,
+        breeding,
+        kids=[{"tag": "CURRENT-DEPENDENT-KID", "sex": "M"}],
+    )
+    weaning = next(
+        task
+        for task in await all_tasks(client, headers)
+        if task["category"] == "WEANING" and task["breeding_record_id"] == breeding["id"]
+    )
+
+    farm_id = int(headers["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        adult_daughter = Animal(
+            farm_id=farm_id,
+            tag_number="ADULT-DAUGHTER",
+            sex="F",
+            date_of_birth=today() - timedelta(days=400),
+            birth_type="SINGLE",
+            source="BORN",
+            dam_id=doe["id"],
+            current_bucket="RECOVERY",
+        )
+        db.add(adult_daughter)
+        await db.flush()
+        db.add_all(
+            [
+                BucketMove(
+                    animal_id=adult_daughter.id,
+                    from_bucket="RECOVERY",
+                    to_bucket="FEMALE_KIDS",
+                    reason="Weaned (day 60)",
+                ),
+                BucketMove(
+                    animal_id=adult_daughter.id,
+                    from_bucket="DELIVERY",
+                    to_bucket="RECOVERY",
+                    reason="Recorded her own kidding",
+                ),
+            ]
+        )
+        await db.commit()
+        adult_daughter_id = adult_daughter.id
+
+    completed = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
+    assert completed.status_code == 200, completed.text
+    current_kid_id = record["kids"][0]["animal_id"]
+    assert (await get_animal(client, headers, current_kid_id))["current_bucket"] == "MALE_KIDS"
+    assert (await get_animal(client, headers, adult_daughter_id))["current_bucket"] == "RECOVERY"
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RESTING"
+
+
+async def test_old_litters_final_death_keeps_newer_litters_weaning_plan(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    doe, first, second, older_kid, newer_kid = await _doe_with_two_retained_recovery_litters(
+        client, headers
+    )
+
+    await set_status(client, headers, older_kid["id"], "DEAD")
+
+    tasks = await all_tasks(client, headers)
+    old_duty = next(
+        task
+        for task in tasks
+        if task["category"] == "WEANING" and task["breeding_record_id"] == first["id"]
+    )
+    new_duty = next(
+        task
+        for task in tasks
+        if task["category"] == "WEANING" and task["breeding_record_id"] == second["id"]
+    )
+    assert old_duty["status"] == "SKIPPED"
+    assert new_duty["status"] == "PENDING"
+    assert not any(
+        task["category"] == "BUCKET_MOVE"
+        and task["breeding_record_id"] == first["id"]
+        and task["status"] == "PENDING"
+        for task in tasks
+    )
+    assert (await get_animal(client, headers, newer_kid["id"]))["current_bucket"] == "RECOVERY"
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RECOVERY"

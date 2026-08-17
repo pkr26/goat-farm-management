@@ -28,6 +28,7 @@ dev = [
     "httpx==0.28.1",
     "ruff==0.16.1",
     "mypy==2.3.0",
+    "mutmut==3.7.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -65,3 +66,33 @@ testpaths = ["tests"]
 # --strict-markers: an undeclared @pytest.mark.<x> becomes an error, not a
 # silent no-op. --strict-config: any misspelled config key fails the run.
 addopts = ["--strict-markers", "--strict-config"]
+
+[tool.mutmut]
+source_paths = ["app"]
+only_mutate = [
+    "app/simulation/*.py",
+    "app/schemas/simulation.py",
+]
+# Mutation workers run only deterministic, database-free tests. This keeps the
+# inner loop fast and avoids parallel workers racing over the integration
+# suite's shared throwaway PostgreSQL database.
+pytest_add_cli_args = ["--mutation-pure"]
+pytest_add_cli_args_test_selection = [
+    "tests/test_simulation_advanced.py",
+    "tests/test_simulation_engine.py",
+    "tests/test_simulation_explain.py",
+    "tests/test_simulation_finance_mutation.py",
+    "tests/test_simulation_financials.py",
+]
+mutate_only_covered_lines = true
+# mutmut excludes Python files from its generic dependency hash. Explicitly
+# track the mutation harness so changed assertions cannot reuse stale verdicts.
+cache_invalidation_files = ["tests/**/*.py"]
+# The selected profile is deterministic and DB-free. Five times the measured
+# relevant-test duration leaves ample scheduling headroom while classifying
+# mutation-induced infinite loops promptly (mutmut's default is 15x).
+timeout_multiplier = 5.0
+timeout_constant = 1.0
+# Lock/config/fixture changes can alter every mutant verdict. Prefer a slower
+# sound rerun to silently reusing results produced under a different harness.
+on_dependency_change = "rerun"

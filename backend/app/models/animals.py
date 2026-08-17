@@ -100,7 +100,7 @@ class Animal(Base):
             name="ck_animals_status_date",
         ),
         CheckConstraint(
-            "status = 'SOLD' OR (sale_price IS NULL AND buyer_name IS NULL)",
+            "status IN ('SOLD', 'CULLED') OR (sale_price IS NULL AND buyer_name IS NULL)",
             name="ck_animals_sale_fields",
         ),
         CheckConstraint(

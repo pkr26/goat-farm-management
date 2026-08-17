@@ -242,9 +242,11 @@ passes. Resume API replicas only after that succeeds.
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 2944 tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 3,200+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app
+./.venv/bin/mutmut run --max-children 4 # deterministic, DB-free simulation profile
+./.venv/bin/mutmut results
 ./.venv/bin/python scripts/export_openapi.py   # regenerate shared/openapi.json
 
 # Frontend
@@ -255,6 +257,15 @@ pnpm exec playwright test   # 22 browser e2e tests across 14 specs (fresh user+f
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
 ```
+
+The mutation profile deliberately selects deterministic simulation tests and
+uses `--mutation-pure` to deselect PostgreSQL integration cases. Do not run
+parallel mutation workers against the shared integration-test database; use a
+unique database and one child if a future campaign targets DB-backed services.
+Because the profile mutates only covered lines, archive or remove the generated
+`backend/mutants/` cache after editing mutation-target source code and before an
+authoritative run. Mutmut 3.7 can otherwise reuse stale line-coverage mappings;
+test-only changes are invalidated by the configured test-file dependency hash.
 
 The API contract flows one way: backend routes/schemas →
 `shared/openapi.json` → Orval-generated TanStack Query hooks
@@ -666,7 +677,7 @@ backend/
                      movement-clearance hardening)
   scripts/           export_openapi.py, healthcheck.py, backup.sh, restore.sh,
                      libpq_url.py (URL → credential-safe libpq inputs)
-  tests/             2944 tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  tests/             3,200+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout

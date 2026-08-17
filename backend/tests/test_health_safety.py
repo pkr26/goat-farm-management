@@ -15,6 +15,7 @@ from app.db import get_engine, get_sessionmaker
 from app.main import create_app
 from app.models import HealthEvent, MovementRestrictionAction, Task, Transaction, VaccineTemplate
 from app.services.health import (
+    _legacy_event_matches,
     protocol_phrase_of,
     target_matches_template,
     template_name_for_task,
@@ -700,6 +701,35 @@ def test_health_template_matching_uses_words_and_requires_both_combined_componen
         "Enterotoxaemia (ET)"
     )
     assert template_name_for_task("Pre-kidding ET+TT vaccine", "VACCINE") == ("ET + TT pre-kidding")
+
+
+def test_legacy_schedule_matching_rejects_incompatible_event_types() -> None:
+    def matches(
+        template_name: str,
+        event_type: str,
+        *,
+        schedule_template_name: str | None = None,
+        product_name: str | None = None,
+    ) -> bool:
+        return _legacy_event_matches(
+            template_name,
+            event_type=event_type,
+            schedule_template_name=schedule_template_name,
+            product_name=product_name,
+            disease_target=None,
+        )
+
+    # Exact legacy labels are not enough when the recorded clinical action is
+    # from the other programme family.
+    assert not matches("PPR", "DEWORMING", schedule_template_name="PPR")
+    assert not matches("Deworming", "VACCINE", schedule_template_name="Deworming")
+    # Nor may free text or a known trade-name alias override the event type.
+    assert not matches("PPR", "DEWORMING", product_name="Raksha-PPR")
+    assert not matches("Deworming", "VACCINE", product_name="routine deworming treatment")
+
+    assert matches("PPR", "VACCINE", schedule_template_name="PPR")
+    assert matches("PPR", "VACCINE", product_name="Raksha-PPR")
+    assert matches("Deworming", "DEWORMING", product_name="routine treatment")
 
 
 def test_template_inference_ignores_operator_supplied_labels() -> None:

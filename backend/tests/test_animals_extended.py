@@ -2340,6 +2340,34 @@ async def test_status_sold_without_price_books_no_transaction(client: httpx.Asyn
     assert await transactions(client, owner) == []
 
 
+async def test_status_culled_with_price_books_cull_sale_transaction(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="CULL-SALE-1", sex="M")
+    resp = await mark_status(
+        client,
+        owner,
+        animal["id"],
+        "CULLED",
+        sale_price=7500,
+        buyer_name="Cull Buyer",
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "CULLED"
+    assert resp.json()["sale_price"] == 7500.0
+
+    txns = await transactions(client, owner)
+    assert len(txns) == 1
+    assert txns[0]["type"] == "INCOME"
+    assert txns[0]["category"] == "ANIMAL_SALE"
+    assert txns[0]["amount"] == 7500.0
+    assert txns[0]["related_animal_id"] == animal["id"]
+    assert txns[0]["source_type"] == "ANIMAL_SALE"
+    assert txns[0]["source_id"] == animal["id"]
+    assert "Cull Buyer" in txns[0]["notes"]
+
+
 async def test_status_sold_zero_price_books_a_zero_income_transaction(
     client: httpx.AsyncClient,
 ) -> None:
@@ -2354,7 +2382,9 @@ async def test_status_sold_zero_price_books_a_zero_income_transaction(
     assert txns[0]["amount"] == 0.0
 
 
-async def test_status_dead_and_culled_book_no_transaction(client: httpx.AsyncClient) -> None:
+async def test_status_dead_and_unpriced_culled_book_no_transaction(
+    client: httpx.AsyncClient,
+) -> None:
     owner = await owner_with_farm(client)
     for i, status in enumerate(["DEAD", "CULLED"]):
         animal = await make_animal(client, owner, tag=f"T-{i}")
@@ -3319,6 +3349,136 @@ async def test_kids_not_in_recovery_are_untouched_when_dam_sold(client: httpx.As
     # And no phantom "Dam marked sold — early wean" BucketMove landed on her.
     reasons = [m["reason"] for m in after["moves"]]
     assert "Dam marked sold — early wean" not in reasons
+
+
+async def test_retiring_dam_does_not_orphan_wean_adult_daughters_own_litters(
+    client: httpx.AsyncClient,
+) -> None:
+    """A birth link and dam_id survive into adulthood.
+
+    Daughters that genuinely weaned and later returned to RECOVERY for their
+    own kiddings are not dependent children of the older dam. This holds both
+    during the immediate terminal-dam sweep and after a movement hold is
+    cleared through the deferred-orphan path.
+    """
+    headers = await owner_with_farm(client)
+    old_dam_dob = today() - timedelta(days=1600)
+    old_dam = await make_animal(
+        client,
+        headers,
+        tag="GRANDDAM",
+        sex="F",
+        bucket="FOUNDATION",
+        date_of_birth=iso(old_dam_dob),
+        weight_kg=30.0,
+        weight_date=iso(old_dam_dob),
+    )
+    old_sire = await make_animal(
+        client,
+        headers,
+        tag="GRANDSIRE",
+        sex="M",
+        bucket="BREEDING",
+        date_of_birth=iso(old_dam_dob),
+        weight_kg=35.0,
+        weight_date=iso(old_dam_dob),
+    )
+    old_breeding = await make_breeding(
+        client,
+        headers,
+        old_dam["id"],
+        old_sire["id"],
+        today() - timedelta(days=700),
+    )
+    old_breeding = await submit_ultrasound(
+        client,
+        headers,
+        old_breeding["id"],
+        pregnant=True,
+        kid_count=2,
+        result_date=date.fromisoformat(old_breeding["ultrasound_date"]),
+    )
+    kidding = await client.post(
+        "/api/kidding",
+        json={
+            "breeding_record_id": old_breeding["id"],
+            "date": old_breeding["expected_kidding_date"],
+            "ease": "NORMAL",
+            "kids": [
+                {"tag": "ADULT-DAUGHTER-1", "sex": "F", "status": "ALIVE"},
+                {"tag": "ADULT-DAUGHTER-2", "sex": "F", "status": "ALIVE"},
+            ],
+        },
+        headers=headers,
+    )
+    assert kidding.status_code == 201, kidding.text
+    daughter_ids = [kid["animal_id"] for kid in kidding.json()["kids"]]
+
+    tasks = (await client.get("/api/tasks", headers=headers)).json()
+    weaning = next(
+        task
+        for tab in ("today", "overdue", "upcoming")
+        for task in tasks[tab]
+        if task["category"] == "WEANING" and task["animal_id"] == old_dam["id"]
+    )
+    completed = await client.post(f"/api/tasks/{weaning['id']}/complete", headers=headers)
+    assert completed.status_code == 200, completed.text
+
+    for daughter_id in daughter_ids:
+        returned = await client.post(
+            f"/api/animals/{daughter_id}/move",
+            json={
+                "to_bucket": "RECOVERY",
+                "history_override": True,
+                "reason": "Returned for her own recorded litter",
+            },
+            headers=headers,
+        )
+        assert returned.status_code == 200, returned.text
+        await _make_kid(
+            client,
+            headers,
+            f"GRANDKID-{daughter_id}",
+            daughter_id,
+            "F",
+        )
+
+    held_daughter_id = daughter_ids[1]
+    held = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": held_daughter_id,
+            "type": "TREATMENT",
+            "disease_target": "Reportable-condition concern",
+            "suspected_scheduled_disease": True,
+        },
+        headers=headers,
+    )
+    assert held.status_code == 201, held.text
+
+    retired = await mark_status(client, headers, old_dam["id"], "SOLD", sale_price=3000)
+    assert retired.status_code == 200, retired.text
+    for daughter_id in daughter_ids:
+        assert (await get_animal(client, headers, daughter_id))["current_bucket"] == "RECOVERY"
+
+    cleared = await client.post(
+        f"/api/health/restrictions/{held_daughter_id}/clear",
+        json={
+            "clearance_reference": "District AHD adult-doe clearance",
+            "expected_restriction_version": 1,
+        },
+        headers=headers,
+    )
+    assert cleared.status_code == 204, cleared.text
+    deferred = await client.post(
+        f"/api/animals/{held_daughter_id}/move",
+        json={"to_bucket": "FEMALE_KIDS"},
+        headers=headers,
+    )
+    assert deferred.status_code == 409
+    assert "illegal lifecycle transition" in deferred.json()["detail"].lower()
+    assert (await get_animal(client, headers, held_daughter_id))["current_bucket"] == "RECOVERY"
 
 
 async def test_manual_orphan_wean_rejects_kid_without_kidding_provenance(

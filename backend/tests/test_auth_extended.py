@@ -1177,6 +1177,28 @@ async def test_logout_needs_no_authorization(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 204
 
 
+async def test_logout_rejects_cross_user_cookie_and_bearer_without_revocation(
+    client: httpx.AsyncClient,
+) -> None:
+    bearer_a = await register(client, "logout-identity-a@farm.in")
+    bearer_b = await register(client, "logout-identity-b@farm.in")
+    refresh_b = client.cookies.get(COOKIE)
+    assert refresh_b
+
+    rejected = await client.post("/api/auth/logout", headers=bearer_a)
+    assert rejected.status_code == 401, rejected.text
+    assert "different accounts" in rejected.json()["detail"]
+
+    # The rejected composite request must not silently choose either valid
+    # principal: A's bearer remains current and B's cookie can still rotate.
+    assert (await client.get("/api/auth/me", headers=bearer_a)).status_code == 200
+    assert (await client.get("/api/auth/me", headers=bearer_b)).status_code == 200
+    assert client.cookies.get(COOKIE) == refresh_b
+    refreshed_b = await client.post("/api/auth/refresh")
+    assert refreshed_b.status_code == 200, refreshed_b.text
+    assert refreshed_b.json()["user"]["email"] == "logout-identity-b@farm.in"
+
+
 async def test_refresh_after_logout_is_401(client: httpx.AsyncClient) -> None:
     await register(client, "out2@farm.in")
     resp = await client.post("/api/auth/logout")

@@ -300,6 +300,13 @@ async def test_valid_direct_sql_boundary_values_and_domain_graph_commit(
             text("UPDATE transactions SET amount = 1000000000 WHERE id = :id"),
             {"id": ids["transaction"]},
         )
+        await db.execute(
+            text(
+                "UPDATE animals SET status = 'CULLED', status_date = CURRENT_DATE, "
+                "sale_price = 1, buyer_name = 'Constraint-safe buyer' WHERE id = :id"
+            ),
+            {"id": ids["animal"]},
+        )
         await db.commit()
 
 

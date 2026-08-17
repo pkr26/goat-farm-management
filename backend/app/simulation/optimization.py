@@ -1,5 +1,6 @@
 """Deterministic bounded search for farm-size and operating decisions."""
 
+import math
 from collections.abc import Sequence
 from itertools import product
 from typing import Any
@@ -16,7 +17,16 @@ def _linspace(low: float, high: float, steps: int) -> list[float]:
 
 
 def _unique_bounded(values: list[float], low: float, high: float) -> list[float]:
-    return sorted({min(high, max(low, value)) for value in values})
+    bounded = sorted(min(high, max(low, value)) for value in values)
+    unique: list[float] = []
+    for value in bounded:
+        # Subtraction-derived bounds such as ``1.0 - 0.7`` can differ from a
+        # submitted ``0.3`` by one binary ULP. Treating those as two decisions
+        # wastes a bounded optimizer slot on the same financing policy.
+        tolerance = 8 * max(math.ulp(value), math.ulp(unique[-1])) if unique else 0.0
+        if not unique or abs(value - unique[-1]) > tolerance:
+            unique.append(value)
+    return unique
 
 
 def _candidate_from_core(
@@ -110,9 +120,7 @@ def _sample_grid(axes: Sequence[Sequence[Any]], limit: int) -> list[tuple[Any, .
         if counts[widest] <= 1:
             break
         counts[widest] -= 1
-    thinned = [
-        _sample_evenly(list(axis), count) for axis, count in zip(axes, counts, strict=True)
-    ]
+    thinned = [_sample_evenly(list(axis), count) for axis, count in zip(axes, counts, strict=True)]
     grid: list[tuple[Any, ...]] = [tuple(combination) for combination in product(*thinned)]
     return grid[:limit]
 

@@ -88,8 +88,8 @@ def build_metric_explanations(
                 f"stock purchases are excluded). "
                 f"Shed and equipment are funded for {b.capacity_places:.1f} animal places "
                 f"using the {b.capacity_basis.replace('_', ' ')} capacity basis; the peak funded "
-                f"headcount — the larger of the opening herd and the projected monthly "
-                f"peak — is {b.projected_peak_head:.1f} head."
+                f"headcount — the larger of the opening herd and the highest physical "
+                f"headcount reached during the projection — is {b.projected_peak_head:.1f} head."
             ),
             figures={
                 "project_cost": m.project_cost,
@@ -319,7 +319,8 @@ def build_metric_explanations(
                 explanation=(
                     f"The project funds {m.peak_capacity_head:.1f} animal places against a "
                     f"peak funded headcount of {b.projected_peak_head:.1f} head — the "
-                    f"larger of the opening herd and the projected monthly peak. "
+                    f"larger of the opening herd and the highest physical headcount "
+                    "reached during the projection. "
                     f"The reserve is {m.peak_capacity_head - b.projected_peak_head:.1f} places."
                 ),
                 figures={
@@ -674,8 +675,10 @@ def build_narrative_report(
     if m.npv < 0.0:
         problems.append("the NPV is negative")
     elif m.npv == 0.0:
-        problems.append("the NPV is exactly zero — the project only just clears the "
-                        "discount rate, with no margin")
+        problems.append(
+            "the NPV is exactly zero — the project only just clears the "
+            "discount rate, with no margin"
+        )
     if m.bcr is not None and m.bcr < 1.0:
         problems.append("the benefit-cost ratio is below 1.0")
     if m.irr is None:

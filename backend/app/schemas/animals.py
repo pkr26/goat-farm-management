@@ -224,10 +224,10 @@ class StatusChangeIn(StrictInputModel):
 
     @model_validator(mode="after")
     def _death_escalation_fields_are_coherent(self) -> "StatusChangeIn":
-        if self.new_status != "SOLD" and (
+        if self.new_status not in {"SOLD", "CULLED"} and (
             self.sale_price is not None or self.buyer_name is not None
         ):
-            raise ValueError("Sale price and buyer require SOLD status")
+            raise ValueError("Sale price and buyer require SOLD or CULLED status")
         if self.new_status != "DEAD" and any(
             value is not None
             for value in (

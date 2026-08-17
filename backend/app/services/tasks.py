@@ -5,12 +5,13 @@
 from datetime import date, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from ..models import (
+    HISTORY_OVERRIDE_REASON_PREFIX,
     MAX_RECUR_DAYS,
     POSTPARTUM_RECOVERY_DAYS,
     WEANING_DAYS,
@@ -19,6 +20,7 @@ from ..models import (
     BreedingOutcome,
     BreedingRecord,
     Bucket,
+    BucketMove,
     Farm,
     FarmMembership,
     KiddingRecord,
@@ -183,23 +185,40 @@ async def _guard_generated_movement_task(
     return kidding, kids
 
 
-async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> None:
-    """Require a recorded kidding whose day-60 milestone matches the task."""
+async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> set[int]:
+    """Return this duty's litter after validating its day-60 provenance.
+
+    ``animal_id`` identifies the dam, not the litter. New duties retain their
+    breeding link; the due-date lookup remains for legacy rows created before
+    that link was recorded. Returning the KidEntry animal ids prevents a stale
+    duty for one kidding from weaning every RECOVERY child the doe has ever had.
+    """
     if not task.auto_generated or task.animal_id is None:
         raise ValueError("Weaning side effects require an authoritative generated duty")
+    kidding_filters = [
+        KiddingRecord.farm_id == task.farm_id,
+        KiddingRecord.doe_id == task.animal_id,
+        KiddingRecord.date == task.due_date - timedelta(days=WEANING_DAYS),
+    ]
+    if task.breeding_record_id is not None:
+        kidding_filters.append(KiddingRecord.breeding_record_id == task.breeding_record_id)
     kidding_id = (
         await db.execute(
-            select(KiddingRecord.id)
-            .where(
-                KiddingRecord.farm_id == task.farm_id,
-                KiddingRecord.doe_id == task.animal_id,
-                KiddingRecord.date == task.due_date - timedelta(days=WEANING_DAYS),
-            )
-            .limit(1)
+            select(KiddingRecord.id).where(*kidding_filters).order_by(KiddingRecord.id).limit(1)
         )
     ).scalar_one_or_none()
     if kidding_id is None:
         raise ValueError("The weaning duty does not match a recorded kidding milestone")
+    linked_ids = (
+        await db.execute(
+            select(KidEntry.animal_id).where(
+                KidEntry.farm_id == task.farm_id,
+                KidEntry.kidding_record_id == kidding_id,
+                KidEntry.animal_id.is_not(None),
+            )
+        )
+    ).scalars()
+    return {animal_id for animal_id in linked_ids if animal_id is not None}
 
 
 async def complete_task(
@@ -235,6 +254,7 @@ async def complete_task(
     postpartum_doe: Animal | None = None
     weaning_kids: list[Animal] | None = None
     weaning_doe: Animal | None = None
+    weaning_doe_can_rest = False
     movement_date = reference_date
     if task.category in (TaskCategory.BUCKET_MOVE.value, TaskCategory.WEANING.value):
         # Task completion is an event on the farm's business calendar. Never
@@ -284,18 +304,59 @@ async def complete_task(
     elif task.category == TaskCategory.WEANING.value:
         if locked_animals is None:
             raise ValueError("Task completion animals were not pre-locked")
-        await _guard_generated_weaning_task(db, task)
+        litter_animal_ids = await _guard_generated_weaning_task(db, task)
         weaning_doe = animals_by_id.get(task.animal_id) if task.animal_id is not None else None
         if weaning_doe is None or weaning_doe.farm_id != task.farm_id:
             raise ValueError("The animal linked to this weaning duty is unavailable")
         weaning_kids = [
             animal
             for animal in affected_animals
-            if animal.dam_id == weaning_doe.id
+            if animal.id in litter_animal_ids
+            and animal.dam_id == weaning_doe.id
             and animal.status == AnimalStatus.ACTIVE.value
             and animal.current_bucket == Bucket.RECOVERY.value
         ]
-        candidates = [weaning_doe, *weaning_kids]
+        # A retained older duty may be completed after the doe has another live
+        # litter (supported by historical correction). Wean only the linked
+        # litter and leave the dam in RECOVERY until every other *dependent*
+        # kid's own milestone is complete. A farm-born adult retains dam_id and
+        # can later return to RECOVERY for her own kidding; a genuine earlier
+        # RECOVERY exit proves she is no longer dependent on this doe. History
+        # overrides are corrections, not proof of weaning, and are excluded by
+        # the same criterion used by final-kid-death replanning.
+        other_recovery_ids = [
+            animal.id
+            for animal in affected_animals
+            if animal.dam_id == weaning_doe.id
+            and animal.id not in litter_animal_ids
+            and animal.status == AnimalStatus.ACTIVE.value
+            and animal.current_bucket == Bucket.RECOVERY.value
+        ]
+        other_dependent_id: int | None = None
+        if other_recovery_ids:
+            other_dependent_id = (
+                await db.execute(
+                    select(Animal.id)
+                    .where(
+                        Animal.id.in_(other_recovery_ids),
+                        ~select(BucketMove.id)
+                        .where(
+                            BucketMove.animal_id == Animal.id,
+                            BucketMove.from_bucket == Bucket.RECOVERY.value,
+                            func.coalesce(BucketMove.reason, "").not_like(
+                                f"{HISTORY_OVERRIDE_REASON_PREFIX}%"
+                            ),
+                        )
+                        .correlate(Animal)
+                        .exists(),
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        weaning_doe_can_rest = other_dependent_id is None
+        candidates = [*weaning_kids]
+        if weaning_doe_can_rest:
+            candidates.insert(0, weaning_doe)
         if any(
             bucket_transition_error(
                 animal,
@@ -378,7 +439,10 @@ async def complete_task(
                     context="weaning",
                     reference_date=movement_date,
                 )
-            if doe.current_bucket in (Bucket.DELIVERY.value, Bucket.RECOVERY.value):
+            if weaning_doe_can_rest and doe.current_bucket in (
+                Bucket.DELIVERY.value,
+                Bucket.RECOVERY.value,
+            ):
                 move_animal(
                     db,
                     doe,

@@ -284,6 +284,7 @@ async def record_kidding(
             kidding_date + timedelta(days=WEANING_DAYS),
             TaskCategory.WEANING,
             animal_id=doe.id,
+            breeding_record_id=br.id,
         )
     else:
         mortality_dates = [
@@ -351,9 +352,7 @@ async def replan_dam_after_last_kid_death(
             .where(
                 BucketMove.animal_id == child.id,
                 BucketMove.from_bucket == Bucket.RECOVERY.value,
-                func.coalesce(BucketMove.reason, "").not_like(
-                    f"{HISTORY_OVERRIDE_REASON_PREFIX}%"
-                ),
+                func.coalesce(BucketMove.reason, "").not_like(f"{HISTORY_OVERRIDE_REASON_PREFIX}%"),
             )
             .limit(1)
         )
@@ -434,11 +433,54 @@ async def replan_dam_after_last_kid_death(
         animal_id=dam.id,
         category=TaskCategory.WEANING.value,
     ):
+        # A doe can have retained historical duties from more than one
+        # kidding. Close only this litter's duty: cancelling every duty for the
+        # dam can erase a newer live litter's day-60 plan. New rows carry the
+        # breeding link; the due-date fallback repairs pre-link legacy rows.
+        if task.breeding_record_id not in (None, kidding.breeding_record_id):
+            continue
+        if task.breeding_record_id is None and task.due_date != kidding.date + timedelta(
+            days=WEANING_DAYS
+        ):
+            continue
         task.status = TaskStatus.SKIPPED.value
         task.skipped_by_id = None
         task.skipped_at = now
         task.skip_reason = "Final surviving kid died; weaning no longer applies"
         _clear_task_rejection(task)
+
+    # Historical correction can put a doe through a second kidding while an
+    # older litter still has a retained RECOVERY kid. If that older litter then
+    # loses its final survivor, the newer dependent litter must keep the dam in
+    # RECOVERY and retain its own weaning plan. A genuine prior RECOVERY exit
+    # proves that an adult child merely returned to this bucket later and is no
+    # longer dependent; history overrides deliberately do not prove weaning.
+    other_dependent_id = (
+        await db.execute(
+            select(Animal.id)
+            .where(
+                Animal.farm_id == farm.id,
+                Animal.dam_id == dam.id,
+                Animal.id != child.id,
+                Animal.status == AnimalStatus.ACTIVE.value,
+                Animal.current_bucket == Bucket.RECOVERY.value,
+                ~select(BucketMove.id)
+                .where(
+                    BucketMove.animal_id == Animal.id,
+                    BucketMove.from_bucket == Bucket.RECOVERY.value,
+                    func.coalesce(BucketMove.reason, "").not_like(
+                        f"{HISTORY_OVERRIDE_REASON_PREFIX}%"
+                    ),
+                )
+                .correlate(Animal)
+                .exists(),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if other_dependent_id is not None:
+        await db.flush()
+        return False
 
     recorded_mortalities = [
         value

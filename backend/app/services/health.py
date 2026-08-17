@@ -408,15 +408,18 @@ def _legacy_event_matches(
     disease_target: str | None,
 ) -> bool:
     """Compatibility match for a bounded set of pre-linkage event rows."""
+    key = _normalize(template_name.split("(")[0])
+    if key.startswith("deworm"):
+        if event_type != HealthEventType.DEWORMING.value:
+            return False
+    elif event_type != HealthEventType.VACCINE.value:
+        return False
     if schedule_template_name:
         return _normalize(schedule_template_name) == _normalize(template_name)
     haystack = _normalize(f"{product_name or ''} {disease_target or ''}")
     words = _words(haystack)
-    key = _normalize(template_name.split("(")[0])
     if key.startswith("deworm"):
-        return event_type == HealthEventType.DEWORMING.value or any(
-            word.startswith("deworm") for word in words
-        )
+        return True
     if key and _has_alias(words, key):
         return True
     if any(_has_alias(words, alias) for alias in _TEMPLATE_ALIASES.get(key, ())):

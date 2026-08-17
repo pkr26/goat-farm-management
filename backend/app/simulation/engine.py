@@ -290,22 +290,25 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     f_grower = [0.0] * (afb - 6)  # ages 6..afb-1
     if f_grower:
         f_grower[len(f_grower) // 2] = float(a.herd.female_growers)
+        f_boundary_grower = 0.0
     else:
         # afb == 6: the grower chain is empty, so a starting female grower is
-        # already breeding-age. Park her at the end of the weaner class so she
-        # graduates in month 1 through the normal retention/cap path — exactly
-        # what a one-slot chain (afb == 7) does. Dropping her silently deleted
-        # head the promoter is still charged for in shed and stock cost.
-        f_weaner[-1] += float(a.herd.female_growers)
+        # already at its graduation boundary. Keep that inventory separate
+        # until month-1 graduation: parking it in the last weaner slot made a
+        # scheduled weaner sale consume growers while a scheduled grower sale
+        # saw an empty pool and sold nothing.
+        f_boundary_grower = float(a.herd.female_growers)
     m_kid = [0.0, float(a.herd.male_kids), 0.0]
     m_weaner = [0.0, float(a.herd.male_weaners), 0.0]
     m_grower = [0.0] * (sale_age - 6)  # ages 6..sale_age-1
     if m_grower:
         m_grower[len(m_grower) // 2] = float(a.herd.male_growers)
+        m_boundary_grower = 0.0
     else:
-        # sale_age == 6: same empty-chain case — the male is already at sale
-        # age, so he graduates out of the weaner class and is sold in month 1.
-        m_weaner[-1] += float(a.herd.male_growers)
+        # sale_age == 6: same empty-chain boundary. The male is already at sale
+        # age and is sold during month-1 graduation unless an ordered grower
+        # event removes him first.
+        m_boundary_grower = float(a.herd.male_growers)
 
     open_waiting = [0.0] * r.months_open_before_breeding
     open_ready = float(a.herd.does)
@@ -350,6 +353,32 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     _add_purchased_does(float(a.herd.does))
     bucks = float(a.herd.bucks)
 
+    def _physical_head() -> float:
+        """Heads physically present at the current intra-month boundary.
+
+        ``_MonthRecord.total_herd`` is an end-of-month balance after mortality,
+        culling and sales.  Capacity has to cover animals while they are still
+        present, including ordered start-of-month events, newborns and sires
+        procured before service.
+        """
+        return (
+            sum(f_kid)
+            + sum(m_kid)
+            + sum(f_weaner)
+            + sum(m_weaner)
+            + sum(f_grower)
+            + sum(m_grower)
+            + f_boundary_grower
+            + m_boundary_grower
+            + open_ready
+            + sum(open_waiting)
+            + sum(preg)
+            + sum(lact)
+            + bucks
+        )
+
+    physical_peak_head = _physical_head()
+
     # Same annual -> monthly compounding converter as the mortality classes:
     # twelve months of it remove exactly doe_cull_rate_annual of the pool.
     monthly_cull_rate = monthly_mortality_rate(cull.doe_cull_rate_annual)
@@ -384,7 +413,6 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # Bucks bought via a scheduled event this month, tracked separately so
         # the rotation cull below (step 6) can spare them — see that step.
         bucks_purchased_this_month = 0.0
-
         # Calendar seasonality, nominal escalation, explicit lunar-festival
         # months and Monte Carlo market shocks all meet in one auditable price.
         meat_price = meat_price_for_month(
@@ -446,26 +474,24 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                         default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
                         f_grower[len(f_grower) // 2] += n  # mid-class
                     else:
-                        # afb == 6: the chain is empty, so this animal is
-                        # delivered straight into the breeding pool. Price her
-                        # as the breeding doe she becomes, not as young stock —
-                        # the male empty-chain branch below already values its
-                        # stock at the class it actually lands in.
-                        default_price = doe_purchase_price
-                        open_ready += n
-                        _add_purchased_does(n)
+                        # afb == 6: keep the animal at the graduation boundary.
+                        # She must still pass through the configured retention
+                        # fraction and breeding-doe cap, exactly like the
+                        # one-slot afb == 7 chain.
+                        default_price = weight_at_age(afb, g, doe_w) * meat_price
+                        f_boundary_grower += n
                 else:  # male_grower
                     if m_grower:
                         default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
                         m_grower[len(m_grower) // 2] += n  # mid-class
                     else:
-                        # sale_age == 6: this is market-ready stock. Put it in
-                        # the final weaner slot so normal graduation sells it
-                        # this month, and value both sides at the same sale-age
-                        # weight. Charging for an animal and placing it nowhere
-                        # silently destroyed purchased livestock.
+                        # sale_age == 6: this is market-ready stock. Keep it at
+                        # the explicit graduation boundary so a later ordered
+                        # grower sale can address it; otherwise normal
+                        # graduation sells it this month. Value both sides at
+                        # the same sale-age weight.
                         default_price = weight_at_age(sale_age, g, buck_w) * meat_price
-                        m_weaner[-1] += n
+                        m_boundary_grower += n
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 purchases_head += n
                 purchase_cost += n * price
@@ -502,10 +528,18 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     take = _draw(m_weaner, requested)
                     default_price = weight_at_age(4, g, doe_w) * meat_price
                 elif event.animal_class == "female_grower":
-                    take = _draw(f_grower, requested)
+                    if f_grower:
+                        take = _draw(f_grower, requested)
+                    else:
+                        take = min(requested, f_boundary_grower)
+                        f_boundary_grower -= take
                     default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
                 else:  # male_grower
-                    take = _draw(m_grower, requested)
+                    if m_grower:
+                        take = _draw(m_grower, requested)
+                    else:
+                        take = min(requested, m_boundary_grower)
+                        m_boundary_grower -= take
                     default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 revenue = take * price
@@ -520,6 +554,10 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     note += f" — only {take:g} of {requested:g} available"
                 event_log.append(note)
 
+            # Events are ordered.  Capture every boundary so a purchase followed
+            # by a same-month sale still funds the places occupied between them.
+            physical_peak_head = max(physical_peak_head, _physical_head())
+
         # --- 1. young-stock aging and graduations ---------------------------
         f_kid_out = f_kid[2]
         f_kid = [0.0, f_kid[0], f_kid[1]]
@@ -529,7 +567,8 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             f_gro_out = f_grower[-1]
             f_grower = [f_wea_out, *f_grower[:-1]]
         else:
-            f_gro_out = f_wea_out
+            f_gro_out = f_wea_out + f_boundary_grower
+            f_boundary_grower = 0.0
 
         m_kid_out = m_kid[2]
         m_kid = [0.0, m_kid[0], m_kid[1]]
@@ -539,7 +578,8 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             m_gro_out = m_grower[-1]
             m_grower = [m_wea_out, *m_grower[:-1]]
         else:
-            m_gro_out = m_wea_out
+            m_gro_out = m_wea_out + m_boundary_grower
+            m_boundary_grower = 0.0
 
         # Breeding-age females: retained fraction joins the doe pool (subject to
         # the cap), the surplus is sold as meat at the first-breeding-age weight.
@@ -603,6 +643,10 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         conceived = served_does * effective_conception
         preg[0] += conceived
         open_ready -= conceived
+
+        # Births and pre-service sire purchases both happen before mortality.
+        # The end-of-month row cannot reconstruct this physical high-water mark.
+        physical_peak_head = max(physical_peak_head, _physical_head())
 
         # --- 5. mortality (all classes, including this month's newborns) -----
         pre = sum(f_kid) + sum(m_kid)
@@ -689,6 +733,8 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             purchases_head += buy
             purchase_cost += buy * buck_purchase_price
             bucks += buy
+
+        physical_peak_head = max(physical_peak_head, _physical_head())
 
         # --- 7. feed, opex and revenue accounting ---------------------------
         open_total = open_ready + sum(open_waiting)
@@ -945,7 +991,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         + a.herd.female_growers
         + a.herd.male_growers
     )
-    projected_peak_head = max(opening_head, *(record.total_herd for record in records))
+    projected_peak_head = max(opening_head, physical_peak_head)
     if costs.capacity_basis == "planned":
         capacity_places = float(costs.planned_capacity_head)
     elif costs.capacity_basis == "opening_herd":

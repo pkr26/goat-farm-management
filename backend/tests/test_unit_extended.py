@@ -1355,12 +1355,18 @@ def test_status_change_invalid(field: str, value: object) -> None:
         StatusChangeIn(**({"new_status": "SOLD"} | {field: value}))
 
 
-@pytest.mark.parametrize("status", ["DEAD", "CULLED"])
+@pytest.mark.parametrize("status", ["SOLD", "CULLED"])
 @pytest.mark.parametrize("field", ["sale_price", "buyer_name"])
-def test_terminal_status_rejects_irrelevant_sale_fields(status: str, field: str) -> None:
+def test_sale_statuses_accept_sale_fields(status: str, field: str) -> None:
+    value: object = 100.0 if field == "sale_price" else "Buyer"
+    StatusChangeIn(**{"new_status": status, field: value})
+
+
+@pytest.mark.parametrize("field", ["sale_price", "buyer_name"])
+def test_dead_status_rejects_irrelevant_sale_fields(field: str) -> None:
     value: object = 100.0 if field == "sale_price" else "Buyer"
     with pytest.raises(ValidationError):
-        StatusChangeIn(**{"new_status": status, field: value})
+        StatusChangeIn(**{"new_status": "DEAD", field: value})
 
 
 # ---------------------------------------------------------------------------

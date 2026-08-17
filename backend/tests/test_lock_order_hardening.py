@@ -882,6 +882,60 @@ async def test_generic_quarantine_release_prelocks_entire_active_batch(
     assert response.status_code == 409, response.text
 
 
+async def test_final_batch_animal_retirement_waits_for_locked_protocol_duty(
+    client: httpx.AsyncClient,
+) -> None:
+    """A skipped Task lock must not outlive the only empty-batch cleanup pass."""
+    owner = await owner_with_farm(client)
+    purchase = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 1,
+            "create_animals": True,
+            "total_price": 100,
+        },
+        headers=owner,
+    )
+    assert purchase.status_code == 201, purchase.text
+    batch_id = int(purchase.json()["id"])
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal_id = int(detail.json()["animals"][0]["id"])
+    task_ids = sorted(int(task["id"]) for task in detail.json()["tasks"])
+
+    holder = get_sessionmaker()()
+    await holder.execute(select(Task.id).where(Task.id == task_ids[0]).with_for_update())
+    async with second_client() as status_client:
+        request = asyncio.create_task(
+            status_client.post(
+                f"/api/animals/{animal_id}/status",
+                json={"new_status": "DEAD"},
+                headers=owner,
+            )
+        )
+        try:
+            await wait_for_lock_waiters(1)
+            assert not request.done()
+            await holder.rollback()
+            async with asyncio.timeout(10):
+                response = await request
+        finally:
+            await holder.rollback()
+            await holder.close()
+            if not request.done():
+                request.cancel()
+
+    assert response.status_code == 200, response.text
+    async with get_sessionmaker()() as db:
+        statuses = list(
+            (
+                await db.execute(select(Task.status).where(Task.id.in_(task_ids)).order_by(Task.id))
+            ).scalars()
+        )
+    assert statuses == [TaskStatus.SKIPPED.value] * len(task_ids)
+
+
 async def test_recurring_role_completion_vs_role_delete_has_no_cycle(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

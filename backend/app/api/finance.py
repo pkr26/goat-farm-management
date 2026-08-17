@@ -421,6 +421,14 @@ async def _reconcile_source_record(
         animal.purchase_date = payload.date
         canonical_related = (animal.id, animal.tag_number)
     elif txn.source_type == "PURCHASE_BATCH":
+        # A finance correction is another writer of the source record, so it
+        # must preserve PurchaseBatchIn's lower date boundary. Keep this check
+        # source-specific: deliberately old manual ledger entries remain valid.
+        if payload.date.year < 2000:
+            raise HTTPException(
+                status_code=422,
+                detail="Purchase batch date must be year 2000 or later",
+            )
         batch = (
             await db.execute(
                 select(PurchaseBatch)

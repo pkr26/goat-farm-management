@@ -963,6 +963,22 @@ async def test_zero_animal_purchase_batch_money_and_date_can_be_corrected(
         for row in (await client.get("/api/finance", headers=owner)).json()["transactions"]
         if row["source_type"] == "PURCHASE_BATCH"
     )
+    ancient = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date="1999-12-31",
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=900.0,
+        ),
+        headers=owner,
+    )
+    assert ancient.status_code == 422, ancient.text
+    assert "year 2000 or later" in ancient.json()["detail"]
+    unchanged = await client.get(f"/api/purchases/{batch.json()['id']}", headers=owner)
+    assert unchanged.json()["batch"]["total_price"] == 1000.0
+    assert unchanged.json()["batch"]["date"] == today().isoformat()
+
     changed_date = today() - timedelta(days=1)
     corrected = await client.post(
         f"/api/finance/transactions/{booked['id']}/correct",

@@ -309,8 +309,12 @@ async def skip_pending_tasks_for_empty_batch(
 
     Locking the batch row serializes the "was that the last animal?" decision,
     so two simultaneous retirements cannot each observe the other's animal as
-    still active and leave the duties behind. Lock order: animal → batch → task
-    (the task select never waits — it skips locked rows).
+    still active and leave the duties behind. Lock order is animal → batch →
+    task. Unlike the bounded animal-task sweeper, this path deliberately waits
+    for a contended protocol task: linked completion paths acquire the batch's
+    active animals before the task, so a final-animal holder is already ahead
+    of them in that order. The tradeoff is a bounded request delay while a
+    direct task lock is held, rather than silently stranding the duty forever.
     """
     if not 1 <= batch_size <= 10_000:
         raise ValueError("batch_size must be between 1 and 10000")
@@ -346,7 +350,15 @@ async def skip_pending_tasks_for_empty_batch(
         )
         .order_by(Task.id)
         .limit(batch_size)
-        .with_for_update(skip_locked=True),
+        # Unlike animal-linked residue, batch duties have no background
+        # sweeper that can revisit a row skipped because another transaction
+        # held its lock. Wait for every fixed-size protocol row here: otherwise
+        # retiring the batch's final animal can commit while one duty remains
+        # permanently PENDING and uncompletable. All API task transitions lock
+        # affected animals before their Task row, so the final-animal holder is
+        # ahead of them in the canonical animal -> task order; waiting here does
+        # not introduce the inverse edge that SKIP LOCKED was meant to avoid.
+        .with_for_update(),
         reason,
     )
 

@@ -153,6 +153,11 @@ def _power_sum(x: float, terms: Sequence[tuple[float, float]]) -> float:
     return sum(coefficient * _fpow(x, exponent) for exponent, coefficient in terms)
 
 
+def _opposite_float_signs(left: float, right: float) -> bool:
+    """Whether two nonzero floats have opposite signs, without multiplying them."""
+    return (left < 0.0 < right) or (right < 0.0 < left)
+
+
 def _sign_variations(terms: Sequence[tuple[float, float]]) -> int:
     signs = [1 if coefficient > 0.0 else -1 for _, coefficient in terms if coefficient != 0.0]
     return sum(left != right for left, right in pairwise(signs))
@@ -190,7 +195,7 @@ def _bisect_power_sum(
     for _ in range(100):
         mid = (lo + hi) / 2.0
         f_mid = _power_sum(mid, terms)
-        if f_lo * f_mid <= 0.0:
+        if f_lo == 0.0 or f_mid == 0.0 or _opposite_float_signs(f_lo, f_mid):
             hi = mid
         else:
             lo, f_lo = mid, f_mid
@@ -405,7 +410,7 @@ def _scanned_power_roots(
         f = _power_sum(x, terms)
         if f == 0.0:
             roots.append(x)
-        elif previous_f * f < 0.0:
+        elif _opposite_float_signs(previous_f, f):
             roots.append(_bisect_power_sum(previous_x, x, previous_f, terms))
         previous_x, previous_f = x, f
     return roots
@@ -438,7 +443,7 @@ def _positive_power_roots(
         roots: list[float] = []
         if f_lo == 0.0:
             roots.append(lo)
-        if f_lo * f_hi < 0.0:
+        if _opposite_float_signs(f_lo, f_hi):
             roots.append(_bisect_power_sum(lo, hi, f_lo, normalised))
         if f_hi == 0.0:
             roots.append(hi)

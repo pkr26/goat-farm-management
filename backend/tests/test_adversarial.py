@@ -683,10 +683,12 @@ async def test_kidding_closes_leftover_pregnancy_tasks(client: httpx.AsyncClient
     kids = [{"tag": "K-1", "sex": "M", "birth_weight": 2.5}]
     resp = await post_kidding(client, owner, br_id, kids=kids)
     assert resp.status_code == 201, resp.text
-    stale = [
+    linked_pending = [
         t for t in pending_tasks(await task_tabs(client, owner)) if t["breeding_record_id"] == br_id
     ]
-    assert stale == []  # pre-kidding vaccine / move-to-DELIVERY must not linger
+    # Kidding closes the pregnancy duties but deliberately schedules the next
+    # lifecycle duty for the same breeding/litter.
+    assert [task["category"] for task in linked_pending] == ["WEANING"]
 
 
 async def test_deworming_appears_in_vaccination_schedule(client: httpx.AsyncClient) -> None:

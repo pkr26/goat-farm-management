@@ -8,6 +8,7 @@ keys, so this doubles as a contract check on the defaults endpoint.
 """
 
 import asyncio
+import math
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -819,6 +820,145 @@ async def test_farm_calibration_uses_operational_biology_market_and_cost_records
         "feed.purchased_green_price_per_kg",
         "costs.labour_per_month",
     } <= evidence_paths
+
+
+async def test_farm_calibration_known_dob_mortality_exposure_starts_at_purchase(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    purchased_on = date.today() - timedelta(days=60)
+    died_on = date.today()
+    animals: list[dict] = []
+    for index in range(10):
+        response = await client.post(
+            "/api/animals",
+            json={
+                "tag_number": f"CAL-EXPOSURE-{index}",
+                "sex": "F",
+                "source": "PURCHASED",
+                "current_bucket": "BREEDING",
+                "date_of_birth": (date.today() - timedelta(days=800)).isoformat(),
+                "purchase_date": purchased_on.isoformat(),
+                "weight_kg": 30.0,
+                "weight_date": date.today().isoformat(),
+                "historical_import_reason": "Mortality exposure regression fixture",
+            },
+            headers=headers,
+        )
+        assert response.status_code == 201, response.text
+        animals.append(response.json())
+
+    response = await client.post(
+        f"/api/animals/{animals[0]['id']}/status",
+        json={"new_status": "DEAD", "date": died_on.isoformat()},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+
+    response = await client.get(
+        "/api/simulation/calibration",
+        params={"lookback_months": 24},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    reference_date = date.fromisoformat(body["reference_date"])
+    animal_months = (
+        9 * (reference_date - purchased_on).days + (died_on - purchased_on).days
+    ) / 30.44
+    expected = 1.0 - math.exp(-(1.0 / (animal_months / 12.0)))
+    evidence = {item["path"]: item for item in body["evidence"]}
+
+    assert evidence["mortality.adult"]["sample_size"] == 10
+    assert evidence["mortality.adult"]["calibrated_value"] == pytest.approx(expected)
+    assert body["assumptions"]["mortality"]["adult"] == pytest.approx(expected)
+
+
+async def test_farm_calibration_excludes_kid_deaths_after_preweaning_window(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+    does = [
+        await make_historical_animal(
+            client,
+            headers,
+            tag=f"CAL-KID-MORT-{index}",
+            sex="F",
+            purchase_price=None,
+            weight_kg=30.0,
+        )
+        for index in range(10)
+    ]
+    buck = await make_historical_animal(
+        client,
+        headers,
+        tag="CAL-KID-MORT-BUCK",
+        sex="M",
+        purchase_price=None,
+        weight_kg=35.0,
+    )
+    kidding_on = date.today() - timedelta(days=180)
+
+    async with get_sessionmaker()() as db:
+        for index, doe in enumerate(does):
+            bred_on = kidding_on - timedelta(days=150)
+            breeding = BreedingRecord(
+                farm_id=farm_id,
+                doe_id=doe["id"],
+                buck_id=buck["id"],
+                breeding_date=bred_on,
+                ultrasound_date=bred_on + timedelta(days=35),
+                ultrasound_result_date=bred_on + timedelta(days=35),
+                ultrasound_done=True,
+                pregnant=True,
+                expected_kidding_date=kidding_on,
+                outcome="CONFIRMED_PREGNANT",
+            )
+            db.add(breeding)
+            await db.flush()
+            kidding = KiddingRecord(
+                farm_id=farm_id,
+                doe_id=doe["id"],
+                date=kidding_on,
+                breeding_record_id=breeding.id,
+            )
+            db.add(kidding)
+            await db.flush()
+            if index == 0:
+                status = "DIED"
+                mortality_reported_at = kidding_on + timedelta(days=60)
+            elif index == 1:
+                status = "DIED"
+                mortality_reported_at = kidding_on + timedelta(days=120)
+            else:
+                status = "ALIVE"
+                mortality_reported_at = None
+            db.add(
+                KidEntry(
+                    farm_id=farm_id,
+                    kidding_record_id=kidding.id,
+                    sex="F" if index % 2 == 0 else "M",
+                    birth_weight=3.0,
+                    status=status,
+                    mortality_reported_at=mortality_reported_at,
+                )
+            )
+        await db.commit()
+
+    response = await client.get(
+        "/api/simulation/calibration",
+        params={"lookback_months": 24},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    evidence = {item["path"]: item for item in body["evidence"]}
+    expected = 1.0 - (1.0 - 1.0 / 10.0) ** 4
+
+    assert evidence["mortality.kid_pre_weaning"]["sample_size"] == 10
+    assert evidence["mortality.kid_pre_weaning"]["calibrated_value"] == pytest.approx(expected)
+    assert body["assumptions"]["mortality"]["kid_pre_weaning"] == pytest.approx(expected)
 
 
 async def test_farm_calibration_validates_inputs_and_cross_domain_permissions(

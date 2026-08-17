@@ -148,9 +148,7 @@ def _curve_from_observations(
             lower = max(a for a in ages if a < age)
             upper = min(a for a in ages if a > age)
             span = upper - lower
-            curve.append(
-                lookup[lower] + (lookup[upper] - lookup[lower]) * (age - lower) / span
-            )
+            curve.append(lookup[lower] + (lookup[upper] - lookup[lower]) * (age - lower) / span)
     # Interpolating between nondecreasing anchors and rescaling a nondecreasing
     # preset are both monotone, so this only absorbs float noise.
     for index in range(1, len(curve)):
@@ -265,7 +263,6 @@ async def calibrate_farm_assumptions(
                 Animal.purchase_date,
                 Animal.purchase_price,
                 Animal.sale_price,
-                Animal.cull_candidate,
             )
             .where(
                 Animal.farm_id == farm.id,
@@ -466,6 +463,7 @@ async def calibrate_farm_assumptions(
                 KidEntry.sex,
                 KidEntry.status,
                 KidEntry.birth_weight,
+                KidEntry.mortality_reported_at,
             )
             .join(
                 BreedingRecord,
@@ -607,7 +605,12 @@ async def calibrate_farm_assumptions(
         weaning_cutoff = add_months(reference_date, -3)
         weaned_rows = [row for row in alive_rows if row.date <= weaning_cutoff]
         if weaned_rows:
-            died = sum(kid_row.status == "DIED" for kid_row in weaned_rows)
+            died = sum(
+                kid_row.status == "DIED"
+                and kid_row.mortality_reported_at is not None
+                and kid_row.mortality_reported_at <= add_months(kid_row.date, 3)
+                for kid_row in weaned_rows
+            )
             previous_kid_mortality = assumptions.mortality.kid_pre_weaning
             # The engine expects an annualized class rate but each kid is
             # exposed to the pre-weaning class for three model months, not for
@@ -620,7 +623,8 @@ async def calibrate_farm_assumptions(
                 assumptions.mortality.kid_pre_weaning,
                 len(weaned_rows),
                 "Dependent-kid deaths annualized from three months of pre-weaning exposure, "
-                "counting only kids born early enough to have completed it",
+                "counting only kids born early enough to have completed it and deaths "
+                "reported within that three-month window",
                 "kid_entries",
             )
 
@@ -669,7 +673,12 @@ async def calibrate_farm_assumptions(
             class_start = add_months(dob, from_age)
             class_end = add_months(dob, to_age) if to_age is not None else observed_end
             overlap = _months_between(
-                max(period_start, class_start), min(observed_end, class_end)
+                max(
+                    period_start,
+                    mortality_row.purchase_date or period_start,
+                    class_start,
+                ),
+                min(observed_end, class_end),
             )
             if overlap <= 0.0:
                 continue
@@ -690,9 +699,7 @@ async def calibrate_farm_assumptions(
             mortality_previous = float(getattr(assumptions.mortality, field_name))
             mortality_calibrated = min(
                 0.9,
-                _annual_fraction_from_exposure(
-                    mortality_deaths[group], mortality_exposure[group]
-                ),
+                _annual_fraction_from_exposure(mortality_deaths[group], mortality_exposure[group]),
             )
             setattr(assumptions.mortality, field_name, mortality_calibrated)
             record(
@@ -747,9 +754,11 @@ async def calibrate_farm_assumptions(
         if measured is None or measured <= 0.0:
             continue
         unit_price = _as_float(pricing_row.sale_price) / measured
-        if pricing_row.cull_candidate and pricing_row.sex == "F":
+        # cull_candidate is a live worklist flag and is cleared at every
+        # terminal transition. CULLED is the durable disposition fact.
+        if pricing_row.status == AnimalStatus.CULLED.value and pricing_row.sex == "F":
             cull_doe_prices_per_kg.append(unit_price)
-        elif pricing_row.cull_candidate and pricing_row.sex == "M":
+        elif pricing_row.status == AnimalStatus.CULLED.value and pricing_row.sex == "M":
             cull_buck_prices_per_kg.append(unit_price)
         else:
             sale_prices_per_kg.append((pricing_row.status_date, unit_price))

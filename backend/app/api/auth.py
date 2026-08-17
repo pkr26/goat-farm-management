@@ -858,6 +858,16 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
     claims = decode_refresh_claims(token) if token else None
     access_result = decode_access_claims_result(access_token) if access_token is not None else None
     access_claims = access_result.claims if access_result is not None else None
+    if claims is not None and access_claims is not None and claims.user_id != access_claims.user_id:
+        # Cookie and bearer authentication are two proofs for one logout, not
+        # a priority list. Silently preferring the cookie would revoke that
+        # account while leaving the explicitly presented bearer account live.
+        # Reject before acquiring either User/RefreshSession lock so neither
+        # valid identity is mutated by an ambiguous composite request.
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh cookie and bearer token identify different accounts",
+        )
     refresh_ip_blocked = False
     if (
         token is not None
