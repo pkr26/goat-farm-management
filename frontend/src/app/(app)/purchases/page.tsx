@@ -104,7 +104,7 @@ const batchSchema = z
         .max(1_000_000_000, "Total price cannot exceed ₹1,000,000,000")
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
-    notes: z.string().optional(),
+    notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
     create_animals: z.boolean(),
   })
   .refine((v) => !v.date || Number(v.date.slice(0, 4)) >= 2000, {
@@ -610,7 +610,18 @@ export default function PurchasesPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="notes">Notes</Label>
-              <Input id="notes" {...register("notes")} />
+              <Input
+                id="notes"
+                maxLength={4_000}
+                aria-invalid={Boolean(errors.notes) || undefined}
+                aria-describedby={errors.notes ? "purchase-notes-error" : undefined}
+                {...register("notes")}
+              />
+              {errors.notes && (
+                <p id="purchase-notes-error" role="alert" className="text-sm text-destructive">
+                  {errors.notes.message}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Checkbox

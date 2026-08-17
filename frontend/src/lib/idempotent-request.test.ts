@@ -98,6 +98,63 @@ describe("protected mutation idempotency transport", () => {
     );
   });
 
+  it("fails closed before send when secure random generation is unavailable", async () => {
+    vi.stubGlobal("crypto", undefined);
+
+    const error = await catchError(
+      apiFetch("/api/finance/new", { method: "POST", body: "{}" }),
+    );
+
+    expect(error).toMatchObject({
+      message: "Secure random generation is unavailable; mutation was not sent.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("builds a standards-compliant UUID when randomUUID is unavailable", async () => {
+    const getRandomValues = vi.fn((bytes: Uint8Array) => {
+      bytes.set(Array.from({ length: 16 }, (_, index) => index));
+      return bytes;
+    });
+    vi.stubGlobal("crypto", { getRandomValues });
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { ok: true }));
+
+    await apiFetch("/api/finance/new", { method: "POST", body: "{}" });
+
+    expect(getRandomValues).toHaveBeenCalledTimes(1);
+    expect(requestKey(fetchMock.mock.calls[0]?.[1])).toBe(
+      "00010203-0405-4607-8809-0a0b0c0d0e0f",
+    );
+  });
+
+  it("supports replayable URLSearchParams without forcing a JSON content type", async () => {
+    const body = new URLSearchParams({ amount: "10", kind: "FEED" });
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { ok: true }));
+
+    await apiFetch("/api/finance/new", { method: "POST", body });
+
+    const sent = fetchMock.mock.calls[0]?.[1];
+    expect(sent?.body).toBe(body);
+    expect(requestKey(sent)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(new Headers(sent?.headers).get("Content-Type")).toBeNull();
+  });
+
+  it("rejects an unreplayable protected body before it can be sent", async () => {
+    const body = new FormData();
+    body.set("amount", "10");
+
+    const error = await catchError(
+      apiFetch("/api/finance/new", { method: "POST", body }),
+    );
+
+    expect(error).toMatchObject({
+      message: "Protected mutations require a replayable string request body.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("protects only the live routes and leaves mistaken collection roots untouched", () => {
     expect(isIdempotencyProtectedMutation("/api/auth/farms", "POST")).toBe(true);
     expect(isIdempotencyProtectedMutation("/api/finance/new", "POST")).toBe(true);
@@ -147,7 +204,10 @@ describe("protected mutation idempotency transport", () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "refreshed-token", user: { id: 1 } });
+        return jsonResponse(200, {
+          access_token: "refreshed-token",
+          user: { id: 1, email: "actor-1@example.test", name: null },
+        });
       }
       protectedCalls += 1;
       keys.push(requestKey(init)!);
@@ -171,7 +231,7 @@ describe("protected mutation idempotency transport", () => {
         setAccessToken("different-login-token");
         return jsonResponse(200, {
           access_token: "stale-refresh-token",
-          user: { id: 1 },
+          user: { id: 1, email: "actor-1@example.test", name: null },
         });
       }
       protectedCalls += 1;
@@ -186,6 +246,13 @@ describe("protected mutation idempotency transport", () => {
     expect(protectedCalls).toBe(1);
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/auth/refresh"))
       .toHaveLength(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    await apiFetch("/api/buckets");
+    expect(
+      new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization"),
+    ).toBe("Bearer different-login-token");
   });
 
   it("retains an ambiguous key when the automatic retry ends in an auth failure", async () => {
@@ -346,6 +413,27 @@ describe("protected mutation idempotency transport", () => {
     expect(keys[0]).toBe(keys[1]);
   });
 
+  it("retries a malformed successful JSON response with the same key", async () => {
+    const keys: string[] = [];
+    fetchMock.mockImplementation(async (_input, init) => {
+      keys.push(requestKey(init)!);
+      if (keys.length === 1) {
+        return new Response("{not-valid-json", {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return jsonResponse(201, { id: 73 });
+    });
+
+    await expect(
+      apiFetch("/api/finance/new", { method: "POST", body: "{}" }),
+    ).resolves.toEqual({ id: 73 });
+
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+  });
+
   it("does not turn an intentional abort into an automatic retry", async () => {
     fetchMock.mockRejectedValueOnce(new DOMException("cancelled", "AbortError"));
 
@@ -416,9 +504,88 @@ describe("protected mutation idempotency transport", () => {
     );
 
     expect((conflict as Error).name).toBe("ProtectedMutationSignalConflictError");
+    expect((conflict as Error).message).toBe(
+      "An identical protected mutation is already running with a different cancellation signal.",
+    );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     release?.(jsonResponse(201, { id: 44 }));
     await expect(first).resolves.toEqual({ id: 44 });
+  });
+
+  it("keeps sharing an in-flight request even after its retry-key TTL passes", async () => {
+    let now = 10_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let release: ((response: Response) => void) | undefined;
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const init = { method: "POST", body: "{}" };
+
+    const first = apiFetch("/api/feeding/mix", init);
+    now += 2 * 60 * 1000 + 1;
+    const second = apiFetch("/api/feeding/mix", init);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    release?.(jsonResponse(201, { id: 44 }));
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { id: 44 },
+      { id: 44 },
+    ]);
+  });
+
+  it("does not let an older success delete a replacement in-flight entry", async () => {
+    const releases: Array<(response: Response) => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const init = { method: "POST", body: "{}" };
+    const first = apiFetch("/api/feeding/mix", init);
+    clearIdempotencyRequestState();
+    const replacement = apiFetch("/api/feeding/mix", init);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    releases[0](jsonResponse(201, { id: 1 }));
+    await first;
+    const shared = apiFetch("/api/feeding/mix", init);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    releases[1](jsonResponse(201, { id: 2 }));
+    await expect(Promise.all([replacement, shared])).resolves.toEqual([
+      { id: 2 },
+      { id: 2 },
+    ]);
+  });
+
+  it("does not let an older rejection delete a replacement in-flight entry", async () => {
+    const releases: Array<(response: Response) => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const init = { method: "POST", body: "{}" };
+    const firstOutcome = catchError(apiFetch("/api/feeding/mix", init));
+    clearIdempotencyRequestState();
+    const replacement = apiFetch("/api/feeding/mix", init);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    releases[0](jsonResponse(422, { detail: "definite rejection" }));
+    await expect(firstOutcome).resolves.toBeInstanceOf(ApiError);
+    const shared = apiFetch("/api/feeding/mix", init);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    releases[1](jsonResponse(201, { id: 2 }));
+    await expect(Promise.all([replacement, shared])).resolves.toEqual([
+      { id: 2 },
+      { id: 2 },
+    ]);
   });
 
   it("shares cancellation only when identical callers deliberately share one signal", async () => {
@@ -484,6 +651,28 @@ describe("protected mutation idempotency transport", () => {
     expect(keys[0]).not.toBe(keys[1]);
   });
 
+  it.each([408, 409, 429])(
+    "retains the key after retryable HTTP status %s",
+    async (status) => {
+      const keys: string[] = [];
+      fetchMock.mockImplementationOnce(async (_input, init) => {
+        keys.push(requestKey(init)!);
+        return jsonResponse(status, { detail: "retry later" });
+      });
+      fetchMock.mockImplementationOnce(async (_input, init) => {
+        keys.push(requestKey(init)!);
+        return jsonResponse(201, { id: 1 });
+      });
+      const init = { method: "POST", body: "{}" };
+
+      await catchError(apiFetch("/api/finance/new", init));
+      await apiFetch("/api/finance/new", init);
+
+      expect(keys).toHaveLength(2);
+      expect(keys[1]).toBe(keys[0]);
+    },
+  );
+
   it("expires a retained ambiguous-failure key after the bounded retry TTL", async () => {
     let now = 10_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -501,6 +690,56 @@ describe("protected mutation idempotency transport", () => {
 
     expect(keys).toHaveLength(3);
     expect(keys[2]).not.toBe(keys[0]);
+  });
+
+  it("expires a retained key at the exact TTL boundary", async () => {
+    let now = 10_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const keys: string[] = [];
+    fetchMock.mockImplementation(async (_input, init) => {
+      keys.push(requestKey(init)!);
+      if (keys.length <= 2) throw new TypeError("offline");
+      return jsonResponse(201, { id: 1 });
+    });
+    const init = { method: "POST", body: "{}" };
+
+    await catchError(apiFetch("/api/feeding/inventory/7/add", init));
+    now += 2 * 60 * 1000;
+    await apiFetch("/api/feeding/inventory/7/add", init);
+
+    expect(keys).toHaveLength(3);
+    expect(keys[2]).not.toBe(keys[0]);
+  });
+
+  it("extends persisted recovery when an explicit retry is still ambiguous", async () => {
+    let now = 10_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    setAccessToken(ACTOR_ONE_TOKEN);
+    const keys: string[] = [];
+    let succeed = false;
+    fetchMock.mockImplementation(async (_input, init) => {
+      keys.push(requestKey(init)!);
+      if (!succeed) {
+        // The explicit retry itself can take long enough that the pre-send
+        // persistence window is no longer sufficient after it fails.
+        if (keys.length === 4) now += 30_000;
+        throw new TypeError("offline");
+      }
+      return jsonResponse(201, { id: 1 });
+    });
+    const init = { method: "POST", body: "{}" };
+
+    await catchError(apiFetch("/api/finance/new", init));
+    now += 2 * 60 * 1000 - 1;
+    await catchError(apiFetch("/api/finance/new", init));
+    clearIdempotencyRequestState();
+    // Past the pre-send expiry, but still within the post-failure extension.
+    now += 90_001;
+    succeed = true;
+    await apiFetch("/api/finance/new", init);
+
+    expect(keys).toHaveLength(5);
+    expect(new Set(keys).size).toBe(1);
   });
 
   it("evicts the oldest settled retry key at the retained-state count bound", async () => {
@@ -529,6 +768,35 @@ describe("protected mutation idempotency transport", () => {
     expect(firstRequestKeys[0]).toBe(firstRequestKeys[1]);
     expect(firstRequestKeys[2]).toBe(firstRequestKeys[3]);
     expect(firstRequestKeys[2]).not.toBe(firstRequestKeys[0]);
+  });
+
+  it("rejects a 129th protected mutation while every registry slot is in flight", async () => {
+    const releases: Array<(response: Response) => void> = [];
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          releases.push(resolve);
+        }),
+    );
+    const requests = Array.from({ length: 128 }, (_, index) =>
+      apiFetch(`/api/feeding/inventory/${index + 1}/add`, {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(128));
+
+    const overflow = await catchError(
+      apiFetch("/api/feeding/inventory/129/add", { method: "POST", body: "{}" }),
+    );
+
+    expect(overflow).toMatchObject({
+      message: "Too many protected mutations are already in flight. Try again shortly.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(128);
+
+    for (const release of releases) release(jsonResponse(201, { ok: true }));
+    await expect(Promise.all(requests)).resolves.toHaveLength(128);
   });
 
   it("leaves non-protected routes unchanged: no key, retry, or in-flight sharing", async () => {

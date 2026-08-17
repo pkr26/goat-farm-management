@@ -123,7 +123,7 @@ const weightSchema = z.object({
     .positive("Weight must be greater than 0")
     .max(1000, "Weight must be at most 1000 kg"),
   bcs: optNum(z.number().int().min(1).max(5)),
-  notes: z.string().max(255).optional(),
+  notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
 });
 type WeightInput = z.input<typeof weightSchema>;
 type WeightValues = z.output<typeof weightSchema>;
@@ -210,7 +210,19 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="w_notes">Notes</Label>
-            <Textarea id="w_notes" rows={2} {...register("notes")} />
+            <Textarea
+              id="w_notes"
+              rows={2}
+              maxLength={255}
+              aria-invalid={Boolean(errors.notes) || undefined}
+              aria-describedby={errors.notes ? "weight-notes-error" : undefined}
+              {...register("notes")}
+            />
+            {errors.notes && (
+              <p id="weight-notes-error" role="alert" className="text-sm text-destructive">
+                {errors.notes.message}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
@@ -225,7 +237,7 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
 
 const moveSchema = z.object({
   to_bucket: z.enum(BUCKETS as [string, ...string[]]),
-  reason: z.string().max(255).optional(),
+  reason: z.string().max(255, "Reason cannot exceed 255 characters").optional(),
 });
 type MoveValues = z.infer<typeof moveSchema>;
 
@@ -313,7 +325,19 @@ function MoveBucketDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="m_reason">Reason</Label>
-            <Textarea id="m_reason" rows={2} {...register("reason")} />
+            <Textarea
+              id="m_reason"
+              rows={2}
+              maxLength={255}
+              aria-invalid={Boolean(errors.reason) || undefined}
+              aria-describedby={errors.reason ? "move-reason-error" : undefined}
+              {...register("reason")}
+            />
+            {errors.reason && (
+              <p id="move-reason-error" role="alert" className="text-sm text-destructive">
+                {errors.reason.message}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isSubmitting}>
@@ -341,19 +365,37 @@ const statusSchema = z
         .max(1_000_000_000, "Sale price cannot exceed ₹1,000,000,000")
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
-    buyer_name: z.string().max(120).optional(),
-    notes: z.string().max(255).optional(),
-    mortality_cause: z.string().max(120).optional(),
+    buyer_name: z.string().max(120, "Buyer name cannot exceed 120 characters").optional(),
+    notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
+    mortality_cause: z
+      .string()
+      .max(120, "Mortality cause cannot exceed 120 characters")
+      .optional(),
     mortality_reported_at: z.string().optional(),
     suspected_scheduled_disease: z.boolean(),
-    suspected_disease: z.string().max(120).optional(),
+    suspected_disease: z
+      .string()
+      .max(120, "Suspected disease cannot exceed 120 characters")
+      .optional(),
     authority_notified_at: z.string().optional(),
   })
   .superRefine((values, context) => {
+    const statusDate = values.date || localToday();
     for (const field of ["date", "mortality_reported_at", "authority_notified_at"] as const) {
       if (values[field] && values[field] > localToday()) {
         context.addIssue({ code: "custom", path: [field], message: "Date can't be in the future" });
       }
+    }
+    if (
+      values.new_status === StatusChangeInNewStatus.DEAD &&
+      values.mortality_reported_at &&
+      values.mortality_reported_at < statusDate
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["mortality_reported_at"],
+        message: "Mortality report cannot be before the death date",
+      });
     }
     if (
       values.new_status === StatusChangeInNewStatus.DEAD &&
@@ -369,6 +411,13 @@ const statusSchema = z
   });
 type StatusInput = z.input<typeof statusSchema>;
 type StatusValues = z.output<typeof statusSchema>;
+
+function statusCanRecordSale(status: StatusValues["new_status"]): boolean {
+  return (
+    status === StatusChangeInNewStatus.SOLD ||
+    status === StatusChangeInNewStatus.CULLED
+  );
+}
 
 function StatusDialog({
   animalId,
@@ -407,14 +456,12 @@ function StatusDialog({
         data: {
           new_status: values.new_status,
           date: emptyToNull(values.date),
-          sale_price:
-            values.new_status === StatusChangeInNewStatus.SOLD
-              ? (values.sale_price ?? null)
-              : null,
-          buyer_name:
-            values.new_status === StatusChangeInNewStatus.SOLD
-              ? emptyToNull(values.buyer_name)
-              : null,
+          sale_price: statusCanRecordSale(values.new_status)
+            ? (values.sale_price ?? null)
+            : null,
+          buyer_name: statusCanRecordSale(values.new_status)
+            ? emptyToNull(values.buyer_name)
+            : null,
           notes: emptyToNull(values.notes),
           mortality_cause:
             values.new_status === StatusChangeInNewStatus.DEAD
@@ -469,7 +516,7 @@ function StatusDialog({
                   onValueChange={(value) => {
                     const nextStatus = value as StatusValues["new_status"];
                     field.onChange(nextStatus);
-                    if (nextStatus !== StatusChangeInNewStatus.SOLD) {
+                    if (!statusCanRecordSale(nextStatus)) {
                       unregister(["sale_price", "buyer_name"]);
                     }
                     if (nextStatus !== StatusChangeInNewStatus.DEAD) {
@@ -507,7 +554,7 @@ function StatusDialog({
             />
             {errors.date && <p id="status-date-error" role="alert" className="text-sm text-destructive">{errors.date.message}</p>}
           </div>
-          {newStatus === StatusChangeInNewStatus.SOLD && (
+          {statusCanRecordSale(newStatus) && (
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="s_price">Sale price (₹)</Label>
@@ -526,7 +573,18 @@ function StatusDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="s_buyer">Buyer name</Label>
-                <Input id="s_buyer" {...register("buyer_name")} />
+                <Input
+                  id="s_buyer"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.buyer_name) || undefined}
+                  aria-describedby={errors.buyer_name ? "status-buyer-error" : undefined}
+                  {...register("buyer_name")}
+                />
+                {errors.buyer_name && (
+                  <p id="status-buyer-error" role="alert" className="text-sm text-destructive">
+                    {errors.buyer_name.message}
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -539,8 +597,21 @@ function StatusDialog({
                   id="mortality-cause"
                   maxLength={120}
                   placeholder="confirmed or suspected cause"
+                  aria-invalid={Boolean(errors.mortality_cause) || undefined}
+                  aria-describedby={
+                    errors.mortality_cause ? "mortality-cause-error" : undefined
+                  }
                   {...register("mortality_cause")}
                 />
+                {errors.mortality_cause && (
+                  <p
+                    id="mortality-cause-error"
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {errors.mortality_cause.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="mortality-reported-at">Mortality reported date</Label>
@@ -619,7 +690,19 @@ function StatusDialog({
           )}
           <div className="space-y-1.5">
             <Label htmlFor="s_notes">Notes</Label>
-            <Textarea id="s_notes" rows={2} {...register("notes")} />
+            <Textarea
+              id="s_notes"
+              rows={2}
+              maxLength={255}
+              aria-invalid={Boolean(errors.notes) || undefined}
+              aria-describedby={errors.notes ? "status-notes-error" : undefined}
+              {...register("notes")}
+            />
+            {errors.notes && (
+              <p id="status-notes-error" role="alert" className="text-sm text-destructive">
+                {errors.notes.message}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button type="submit" variant="destructive" disabled={isSubmitting}>

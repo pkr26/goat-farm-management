@@ -25,7 +25,11 @@ import type { TokenOut } from "@/api/generated/models";
 
 const registerSchema = z.object({
   name: z.string().max(120).optional(),
-  email: z.string().email("Enter a valid email address"),
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email address")
+    .max(254, "Email must be at most 254 characters"),
   password: z
     .string()
     .min(12, "Password must be at least 12 characters")
@@ -138,6 +142,7 @@ export default function RegisterPage() {
                   <Input
                     id="name"
                     autoComplete="name"
+                    maxLength={120}
                     aria-invalid={Boolean(errors.name) || undefined}
                     aria-describedby={errors.name ? "register-name-error" : undefined}
                     {...register("name")}
@@ -154,6 +159,7 @@ export default function RegisterPage() {
                     id="email"
                     type="email"
                     autoComplete="email"
+                    maxLength={254}
                     aria-invalid={Boolean(errors.email) || undefined}
                     aria-describedby={errors.email ? "register-email-error" : undefined}
                     {...register("email")}
@@ -170,6 +176,7 @@ export default function RegisterPage() {
                     id="password"
                     type="password"
                     autoComplete="new-password"
+                    maxLength={128}
                     aria-invalid={Boolean(errors.password) || undefined}
                     aria-describedby={errors.password ? "register-password-error" : undefined}
                     {...register("password")}

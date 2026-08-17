@@ -31,6 +31,17 @@ function actorToken(actorId: number): string {
   return `header.${payload}.signature`;
 }
 
+function refreshPayload(accessToken: string, actorId = 1) {
+  return {
+    access_token: accessToken,
+    user: {
+      id: actorId,
+      email: `actor-${actorId}@example.test`,
+      name: null,
+    },
+  };
+}
+
 /** Lets each microtask-scheduled refreshPromise reset (setTimeout 0) flush. */
 function flushMacrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -100,7 +111,7 @@ describe("apiFetch", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       if (!retried.has(url)) {
         retried.add(url);
@@ -171,6 +182,53 @@ describe("apiFetch", () => {
     expect((fetchMock.mock.calls[0][1]?.headers as Headers).get("Authorization")).toBeNull();
   });
 
+  it("rejects a refresh whose token and user describe different actors", async () => {
+    const actorOne = actorToken(1);
+    const onAuthFailure = vi.fn();
+    setAccessToken(actorOne, 1);
+    setOnAuthFailure(onAuthFailure);
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input) === "/api/auth/refresh") {
+        return jsonResponse(200, refreshPayload(actorOne, 2));
+      }
+      return jsonResponse(401, { detail: "Expired" });
+    });
+
+    await expect(apiFetch("/api/tasks")).rejects.toMatchObject({
+      name: "AuthSessionChangedError",
+    });
+
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(urls.filter((url) => url === "/api/tasks")).toHaveLength(1);
+    expect(urls.filter((url) => url === "/api/auth/refresh")).toHaveLength(1);
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    await apiFetch("/api/buckets");
+    expect(
+      new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization"),
+    ).toBeNull();
+  });
+
+  it("accepts a refresh whose JWT subject matches the returned user", async () => {
+    const actorOne = actorToken(1);
+    let taskCalls = 0;
+    setAccessToken(actorOne, 1);
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input) === "/api/auth/refresh") {
+        return jsonResponse(200, refreshPayload(actorOne, 1));
+      }
+      taskCalls += 1;
+      return taskCalls === 1
+        ? jsonResponse(401, { detail: "Expired" })
+        : jsonResponse(200, { ok: true });
+    });
+
+    await expect(apiFetch("/api/tasks")).resolves.toEqual({ ok: true });
+    expect(taskCalls).toBe(2);
+  });
+
   it("rejects a successful response that arrives after the authenticated actor changes", async () => {
     const actorOne = actorToken(1);
     const actorTwo = actorToken(2);
@@ -187,6 +245,54 @@ describe("apiFetch", () => {
 
     setAccessToken(actorTwo, 2);
     resolveResponse(jsonResponse(200, { private_value: "actor-one-only" }));
+
+    await expect(request).rejects.toMatchObject({ name: "AuthSessionChangedError" });
+  });
+
+  it("does not invalidate an in-flight request when the same token is re-applied", async () => {
+    const actorOne = actorToken(1);
+    let resolveResponse!: (response: Response) => void;
+    setAccessToken(actorOne, 1);
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+    const request = apiFetch<{ ok: true }>("/api/animals");
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    setAccessToken(actorOne, 1);
+    resolveResponse(jsonResponse(200, { ok: true }));
+
+    await expect(request).resolves.toEqual({ ok: true });
+  });
+
+  it("rejects apiFetch when its body parses after the authenticated actor changes", async () => {
+    const actorOne = actorToken(1);
+    const actorTwo = actorToken(2);
+    let resolveJson!: (body: unknown) => void;
+    let markJsonStarted!: () => void;
+    const jsonStarted = new Promise<void>((resolve) => {
+      markJsonStarted = resolve;
+    });
+    setAccessToken(actorOne, 1);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: vi.fn(() => {
+        markJsonStarted();
+        return new Promise<unknown>((resolve) => {
+          resolveJson = resolve;
+        });
+      }),
+    } as unknown as Response);
+
+    const request = apiFetch<{ private_value: string }>("/api/animals");
+    await jsonStarted;
+    setAccessToken(actorTwo, 2);
+    resolveJson({ private_value: "actor-one-only" });
 
     await expect(request).rejects.toMatchObject({ name: "AuthSessionChangedError" });
   });
@@ -270,7 +376,7 @@ describe("apiFetch", () => {
       fetchMock.mockImplementation(async (input) => {
         const url = String(input);
         if (url === "/api/auth/refresh") {
-          return jsonResponse(200, { access_token: "new-token" });
+          return jsonResponse(200, refreshPayload("new-token"));
         }
         if (!seen.has(url)) {
           seen.add(url);
@@ -292,7 +398,7 @@ describe("apiFetch", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       return jsonResponse(401, { detail: "Still expired" });
     });

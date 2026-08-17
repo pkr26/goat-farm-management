@@ -446,6 +446,23 @@ describe("AppLayout — permission-gated nav", () => {
       "data-active",
     );
   });
+
+  it("highlights nested module routes but not similarly prefixed siblings", async () => {
+    navState.pathname = "/animals/42";
+    const { unmount } = renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    expect(await screen.findByRole("link", { name: "Animals" })).toHaveAttribute(
+      "data-active",
+    );
+
+    unmount();
+    navState.pathname = "/animals-archive";
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    expect(await screen.findByRole("link", { name: "Animals" })).not.toHaveAttribute(
+      "data-active",
+    );
+  });
 });
 
 describe("AppLayout — loading and no-farm states", () => {

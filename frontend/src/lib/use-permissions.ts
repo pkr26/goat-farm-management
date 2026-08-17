@@ -18,7 +18,12 @@ export function usePermissions() {
   const query = usePermissionsApiAuthPermissionsGet({
     query: { enabled: farmId !== null },
   });
-  const payload = query.data?.status === 200 ? query.data.data : undefined;
+  // TanStack Query retains the last successful data when a background
+  // refetch fails. Permissions must fail closed once that error is known;
+  // otherwise a revoked/stale grant can keep navigation and actions enabled
+  // merely because an older payload is still cached.
+  const payload =
+    !query.isError && query.data?.status === 200 ? query.data.data : undefined;
   const perms = new Set(payload?.permissions ?? []);
   return {
     loading: query.isLoading,

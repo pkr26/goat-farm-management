@@ -69,6 +69,7 @@ function Probe() {
       <button onClick={() => auth.selectFarm(99, "America/Phoenix")}>
         select-unlisted-phoenix
       </button>
+      <button onClick={() => void auth.refreshFarms()}>refresh-farms</button>
       <button onClick={() => void auth.signOut()}>sign-out</button>
       <button
         onClick={() =>
@@ -210,6 +211,25 @@ describe("AuthProvider — query cache cleared on farm switch / sign-out", () =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("clears the previous farm cache and persisted selection when all memberships disappear", async () => {
+    const { queryClient } = renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("farmId")).toHaveTextContent("1"),
+    );
+    queryClient.setQueryData(["/api/animals"], [{ id: 1, tag_number: "A-1" }]);
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("1");
+
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "refresh-farms" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("farmId")).toHaveTextContent("none"),
+    );
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
   });
 });
 

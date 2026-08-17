@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PERMISSION_LANDING_ROUTES,
+  firstPermittedPath,
   firstPermittedPathFromList,
   permittedAppPath,
   permittedAppPathFromList,
@@ -8,6 +10,35 @@ import {
 } from "@/lib/permission-navigation";
 
 describe("firstPermittedPathFromList", () => {
+  it("keeps the complete stable landing-route priority", () => {
+    expect(PERMISSION_LANDING_ROUTES).toEqual([
+      { permission: "dashboard.view", href: "/dashboard" },
+      { permission: "animals.view", href: "/animals" },
+      { permission: "buckets.view", href: "/buckets" },
+      { permission: "breeding.view", href: "/breeding" },
+      { permission: "kidding.view", href: "/kidding" },
+      { permission: "health.view", href: "/health" },
+      { permission: "feeding.view", href: "/feeding" },
+      { permission: "purchases.view", href: "/purchases" },
+      { permission: "tasks.view", href: "/tasks" },
+      { permission: "finance.view", href: "/finance" },
+      { permission: "simulation.view", href: "/simulation" },
+      { permission: "reports.view", href: "/reports" },
+      { permission: "team.manage", href: "/team" },
+    ]);
+  });
+
+  it("uses the callback form and short-circuits at the first grant", () => {
+    const checked: string[] = [];
+    expect(
+      firstPermittedPath((permission) => {
+        checked.push(permission);
+        return permission === "buckets.view";
+      }),
+    ).toBe("/buckets");
+    expect(checked).toEqual(["dashboard.view", "animals.view", "buckets.view"]);
+  });
+
   it("uses the first permitted module instead of assuming dashboard access", () => {
     expect(firstPermittedPathFromList(["health.view", "finance.view"])).toBe("/health");
     expect(firstPermittedPathFromList(["tasks.view"])).toBe("/tasks");
@@ -59,6 +90,10 @@ describe("permittedAppPath — same-farm back links", () => {
       permission === "animals.view" || permission === "animals.create";
     expect(permittedAppPath("/animals/new", canCreate)).toBe("/animals/new");
     expect(permittedAppPath("/animals/new/", canCreate)).toBe("/animals/new/");
+    expect(permittedAppPath("/animals/new/import", viewOnly)).toBeNull();
+    expect(permittedAppPath("/animals/new/import", canCreate)).toBe(
+      "/animals/new/import",
+    );
   });
 });
 
@@ -76,6 +111,18 @@ describe("permittedAppPathFromList — farm switching", () => {
     expect(permittedAppPathFromList("/feeding/inventory", ["feeding.view"])).toBe(
       "/feeding/inventory",
     );
+    expect(permittedAppPathFromList("/tasks/?tab=overdue#task-7", ["tasks.view"])).toBe(
+      "/tasks/?tab=overdue#task-7",
+    );
+    expect(
+      permittedAppPathFromList("/feeding/inventory/?page=2", ["feeding.view"]),
+    ).toBe("/feeding/inventory/?page=2");
+    expect(
+      permittedAppPathFromList("/animals/new/?source=tasks", [
+        "animals.view",
+        "animals.create",
+      ]),
+    ).toBe("/animals/new/?source=tasks");
   });
 
   it("drops record ids that belong to the farm being left", () => {

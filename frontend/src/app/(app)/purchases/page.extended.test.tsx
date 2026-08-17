@@ -397,6 +397,26 @@ describe("PurchasesPage new-batch dialog", () => {
     expect(postCalls).toBe(0);
   });
 
+  it("rejects notes above the API's 4000-character cap and accepts the exact boundary", async () => {
+    const { user, dialog } = await openDialog();
+    const notes = within(dialog).getByLabelText(/Notes/);
+
+    fireEvent.change(notes, { target: { value: "n".repeat(4_001) } });
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(
+      await within(dialog).findByText("Notes cannot exceed 4000 characters"),
+    ).toBeInTheDocument();
+    expect(notes).toHaveAccessibleDescription("Notes cannot exceed 4000 characters");
+    expect(postCalls).toBe(0);
+
+    fireEvent.change(notes, { target: { value: "n".repeat(4_000) } });
+    await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
+
+    expect(await within(dialog).findByText("Review purchase consequences")).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+  });
+
   it("POSTs nulls for every blank optional on a minimal submit", async () => {
     const { user, dialog } = await openDialog();
     const callsBefore = listCalls;

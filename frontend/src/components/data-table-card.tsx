@@ -29,13 +29,16 @@ export function DataTableCard({
   className?: string;
   contentClassName?: string;
 }) {
+  const hasTitle = Boolean(title) || title === 0;
+  const hasDescription = Boolean(description) || description === 0;
+  const hasActions = Boolean(actions) || actions === 0;
   return (
     <Card className={className}>
-      {(title || description || actions) && (
+      {(hasTitle || hasDescription || hasActions) && (
         <CardHeader>
-          {title && <CardTitle>{title}</CardTitle>}
-          {description && <CardDescription>{description}</CardDescription>}
-          {actions && <CardAction>{actions}</CardAction>}
+          {hasTitle && <CardTitle>{title}</CardTitle>}
+          {hasDescription && <CardDescription>{description}</CardDescription>}
+          {hasActions && <CardAction>{actions}</CardAction>}
         </CardHeader>
       )}
       <CardContent className={cn(contentClassName)}>{children}</CardContent>

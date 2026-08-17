@@ -9,8 +9,11 @@ import {
 
 describe("permittedTaskActionPath", () => {
   it.each([
+    ["/breeding", "breeding.manage"],
     ["/breeding/7/ultrasound", "breeding.manage"],
+    ["/kidding", "kidding.manage"],
     ["/kidding/new?breeding_id=7", "kidding.manage"],
+    ["/health", "health.manage"],
     ["/health/new?task_id=8", "health.manage"],
   ])("requires the target module permission for %s", (path, permission) => {
     expect(permittedTaskActionPath(path, () => false)).toBeNull();

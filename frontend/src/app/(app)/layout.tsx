@@ -111,6 +111,12 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   },
 ];
 
+/** Match a module root or one of its nested routes, without treating a
+ * similarly prefixed sibling (for example `/animals-archive`) as active. */
+function isActiveRoute(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 function AppLayoutContent({ children }: { children: ReactNode }) {
   const { user, farms, farmId, loading, signOut } = useAuth();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
@@ -178,7 +184,7 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
                         render={<Link href={item.href} />}
-                        isActive={pathname.startsWith(item.href)}
+                        isActive={isActiveRoute(pathname, item.href)}
                         tooltip={item.label}
                       >
                         <item.icon />

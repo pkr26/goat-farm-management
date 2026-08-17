@@ -4,8 +4,8 @@
  * (weights/moves/health/kids) with empty states and formatting, page-level
  * loading/error/permission states, RBAC gating of the three action dialogs,
  * and the Record weight / Move bucket / Change status dialogs — validation
- * boundaries (weight > 0, BCS int 1–5, non-negative sale price), SOLD-only
- * price/buyer fields, payload mapping (blanks → null), and 4xx/5xx error
+ * boundaries (weight > 0, BCS int 1–5, non-negative sale price), sale-capable
+ * status price/buyer fields, payload mapping (blanks → null), and 4xx/5xx error
  * paths surfaced via toast.
  */
 
@@ -973,6 +973,22 @@ describe("AnimalProfilePage", () => {
       expect(weightBodies).toHaveLength(0);
     });
 
+    it("shows an accessible error for weight notes above 255 characters", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record weight");
+      setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "30");
+      const notes = within(dialog).getByLabelText(/notes/i);
+      setInput(notes, "n".repeat(256));
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+      expect(
+        await within(dialog).findByText("Notes cannot exceed 255 characters"),
+      ).toBeInTheDocument();
+      expect(notes).toHaveAccessibleDescription("Notes cannot exceed 255 characters");
+      expect(weightBodies).toHaveLength(0);
+    });
+
     it("rejects BCS below 1", async () => {
       const user = userEvent.setup();
       await renderProfile();
@@ -1120,6 +1136,22 @@ describe("AnimalProfilePage", () => {
       await waitFor(() => expect(getCalls).toBeGreaterThanOrEqual(2));
     });
 
+    it("shows an accessible error for a move reason above 255 characters", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Move bucket");
+      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      const reason = within(dialog).getByLabelText(/reason/i);
+      setInput(reason, "r".repeat(256));
+      await user.click(within(dialog).getByRole("button", { name: "Move" }));
+
+      expect(
+        await within(dialog).findByText("Reason cannot exceed 255 characters"),
+      ).toBeInTheDocument();
+      expect(reason).toHaveAccessibleDescription("Reason cannot exceed 255 characters");
+      expect(moveBodies).toHaveLength(0);
+    });
+
     it("POSTs a null reason when left blank", async () => {
       const user = userEvent.setup();
       await renderProfile();
@@ -1265,6 +1297,7 @@ describe("AnimalProfilePage", () => {
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      setInput(within(dialog).getByLabelText(/^Date/), "2026-08-08");
       await user.type(within(dialog).getByLabelText("Mortality cause"), "Sudden fever");
       setInput(within(dialog).getByLabelText("Mortality reported date"), "2026-08-07");
       await user.click(
@@ -1274,10 +1307,16 @@ describe("AnimalProfilePage", () => {
       );
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       expect(
-        await within(dialog).findByText("Identify the suspected scheduled disease"),
+        await within(dialog).findByText("Mortality report cannot be before the death date"),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText("Identify the suspected scheduled disease"),
       ).toBeInTheDocument();
       expect(statusBodies).toHaveLength(0);
 
+      // Equality is allowed: the reporting and effective death dates can be
+      // the same day.
+      setInput(within(dialog).getByLabelText(/^Date/), "2026-08-07");
       await user.type(within(dialog).getByLabelText("Suspected disease *"), "PPR");
       setInput(within(dialog).getByLabelText("Authority notified date"), "2026-08-07");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
@@ -1285,7 +1324,7 @@ describe("AnimalProfilePage", () => {
       await waitFor(() => expect(statusBodies).toHaveLength(1));
       expect(statusBodies[0]).toEqual({
         new_status: "DEAD",
-        date: null,
+        date: "2026-08-07",
         sale_price: null,
         buyer_name: null,
         notes: null,
@@ -1297,14 +1336,20 @@ describe("AnimalProfilePage", () => {
       });
     });
 
-    it("POSTs a CULLED status change", async () => {
+    it("records sale proceeds and buyer details for a CULLED status", async () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Change status");
       await pickOption(user, within(dialog).getByRole("combobox"), "CULLED");
+      setInput(within(dialog).getByLabelText(/sale price/i), "4500");
+      await user.type(within(dialog).getByLabelText(/buyer name/i), "Local processor");
       await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
       await waitFor(() => expect(statusBodies).toHaveLength(1));
-      expect(statusBodies[0]).toMatchObject({ new_status: "CULLED" });
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "CULLED",
+        sale_price: 4500,
+        buyer_name: "Local processor",
+      });
       await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Marked CULLED."));
     });
 
@@ -1338,6 +1383,62 @@ describe("AnimalProfilePage", () => {
       expect(
         await within(dialog).findByText("Sale price cannot exceed ₹1,000,000,000"),
       ).toBeInTheDocument();
+      expect(statusBodies).toHaveLength(0);
+    });
+
+    it("shows accessible errors for overlong sale details", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      const buyer = within(dialog).getByLabelText(/buyer name/i);
+      const notes = within(dialog).getByLabelText(/^Notes$/);
+      setInput(buyer, "b".repeat(121));
+      setInput(notes, "n".repeat(256));
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      expect(
+        await within(dialog).findByText("Buyer name cannot exceed 120 characters"),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText("Notes cannot exceed 255 characters"))
+        .toBeInTheDocument();
+      expect(buyer).toHaveAccessibleDescription("Buyer name cannot exceed 120 characters");
+      expect(notes).toHaveAccessibleDescription("Notes cannot exceed 255 characters");
+      expect(statusBodies).toHaveLength(0);
+    });
+
+    it("shows accessible errors for overlong mortality details", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      const cause = within(dialog).getByLabelText("Mortality cause");
+      setInput(cause, "c".repeat(121));
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      expect(
+        await within(dialog).findByText("Mortality cause cannot exceed 120 characters"),
+      ).toBeInTheDocument();
+      expect(cause).toHaveAccessibleDescription(
+        "Mortality cause cannot exceed 120 characters",
+      );
+      expect(statusBodies).toHaveLength(0);
+
+      setInput(cause, "");
+      await user.click(
+        within(dialog).getByRole("checkbox", {
+          name: "Suspected scheduled/notifiable disease",
+        }),
+      );
+      const disease = within(dialog).getByLabelText("Suspected disease *");
+      setInput(disease, "d".repeat(121));
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      expect(
+        await within(dialog).findByText("Suspected disease cannot exceed 120 characters"),
+      ).toBeInTheDocument();
+      expect(disease).toHaveAccessibleDescription(
+        "Suspected disease cannot exceed 120 characters",
+      );
       expect(statusBodies).toHaveLength(0);
     });
 

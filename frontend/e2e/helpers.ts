@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
 
 import { expect, type Locator, type Page } from "@playwright/test";
 
@@ -14,7 +13,7 @@ export interface E2ECredentials {
 function loadCredentials(): E2ECredentials {
   try {
     return JSON.parse(
-      readFileSync(path.join(__dirname, ".e2e-state.json"), "utf8"),
+      readFileSync(new URL(".e2e-state.json", import.meta.url), "utf8"),
     ) as E2ECredentials;
   } catch {
     throw new Error(

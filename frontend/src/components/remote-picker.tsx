@@ -103,7 +103,11 @@ export function RemotePicker({
   const [search, setSearch] = useState("");
   const [chosenOption, setChosenOption] = useState<RemotePickerOption | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const boundedPageSize = Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, pageSize));
+  const normalizedPageSize = Number.isFinite(pageSize) ? Math.trunc(pageSize) : 50;
+  const boundedPageSize = Math.min(
+    MAX_PAGE_SIZE,
+    Math.max(MIN_PAGE_SIZE, normalizedPageSize),
+  );
 
   // The query key is the search term, so an undebounced term would mint a new
   // key — and a new request — on every keystroke. The input itself stays
@@ -113,6 +117,19 @@ export function RemotePicker({
     const handle = setTimeout(() => setDebouncedSearch(trimmed), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [search]);
+
+  // A picker can become disabled while its dialog is already open (for
+  // example, when permissions or form state change). Close it on the next
+  // task so the options cannot remain interactive behind a disabled trigger.
+  useEffect(() => {
+    if (!disabled) return;
+    const handle = window.setTimeout(() => {
+      setOpen(false);
+      setSearch("");
+      setDebouncedSearch("");
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, [disabled]);
 
   const results = useInfiniteQuery({
     queryKey: [sourcePath, "remote-picker", ...cacheKey, debouncedSearch, boundedPageSize],
@@ -152,7 +169,15 @@ export function RemotePicker({
 
   const displayedOptions = useMemo(() => {
     const remoteValues = new Set(remoteOptions.map((option) => option.value));
-    return [...staticOptions.filter((option) => !remoteValues.has(option.value)), ...remoteOptions];
+    const staticValues = new Set<string>();
+    return [
+      ...staticOptions.filter((option) => {
+        if (remoteValues.has(option.value) || staticValues.has(option.value)) return false;
+        staticValues.add(option.value);
+        return true;
+      }),
+      ...remoteOptions,
+    ];
   }, [remoteOptions, staticOptions]);
 
   const currentOption =
@@ -280,7 +305,7 @@ export function RemotePicker({
             id={listboxId}
             role="listbox"
             aria-label={`${dialogTitle} results`}
-            aria-busy={results.isPlaceholderData || undefined}
+            aria-busy={results.isFetching || undefined}
             className={cn(
               "max-h-72 overflow-y-auto rounded-lg border p-1",
               results.isPlaceholderData && "opacity-60",
@@ -345,6 +370,11 @@ export function RemotePicker({
           {results.isFetchNextPageError && (
             <p role="alert" className="text-sm text-destructive">
               The next page could not be loaded. Try Load more again.
+            </p>
+          )}
+          {results.isRefetchError && !results.isFetchNextPageError && (
+            <p role="alert" className="text-sm text-destructive">
+              Could not refresh options. Showing the previously loaded results.
             </p>
           )}
         </DialogContent>

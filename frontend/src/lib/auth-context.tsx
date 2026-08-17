@@ -58,8 +58,10 @@ const PUBLIC_PATHS = ["/login", "/register"];
 function readStoredFarmId(): number | null {
   try {
     if (typeof window === "undefined") return null;
-    const stored = Number(window.localStorage.getItem(FARM_STORAGE_KEY));
-    return Number.isInteger(stored) ? stored : null;
+    const raw = window.localStorage.getItem(FARM_STORAGE_KEY);
+    if (raw === null) return null;
+    const stored = Number(raw);
+    return Number.isSafeInteger(stored) && stored > 0 ? stored : null;
   } catch {
     return null;
   }
@@ -164,11 +166,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const valid = list.find((f) => f.id === stored) ?? list[0];
     if (valid) selectFarm(valid.id, valid.timezone);
     else {
+      // Losing the final membership is a farm transition too. Abort and drop
+      // URL-only query keys before an old-farm response can repopulate them,
+      // and remove the now-invalid persisted selection.
+      queryClient.cancelQueries();
+      queryClient.clear();
       setFarmIdState(null);
       setCurrentFarmId(null);
       setActiveFarmTimezone(null);
+      clearStoredFarmId();
     }
-  }, [selectFarm]);
+  }, [queryClient, selectFarm]);
 
   const refreshFarms = useCallback(async () => {
     const list = await apiFetch<FarmEntry[]>("/api/auth/farms");

@@ -624,6 +624,141 @@ describe("HealthPage", () => {
     expect(postBody).toBeNull();
   });
 
+  it("validates dependent dates against farm today when the blank event date uses its API default", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    fireEvent.change(within(dialog).getByLabelText(/^date/i), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Next due date"), {
+      target: { value: TODAY },
+    });
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+    fireEvent.change(within(dialog).getByLabelText("Schedule/template name"), {
+      target: { value: "Authorised programme" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Next-due authority"), {
+      target: { value: "Farm veterinarian" },
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    expect(
+      await within(dialog).findByText("Next due date must be after the event date"),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
+  it("mirrors the API's chronology and storage ceilings, accepting every exact boundary", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+
+    const eventDate = addDays(TODAY, -30);
+    fireEvent.change(within(dialog).getByLabelText(/^date/i), {
+      target: { value: eventDate },
+    });
+
+    const save = within(dialog).getByRole("button", { name: "Save event" });
+    const submitInvalid = async (label: string | RegExp, value: string, message: string) => {
+      fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
+      await user.click(save);
+      expect(await within(dialog).findByText(message)).toBeInTheDocument();
+      expect(postBody).toBeNull();
+    };
+
+    await submitInvalid(
+      "Product manufactured",
+      addDays(eventDate, 1),
+      "Manufacture date cannot be after the event date",
+    );
+    // Clear manufacture temporarily so the expiry-vs-event guard is the
+    // field's first (and therefore rendered) issue, rather than the separate
+    // expiry-vs-manufacture guard masking it.
+    fireEvent.change(within(dialog).getByLabelText("Product manufactured"), {
+      target: { value: "" },
+    });
+
+    await submitInvalid(
+      "Product expires",
+      addDays(eventDate, -1),
+      "Product was expired on the event date",
+    );
+    fireEvent.change(within(dialog).getByLabelText("Product expires"), {
+      target: { value: eventDate },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Product manufactured"), {
+      target: { value: eventDate },
+    });
+
+    await submitInvalid(
+      "Vaccine valid until",
+      addDays(eventDate, -1),
+      "Vaccine validity cannot be before the event date",
+    );
+    fireEvent.change(within(dialog).getByLabelText("Vaccine valid until"), {
+      target: { value: eventDate },
+    });
+
+    await submitInvalid(
+      "Withdrawal until",
+      addDays(eventDate, -1),
+      "Withdrawal date cannot be before the event date",
+    );
+    await submitInvalid(
+      "Withdrawal until",
+      addDays(eventDate, 731),
+      "Withdrawal date cannot be more than 730 days after the event",
+    );
+    fireEvent.change(within(dialog).getByLabelText("Withdrawal until"), {
+      target: { value: addDays(eventDate, 730) },
+    });
+
+    fireEvent.change(within(dialog).getByLabelText("Schedule/template name"), {
+      target: { value: "Authorised programme" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Next-due authority"), {
+      target: { value: "Farm veterinarian" },
+    });
+    await submitInvalid(
+      "Next due date",
+      eventDate,
+      "Next due date must be after the event date",
+    );
+    fireEvent.change(within(dialog).getByLabelText("Next due date"), {
+      target: { value: addDays(eventDate, 1) },
+    });
+
+    await submitInvalid(
+      /total cost/i,
+      "1000000001",
+      "Cost cannot exceed ₹1,000,000,000",
+    );
+    fireEvent.change(within(dialog).getByLabelText(/total cost/i), {
+      target: { value: "1000000000" },
+    });
+
+    await submitInvalid(
+      "Notes",
+      "n".repeat(4_001),
+      "Notes cannot exceed 4000 characters",
+    );
+    fireEvent.change(within(dialog).getByLabelText("Notes"), {
+      target: { value: "n".repeat(4_000) },
+    });
+
+    await user.click(save);
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({
+      date: eventDate,
+      product_manufactured_on: eventDate,
+      product_expires_on: eventDate,
+      vaccine_valid_until: eventDate,
+      withdrawal_until: addDays(eventDate, 730),
+      next_due_date: addDays(eventDate, 1),
+      cost: 1_000_000_000,
+      notes: "n".repeat(4_000),
+    });
+  });
+
   // ---------- dialog: submit mapping ----------
 
   it("posts an animal-scoped event with NONE sentinels mapped to null", async () => {

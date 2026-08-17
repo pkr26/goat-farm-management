@@ -31,9 +31,27 @@ import {
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 const farmSchema = z.object({
-  name: z.string().min(1, "Name is required").max(120),
-  location: z.string().max(120).optional(),
-  timezone: z.string().min(1, "Timezone is required").max(64),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(120, "Farm name must be at most 120 characters"),
+  location: z
+    .string()
+    .trim()
+    .max(120, "Location must be at most 120 characters")
+    .optional(),
+  timezone: z
+    .string()
+    .min(1, "Timezone is required")
+    .max(64, "Timezone must be at most 64 characters")
+    // Do not use Intl as an IANA validator here: browser tzdata can lag the
+    // server and reject a newly introduced, otherwise valid zone. These are
+    // the two tzdata placeholders the API explicitly forbids in every version.
+    .refine(
+      (timezone) => timezone !== "Factory" && timezone !== "localtime",
+      "Enter a real location timezone",
+    ),
 });
 type FarmValues = z.infer<typeof farmSchema>;
 
@@ -178,6 +196,7 @@ function FarmSelectPageContent() {
                 <Label htmlFor="name">Farm name</Label>
                 <Input
                   id="name"
+                  maxLength={120}
                   aria-invalid={Boolean(errors.name) || undefined}
                   aria-describedby={errors.name ? "farm-name-error" : undefined}
                   {...register("name")}
@@ -190,16 +209,34 @@ function FarmSelectPageContent() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="location">Location (optional)</Label>
-                <Input id="location" {...register("location")} />
+                <Input
+                  id="location"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.location) || undefined}
+                  aria-describedby={errors.location ? "farm-location-error" : undefined}
+                  {...register("location")}
+                />
+                {errors.location && (
+                  <p
+                    id="farm-location-error"
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {errors.location.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="timezone">Farm timezone</Label>
                 <Input
                   id="timezone"
                   list="common-timezones"
+                  maxLength={64}
                   autoComplete="off"
                   aria-invalid={Boolean(errors.timezone) || undefined}
-                  aria-describedby="timezone-hint"
+                  aria-describedby={
+                    errors.timezone ? "timezone-hint timezone-error" : "timezone-hint"
+                  }
                   {...register("timezone")}
                 />
                 <datalist id="common-timezones">
@@ -215,7 +252,7 @@ function FarmSelectPageContent() {
                   IANA name used for due dates and daily records, for example Asia/Kolkata.
                 </p>
                 {errors.timezone && (
-                  <p role="alert" className="text-sm text-destructive">
+                  <p id="timezone-error" role="alert" className="text-sm text-destructive">
                     {errors.timezone.message}
                   </p>
                 )}

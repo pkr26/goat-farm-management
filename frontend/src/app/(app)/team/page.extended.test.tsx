@@ -7,7 +7,7 @@
  * the role dialog lives in page.test.tsx.
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -339,6 +339,31 @@ describe("TeamPage add-worker dialog", () => {
 
     expect(await within(dialog).findByText("Enter a valid email address")).toBeInTheDocument();
     expect(postCalls).toBe(0);
+  });
+
+  it("rejects an email above the API limit and accepts the exact boundary", async () => {
+    const { user, dialog } = await openDialog();
+    const email = within(dialog).getByLabelText(/Email/);
+    const tooLongEmail = `${"a".repeat(243)}@example.com`;
+    const maxEmail = `${"a".repeat(242)}@example.com`;
+
+    // fireEvent intentionally bypasses the browser's maxLength guard so the
+    // schema remains the authority for pasted/programmatic values.
+    fireEvent.change(email, { target: { value: tooLongEmail } });
+    await pickRole(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
+
+    expect(
+      await within(dialog).findByText("Email must be at most 254 characters"),
+    ).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+
+    fireEvent.change(email, { target: { value: maxEmail } });
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
+    await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
+
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postBody).toMatchObject({ email: maxEmail });
   });
 
   it("rejects a password shorter than 12 characters", async () => {

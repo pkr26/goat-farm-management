@@ -6,7 +6,7 @@
  * submitting state.
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -146,7 +146,7 @@ describe("LoginPage — validation", () => {
     expect(login.count).toBe(0);
   });
 
-  it("accepts a single-character password (min length is 1)", async () => {
+  it("trims email whitespace and accepts a single-character password", async () => {
     let loginBody: unknown;
     server.use(
       http.post("/api/auth/login", async ({ request }) => {
@@ -161,12 +161,53 @@ describe("LoginPage — validation", () => {
     const user = userEvent.setup();
     renderWithProviders(<LoginPage />);
 
-    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/email/i), "  demo@goatfarm.in  ");
     await user.type(screen.getByLabelText(/password/i), "x");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     expect(loginBody).toEqual({ email: "demo@goatfarm.in", password: "x" });
+  });
+
+  it("rejects credentials just above the API's bounded input sizes", async () => {
+    const login = trackLoginRequests();
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+
+    const overlongEmail = `${"a".repeat(243)}@example.com`;
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: overlongEmail } });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "p".repeat(129) },
+    });
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText("Email must be at most 254 characters")).toBeInTheDocument();
+    expect(screen.getByText("Password must be at most 128 characters")).toBeInTheDocument();
+    expect(login.count).toBe(0);
+  });
+
+  it("accepts credentials at both exact API size boundaries", async () => {
+    let loginBody: unknown;
+    server.use(
+      http.post("/api/auth/login", async ({ request }) => {
+        loginBody = await request.json();
+        return HttpResponse.json({
+          access_token: "tok",
+          user: { id: 3, email: "boundary@example.com", name: null },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+    const boundaryEmail = `${"a".repeat(242)}@example.com`;
+    const boundaryPassword = "p".repeat(128);
+
+    await user.type(screen.getByLabelText(/email/i), boundaryEmail);
+    await user.type(screen.getByLabelText(/password/i), boundaryPassword);
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(loginBody).toEqual({ email: boundaryEmail, password: boundaryPassword });
   });
 
   it("clears validation errors once the fields are fixed and the form resubmits", async () => {

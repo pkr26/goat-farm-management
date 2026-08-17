@@ -25,8 +25,15 @@ import type { PermissionsOut, TokenOut } from "@/api/generated/models";
 import { firstPermittedPathFromList } from "@/lib/permission-navigation";
 
 const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().min(1, "Password is required"),
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email address")
+    .max(254, "Email must be at most 254 characters"),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .max(128, "Password must be at most 128 characters"),
 });
 type LoginValues = z.infer<typeof loginSchema>;
 
@@ -144,6 +151,7 @@ export default function LoginPage() {
                     id="email"
                     type="email"
                     autoComplete="email"
+                    maxLength={254}
                     aria-invalid={!!errors.email}
                     aria-describedby={errors.email ? "email-error" : undefined}
                     {...register("email")}
@@ -160,6 +168,7 @@ export default function LoginPage() {
                     id="password"
                     type="password"
                     autoComplete="current-password"
+                    maxLength={128}
                     aria-invalid={!!errors.password}
                     aria-describedby={errors.password ? "password-error" : undefined}
                     {...register("password")}

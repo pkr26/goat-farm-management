@@ -1,4 +1,4 @@
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -186,5 +186,47 @@ describe("paginated domain pickers", () => {
     expect(
       await screen.findByRole("option", { name: "Batch #201 — 12 active in quarantine" }),
     ).toBeInTheDocument();
+  });
+
+  it("does not reuse cached pages across different default eligibility filters", async () => {
+    let calls = 0;
+    server.use(
+      http.get("/api/animals", () => {
+        calls += 1;
+        return HttpResponse.json({ animals: [animal(1), animal(2)], total: 2 });
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+    });
+
+    function Harness({ eligibleIds }: { eligibleIds: readonly number[] }) {
+      return (
+        <QueryClientProvider client={client}>
+          <Label htmlFor="eligibility-animal">Animal</Label>
+          <AnimalPicker
+            id="eligibility-animal"
+            value=""
+            onValueChange={() => undefined}
+            eligibleIds={eligibleIds}
+          />
+        </QueryClientProvider>
+      );
+    }
+
+    const user = userEvent.setup();
+    const view = render(<Harness eligibleIds={[1]} />);
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    let dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    expect(await within(dialog).findByRole("option", { name: /G-0001/ })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("option", { name: /G-0002/ })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    view.rerender(<Harness eligibleIds={[2]} />);
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    expect(await within(dialog).findByRole("option", { name: /G-0002/ })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("option", { name: /G-0001/ })).not.toBeInTheDocument();
+    expect(calls).toBe(2);
   });
 });

@@ -136,7 +136,17 @@ export function permittedAppPathFromList(
   const held = new Set(permissions);
   const resolved = resolveAppPath(raw, (permission) => held.has(permission));
   if (!resolved) return null;
-  if (resolved.path === resolved.root || FARM_AGNOSTIC_SUBROUTES.includes(resolved.path)) {
+  // Next normally canonicalizes trailing slashes away, but a copied returnTo
+  // can still contain one. Treat that spelling as the same id-free route and
+  // preserve its query/hash instead of mistaking it for a record detail URL.
+  const pathWithoutTrailingSlash =
+    resolved.path.length > 1 && resolved.path.endsWith("/")
+      ? resolved.path.slice(0, -1)
+      : resolved.path;
+  if (
+    pathWithoutTrailingSlash === resolved.root ||
+    FARM_AGNOSTIC_SUBROUTES.includes(pathWithoutTrailingSlash)
+  ) {
     return `${resolved.path}${resolved.state}`;
   }
   return resolved.root;

@@ -22,6 +22,30 @@ export interface RefreshSessionResult {
   user: UserOut;
 }
 
+function parseRefreshSessionResult(body: unknown): RefreshSessionResult | null {
+  if (typeof body !== "object" || body === null) return null;
+  const candidate = body as {
+    access_token?: unknown;
+    user?: { id?: unknown; email?: unknown; name?: unknown } | null;
+  };
+  const user = candidate.user;
+  if (
+    typeof candidate.access_token !== "string" ||
+    candidate.access_token.length === 0 ||
+    /\s/.test(candidate.access_token) ||
+    typeof user !== "object" ||
+    user === null ||
+    typeof user.id !== "number" ||
+    !Number.isSafeInteger(user.id) ||
+    user.id <= 0 ||
+    typeof user.email !== "string" ||
+    (user.name !== null && typeof user.name !== "string")
+  ) {
+    return null;
+  }
+  return { access_token: candidate.access_token, user: user as UserOut };
+}
+
 let refreshPromise: Promise<RefreshSessionResult | null> | null = null;
 let refreshPromiseEpoch: number | null = null;
 
@@ -100,11 +124,20 @@ async function performRefresh(
       signal: requestTimeout.signal,
     });
     if (!resp.ok) return null;
-    const body = (await resp.json()) as RefreshSessionResult;
+    const body = parseRefreshSessionResult(await resp.json());
+    if (!body) return null;
     if (authSessionEpoch !== expectedEpoch) return null;
-    const refreshedActorScope =
-      tokenActorScope(body.access_token) ??
-      ((body.user as UserOut | undefined)?.id != null ? String(body.user.id) : null);
+    const tokenScope = tokenActorScope(body.access_token);
+    const userScope = String(body.user.id);
+    if (tokenScope !== null && tokenScope !== userScope) {
+      // A refresh response must describe the same actor as the signed token.
+      // Otherwise the UI identity and every authenticated API request would
+      // immediately diverge even during a signed-out bootstrap.
+      setAccessToken(null);
+      onAuthFailure?.();
+      return null;
+    }
+    const refreshedActorScope = tokenScope ?? userScope;
     if (
       expectedActorScope !== null &&
       refreshedActorScope !== expectedActorScope
@@ -162,7 +195,10 @@ async function performCoordinatedRefresh(
       },
     );
   } catch (err) {
-    if (granted || !waitTimeout.signal.aborted) throw err;
+    if (granted) throw err;
+    // Web Locks is an optimization, not an authentication dependency. A
+    // browser can expose the API yet reject a request (for example in a
+    // restricted document); fall back just as we do after a bounded wait.
     return performRefresh(expectedEpoch, expectedActorScope);
   } finally {
     clearTimeout(waitTimer);
@@ -263,7 +299,7 @@ async function rawFetch(
   const headers = new Headers(init.headers);
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   if (farmScope) headers.set("X-Farm-Id", farmScope);
-  if (init.body && !headers.has("Content-Type")) {
+  if (typeof init.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   return fetch(path, { ...init, headers, credentials: "include" });
@@ -305,7 +341,12 @@ async function apiResponseOnce(
   let resp = await rawFetch(path, init, farmScope);
   assertAuthSession(sessionScope);
   let clearedSession = false;
-  if (resp.status === 401 && !NO_REFRESH_PATHS.has(path)) {
+  const requestPath = path.split("?", 1)[0];
+  const authRoute =
+    requestPath.length > 1 && requestPath.endsWith("/")
+      ? requestPath.slice(0, -1)
+      : requestPath;
+  if (resp.status === 401 && !NO_REFRESH_PATHS.has(authRoute)) {
     const refreshed = await tryRefresh();
     assertAuthSession(sessionScope);
     if (refreshed) {
@@ -330,11 +371,12 @@ async function apiResponseOnce(
     if (!clearedSession) assertAuthSession(sessionScope);
     throw new ApiError(resp.status, extractDetail(body, resp.statusText));
   }
-  // Fully consume protected successful bodies before their logical request is
-  // marked complete. A connection that drops after response headers but
-  // before the JSON arrives is still ambiguous and must retry with the key.
+  // Fully consume and validate protected successful JSON bodies before their
+  // logical request is marked complete. A connection that drops after headers
+  // or a proxy-corrupted JSON body is still ambiguous and must retry with the
+  // same key rather than discarding it before apiFetch parses the response.
   if (!bufferSuccess || resp.status === 204) return resp;
-  await resp.clone().arrayBuffer();
+  await resp.clone().json();
   return resp;
 }
 

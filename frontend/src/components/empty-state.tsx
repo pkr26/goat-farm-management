@@ -16,6 +16,8 @@ export function EmptyState({
   children?: ReactNode;
   className?: string;
 }) {
+  const hasDescription = Boolean(description) || description === 0;
+  const hasChildren = Boolean(children) || children === 0;
   return (
     <div
       className={cn(
@@ -27,10 +29,10 @@ export function EmptyState({
         <Icon />
       </span>
       <h3 className="font-heading text-base font-medium">{title}</h3>
-      {description && (
+      {hasDescription && (
         <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
       )}
-      {children && <div className="mt-2 flex items-center gap-2">{children}</div>}
+      {hasChildren && <div className="mt-2 flex items-center gap-2">{children}</div>}
     </div>
   );
 }

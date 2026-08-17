@@ -12,7 +12,8 @@ export default function BreedingUltrasoundRedirect() {
   const params = useParams<{ id: string }>();
 
   useEffect(() => {
-    router.replace(`/breeding?ultrasound_id=${params.id}`);
+    const search = new URLSearchParams({ ultrasound_id: params.id });
+    router.replace(`/breeding?${search.toString()}`);
   }, [router, params.id]);
 
   return <p className="py-10 text-center text-muted-foreground">Loading…</p>;

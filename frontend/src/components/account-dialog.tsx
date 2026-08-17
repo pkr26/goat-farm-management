@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, KeyRound, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -45,6 +45,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const dialogEpoch = useRef(0);
   const mutation = useChangePasswordApiAuthChangePasswordPost();
   const {
     register,
@@ -57,6 +58,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   });
 
   function close() {
+    // Async actions may settle after the user closes the dialog. Advance the
+    // epoch so a late failure cannot repopulate an error that close() just
+    // cleared and then surprise the user on the next open.
+    dialogEpoch.current += 1;
     setOpen(false);
     setServerError(null);
     setExportError(null);
@@ -67,6 +72,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   }
 
   async function downloadExport() {
+    const operationEpoch = dialogEpoch.current;
     setExporting(true);
     setExportError(null);
     try {
@@ -78,15 +84,20 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       const anchor = document.createElement("a");
       anchor.href = href;
       anchor.download = `goatfarm-account-export-${farmToday()}.json`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(href);
+      try {
+        document.body.appendChild(anchor);
+        anchor.click();
+      } finally {
+        anchor.remove();
+        URL.revokeObjectURL(href);
+      }
       toast.success("Your account data export was downloaded.");
     } catch (error) {
-      setExportError(
-        error instanceof ApiError ? error.detail : "Could not download your account data.",
-      );
+      if (operationEpoch === dialogEpoch.current) {
+        setExportError(
+          error instanceof ApiError ? error.detail : "Could not download your account data.",
+        );
+      }
     } finally {
       setExporting(false);
     }
@@ -94,6 +105,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
 
   async function deleteAccount() {
     if (!deletePassword) return;
+    const operationEpoch = dialogEpoch.current;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -106,15 +118,18 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       );
       await signOut();
     } catch (error) {
-      setDeleteError(
-        error instanceof ApiError ? error.detail : "Could not delete your account.",
-      );
+      if (operationEpoch === dialogEpoch.current) {
+        setDeleteError(
+          error instanceof ApiError ? error.detail : "Could not delete your account.",
+        );
+      }
     } finally {
       setDeleting(false);
     }
   }
 
   async function onSubmit(values: PasswordValues) {
+    const operationEpoch = dialogEpoch.current;
     setServerError(null);
     try {
       const response = await mutation.mutateAsync({
@@ -134,12 +149,20 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         // retry uses: it swaps the token in place without invalidating
         // requests already on the wire (and any request that races the swap
         // self-heals through the ordinary 401 → refresh retry).
-        await refreshSession();
+        const refreshed = await refreshSession().catch(() => null);
+        if (!refreshed) {
+          toast.success("Password changed. Sign in again to continue.");
+          close();
+          await signOut();
+          return;
+        }
       }
       toast.success("Password changed. Other signed-in sessions were revoked.");
       close();
     } catch (error) {
-      setServerError(error instanceof ApiError ? error.detail : "Could not change the password.");
+      if (operationEpoch === dialogEpoch.current) {
+        setServerError(error instanceof ApiError ? error.detail : "Could not change the password.");
+      }
     }
   }
 
@@ -180,7 +203,12 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           </Button>
         </section>
         <form
-          onSubmit={handleSubmit(onSubmit)}
+          onSubmit={(event) => {
+            // Construct react-hook-form's submit handler at event time. The
+            // callback reads the dialog lifecycle ref, which must never be
+            // evaluated during render.
+            void handleSubmit(onSubmit)(event);
+          }}
           className="space-y-4"
           aria-labelledby="change-password-heading"
           noValidate

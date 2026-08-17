@@ -85,6 +85,11 @@ import { taskPrefill } from "./task-prefill";
 const EVENT_TYPES = Object.values(HealthEventInType);
 const BUCKETS = Object.values(HealthEventInBucket);
 const ROUTES = ["SC", "Oral", "IM"];
+const MAX_HEALTH_EVENT_COST = 1_000_000_000;
+const MAX_HEALTH_EVENT_NOTES = 4_000;
+/** Mirrors backend/app/models/constants.py. An immutable event with a
+ * mistyped withdrawal year must not hold an animal out of sale indefinitely. */
+const MAX_WITHDRAWAL_DAYS = 730;
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
 const NONE = "none";
 /** value → label map for the root `items` prop: without it, Base UI's
@@ -149,6 +154,10 @@ const eventSchema = z
         (s) => s === "" || isPersistableNonnegativeMoney(Number(s)),
         MIN_PERSISTED_MONEY_MESSAGE,
       )
+      .refine(
+        (s) => s === "" || Number(s) <= MAX_HEALTH_EVENT_COST,
+        "Cost cannot exceed ₹1,000,000,000",
+      )
       .optional(),
     next_due_date: z.string().optional(),
     schedule_template_name: z.string().max(120).optional(),
@@ -164,10 +173,17 @@ const eventSchema = z
     suspected_scheduled_disease: z.boolean(),
     authority_notified_at: z.string().optional(),
     isolation_started_at: z.string().optional(),
-    notes: z.string().optional(),
+    notes: z
+      .string()
+      .max(MAX_HEALTH_EVENT_NOTES, "Notes cannot exceed 4000 characters")
+      .optional(),
     task_id: z.string().optional(),
   })
   .superRefine((v, ctx) => {
+    // A blank event date has a defined API meaning: the active farm's today.
+    // Validate every dependent date against that effective value rather than
+    // letting blank-date submissions pass here and fail at the endpoint.
+    const eventDate = v.date || localToday();
     if (v.scope === "animal" && positiveIdString(v.animal_id) === null) {
       ctx.addIssue({ code: "custom", path: ["animal_id"], message: "Pick an animal" });
     }
@@ -184,7 +200,7 @@ const eventSchema = z
       ctx.addIssue({ code: "custom", path: ["date"], message: "Date cannot be in the future" });
     }
     if (v.next_due_date) {
-      if (v.date && v.next_due_date <= v.date) {
+      if (v.next_due_date <= eventDate) {
         ctx.addIssue({
           code: "custom",
           path: ["next_due_date"],
@@ -213,6 +229,13 @@ const eventSchema = z
         message: "Manufacture date cannot be in the future",
       });
     }
+    if (v.product_manufactured_on && v.product_manufactured_on > eventDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["product_manufactured_on"],
+        message: "Manufacture date cannot be after the event date",
+      });
+    }
     if (
       v.product_manufactured_on &&
       v.product_expires_on &&
@@ -224,11 +247,18 @@ const eventSchema = z
         message: "Expiry cannot be before manufacture date",
       });
     }
-    if (v.date && v.product_expires_on && v.product_expires_on < v.date) {
+    if (v.product_expires_on && v.product_expires_on < eventDate) {
       ctx.addIssue({
         code: "custom",
         path: ["product_expires_on"],
         message: "Product was expired on the event date",
+      });
+    }
+    if (v.vaccine_valid_until && v.vaccine_valid_until < eventDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["vaccine_valid_until"],
+        message: "Vaccine validity cannot be before the event date",
       });
     }
     if (
@@ -242,12 +272,20 @@ const eventSchema = z
         message: "Vaccine validity cannot extend beyond product expiry",
       });
     }
-    if (v.date && v.withdrawal_until && v.withdrawal_until < v.date) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["withdrawal_until"],
-        message: "Withdrawal date cannot be before the event date",
-      });
+    if (v.withdrawal_until) {
+      if (v.withdrawal_until < eventDate) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["withdrawal_until"],
+          message: "Withdrawal date cannot be before the event date",
+        });
+      } else if (v.withdrawal_until > addDays(eventDate, MAX_WITHDRAWAL_DAYS)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["withdrawal_until"],
+          message: `Withdrawal date cannot be more than ${MAX_WITHDRAWAL_DAYS} days after the event`,
+        });
+      }
     }
     if (v.suspected_scheduled_disease && !v.disease_target?.trim()) {
       ctx.addIssue({
@@ -1500,7 +1538,18 @@ function HealthPageContent() {
             </details>
             <div className="space-y-1.5">
               <Label htmlFor="notes">Notes</Label>
-              <Input id="notes" {...register("notes")} />
+              <Input
+                id="notes"
+                maxLength={MAX_HEALTH_EVENT_NOTES}
+                aria-invalid={Boolean(errors.notes) || undefined}
+                aria-describedby={errors.notes ? "health-notes-error" : undefined}
+                {...register("notes")}
+              />
+              {errors.notes && (
+                <p id="health-notes-error" role="alert" className="text-sm text-destructive">
+                  {errors.notes.message}
+                </p>
+              )}
             </div>
             <DialogFooter>
               {recordError && (

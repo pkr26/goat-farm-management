@@ -24,13 +24,16 @@ vi.mock("next/navigation", () => ({
 
 /** Renders the hook's outputs into the DOM for assertion. */
 function Probe({ codes = [] }: { codes?: string[] }) {
-  const { loading, isError, isOwner, can } = usePermissions();
+  const { loading, isError, error, isOwner, can } = usePermissions();
   const { loading: authLoading } = useAuth();
   return (
     <div>
       <span data-testid="loading">{String(loading)}</span>
       <span data-testid="auth-loading">{String(authLoading)}</span>
       <span data-testid="is-error">{String(isError)}</span>
+      <span data-testid="error">
+        {error instanceof Error ? error.message : error == null ? "none" : String(error)}
+      </span>
       <span data-testid="is-owner">{String(isOwner)}</span>
       {codes.map((code) => (
         <span key={code} data-testid={`can:${code}`}>
@@ -152,6 +155,7 @@ describe("usePermissions — no active farm", () => {
 
     expect(permissionCalls).toBe(0);
     expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
+    expect(screen.getByTestId("is-owner")).toHaveTextContent("false");
   });
 });
 
@@ -199,6 +203,32 @@ describe("usePermissions — loading and error states", () => {
     await waitFor(() =>
       expect(screen.getByTestId("is-error")).toHaveTextContent("true"),
     );
+    expect(screen.getByTestId("error")).toHaveTextContent("boom");
+    expect(screen.getByTestId("is-owner")).toHaveTextContent("false");
+  });
+
+  it("fails closed instead of reusing stale grants after a refetch error", async () => {
+    const { queryClient } = renderWithProviders(
+      <Probe codes={["animals.view"]} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("can:animals.view")).toHaveTextContent("true"),
+    );
+    expect(screen.getByTestId("is-owner")).toHaveTextContent("true");
+
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    await queryClient.invalidateQueries();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("is-error")).toHaveTextContent("true"),
+    );
+    expect(screen.getByTestId("can:animals.view")).toHaveTextContent("false");
+    expect(screen.getByTestId("is-owner")).toHaveTextContent("false");
+    expect(screen.getByTestId("error")).toHaveTextContent("permissions unavailable");
   });
 
   it("does not flag isError on a successful response", async () => {

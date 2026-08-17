@@ -301,8 +301,7 @@ function cleanup(now: number): void {
   }
 }
 
-function makeRoom(now: number): void {
-  cleanup(now);
+function makeRoom(): void {
   if (logicalRequests.size < MAX_LOGICAL_REQUESTS) return;
   for (const [signature, entry] of logicalRequests) {
     if (entry.promise === null) {
@@ -376,7 +375,7 @@ export async function runIdempotencyProtectedRequest<T>({
   }
 
   if (!entry) {
-    makeRoom(now);
+    makeRoom();
     entry = {
       key: callerProvidedKey
         ? (callerKey ?? "")

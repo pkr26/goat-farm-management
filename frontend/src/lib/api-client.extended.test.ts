@@ -26,6 +26,17 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+function refreshPayload(accessToken: string, actorId = 1) {
+  return {
+    access_token: accessToken,
+    user: {
+      id: actorId,
+      email: `actor-${actorId}@example.test`,
+      name: null,
+    },
+  };
+}
+
 /** Lets each microtask-scheduled refreshPromise reset (setTimeout 0) flush. */
 function flushMacrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -127,6 +138,27 @@ describe("apiFetch header injection", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
 
     await apiFetch("/api/animals");
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Content-Type")).toBeNull();
+  });
+
+  it("still identifies an explicitly empty request body as JSON", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/uploads", { method: "POST", body: "" });
+
+    const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
+    expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("leaves Content-Type unset for native non-string request bodies", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+
+    await apiFetch("/api/uploads", {
+      method: "POST",
+      body: new URLSearchParams({ search: "ear tag" }),
+    });
 
     const headers = fetchMock.mock.calls[0][1]?.headers as Headers;
     expect(headers.get("Content-Type")).toBeNull();
@@ -300,7 +332,7 @@ describe("apiFetch refresh-retry edge cases", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       return jsonResponse(401, { detail: "Expired" });
     });
@@ -313,6 +345,31 @@ describe("apiFetch refresh-retry edge cases", () => {
     expect(refreshCall).toBeDefined();
     expect(refreshCall?.[1]?.method).toBe("POST");
     expect(refreshCall?.[1]?.credentials).toBe("include");
+  });
+
+  it("rejects a non-2xx refresh even when its body looks successful", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, refreshPayload("must-not-be-installed")),
+    );
+
+    await expect(refreshSession()).resolves.toBeNull();
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    await apiFetch("/api/buckets");
+    expect(
+      new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization"),
+    ).toBe("Bearer old-token");
+  });
+
+  it("falls back when navigator is unavailable", async () => {
+    vi.stubGlobal("navigator", undefined);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, refreshPayload("worker-token")),
+    );
+
+    await expect(refreshSession()).resolves.toEqual(refreshPayload("worker-token"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("uses a same-origin Web Lock to coordinate refresh across tabs", async () => {
@@ -375,6 +432,152 @@ describe("apiFetch refresh-retry edge cases", () => {
     }
   });
 
+  it("falls back when Web Locks rejects before granting the lock", async () => {
+    const lockError = new DOMException("locks unavailable", "NotSupportedError");
+    const lockRequest = vi.fn().mockRejectedValue(lockError);
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, refreshPayload("fallback-token")),
+    );
+
+    const result = await refreshSession();
+
+    expect(result).toEqual(refreshPayload("fallback-token"));
+    expect(lockRequest).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/auth/refresh");
+  });
+
+  it("does not consume the refresh cookie after a queued caller changes session", async () => {
+    let grantLock: (() => void) | undefined;
+    const lockRequest = vi.fn(
+      (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) =>
+        new Promise<unknown>((resolve, reject) => {
+          grantLock = () => {
+            void callback().then(resolve, reject);
+          };
+        }),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+
+    const pending = refreshSession();
+    setAccessToken("replacement-login-token", 2);
+    grantLock?.();
+
+    await expect(pending).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("clears the request timeout after a successful refresh", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, refreshPayload("fresh-token")),
+    );
+
+    vi.useFakeTimers();
+    try {
+      await expect(refreshSession()).resolves.toEqual(refreshPayload("fresh-token"));
+      const requestSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+      expect(requestSignal.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(requestSignal.aborted).toBe(false);
+      await vi.runOnlyPendingTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts a refresh request that exceeds its network timeout", async () => {
+    fetchMock.mockImplementationOnce(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal as AbortSignal;
+          signal.addEventListener("abort", () => {
+            reject(new DOMException("timed out", "AbortError"));
+          });
+        }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const pending = refreshSession();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const requestSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+      expect(requestSignal.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expect(pending).resolves.toBeNull();
+      expect(requestSignal.aborted).toBe(true);
+      await vi.runOnlyPendingTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["a null body", null],
+    ["a missing token", { user: refreshPayload("ignored").user }],
+    ["an empty token", refreshPayload("")],
+    ["a token containing whitespace", refreshPayload("not a valid token")],
+    ["a missing user", { access_token: "new-token" }],
+    [
+      "a non-integer user id",
+      { ...refreshPayload("new-token"), user: { id: 1.5, email: "a@b.test", name: null } },
+    ],
+    [
+      "a non-positive user id",
+      { ...refreshPayload("new-token"), user: { id: 0, email: "a@b.test", name: null } },
+    ],
+    [
+      "an unsafe user id",
+      {
+        ...refreshPayload("new-token"),
+        user: { id: Number.MAX_SAFE_INTEGER + 1, email: "a@b.test", name: null },
+      },
+    ],
+    [
+      "a non-string email",
+      { ...refreshPayload("new-token"), user: { id: 1, email: 7, name: null } },
+    ],
+    [
+      "a missing name",
+      { access_token: "new-token", user: { id: 1, email: "a@b.test" } },
+    ],
+    [
+      "a non-string name",
+      { ...refreshPayload("new-token"), user: { id: 1, email: "a@b.test", name: 7 } },
+    ],
+  ])("treats a 200 refresh with %s as an auth failure", async (_label, body) => {
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+    fetchMock.mockImplementation(async (input) =>
+      String(input) === "/api/auth/refresh"
+        ? jsonResponse(200, body)
+        : jsonResponse(401, { detail: "Expired" }),
+    );
+
+    const error = await catchApiError(apiFetch("/api/animals"));
+
+    expect(error).toMatchObject({ status: 401, detail: "Expired" });
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/animals"),
+    ).toHaveLength(1);
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    await apiFetch("/api/buckets");
+    expect(
+      new Headers(fetchMock.mock.calls[0][1]?.headers).get("Authorization"),
+    ).toBeNull();
+  });
+
   it("throws the retry's 401 without looping when the retry is still unauthorized", async () => {
     const onAuthFailure = vi.fn();
     setOnAuthFailure(onAuthFailure);
@@ -382,7 +585,7 @@ describe("apiFetch refresh-retry edge cases", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       return jsonResponse(401, { detail: "Still expired" });
     });
@@ -421,7 +624,7 @@ describe("apiFetch refresh-retry edge cases", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       if (!retried.has(url)) {
         retried.add(url);
@@ -455,7 +658,7 @@ describe("apiFetch refresh-retry edge cases", () => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
         refreshCount += 1;
-        return jsonResponse(200, { access_token: `token-${refreshCount}` });
+        return jsonResponse(200, refreshPayload(`token-${refreshCount}`));
       }
       expiredCalls += 1;
       if (expiredCalls % 2 === 1) return jsonResponse(401, { detail: "Expired" });
@@ -487,13 +690,32 @@ describe("apiFetch refresh-retry edge cases", () => {
     expect(headers.get("Authorization")).toBe("Bearer old-token");
   });
 
+  it.each([
+    "/api/auth/login?returnTo=%2Fdashboard",
+    "/api/auth/register?invitation=abc",
+    "/api/auth/refresh?source=bootstrap",
+    "/api/auth/logout?all=true",
+    "/api/auth/login/",
+    "/api/auth/register/",
+    "/api/auth/refresh/",
+    "/api/auth/logout/",
+  ])("does not refresh a terminal auth path spelling %s", async (path) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { detail: "Unauthorized" }));
+
+    const error = await catchApiError(apiFetch(path, { method: "POST" }));
+
+    expect(error.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(path);
+  });
+
   it("forwards method and body on the retried request after a refresh", async () => {
     const retried = new Set<string>();
 
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       if (!retried.has(url)) {
         retried.add(url);
@@ -534,12 +756,29 @@ describe("apiFetch token semantics after refresh", () => {
     await flushMacrotasks();
   });
 
+  it("remembers the actor established by an opaque refresh token", async () => {
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, refreshPayload("opaque-one", 1)))
+      .mockResolvedValueOnce(jsonResponse(200, refreshPayload("opaque-two", 2)));
+
+    await expect(refreshSession()).resolves.toEqual(
+      refreshPayload("opaque-one", 1),
+    );
+    await flushMacrotasks();
+    await expect(refreshSession()).resolves.toBeNull();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onAuthFailure).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the refreshed token for subsequent unrelated requests", async () => {
     const retried = new Set<string>();
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       if (url === "/api/animals" && !retried.has(url)) {
         retried.add(url);
@@ -565,7 +804,7 @@ describe("apiFetch token semantics after refresh", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       if (!retried) {
         retried = true;
@@ -607,7 +846,7 @@ describe("apiFetch token semantics after refresh", () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") {
-        return jsonResponse(200, { access_token: "new-token" });
+        return jsonResponse(200, refreshPayload("new-token"));
       }
       if (!retried) {
         retried = true;

@@ -73,7 +73,11 @@ function useInvalidateTeam() {
 
 const workerSchema = z.object({
   name: z.string().trim().max(120).optional(),
-  email: z.string().trim().email("Enter a valid email address"),
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email address")
+    .max(254, "Email must be at most 254 characters"),
   role_id: z.string().min(1, "Pick a role"),
   password: z
     .string()
@@ -442,6 +446,7 @@ function AddWorkerDialog({
             <Input
               id="worker-email"
               type="email"
+              maxLength={254}
               placeholder="worker@example.com"
               autoFocus
               aria-invalid={Boolean(errors.email) || undefined}
@@ -459,6 +464,7 @@ function AddWorkerDialog({
             <Input
               id="worker-password"
               type="password"
+              maxLength={128}
               autoComplete="new-password"
               aria-invalid={Boolean(errors.password) || undefined}
               aria-describedby={errors.password ? "worker-password-error" : undefined}
@@ -571,6 +577,7 @@ function ResetPasswordDialog({
             <Input
               id="reset-password"
               type="password"
+              maxLength={128}
               autoComplete="new-password"
               autoFocus
               aria-invalid={Boolean(errors.password) || undefined}

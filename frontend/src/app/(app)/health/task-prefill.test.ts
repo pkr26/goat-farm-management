@@ -91,6 +91,59 @@ describe("taskPrefill (3-1)", () => {
     ).toEqual({ disease_target: "PPR vaccination" });
   });
 
+  it("does not strip an animal tag unless it is the title's exact suffix", () => {
+    expect(
+      taskPrefill(
+        makeTask({
+          category: "VACCINE",
+          title: "PPR campaign",
+          animal_tag: "G-003",
+        }),
+      ),
+    ).toEqual({ disease_target: "PPR campaign" });
+  });
+
+  it("gives no hint for a vaccine duty whose title is only scaffolding", () => {
+    expect(
+      taskPrefill(
+        makeTask({ category: "VACCINE", title: "[Supplier #2] Day 4:   " }),
+      ),
+    ).toEqual({});
+  });
+
+  it.each([
+    ["Review [old] PPR", "Review [old] PPR"],
+    ["[Supplier #2]PPR", "PPR"],
+    ["Reminder Day 4: PPR", "Reminder Day 4: PPR"],
+    ["Day4:PPR", "PPR"],
+    ["Day 40:PPR", "PPR"],
+    ["Days 4-10:PPR", "PPR"],
+    ["vaccinate PPR(live)", "PPR"],
+    ["vaccinate PPR", "PPR"],
+    ["ET + TT booster", "ET + TT pre-kidding"],
+    ["  PPR campaign  ", "PPR campaign"],
+  ])("preserves exact parser boundaries for %j", (title, target) => {
+    expect(taskPrefill(makeTask({ category: "VACCINE", title }))).toEqual({
+      disease_target: target,
+    });
+  });
+
+  it("strips an exact animal-tag suffix before using a free-text vaccine title", () => {
+    expect(
+      taskPrefill(
+        makeTask({
+          category: "VACCINE",
+          title: "PPR booster: G-003",
+          animal_tag: "G-003",
+        }),
+      ),
+    ).toEqual({ disease_target: "PPR booster" });
+  });
+
+  it("returns no empty target for a whitespace-only vaccine title", () => {
+    expect(taskPrefill(makeTask({ category: "VACCINE", title: "   " }))).toEqual({});
+  });
+
   it("non-health categories give no hints", () => {
     expect(taskPrefill(makeTask({ category: "CLEANING", title: "Scrub feeders" }))).toEqual(
       {},

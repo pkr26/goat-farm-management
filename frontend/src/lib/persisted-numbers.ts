@@ -9,6 +9,7 @@ export const MIN_PERSISTED_MONEY_MESSAGE = "Amount must be ₹0 or at least ₹0
  * decimal for ordinary whole-kilogram readings while preserving all three
  * decimals the API stores when they are significant. */
 export function formatPersistedKg(value: number): string {
+  if (!Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 3,
@@ -18,5 +19,5 @@ export function formatPersistedKg(value: number): string {
 /** Zero is meaningful for optional/non-negative money fields; a smaller
  * non-zero value would round back to zero and is therefore rejected. */
 export function isPersistableNonnegativeMoney(value: number): boolean {
-  return value === 0 || value >= MIN_PERSISTED_MONEY;
+  return Number.isFinite(value) && (value === 0 || value >= MIN_PERSISTED_MONEY);
 }

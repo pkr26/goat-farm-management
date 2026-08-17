@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { cn } from "./utils";
+import { cn, safeAppPath } from "./utils";
 
 describe("cn", () => {
   it("joins plain class strings with a space", () => {
@@ -97,5 +97,37 @@ describe("cn — additional merge edge cases", () => {
 
   it("ignores leading falsy inputs", () => {
     expect(cn(false, "a", undefined)).toBe("a");
+  });
+});
+
+describe("safeAppPath", () => {
+  it("keeps canonical absolute app paths, including encoded query state", () => {
+    expect(safeAppPath("/tasks")).toBe("/tasks");
+    expect(safeAppPath("/tasks/7?returnTo=%2Fdashboard#details")).toBe(
+      "/tasks/7?returnTo=%2Fdashboard#details",
+    );
+  });
+
+  it.each([
+    null,
+    undefined,
+    "",
+    "tasks",
+    "https://evil.example/tasks",
+    "//evil.example/tasks",
+    "/\\evil.example/tasks",
+    "/\n/evil.example/tasks",
+    "/tasks?next=\n//evil.example",
+    "/tasks#\u0000hidden",
+    "/tasks/../finance",
+    "/tasks/./overdue",
+    "/tasks/%2e%2e/finance",
+    "/%74asks",
+  ])("rejects a non-canonical or non-local destination %j", (raw) => {
+    expect(safeAppPath(raw)).toBeNull();
+  });
+
+  it("fails closed for a non-string runtime value", () => {
+    expect(safeAppPath(42 as never)).toBeNull();
   });
 });

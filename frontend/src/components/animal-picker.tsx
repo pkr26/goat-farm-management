@@ -81,7 +81,7 @@ export function AnimalPicker({
   dialogTitle = "Choose an animal",
   labelVariant = "basic",
   eligibleIds,
-  eligibilityKey = "all-active",
+  eligibilityKey,
   selectedOption,
   staticOptions,
   disabled,
@@ -94,6 +94,12 @@ export function AnimalPicker({
     () => (eligibleIds ? new Set(eligibleIds) : null),
     [eligibleIds],
   );
+  // Eligibility filtering happens inside the cached query result. When a
+  // caller does not provide its own revision key, include a canonical form of
+  // the IDs so two differently filtered pickers cannot reuse each other's
+  // pages. Sorting also makes equivalent sets share a cache entry.
+  const resolvedEligibilityKey = eligibilityKey ??
+    (eligibleIds ? [...eligibleIds].sort((left, right) => left - right) : "all-active");
   const selectedAnimalId = /^\d+$/.test(value) ? Number(value) : null;
   const selectedAnimalQuery = useAnimalProfileApiAnimalsAnimalIdGet(
     selectedAnimalId ?? 0,
@@ -155,7 +161,7 @@ export function AnimalPicker({
       emptyMessage={eligibleSet ? "No eligible animals match this search." : "No animals match this search."}
       noEligibleYetMessage="No eligible animals in the records checked yet. Load more to continue."
       sourcePath="/api/animals"
-      cacheKey={["animal-picker", eligibilityKey, labelVariant]}
+      cacheKey={["animal-picker", resolvedEligibilityKey, labelVariant]}
       loadPage={loadPage}
       disabled={disabled}
       className={className}

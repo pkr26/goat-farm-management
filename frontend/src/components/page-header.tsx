@@ -13,6 +13,8 @@ export function PageHeader({
   actions?: ReactNode;
   className?: string;
 }) {
+  const hasDescription = Boolean(description) || description === 0;
+  const hasActions = Boolean(actions) || actions === 0;
   return (
     <div
       className={cn(
@@ -24,11 +26,11 @@ export function PageHeader({
         <h1 className="font-heading text-2xl font-semibold tracking-normal">
           {title}
         </h1>
-        {description && (
+        {hasDescription && (
           <p className="text-sm text-muted-foreground">{description}</p>
         )}
       </div>
-      {actions && (
+      {hasActions && (
         <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {actions}
         </div>

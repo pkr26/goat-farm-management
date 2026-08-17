@@ -34,6 +34,8 @@ stays first-party that way.
 | `pnpm typecheck`  | `tsc --noEmit`                                       |
 | `pnpm lint`       | ESLint                                               |
 | `pnpm test`       | Vitest (jsdom + MSW), co-located `*.test.ts(x)`      |
+| `pnpm test:coverage` | Vitest with V8 text, JSON, and HTML coverage       |
+| `pnpm test:mutation` | Incremental Stryker mutation testing with Vitest   |
 | `pnpm e2e`        | Playwright suite in `e2e/`                           |
 | `pnpm orval`      | Regenerate `src/api/generated/` from the contract    |
 

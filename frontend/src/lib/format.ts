@@ -3,6 +3,17 @@
 /** ₹ with Indian digit grouping (12,34,567.50); non-finite → "—". */
 export function formatMoney(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  // Number#toFixed switches to exponential notation at 1e21. Feeding that
+  // string into the manual grouping below produced output such as
+  // `₹1e,+21.undefined`; values at this magnitude have no representable paise,
+  // so Intl can safely render the integer digits directly.
+  if (Math.abs(value) >= 1e21) {
+    const grouped = Math.abs(value).toLocaleString("en-IN", {
+      maximumFractionDigits: 0,
+      useGrouping: true,
+    });
+    return `${value < 0 ? "-" : ""}₹${grouped}`;
+  }
   const [intPart, fracPart] = Math.abs(value).toFixed(2).split(".");
   // Determine the sign after display rounding so tiny negative floats do not
   // render as the impossible accounting value "-₹0".
@@ -112,13 +123,26 @@ const MONTHS = [
 /** ISO date string (YYYY-MM-DD) → "5 Aug 2026"; empty/invalid → "—". */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  // Accept the documented date-only value, a syntactically complete ISO
+  // datetime suffix, and harmless trailing whitespace. Merely starting with
+  // date-shaped characters is not enough (`2026-08-05Tgarbage` and
+  // `2026-08-05 anything` are not ISO dates).
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})(T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?\s*$/.exec(
+    iso,
+  );
+  if (!match) return "—";
+  const [y, m, d] = match.slice(1, 4).map(Number);
   if (!y || !m || !d) return "—";
   // Round-trip through Date: out-of-range values (month 13, 30 Feb, …) roll
   // over into a different calendar day, which this check rejects.
   const date = new Date(Date.UTC(y, m - 1, d));
   if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
     return "—";
+  }
+  const timestampSuffix = match[4];
+  if (timestampSuffix) {
+    const paddedDate = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (Number.isNaN(new Date(`${paddedDate}${timestampSuffix}`).getTime())) return "—";
   }
   return `${d} ${MONTHS[m - 1]} ${y}`;
 }

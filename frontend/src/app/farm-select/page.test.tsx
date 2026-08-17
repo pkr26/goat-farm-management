@@ -7,7 +7,7 @@
  * to /login.
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -208,6 +208,25 @@ describe("FarmSelectPage — create a farm", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it("blocks a whitespace-only farm name and never posts", async () => {
+    let posts = 0;
+    server.use(
+      http.post("/api/auth/farms", () => {
+        posts += 1;
+        return HttpResponse.json({ id: 9, name: "x", location: null, role: null });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText(/farm name/i), "   ");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    expect(await screen.findByText("Name is required")).toBeInTheDocument();
+    expect(posts).toBe(0);
+  });
+
   it("blocks a farm name longer than 120 characters", async () => {
     let posts = 0;
     server.use(
@@ -221,11 +240,85 @@ describe("FarmSelectPage — create a farm", () => {
     renderWithProviders(<FarmSelectPage />);
     await screen.findByText("Test Goat Farm");
 
-    await user.type(screen.getByLabelText(/farm name/i), "x".repeat(121));
+    fireEvent.change(screen.getByLabelText(/farm name/i), {
+      target: { value: "x".repeat(121) },
+    });
     await user.click(screen.getByRole("button", { name: /create farm/i }));
 
     expect(await screen.findByText(/120/)).toBeInTheDocument();
     expect(posts).toBe(0);
+  });
+
+  it.each(["Factory", "localtime"])(
+    "rejects the non-location timezone placeholder %s before creating a farm",
+    async (timezoneName) => {
+      let postCalls = 0;
+      server.use(
+        http.post("/api/auth/farms", () => {
+          postCalls += 1;
+          return HttpResponse.json({ id: 7, name: "Bad zone", timezone: timezoneName });
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<FarmSelectPage />);
+      await screen.findByText("Your farms");
+
+      await user.type(screen.getByLabelText("Farm name"), "Bad zone");
+      const timezone = screen.getByLabelText("Farm timezone");
+      await user.clear(timezone);
+      await user.type(timezone, timezoneName);
+      await user.click(screen.getByRole("button", { name: "Create farm" }));
+
+      expect(await screen.findByText("Enter a real location timezone")).toBeInTheDocument();
+      expect(timezone).toHaveAccessibleDescription(/Enter a real location timezone/);
+      expect(postCalls).toBe(0);
+    },
+  );
+
+  it("enforces location/timezone ceilings and accepts every exact storage boundary", async () => {
+    let postCalls = 0;
+    let postBody: Record<string, unknown> | null = null;
+    server.use(
+      http.post("/api/auth/farms", async ({ request }) => {
+        postCalls += 1;
+        postBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 7, ...postBody, role: null });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Your farms");
+
+    const name = screen.getByLabelText("Farm name");
+    const location = screen.getByLabelText(/Location/);
+    const timezone = screen.getByLabelText("Farm timezone");
+    fireEvent.change(name, { target: { value: "n".repeat(120) } });
+    fireEvent.change(location, { target: { value: "l".repeat(121) } });
+    await user.click(screen.getByRole("button", { name: "Create farm" }));
+
+    expect(
+      await screen.findByText("Location must be at most 120 characters"),
+    ).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+
+    fireEvent.change(location, { target: { value: "l".repeat(120) } });
+    fireEvent.change(timezone, { target: { value: "t".repeat(65) } });
+    await user.click(screen.getByRole("button", { name: "Create farm" }));
+
+    expect(
+      await screen.findByText("Timezone must be at most 64 characters"),
+    ).toBeInTheDocument();
+    expect(postCalls).toBe(0);
+
+    fireEvent.change(timezone, { target: { value: "t".repeat(64) } });
+    await user.click(screen.getByRole("button", { name: "Create farm" }));
+
+    await waitFor(() => expect(postCalls).toBe(1));
+    expect(postBody).toEqual({
+      name: "n".repeat(120),
+      location: "l".repeat(120),
+      timezone: "t".repeat(64),
+    });
   });
 
   it("creates the farm, refreshes the list, selects the new farm and navigates", async () => {
@@ -287,6 +380,30 @@ describe("FarmSelectPage — create a farm", () => {
 
     await user.type(screen.getByLabelText(/farm name/i), "Hillside");
     await user.type(screen.getByLabelText(/location/i), "Pune");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(postBody).toEqual({
+      name: "Hillside",
+      location: "Pune",
+      timezone: "Asia/Kolkata",
+    });
+  });
+
+  it("trims farm names and locations before persisting them", async () => {
+    let postBody: unknown;
+    server.use(
+      http.post("/api/auth/farms", async ({ request }) => {
+        postBody = await request.json();
+        return HttpResponse.json({ id: 3, name: "Hillside", location: "Pune", role: null });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText(/farm name/i), "  Hillside  ");
+    await user.type(screen.getByLabelText(/location/i), "  Pune  ");
     await user.click(screen.getByRole("button", { name: /create farm/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));

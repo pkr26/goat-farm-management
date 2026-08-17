@@ -54,6 +54,7 @@ export function StatCard({
   };
   className?: string;
 } & VariantProps<typeof statIconVariants>) {
+  const hasHint = Boolean(hint) || hint === 0;
   const TrendIcon: LucideIcon | null = trend
     ? trend.direction === "up"
       ? TrendingUp
@@ -68,7 +69,7 @@ export function StatCard({
         <div className="min-w-0 space-y-1">
           <p className="text-sm leading-tight text-muted-foreground">{label}</p>
           <p className="text-2xl font-semibold tracking-normal">{value}</p>
-          {(trend || hint) && (
+          {(trend || hasHint) && (
             <p className="flex items-center gap-1 text-xs text-muted-foreground">
               {trend && TrendIcon && (
                 <span

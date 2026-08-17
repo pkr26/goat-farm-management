@@ -40,9 +40,24 @@ describe("formatMoney — Indian grouping across magnitudes", () => {
     expect(formatMoney(1e12)).toBe("₹10,00,00,00,00,000");
     expect(formatMoney(Number.MAX_SAFE_INTEGER)).toBe("₹9,00,71,99,25,47,40,991");
   });
+
+  it("renders the exact toFixed exponential boundary as ordinary digits", () => {
+    expect(formatMoney(1e21)).toBe("₹1,00,00,00,00,00,00,00,00,00,000");
+    expect(formatMoney(-1e21)).toBe("-₹1,00,00,00,00,00,00,00,00,00,000");
+    expect(formatMoney(Number.MAX_VALUE)).not.toContain("undefined");
+    expect(formatMoney(Number.MAX_VALUE)).not.toContain("e+");
+  });
 });
 
 describe("formatMoney — decimals, rounding and sign", () => {
+  it("renders missing and non-finite values as unavailable", () => {
+    expect(formatMoney(null)).toBe("—");
+    expect(formatMoney(undefined)).toBe("—");
+    expect(formatMoney(Number.NaN)).toBe("—");
+    expect(formatMoney(Number.POSITIVE_INFINITY)).toBe("—");
+    expect(formatMoney(Number.NEGATIVE_INFINITY)).toBe("—");
+  });
+
   it("renders two decimals for fractional rupees", () => {
     expect(formatMoney(5.5)).toBe("₹5.50");
     expect(formatMoney(0.01)).toBe("₹0.01");
@@ -114,11 +129,29 @@ describe("formatDate — boundaries", () => {
     expect(formatDate("2026-08")).toBe("—");
     expect(formatDate("2026")).toBe("—");
     expect(formatDate("2026-08-0")).toBe("—");
+    expect(formatDate("2026-08-05garbage")).toBe("—");
+    expect(formatDate("2026-08-05 garbage")).toBe("—");
+    expect(formatDate("2026-08-05Tgarbage")).toBe("—");
+    expect(formatDate("2026-08-05T23:59:59Zgarbage")).toBe("—");
+    expect(formatDate("not-2026-08-05")).toBe("—");
+  });
+
+  it("rejects invalid clock and offset components in timestamps", () => {
+    expect(formatDate("2026-08-05T25:00:00Z")).toBe("—");
+    expect(formatDate("2026-08-05T12:99:00Z")).toBe("—");
+    expect(formatDate("2026-08-05T12:00:99Z")).toBe("—");
+    expect(formatDate("2026-08-05T12:00:00+99:00")).toBe("—");
   });
 
   it("renders an em dash for a zero month or year", () => {
     expect(formatDate("2026-00-15")).toBe("—");
     expect(formatDate("0000-05-10")).toBe("—");
+  });
+
+  it("rejects calendar dates whose round trip changes any component", () => {
+    expect(formatDate("2026-13-01")).toBe("—");
+    expect(formatDate("2026-04-31")).toBe("—");
+    expect(formatDate("2026-02-29")).toBe("—");
   });
 });
 
@@ -187,6 +220,13 @@ describe("formatFarmDateTime — instants, offsets and fallbacks", () => {
     expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("05-08-2026 13:00");
     setActiveFarmTimezone("Asia/Kolkata");
     expect(formatFarmDateTime("2026-08-06T01:30:00+05:30")).toBe("06-08-2026 01:30");
+  });
+
+  it("accepts the ISO compact numeric-offset spelling", () => {
+    setActiveFarmTimezone("America/Phoenix");
+    expect(formatFarmDateTime("2026-08-06T01:30:00+0530")).toBe(
+      "05-08-2026 13:00",
+    );
   });
 
   it("renders the em-dash placeholder for input that cannot be parsed", () => {

@@ -57,7 +57,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
+import { addDays, farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { withReturnTo } from "@/lib/permission-navigation";
 import {
@@ -584,21 +584,40 @@ function TaskTable({
   );
 }
 
-const dutySchema = z.object({
-  title: z.string().trim().min(1, "Title is required").max(200),
-  due_date: z.string().min(1, "Due date is required"),
-  category: z.enum(["FEED", "CLEANING", "OTHER"]),
-  recur_days: z
-    .string()
-    .refine(
-      (s) => s === "" || (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 3650),
-      "Must be a whole number of days (1–3650)",
-    )
-    .optional(),
-  assigned_role_id: z.string().optional(),
-  assigned_user_id: z.string().optional(),
-  animal_id: z.string().optional(),
-});
+const dutySchema = z
+  .object({
+    title: z.string().trim().min(1, "Title is required").max(200),
+    due_date: z
+      .string()
+      .min(1, "Due date is required")
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid due date"),
+    category: z.enum(["FEED", "CLEANING", "OTHER"]),
+    recur_days: z
+      .string()
+      .refine(
+        (s) => s === "" || (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 3650),
+        "Must be a whole number of days (1–3650)",
+      )
+      .optional(),
+    assigned_role_id: z.string().optional(),
+    assigned_user_id: z.string().optional(),
+    animal_id: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (!values.recur_days || !/^\d+$/.test(values.recur_days)) return;
+    const recurrenceDays = Number(values.recur_days);
+    if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > 3650) {
+      return;
+    }
+    const latestDueDate = addDays("9999-12-31", -recurrenceDays);
+    if (values.due_date > latestDueDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["due_date"],
+        message: "Recurring due date is too late to schedule its next occurrence",
+      });
+    }
+  });
 type DutyValues = z.infer<typeof dutySchema>;
 
 /** Rebuilt on every reset: a bare reset() restores react-hook-form's

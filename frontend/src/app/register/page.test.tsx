@@ -10,7 +10,7 @@
  * does not exist to test.
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -170,12 +170,50 @@ describe("RegisterPage", () => {
       expect(register.body).toMatchObject({ password: "123456789012" });
     });
 
+    it("rejects email and password values just above the API ceilings", async () => {
+      const register = trackRegisterRequests();
+      const user = userEvent.setup();
+      renderWithProviders(<RegisterPage />);
+
+      fireEvent.change(screen.getByLabelText(/email/i), {
+        target: { value: `${"a".repeat(243)}@example.com` },
+      });
+      fireEvent.change(screen.getByLabelText(/password/i), {
+        target: { value: "p".repeat(129) },
+      });
+      await user.click(screen.getByRole("button", { name: /create account/i }));
+
+      expect(await screen.findByText("Email must be at most 254 characters")).toBeInTheDocument();
+      expect(screen.getByText("Password must be at most 128 characters")).toBeInTheDocument();
+      expect(register.count).toBe(0);
+    });
+
+    it("accepts email and password values at both exact API ceilings", async () => {
+      const register = registerSuccess();
+      const user = userEvent.setup();
+      renderWithProviders(<RegisterPage />);
+      const boundaryEmail = `${"a".repeat(242)}@example.com`;
+      const boundaryPassword = "p".repeat(128);
+
+      await fillValid(user, { email: boundaryEmail, password: boundaryPassword });
+      await user.click(screen.getByRole("button", { name: /create account/i }));
+
+      await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
+      expect(register.body).toMatchObject({
+        email: boundaryEmail,
+        password: boundaryPassword,
+      });
+    });
+
     it("rejects a name longer than 120 characters", async () => {
       const register = trackRegisterRequests();
       const user = userEvent.setup();
       renderWithProviders(<RegisterPage />);
 
-      await fillValid(user, { name: "x".repeat(121) });
+      fireEvent.change(screen.getByLabelText(/name/i), {
+        target: { value: "x".repeat(121) },
+      });
+      await fillValid(user);
       await user.click(screen.getByRole("button", { name: /create account/i }));
 
       // zod max(120) violation — message mentions the 120-character cap.
@@ -198,7 +236,7 @@ describe("RegisterPage", () => {
       const user = userEvent.setup();
       renderWithProviders(<RegisterPage />);
 
-      await fillValid(user, { name: "New Farmer" });
+      await fillValid(user, { name: "New Farmer", email: "  new@goatfarm.in  " });
       await user.click(screen.getByRole("button", { name: /create account/i }));
 
       await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));

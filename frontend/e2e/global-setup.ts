@@ -1,4 +1,3 @@
-import path from "node:path";
 import { writeFile } from "node:fs/promises";
 
 import { request } from "@playwright/test";
@@ -15,7 +14,7 @@ import { request } from "@playwright/test";
 
 const API_BASE = process.env.E2E_API_URL ?? "http://localhost:8000";
 
-export const STATE_FILE = path.join(__dirname, ".e2e-state.json");
+export const STATE_FILE = new URL(".e2e-state.json", import.meta.url);
 
 export interface E2EState {
   email: string;

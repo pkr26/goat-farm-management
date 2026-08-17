@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated test and mutation reports/sandboxes.
+    "coverage/**",
+    "reports/**",
+    ".stryker-tmp*/**",
+    "playwright-report/**",
+    "test-results/**",
   ]),
 ]);
 
