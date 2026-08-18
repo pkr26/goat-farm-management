@@ -974,6 +974,57 @@ describe("HealthPage", () => {
     ]);
   });
 
+  it("does not leak a deferred bulk preview into a newly opened dialog session", async () => {
+    let releasePreview!: () => void;
+    let markPreviewStarted!: () => void;
+    const previewGate = new Promise<void>((resolve) => {
+      releasePreview = resolve;
+    });
+    const previewStarted = new Promise<void>((resolve) => {
+      markPreviewStarted = resolve;
+    });
+    server.use(
+      http.post("/api/health/events/preview", async ({ request }) => {
+        const target = (await request.json()) as Record<string, unknown>;
+        markPreviewStarted();
+        await previewGate;
+        return HttpResponse.json({
+          scope: target.scope,
+          bucket: target.bucket ?? null,
+          purchase_batch_id: target.purchase_batch_id ?? null,
+          task_id: target.task_id ?? null,
+          target_animal_ids: [3, 4],
+          target_animals: [
+            { id: 3, tag_number: "G-003", name: "Kaveri" },
+            { id: 4, tag_number: "G-004", name: null },
+          ],
+          target_count: 2,
+          max_targets: 250,
+        });
+      }),
+    );
+
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], "BREEDING");
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    await previewStarted;
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    const reopened = await screen.findByRole("dialog");
+    await user.click(within(reopened).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(user, within(reopened).getAllByRole("combobox")[0], "BREEDING");
+
+    releasePreview();
+    await waitFor(() =>
+      expect(
+        within(reopened).getByRole("button", { name: "Review target animals" }),
+      ).toBeEnabled(),
+    );
+    expect(within(reopened).queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("requires a fresh review after the server rejects a stale bulk snapshot", async () => {
     let recordAttempts = 0;
     server.use(
@@ -1018,6 +1069,34 @@ describe("HealthPage", () => {
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({ type: "DEWORMING", route: "IM" });
+  });
+
+  it("submits at most one event across same-render duplicate form events", async () => {
+    let calls = 0;
+    let releaseRecord!: () => void;
+    const recordGate = new Promise<void>((resolve) => {
+      releaseRecord = resolve;
+    });
+    server.use(
+      http.post("/api/health/events", async ({ request }) => {
+        calls += 1;
+        postBody = (await request.json()) as Record<string, unknown>;
+        await recordGate;
+        return HttpResponse.json([makeEvent({ id: 100 })], { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    const form = within(dialog).getByRole("button", { name: "Save event" }).closest("form")!;
+
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(calls).toBeGreaterThan(0));
+    expect(within(dialog).getByLabelText(/disease target/i)).toBeDisabled();
+    releaseRecord();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls).toBe(1);
   });
 
   it("keeps the dialog open when the server rejects the event", async () => {
@@ -1395,6 +1474,32 @@ describe("HealthPage", () => {
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
     await waitFor(() =>
       expect(within(dialog).getAllByRole("combobox")[0]).toHaveTextContent("G-003 · Kaveri"),
+    );
+  });
+
+  it("hydrates a new deep link when Next reuses the health page", async () => {
+    window.history.replaceState({}, "", "/health?animal_id=3");
+    const view = renderWithProviders(<HealthPage />);
+    const firstDialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(within(firstDialog).getAllByRole("combobox")[0]).toHaveTextContent(
+        "G-003 · Kaveri",
+      ),
+    );
+
+    await userEvent
+      .setup()
+      .click(within(firstDialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    window.history.replaceState({}, "", "/health");
+    view.rerender(<HealthPage />);
+    window.history.replaceState({}, "", "/health?animal_id=4");
+    view.rerender(<HealthPage />);
+
+    const nextDialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(within(nextDialog).getAllByRole("combobox")[0]).toHaveTextContent("G-004"),
     );
   });
 

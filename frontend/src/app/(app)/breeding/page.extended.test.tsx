@@ -1025,5 +1025,29 @@ describe("BreedingPage", () => {
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("Ultrasound result")).toBeInTheDocument();
     });
+
+    it("opens a different deep-linked record after the first link was dismissed", async () => {
+      const secondPending = makeRecord({
+        id: 6,
+        doe_tag: "G-006",
+        breeding_date: "2026-07-02",
+        ultrasound_date: "2026-08-03",
+      });
+      listPayload.records = [PENDING_REC, secondPending];
+      listPayload.total = 2;
+      navState.search = "?ultrasound_id=1";
+      const view = renderWithProviders(<BreedingPage />);
+      const firstDialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
+      await userEvent
+        .setup()
+        .click(within(firstDialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      navState.search = "?ultrasound_id=6";
+      view.rerender(<BreedingPage />);
+
+      const nextDialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
+      expect(within(nextDialog).getByText(/Doe G-006 · bred 2 Jul 2026/)).toBeInTheDocument();
+    });
   });
 });

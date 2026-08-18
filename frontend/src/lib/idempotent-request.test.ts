@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, apiFetch, setAccessToken, setCurrentFarmId } from "./api-client";
 import {
   clearIdempotencyRequestState,
+  clearPersistedIdempotencyRequestState,
   IDEMPOTENCY_SESSION_STORAGE_KEY,
   isIdempotencyProtectedMutation,
 } from "./idempotent-request";
@@ -836,6 +837,44 @@ describe("protected mutation idempotency transport", () => {
   });
 
   describe("same-tab reload persistence", () => {
+    it("does not recreate an old session's retry key when logout wins the digest race", async () => {
+      setAccessToken(ACTOR_ONE_TOKEN);
+      const cryptography = globalThis.crypto;
+      const realDigest = cryptography.subtle.digest.bind(cryptography.subtle);
+      let releaseDigest!: () => void;
+      const digestGate = new Promise<void>((resolve) => {
+        releaseDigest = resolve;
+      });
+      const digest = vi.fn(async (...args: Parameters<SubtleCrypto["digest"]>) => {
+        await digestGate;
+        return realDigest(...args);
+      });
+      vi.stubGlobal("crypto", {
+        randomUUID: cryptography.randomUUID.bind(cryptography),
+        getRandomValues: cryptography.getRandomValues.bind(cryptography),
+        subtle: { digest },
+      });
+
+      const request = apiFetch("/api/finance/new", {
+        method: "POST",
+        body: JSON.stringify({ amount: 500 }),
+      });
+      await vi.waitFor(() => expect(digest).toHaveBeenCalledTimes(1));
+
+      // Logout clears both the realm registry and its durable recovery keys
+      // while SHA-256 is still in flight. The old continuation must observe
+      // the session boundary before it can put either one back.
+      clearPersistedIdempotencyRequestState();
+      setAccessToken(null);
+      releaseDigest();
+
+      await expect(request).rejects.toMatchObject({
+        name: "AuthSessionChangedError",
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(window.sessionStorage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY)).toBeNull();
+    });
+
     it("recovers farm creation by actor without a farm scope and isolates actors", async () => {
       setAccessToken(ACTOR_ONE_TOKEN);
       setCurrentFarmId(null);

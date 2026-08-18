@@ -115,13 +115,13 @@ export function AnimalPicker({
     },
   );
   const selectedAnimal =
-    selectedAnimalQuery.data?.status === 200
+    chosenOption?.value === value
+      ? chosenOption
+      : selectedAnimalQuery.data?.status === 200
       ? animalOption(selectedAnimalQuery.data.data.animal, labelVariant)
       : selectedOption?.value === value
         ? selectedOption
-        : chosenOption?.value === value
-          ? chosenOption
-          : null;
+        : null;
 
   async function loadPage({
     query,

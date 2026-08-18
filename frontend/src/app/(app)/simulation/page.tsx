@@ -42,6 +42,7 @@ import { toast } from "sonner";
 import {
   getCompareScenariosApiSimulationScenariosCompareGetQueryKey,
   getCompareScenariosApiSimulationScenariosCompareGetQueryOptions,
+  getGetScenarioApiSimulationScenariosScenarioIdGetQueryOptions,
   getListScenariosApiSimulationScenariosGetQueryKey,
   useBreedDefaultsApiSimulationDefaultsGet,
   useCompareScenariosApiSimulationScenariosCompareGet,
@@ -937,10 +938,10 @@ export default function SimulationPage() {
   // Defaults requests run independently from the scenario list/editor. Only
   // apply a response while defaults are still the user's latest load intent.
   const acceptDefaultsRef = useRef(true);
-  /** Bumped by every loader that REPLACES the whole assumption set (defaults,
-   *  scenario load, calibration, herd snapshot). An awaited loader compares it
-   *  on resolve so it can never write its payload into an editor that a
-   *  different loader has since replaced. Deliberately NOT bumped by field
+  /** Bumped when every loader that REPLACES the whole assumption set is
+   *  requested (defaults, scenario load, calibration, herd snapshot). An
+   *  awaited loader compares it on resolve so an older completion can never
+   *  write into an editor for a newer user intent. Deliberately NOT bumped by field
    *  edits: NumberInput commits on each valid keystroke, so doing that would
    *  discard a herd import the moment the operator nudged a number. */
   const editorEpochRef = useRef(0);
@@ -954,6 +955,10 @@ export default function SimulationPage() {
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
   const [calibration, setCalibration] = useState<FarmCalibrationOut | null>(null);
   const [calibrationLookback, setCalibrationLookback] = useState(24);
+  // Updated synchronously by every live calibration-parameter control. A
+  // response for parameters the operator changed while it was loading must
+  // not replace the editor under the newly displayed selection.
+  const calibrationParamsGeneration = useRef(0);
 
   const [monteCarlo, setMonteCarlo] = useState(false);
   const [sensitivity, setSensitivity] = useState(false);
@@ -961,10 +966,10 @@ export default function SimulationPage() {
   const [result, setResult] = useState<BoundResult | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningScenarioId, setRunningScenarioId] = useState<number | null>(null);
-  // Ad-hoc runs, saved-scenario runs and comparisons all execute the same
-  // expensive simulation engine. Keep one client-side flight across all three
-  // so a second legitimate click cannot race into the backend's 429 guard.
-  const simulationExecution = useSingleFlight();
+  // Runs, comparisons, and scenario writes can read or mutate the same saved
+  // revision. One synchronous flight prevents run/delete, compare/delete,
+  // update/run, and same-render duplicate actions from crossing each other.
+  const simulationAction = useSingleFlight();
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [compareIds, setCompareIds] = useState<string | null>(null);
@@ -987,7 +992,6 @@ export default function SimulationPage() {
   useEffect(() => {
     if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
       acceptDefaultsRef.current = false;
-      editorEpochRef.current += 1;
       // react-query v5 has no onSuccess: mirror the explicitly requested
       // defaults payload into editable state.
       setAssumptions(defaultsQuery.data.data);
@@ -1056,7 +1060,7 @@ export default function SimulationPage() {
 
   const compareQuery = useCompareScenariosApiSimulationScenariosCompareGet(
     { ids: compareIds ?? "" },
-    // onCompare fetches this query inside simulationExecution. Auto-fetching
+    // onCompare fetches this query inside simulationAction. Auto-fetching
     // from the state change would escape that shared flight.
     { query: { enabled: false } },
   );
@@ -1088,8 +1092,26 @@ export default function SimulationPage() {
     setCompareIds(null);
   }
 
+  function loadScenarioIntoEditor(scenario: ScenarioRow) {
+    if (!scenarioUsable(scenario)) return;
+    acceptDefaultsRef.current = false;
+    editorEpochRef.current += 1;
+    setAssumptions(scenario.assumptions);
+    const scenarioEvents = scenario.assumptions.events ?? [];
+    setEvents(scenarioEvents);
+    setEventKeys(
+      scenarioEvents.map(() => `event-${eventKeyCounter.current++}`),
+    );
+    setLoadedScenario(scenario);
+    setCalibration(null);
+    setInvalidFields(new Set());
+    setEditorVersion((version) => version + 1);
+  }
+
   function setFieldValidity(key: string, valid: boolean) {
     setInvalidFields((previous) => {
+      const alreadyValid = !previous.has(key);
+      if (alreadyValid === valid) return previous;
       const next = new Set(previous);
       if (valid) next.delete(key);
       else next.add(key);
@@ -1369,27 +1391,29 @@ export default function SimulationPage() {
   }
 
   async function onCalibrateFromFarm() {
-    // A calibration that never lands must hand the latch back exactly as it
-    // found it: clearing it unconditionally makes a failed calibration swallow
-    // an in-flight defaults response, stranding the editor on "Loading
-    // defaults…" with Run, Save and Add-event disabled and no way back.
-    const wasAcceptingDefaults = acceptDefaultsRef.current;
-    acceptDefaultsRef.current = false;
+    // Claim an ordered editor intent, but do not clear a pending defaults
+    // latch. If calibration fails, that older request is still a valid
+    // fallback; if a NEW defaults click happens, it increments this epoch and
+    // makes the calibration continuation stale.
+    const epoch = ++editorEpochRef.current;
+    const paramsGeneration = calibrationParamsGeneration.current;
     try {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
-        // Only restore a `false`. A `true` here can only have been written by
-        // a "Load defaults" clicked DURING this calibration, and blindly
-        // writing back the pre-click value would swallow that click's
-        // response at the defaults effect above.
-        if (acceptDefaultsRef.current === false) {
-          acceptDefaultsRef.current = wasAcceptingDefaults;
-        }
         toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
         return;
       }
+      if (
+        editorEpochRef.current !== epoch ||
+        calibrationParamsGeneration.current !== paramsGeneration
+      ) {
+        toast.error(
+          "The editor or calibration settings changed while calibration was running. Calibrate again to apply fresh farm evidence.",
+        );
+        return;
+      }
+      acceptDefaultsRef.current = false;
       const calibrated = res.data.data;
-      editorEpochRef.current += 1;
       setAssumptions(calibrated.assumptions);
       const nextEvents = calibrated.assumptions.events ?? [];
       setEvents(nextEvents);
@@ -1403,15 +1427,12 @@ export default function SimulationPage() {
         `Calibrated ${calibrated.evidence.length} assumptions from farm records.`,
       );
     } catch (err) {
-      if (acceptDefaultsRef.current === false) {
-        acceptDefaultsRef.current = wasAcceptingDefaults;
-      }
       toast.error(errorMessage(err, "Could not calibrate from farm records."));
     }
   }
 
   async function onRun() {
-    await simulationExecution.run(async () => {
+    await simulationAction.run(async () => {
       const payload = assumptionsWithEvents();
       if (!payload || hasEditorErrors) return;
       setRunError(null);
@@ -1442,7 +1463,7 @@ export default function SimulationPage() {
 
   async function onRunScenario(scenario: ScenarioRow) {
     if (!scenarioUsable(scenario)) return;
-    await simulationExecution.run(async () => {
+    await simulationAction.run(async () => {
       setRunError(null);
       setRunningScenarioId(scenario.id);
       try {
@@ -1469,25 +1490,36 @@ export default function SimulationPage() {
   }
 
   async function onDeleteScenario(scenario: ScenarioRow) {
-    if (!window.confirm(`Delete scenario "${scenario.name}"?`)) return;
-    try {
-      await deleteMutation.mutateAsync({ scenarioId: scenario.id });
-      toast.success("Scenario deleted.");
-      if (loadedScenario?.id === scenario.id) setLoadedScenario(null);
-      setSelectedIds((prev) => prev.filter((id) => id !== scenario.id));
-      const remainingTotal = Math.max(0, scenarioTotal - 1);
-      if (scenarioOffset > 0 && scenarioOffset >= remainingTotal) {
-        setScenarioOffset(
-          remainingTotal === 0
-            ? 0
-            : Math.floor((remainingTotal - 1) / SCENARIO_PAGE_SIZE) *
-                SCENARIO_PAGE_SIZE,
+    await simulationAction.run(async () => {
+      if (!window.confirm(`Delete scenario "${scenario.name}"?`)) return;
+      try {
+        await deleteMutation.mutateAsync({ scenarioId: scenario.id });
+        toast.success("Scenario deleted.");
+        // Read current state at completion: the operator may have loaded this
+        // row while the DELETE was in flight. Never leave the editor/result
+        // bound to a scenario that no longer exists, while preserving a
+        // different scenario loaded in the meantime.
+        setLoadedScenario((current) =>
+          current?.id === scenario.id ? null : current,
         );
+        setResult((current) =>
+          current?.scenarioId === scenario.id ? null : current,
+        );
+        setSelectedIds((prev) => prev.filter((id) => id !== scenario.id));
+        const remainingTotal = Math.max(0, scenarioTotal - 1);
+        if (scenarioOffset > 0 && scenarioOffset >= remainingTotal) {
+          setScenarioOffset(
+            remainingTotal === 0
+              ? 0
+              : Math.floor((remainingTotal - 1) / SCENARIO_PAGE_SIZE) *
+                  SCENARIO_PAGE_SIZE,
+          );
+        }
+        invalidateScenarios();
+      } catch (err) {
+        toast.error(errorMessage(err, "Could not delete the scenario."));
       }
-      invalidateScenarios();
-    } catch (err) {
-      toast.error(errorMessage(err, "Could not delete the scenario."));
-    }
+    });
   }
 
   async function onCompare() {
@@ -1497,7 +1529,7 @@ export default function SimulationPage() {
     )
       return;
     const ids = selectedUsableIds.join(",");
-    await simulationExecution.run(async () => {
+    await simulationAction.run(async () => {
       setCompareIds(ids);
       try {
         await queryClient.fetchQuery(
@@ -1519,50 +1551,87 @@ export default function SimulationPage() {
     const payload = assumptionsWithEvents();
     if (!payload || !saveName.trim()) return;
     if (hasEditorErrors) return;
-    setSaveError(null);
-    try {
-      const created = await createMutation.mutateAsync({
-        data: {
-          name: saveName.trim(),
-          notes: saveNotes.trim(),
-          assumptions: payload,
-        },
-      });
-      toast.success("Scenario saved.");
-      if (created.status === 201) {
-        // The API intentionally preserves oldest-first ordering, so the new
-        // row belongs on the final page rather than page zero.
-        const nextTotal = scenarioTotal + 1;
-        setScenarioOffset(
-          Math.floor((nextTotal - 1) / SCENARIO_PAGE_SIZE) * SCENARIO_PAGE_SIZE,
-        );
+    await simulationAction.run(async () => {
+      setSaveError(null);
+      try {
+        const created = await createMutation.mutateAsync({
+          data: {
+            name: saveName.trim(),
+            notes: saveNotes.trim(),
+            assumptions: payload,
+          },
+        });
+        toast.success("Scenario saved.");
+        if (created.status === 201) {
+          // The API intentionally preserves oldest-first ordering, so the new
+          // row belongs on the final page rather than page zero.
+          const nextTotal = scenarioTotal + 1;
+          setScenarioOffset(
+            Math.floor((nextTotal - 1) / SCENARIO_PAGE_SIZE) * SCENARIO_PAGE_SIZE,
+          );
+        }
+        invalidateScenarios();
+        setSaveOpen(false);
+        setSaveName("");
+        setSaveNotes("");
+      } catch (err) {
+        const message = errorMessage(err, "Could not save the scenario.");
+        setSaveError(message);
+        toast.error(message);
       }
-      invalidateScenarios();
-      setSaveOpen(false);
-      setSaveName("");
-      setSaveNotes("");
-    } catch (err) {
-      const message = errorMessage(err, "Could not save the scenario.");
-      setSaveError(message);
-      toast.error(message);
-    }
+    });
   }
 
   async function onUpdateScenario() {
     const payload = assumptionsWithEvents();
     if (!payload || !loadedScenario) return;
     if (hasEditorErrors || !scenarioUsable(loadedScenario)) return;
-    try {
-      const updated = await updateMutation.mutateAsync({
-        scenarioId: loadedScenario.id,
-        data: { assumptions: payload, expected_revision: loadedScenario.revision },
-      });
-      if (updated.status === 200) setLoadedScenario(updated.data);
-      toast.success("Scenario updated.");
-      invalidateScenarios();
-    } catch (err) {
-      toast.error(errorMessage(err, "Could not update the scenario."));
-    }
+    const epoch = editorEpochRef.current;
+    await simulationAction.run(async () => {
+      try {
+        const updated = await updateMutation.mutateAsync({
+          scenarioId: loadedScenario.id,
+          data: { assumptions: payload, expected_revision: loadedScenario.revision },
+        });
+        // Loading defaults, calibration, a herd snapshot, or another saved
+        // scenario while this PATCH is in flight makes its binding stale. The
+        // write still succeeded; only its late UI continuation is discarded.
+        if (updated.status === 200 && editorEpochRef.current === epoch) {
+          setLoadedScenario(updated.data);
+        }
+        toast.success("Scenario updated.");
+        invalidateScenarios();
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          invalidateScenarios();
+          try {
+            const fresh = await queryClient.fetchQuery(
+              getGetScenarioApiSimulationScenariosScenarioIdGetQueryOptions(
+                loadedScenario.id,
+                { query: { staleTime: 0 } },
+              ),
+            );
+            if (
+              fresh.status === 200 &&
+              editorEpochRef.current === epoch &&
+              scenarioUsable(fresh.data)
+            ) {
+              // Replace the stale editor wholesale. Merely advancing the
+              // revision while preserving old assumptions would turn the
+              // retry into a lost update against the other operator.
+              loadScenarioIntoEditor(fresh.data);
+              toast.error(
+                "This scenario changed elsewhere. The editor was refreshed to the latest revision; review it before saving again.",
+              );
+              return;
+            }
+          } catch {
+            // Keep the original conflict detail below when refresh fails.
+          }
+        }
+        toast.error(errorMessage(err, "Could not update the scenario."));
+      }
+    });
   }
 
   /** One editor row; the input type follows the value type. */
@@ -2406,7 +2475,7 @@ export default function SimulationPage() {
               disabled={
                 selectedUsableIds.length < 2 ||
                 selectedUsableIds.length > MAX_COMPARE_SCENARIOS ||
-                simulationExecution.pending
+                simulationAction.pending
               }
             >
               <GitCompareArrows />
@@ -2420,7 +2489,7 @@ export default function SimulationPage() {
                     setSaveError(null);
                     setSaveOpen(true);
                   }}
-                  disabled={!assumptions || hasEditorErrors}
+                  disabled={!assumptions || hasEditorErrors || simulationAction.pending}
                 >
                   <Save />
                   Save as scenario
@@ -2433,7 +2502,7 @@ export default function SimulationPage() {
                       !assumptions ||
                       hasEditorErrors ||
                       !scenarioUsable(loadedScenario) ||
-                      updateMutation.isPending
+                      simulationAction.pending
                     }
                   >
                     {updateMutation.isPending
@@ -2445,7 +2514,7 @@ export default function SimulationPage() {
             )}
             <Button
               onClick={() => void onRun()}
-              disabled={!assumptions || hasEditorErrors || simulationExecution.pending}
+              disabled={!assumptions || hasEditorErrors || simulationAction.pending}
             >
               <Play />
               {runMutation.isPending ? "Running…" : "Run simulation"}
@@ -2465,7 +2534,13 @@ export default function SimulationPage() {
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="sim-breed">Breed</Label>
-              <Select value={breed} onValueChange={setBreed}>
+              <Select
+                value={breed}
+                onValueChange={(value) => {
+                  calibrationParamsGeneration.current += 1;
+                  setBreed(value);
+                }}
+              >
                 <SelectTrigger id="sim-breed">
                   <SelectValue />
                 </SelectTrigger>
@@ -2482,9 +2557,10 @@ export default function SimulationPage() {
               <Label htmlFor="sim-system">System</Label>
               <Select
                 value={system}
-                onValueChange={(v) =>
-                  setSystem(v as BreedDefaultsApiSimulationDefaultsGetSystem)
-                }
+                onValueChange={(v) => {
+                  calibrationParamsGeneration.current += 1;
+                  setSystem(v as BreedDefaultsApiSimulationDefaultsGetSystem);
+                }}
                 items={Object.fromEntries(
                   (breeds?.systems ?? [system]).map((s) => [s, humanize(s)]),
                 )}
@@ -2504,6 +2580,10 @@ export default function SimulationPage() {
             <Button
               variant="outline"
               onClick={() => {
+                // Claim the editor intent before starting/refetching. Any
+                // older calibration or snapshot completion now observes a
+                // different epoch and cannot overwrite these defaults.
+                editorEpochRef.current += 1;
                 acceptDefaultsRef.current = true;
                 if (breed === submittedParams.breed && system === submittedParams.system) {
                   void defaultsQuery.refetch();
@@ -2530,7 +2610,10 @@ export default function SimulationPage() {
                   <Label htmlFor="sim-calibration-lookback">Calibration history</Label>
                   <Select
                     value={String(calibrationLookback)}
-                    onValueChange={(value) => setCalibrationLookback(Number(value))}
+                    onValueChange={(value) => {
+                      calibrationParamsGeneration.current += 1;
+                      setCalibrationLookback(Number(value));
+                    }}
                     items={{
                       "12": "12 months",
                       "24": "24 months",
@@ -2645,6 +2728,7 @@ export default function SimulationPage() {
         </DataTableCard>
       )}
 
+      <fieldset disabled={defaultsQuery.isFetching} className="contents">
       <Card>
         <CardHeader>
           <CardTitle>Assumptions</CardTitle>
@@ -2863,6 +2947,7 @@ export default function SimulationPage() {
           </p>
         ))}
       </DataTableCard>
+      </fieldset>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl bg-card px-4 py-3 ring-1 ring-foreground/10">
@@ -2984,14 +3069,19 @@ export default function SimulationPage() {
                         onCheckedChange={(checked) => {
                           if (!scenarioUsable(scenario)) return;
                           setCompareIds(null);
-                          setSelectedIds((prev) =>
-                            checked === true
-                              ? prev.includes(scenario.id) ||
-                                selectedUsableIds.length >= MAX_COMPARE_SCENARIOS
-                                ? prev
-                                : [...prev, scenario.id]
-                              : prev.filter((id) => id !== scenario.id),
-                          );
+                          setSelectedIds((prev) => {
+                            if (checked !== true) {
+                              return prev.filter((id) => id !== scenario.id);
+                            }
+                            const usableCount = prev.filter((id) => {
+                              const row = scenarios.find((candidate) => candidate.id === id);
+                              return row === undefined || scenarioUsable(row);
+                            }).length;
+                            return prev.includes(scenario.id) ||
+                              usableCount >= MAX_COMPARE_SCENARIOS
+                              ? prev
+                              : [...prev, scenario.id];
+                          });
                         }}
                       />
                     </TableCell>
@@ -3018,21 +3108,7 @@ export default function SimulationPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            if (!scenarioUsable(scenario)) return;
-                            acceptDefaultsRef.current = false;
-                            editorEpochRef.current += 1;
-                            setAssumptions(scenario.assumptions);
-                            const scenarioEvents = scenario.assumptions.events ?? [];
-                            setEvents(scenarioEvents);
-                            setEventKeys(
-                              scenarioEvents.map(
-                                () => `event-${eventKeyCounter.current++}`,
-                              ),
-                            );
-                            setLoadedScenario(scenario);
-                            setCalibration(null);
-                            setInvalidFields(new Set());
-                            setEditorVersion((version) => version + 1);
+                            loadScenarioIntoEditor(scenario);
                           }}
                           disabled={!scenarioUsable(scenario)}
                         >
@@ -3043,7 +3119,7 @@ export default function SimulationPage() {
                           size="sm"
                           onClick={() => void onRunScenario(scenario)}
                           disabled={
-                            !scenarioUsable(scenario) || simulationExecution.pending
+                            !scenarioUsable(scenario) || simulationAction.pending
                           }
                         >
                           {runningScenarioId === scenario.id ? "Running…" : "Run"}
@@ -3052,7 +3128,7 @@ export default function SimulationPage() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            disabled={deleteMutation.isPending}
+                            disabled={simulationAction.pending}
                             onClick={() => void onDeleteScenario(scenario)}
                           >
                             Delete
@@ -3107,7 +3183,16 @@ export default function SimulationPage() {
         )}
       </DataTableCard>
 
-      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+      <Dialog
+        open={saveOpen}
+        onOpenChange={(nextOpen) => {
+          // A late create continuation closes and resets this controlled
+          // form. Keep the current session mounted until that write settles.
+          if (!nextOpen && simulationAction.pending) return;
+          if (!nextOpen) setSaveError(null);
+          setSaveOpen(nextOpen);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Save as scenario</DialogTitle>
@@ -3123,6 +3208,7 @@ export default function SimulationPage() {
               <Input
                 id="scenario-name"
                 maxLength={120}
+                disabled={simulationAction.pending}
                 value={saveName}
                 onChange={(e) => setSaveName(e.target.value)}
               />
@@ -3132,6 +3218,7 @@ export default function SimulationPage() {
               <Input
                 id="scenario-notes"
                 maxLength={2000}
+                disabled={simulationAction.pending}
                 value={saveNotes}
                 onChange={(e) => setSaveNotes(e.target.value)}
               />
@@ -3140,10 +3227,10 @@ export default function SimulationPage() {
               <Button
                 onClick={() => void onSaveScenario()}
                 disabled={
-                  !saveName.trim() || hasEditorErrors || createMutation.isPending
+                  !saveName.trim() || hasEditorErrors || simulationAction.pending
                 }
               >
-                {createMutation.isPending ? "Saving…" : "Save scenario"}
+                {simulationAction.pending ? "Saving…" : "Save scenario"}
               </Button>
             </DialogFooter>
           </div>

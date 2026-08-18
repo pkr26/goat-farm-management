@@ -302,6 +302,27 @@ describe("AnimalPicker branches", () => {
     );
   });
 
+  it("keeps a fresh choice ahead of an older exact-profile cache entry", () => {
+    picker.animalProfile.mockReturnValue({
+      data: {
+        status: 200,
+        data: { animal: animal({ name: "Cached old name" }) },
+      },
+    });
+    render(<AnimalPicker id="animal" value="1" onValueChange={() => undefined} />);
+
+    act(() => captured().onOptionChange?.({ value: "1", label: "G-0001 · Fresh choice" }));
+
+    expect(screen.getByTestId("selected-option")).toHaveTextContent(
+      "G-0001 · Fresh choice",
+    );
+    expect(picker.animalProfile).toHaveBeenLastCalledWith(
+      1,
+      undefined,
+      { query: { enabled: false, retry: false } },
+    );
+  });
+
   it("uses matching supplied metadata when the exact animal lookup has no result", () => {
     const selected = { value: "4", label: "G-0004 · Supplied" };
     picker.animalProfile.mockReturnValue({ data: undefined });
@@ -593,6 +614,14 @@ describe("health target picker branches", () => {
     expect(screen.getByTestId("selected-option")).toHaveTextContent("none");
 
     act(() => captured().onOptionChange?.({ value: "7", label: "Chosen health animal" }));
+    picker.healthAnimalOptions.mockReturnValue({
+      data: {
+        status: 200,
+        data: {
+          animals: [{ id: 7, tag_number: "H-7", name: "Cached", current_bucket: "DOE" }],
+        },
+      },
+    });
     rerender(<HealthAnimalPicker id="health" value="7" onValueChange={() => undefined} />);
     expect(screen.getByTestId("selected-option")).toHaveTextContent("Chosen health animal");
     expect(picker.healthAnimalOptions).toHaveBeenLastCalledWith(
@@ -683,6 +712,12 @@ describe("health target picker branches", () => {
     );
 
     act(() => captured().onOptionChange?.({ value: "14", label: "Chosen batch #14" }));
+    picker.healthBatchOptions.mockReturnValue({
+      data: {
+        status: 200,
+        data: { batches: [{ id: 14, active_quarantine_animal_count: 99 }] },
+      },
+    });
     rerender(<HealthPurchaseBatchPicker id="batch" value="14" onValueChange={() => undefined} />);
     expect(screen.getByTestId("selected-option")).toHaveTextContent("Chosen batch #14");
     expect(picker.healthBatchOptions).toHaveBeenLastCalledWith(

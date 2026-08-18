@@ -1,8 +1,16 @@
 import { renderToString } from "react-dom/server";
-import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SidebarMenuSkeleton } from "@/components/ui/sidebar";
+import {
+  SidebarMenuSkeleton,
+  SidebarProvider,
+  useSidebar,
+} from "@/components/ui/sidebar";
+
+const viewport = vi.hoisted(() => ({ isMobile: false }));
+
+vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => viewport.isMobile }));
 
 describe("SidebarMenuSkeleton", () => {
   it("renders deterministic markup for server rendering and hydration", () => {
@@ -43,5 +51,81 @@ describe("SidebarMenuSkeleton", () => {
       "size-4",
       "rounded-md",
     );
+  });
+});
+
+describe("SidebarProvider", () => {
+  beforeEach(() => {
+    viewport.isMobile = false;
+  });
+
+  it("composes multiple toggles delivered before the next render", () => {
+    function Probe() {
+      const { open, toggleSidebar } = useSidebar();
+      return (
+        <>
+          <output aria-label="sidebar state">{open ? "expanded" : "collapsed"}</output>
+          <button
+            type="button"
+            onClick={() => {
+              toggleSidebar();
+              toggleSidebar();
+            }}
+          >
+            Toggle twice
+          </button>
+        </>
+      );
+    }
+
+    render(
+      <SidebarProvider defaultOpen>
+        <Probe />
+      </SidebarProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Toggle twice" }));
+
+    expect(screen.getByLabelText("sidebar state")).toHaveTextContent("expanded");
+  });
+
+  it("does not reopen a stale mobile drawer after a desktop round trip", async () => {
+    function Probe() {
+      const { openMobile, setOpenMobile } = useSidebar();
+      return (
+        <>
+          <output aria-label="mobile drawer state">{openMobile ? "open" : "closed"}</output>
+          <button type="button" onClick={() => setOpenMobile(true)}>
+            Open mobile drawer
+          </button>
+        </>
+      );
+    }
+
+    viewport.isMobile = true;
+    const view = render(
+      <SidebarProvider>
+        <Probe />
+      </SidebarProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open mobile drawer" }));
+    expect(screen.getByLabelText("mobile drawer state")).toHaveTextContent("open");
+
+    viewport.isMobile = false;
+    view.rerender(
+      <SidebarProvider>
+        <Probe />
+      </SidebarProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("mobile drawer state")).toHaveTextContent("closed"),
+    );
+
+    viewport.isMobile = true;
+    view.rerender(
+      <SidebarProvider>
+        <Probe />
+      </SidebarProvider>,
+    );
+    expect(screen.getByLabelText("mobile drawer state")).toHaveTextContent("closed");
   });
 });

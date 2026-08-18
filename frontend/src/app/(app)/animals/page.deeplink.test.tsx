@@ -14,6 +14,7 @@
 
 import { screen } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/test/msw-server";
@@ -21,16 +22,20 @@ import { renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
 
-const { navState } = vi.hoisted(() => ({ navState: { search: "" } }));
+const { navState, replaceMock } = vi.hoisted(() => {
+  const navState = { search: "" };
+  const replaceMock = vi.fn((url: string) => {
+    navState.search = new URL(url, "http://localhost").search;
+  });
+  return { navState, replaceMock };
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: vi.fn(),
     prefetch: vi.fn(),
     // Mirror the real router: the replacement is visible to later renders.
-    replace: (url: string) => {
-      navState.search = new URL(url, "http://localhost").search;
-    },
+    replace: replaceMock,
   }),
   usePathname: () => "/animals",
   useSearchParams: () => new URLSearchParams(navState.search),
@@ -39,6 +44,7 @@ vi.mock("next/navigation", () => ({
 
 beforeEach(() => {
   navState.search = "";
+  replaceMock.mockClear();
   server.use(http.get("/api/animals", () => HttpResponse.json({ animals: [], total: 0 })));
 });
 
@@ -50,6 +56,19 @@ describe("AnimalsPage ?new=1 deep link", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     // The flag is still cleaned out of the URL so a reload doesn't reopen it.
     expect(navState.search).toBe("");
+  });
+
+  it("dispatches one strip navigation when Strict Mode replays the effect", async () => {
+    navState.search = "?new=1";
+    renderWithProviders(
+      <StrictMode>
+        <AnimalsPage />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith("/animals");
   });
 
   it("does not open the dialog without the flag", async () => {

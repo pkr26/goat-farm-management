@@ -329,7 +329,13 @@ function RowActions({
             {actionError.message} Review the duty, then try again.
           </p>
         )}
-        <Dialog open={skipOpen} onOpenChange={setSkipOpen}>
+        <Dialog
+          open={skipOpen}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen && actionFlight.pending) return;
+            setSkipOpen(nextOpen);
+          }}
+        >
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Skip this task?</DialogTitle>
@@ -342,13 +348,19 @@ function RowActions({
               <Label htmlFor={`skip-reason-${task.id}`}>Reason (optional)</Label>
               <Input
                 id={`skip-reason-${task.id}`}
+                disabled={actionFlight.pending}
                 value={skipReason}
                 onChange={(event) => setSkipReason(event.target.value)}
                 maxLength={255}
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setSkipOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={actionFlight.pending}
+                onClick={() => setSkipOpen(false)}
+              >
                 Cancel
               </Button>
               <Button
@@ -386,6 +398,7 @@ function RowActions({
           {actionError?.action === "verify" ? "Retry verify" : "Verify"}
         </Button>
         <Input
+          disabled={actionFlight.pending}
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="reason (sent back)"
@@ -760,6 +773,7 @@ function TasksPageContent() {
     ),
   };
   const createMutation = useCreateTaskApiTasksPost();
+  const createFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -783,7 +797,7 @@ function TasksPageContent() {
   const assignmentChosen =
     (wAssignedRoleId || NONE) !== NONE || (wAssignedUserId || NONE) !== NONE;
 
-  async function onSubmit(values: DutyValues) {
+  async function createDuty(values: DutyValues) {
     setCreateError(null);
     try {
       await createMutation.mutateAsync({
@@ -813,6 +827,10 @@ function TasksPageContent() {
       setCreateError(message);
       toast.error(message);
     }
+  }
+
+  async function onSubmit(values: DutyValues) {
+    await createFlight.run(() => createDuty(values));
   }
 
   function changeTab(nextTab: TaskTab) {
@@ -985,6 +1003,10 @@ function TasksPageContent() {
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
+          // The continuation closes and resets this form. Letting Escape or
+          // the backdrop dismiss it mid-write allowed a fresh dialog session
+          // to open and then be wiped by that late completion.
+          if (!nextOpen && (isSubmitting || createFlight.pending)) return;
           setOpen(nextOpen);
           if (!nextOpen) setCreateError(null);
         }}
@@ -998,7 +1020,11 @@ function TasksPageContent() {
             &quot;repeats every&quot; for recurring duties like daily cleaning — completing one
             schedules the next.
           </p>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
+            <fieldset
+              disabled={isSubmitting || createFlight.pending}
+              className="space-y-4"
+            >
             <div className="space-y-1.5">
               <Label htmlFor="title">Title *</Label>
               <Input
@@ -1197,14 +1223,20 @@ function TasksPageContent() {
                 type="submit"
                 disabled={
                   isSubmitting ||
+                  createFlight.pending ||
                   (canSeeTeam &&
                     assignmentChosen &&
                     (teamQuery.isLoading || teamQuery.isError))
                 }
               >
-                {isSubmitting ? "Creating…" : createError ? "Retry create" : "Create duty"}
+                {isSubmitting || createFlight.pending
+                  ? "Creating…"
+                  : createError
+                    ? "Retry create"
+                    : "Create duty"}
               </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

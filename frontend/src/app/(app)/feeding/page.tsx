@@ -160,6 +160,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const mut = useSaveSettingApiFeedingSettingsPost();
+  const settingFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -171,30 +172,54 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   });
 
   useEffect(() => {
-    reset({ daily_kg_per_head: line.kg_per_head });
+    // A background plan refetch may carry another operator's new value. Keep
+    // the live draft authoritative while this dialog is open. The close
+    // handler below adopts the latest server value for the next open.
+    if (!open) reset({ daily_kg_per_head: line.kg_per_head });
+    // `open` is deliberately not a dependency: a successful save resets to
+    // the confirmed value and then closes while `line` still contains the old
+    // pre-invalidation payload. Re-running solely because open became false
+    // would immediately restore that stale value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line.kg_per_head, reset]);
 
   async function onSubmit(values: SettingValues) {
-    try {
-      await mut.mutateAsync({
-        data: {
-          bucket: line.bucket as FeedSettingInBucket,
-          daily_kg_per_head: values.daily_kg_per_head,
-        },
-      });
-      const stored = quantizePersistedKg(values.daily_kg_per_head);
-      toast.success(`Saved ${stored} kg/head for ${line.bucket}.`);
-      reset({ daily_kg_per_head: stored });
-      invalidateFarmData(queryClient);
-      setOpen(false);
-    } catch (err) {
-      toast.error(mutationError(err));
-    }
+    await settingFlight.run(async () => {
+      try {
+        await mut.mutateAsync({
+          data: {
+            bucket: line.bucket as FeedSettingInBucket,
+            daily_kg_per_head: values.daily_kg_per_head,
+          },
+        });
+        const stored = quantizePersistedKg(values.daily_kg_per_head);
+        toast.success(`Saved ${stored} kg/head for ${line.bucket}.`);
+        reset({ daily_kg_per_head: stored });
+        invalidateFarmData(queryClient);
+        setOpen(false);
+      } catch (err) {
+        toast.error(mutationError(err));
+      }
+    });
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="outline" className="ml-2" onClick={() => setOpen(true)}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !settingFlight.pending) {
+          reset({ daily_kg_per_head: line.kg_per_head });
+        }
+        setOpen(nextOpen);
+      }}
+    >
+      <Button
+        size="sm"
+        variant="outline"
+        className="ml-2"
+        disabled={settingFlight.pending}
+        onClick={() => setOpen(true)}
+      >
         Edit
       </Button>
       <DialogContent className="sm:max-w-sm">
@@ -202,6 +227,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
           <DialogTitle>Daily ration — {line.bucket}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <fieldset disabled={isSubmitting || settingFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor={`kg-${line.bucket}`}>kg per head per day *</Label>
             <Input
@@ -226,10 +252,11 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : "Save"}
+            <Button type="submit" disabled={isSubmitting || settingFlight.pending}>
+              {isSubmitting || settingFlight.pending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -741,6 +768,7 @@ export default function FeedingPage() {
             <DialogTitle>Record dispensing</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onDispense)} className="space-y-4" noValidate>
+            <fieldset disabled={isSubmitting || dispenseFlight.pending} className="contents">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="dispense-bucket">Bucket</Label>
@@ -859,6 +887,7 @@ export default function FeedingPage() {
                 {isSubmitting || dispenseFlight.pending ? "Recording…" : "Record"}
               </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

@@ -685,6 +685,64 @@ describe("TasksPage (extended)", () => {
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
+  it("does not dismiss the create dialog while its write is in flight", async () => {
+    let releaseCreate!: () => void;
+    let markCreateStarted!: () => void;
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const createStarted = new Promise<void>((resolve) => {
+      markCreateStarted = resolve;
+    });
+    server.use(
+      http.post("/api/tasks", async ({ request }) => {
+        createBody = (await request.json()) as Record<string, unknown>;
+        markCreateStarted();
+        await createGate;
+        return HttpResponse.json(makeTask({ id: 50 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/title/i), "Check fences");
+    await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
+    await createStarted;
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeDisabled();
+    expect(within(dialog).getByLabelText(/title/i)).toBeDisabled();
+
+    releaseCreate();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("creates at most one duty across same-render duplicate form events", async () => {
+    let calls = 0;
+    let releaseCreate!: () => void;
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    server.use(
+      http.post("/api/tasks", async ({ request }) => {
+        calls += 1;
+        createBody = (await request.json()) as Record<string, unknown>;
+        await createGate;
+        return HttpResponse.json(makeTask({ id: 50 }), { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/title/i), "Check fences");
+    const form = within(dialog).getByRole("button", { name: "Create duty" }).closest("form")!;
+
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(calls).toBeGreaterThan(0));
+    releaseCreate();
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls).toBe(1);
+  });
+
   it("links a manually created duty to an authorised animal", async () => {
     const { user, dialog } = await openDialog();
     await user.type(within(dialog).getByLabelText(/title/i), "Check Radha");

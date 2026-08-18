@@ -361,6 +361,47 @@ describe("InventoryPage add-stock dialog", () => {
     await waitFor(() => expect(addCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  it("does not reopen the same stock form while its dismissed write is pending", async () => {
+    let releaseAdd: (() => void) | undefined;
+    const parked = new Promise<void>((resolve) => {
+      releaseAdd = resolve;
+    });
+    server.use(
+      http.post("/api/feeding/inventory/:itemId/add", async ({ params }) => {
+        addCalls += 1;
+        await parked;
+        return HttpResponse.json(
+          { ...ITEM_MAIZE, id: Number(params.itemId), qty_on_hand: 55.5 },
+          { status: 200 },
+        );
+      }),
+    );
+    const { user, dialog } = await openAddStock();
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "10");
+    await user.click(within(dialog).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(addCalls).toBe(1));
+    expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const row = screen.getByText("Crushed maize").closest("tr") as HTMLElement;
+    const trigger = within(row).getByRole("button", { name: "Add stock" });
+    expect(trigger).toBeDisabled();
+    await user.click(trigger);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseAdd?.();
+    await waitFor(() =>
+      expect(
+        within(screen.getByText("Crushed maize").closest("tr") as HTMLElement).getByRole(
+          "button",
+          { name: "Add stock" },
+        ),
+      ).toBeEnabled(),
+    );
+    expect(addCalls).toBe(1);
+  });
 });
 
 describe("InventoryPage mix-batch dialog", () => {

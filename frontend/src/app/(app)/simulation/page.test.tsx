@@ -382,7 +382,9 @@ describe("SimulationPage", () => {
     await waitFor(() => expect(releaseRun).toBeTypeOf("function"));
     const scenarioRow = screen.getByText("Plan B").closest("tr") as HTMLElement;
     const scenarioRun = within(scenarioRow).getByRole("button", { name: "Run" });
+    const scenarioDelete = within(scenarioRow).getByRole("button", { name: "Delete" });
     expect(scenarioRun).toBeDisabled();
+    expect(scenarioDelete).toBeDisabled();
     await user.click(scenarioRun);
     expect(scenarioRuns).toBe(0);
 
@@ -728,6 +730,54 @@ describe("SimulationPage", () => {
     expect(await screen.findByText("Base plan")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("No saved scenarios yet.")).not.toBeInTheDocument();
+  });
+
+  it("does not dismiss the save dialog while its write is in flight", async () => {
+    let releaseSave!: () => void;
+    let markSaveStarted!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const saveStarted = new Promise<void>((resolve) => {
+      markSaveStarted = resolve;
+    });
+    server.use(
+      http.post("/api/simulation/scenarios", async ({ request }) => {
+        const body = (await request.json()) as { name: string; assumptions: unknown };
+        markSaveStarted();
+        await saveGate;
+        return HttpResponse.json(
+          {
+            id: 1,
+            farm_id: 1,
+            name: body.name,
+            notes: "",
+            assumptions: body.assumptions,
+            revision: 1,
+            valid: true,
+            validation_error: null,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+          { status: 201 },
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "Save as scenario" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^Name/), "Base plan");
+    await user.click(within(dialog).getByRole("button", { name: "Save scenario" }));
+    await saveStarted;
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(within(dialog).getByLabelText(/^Name/)).toBeDisabled();
+
+    releaseSave();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("moves to the final oldest-first page after saving a new scenario", async () => {

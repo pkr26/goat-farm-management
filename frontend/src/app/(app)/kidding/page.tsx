@@ -255,6 +255,7 @@ function RecordKiddingDialog({
               <Input
                 id="kidding_date"
                 type="date"
+                disabled={isSubmitting || createFlight.pending}
                 min={earliestKiddingDate}
                 max={localToday()}
                 aria-invalid={Boolean(errors.date) || undefined}
@@ -273,7 +274,11 @@ function RecordKiddingDialog({
                 control={control}
                 name="ease"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value}
+                    disabled={isSubmitting || createFlight.pending}
+                    onValueChange={field.onChange}
+                  >
                     <SelectTrigger id="kidding-ease" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
@@ -293,6 +298,7 @@ function RecordKiddingDialog({
             <Label htmlFor="kidding_notes">Notes</Label>
             <Textarea
               id="kidding_notes"
+              disabled={isSubmitting || createFlight.pending}
               rows={2}
               maxLength={4_000}
               aria-invalid={Boolean(errors.notes) || undefined}
@@ -561,7 +567,9 @@ function KiddingPageContent() {
   const canManage = can("kidding.manage");
   const canViewAnimals = can("animals.view");
   const [recordFor, setRecordFor] = useState<BreedingRecordOut | null>(null);
-  const [prefillDismissed, setPrefillDismissed] = useState(false);
+  // Scope dismissal to one URL intent. A query-only navigation can reuse this
+  // component for a different pregnancy and must still open its dialog.
+  const [dismissedPrefillId, setDismissedPrefillId] = useState<number | null>(null);
   // Read from the router, not window.location: Next commits the browser URL in
   // an insertion effect, after this component has already rendered.
   const searchParams = useSearchParams();
@@ -581,6 +589,7 @@ function KiddingPageContent() {
     { query: { enabled: allowed, placeholderData: (previous) => previous } },
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const queuesSettling = query.isPlaceholderData;
   const pagedPrefillRecord = payload
     ? [...payload.overdue, ...payload.upcoming].find(
         (record) => record.id === requestedBreedingId,
@@ -603,7 +612,7 @@ function KiddingPageContent() {
   const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;
   const deepLinkedRecord =
     canManage &&
-    !prefillDismissed &&
+    dismissedPrefillId !== requestedBreedingId &&
     requestedRecord?.outcome === "CONFIRMED_PREGNANT" &&
     !requestedRecord.has_kidding
       ? requestedRecord
@@ -672,7 +681,12 @@ function KiddingPageContent() {
   function recordButton(r: BreedingRecordOut) {
     if (!canManage) return null;
     return (
-      <Button variant="outline" size="sm" onClick={() => setRecordFor(r)}>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={queuesSettling}
+        onClick={() => setRecordFor(r)}
+      >
         Record kidding
       </Button>
     );
@@ -684,6 +698,12 @@ function KiddingPageContent() {
         title="Kidding"
         description="Confirmed pregnancies due soon and recent kidding history."
       />
+
+      {queuesSettling && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Updating kidding queues…
+        </p>
+      )}
 
       {prefillRecordQuery.isError && (
         <div className="flex flex-wrap items-center gap-2" role="alert">
@@ -748,6 +768,7 @@ function KiddingPageContent() {
             offset={payload.overdue_offset}
             onOffsetChange={setOverdueOffset}
             label="overdue pregnancies"
+            disabled={queuesSettling}
           />
         </DataTableCard>
       )}
@@ -810,6 +831,7 @@ function KiddingPageContent() {
           offset={payload.upcoming_offset}
           onOffsetChange={setUpcomingOffset}
           label="upcoming pregnancies"
+          disabled={queuesSettling}
         />
       </DataTableCard>
 
@@ -868,6 +890,7 @@ function KiddingPageContent() {
           offset={payload.offset}
           onOffsetChange={setHistoryOffset}
           label="kidding records"
+          disabled={queuesSettling}
         />
       </DataTableCard>
 
@@ -880,7 +903,9 @@ function KiddingPageContent() {
             // link — this handler also serves rows opened by hand while the
             // deep-linked record was still loading, and latching there
             // silently dropped the task the operator arrived from.
-            if (activeRecord.id === requestedBreedingId) setPrefillDismissed(true);
+            if (activeRecord.id === requestedBreedingId) {
+              setDismissedPrefillId(requestedBreedingId);
+            }
             setRecordFor(null);
           }}
           onSaved={refresh}

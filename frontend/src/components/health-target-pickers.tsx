@@ -75,9 +75,8 @@ export function HealthAnimalPicker({
     ? healthAnimalOption(resolved)
     : selectedOption?.value === value
       ? selectedOption
-      : chosenOption?.value === value
-        ? chosenOption
-        : null;
+      : null;
+  const selected = chosenOption?.value === value ? chosenOption : resolvedOption;
 
   async function loadPage({
     query,
@@ -103,7 +102,7 @@ export function HealthAnimalPicker({
       value={value}
       onValueChange={onValueChange}
       onOptionChange={setChosenOption}
-      selectedOption={resolvedOption}
+      selectedOption={selected}
       placeholder={placeholder}
       dialogTitle={dialogTitle}
       dialogDescription="Search active animals by tag, name or exact #id."
@@ -164,9 +163,8 @@ export function HealthPurchaseBatchPicker({
     ? healthBatchOption(resolved)
     : selectedOption?.value === value
       ? selectedOption
-      : chosenOption?.value === value
-        ? chosenOption
-        : null;
+      : null;
+  const selected = chosenOption?.value === value ? chosenOption : resolvedOption;
 
   async function loadPage({
     query,
@@ -192,7 +190,7 @@ export function HealthPurchaseBatchPicker({
       value={value}
       onValueChange={onValueChange}
       onOptionChange={setChosenOption}
-      selectedOption={resolvedOption}
+      selectedOption={selected}
       placeholder={placeholder}
       dialogTitle={dialogTitle}
       dialogDescription="Find a targetable purchase batch by its exact batch ID."

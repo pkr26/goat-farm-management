@@ -522,6 +522,37 @@ describe("PurchasesPage new-batch dialog", () => {
     await waitFor(() => expect(postCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+
+  it("does not reopen a new batch form while a dismissed create is still in flight", async () => {
+    let releaseCreate: (() => void) | undefined;
+    const parked = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    server.use(
+      http.post("/api/purchases/new", async () => {
+        postCalls += 1;
+        await parked;
+        return HttpResponse.json({ ...BATCH_1, id: 7 }, { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await reviewAndConfirm(user, dialog);
+    await waitFor(() => expect(postCalls).toBe(1));
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // createBatch() resets and closes on success. Reopening before that late
+    // continuation ran used to let it erase an unrelated new draft.
+    const trigger = screen.getByRole("button", { name: "New batch" });
+    expect(trigger).toBeDisabled();
+    await user.click(trigger);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseCreate?.();
+    await waitFor(() => expect(trigger).toBeEnabled());
+    expect(postCalls).toBe(1);
+  });
 });
 
 describe("PurchasesPage batch detail dialog", () => {

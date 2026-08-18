@@ -826,6 +826,53 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
       expected_revision: ROLE_NIGHT_WATCH.revision,
     });
   });
+
+  it("refreshes a conflicted role before retrying its optimistic revision", async () => {
+    const refreshedRole = {
+      ...ROLE_NIGHT_WATCH,
+      name: "Night Watch remote",
+      revision: ROLE_NIGHT_WATCH.revision + 1,
+    };
+    let currentPayload = TEAM_PAYLOAD;
+    const revisions: number[] = [];
+    server.use(
+      http.get("/api/team", () => HttpResponse.json(currentPayload)),
+      http.put("/api/team/roles/10", async ({ request }) => {
+        const body = (await request.json()) as { expected_revision: number };
+        revisions.push(body.expected_revision);
+        if (revisions.length === 1) {
+          currentPayload = {
+            ...TEAM_PAYLOAD,
+            roles: TEAM_PAYLOAD.roles.map((role) =>
+              role.id === refreshedRole.id ? refreshedRole : role,
+            ),
+          };
+          return HttpResponse.json({ detail: "role changed concurrently" }, { status: 409 });
+        }
+        return HttpResponse.json(refreshedRole);
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen
+      .getAllByText("Night Watch")
+      .map((element) => element.closest("div.rounded-xl") as HTMLElement | null)
+      .find((element) => element && within(element).queryByRole("button", { name: "Edit" }))!;
+    await user.click(within(card).getByRole("button", { name: "Edit" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Save role" }),
+    );
+
+    const refreshedDialog = await screen.findByRole("dialog", {
+      name: "Edit role: Night Watch remote",
+    });
+    expect(within(refreshedDialog).getByLabelText(/Role name/)).toHaveValue(
+      "Night Watch remote",
+    );
+    await user.click(within(refreshedDialog).getByRole("button", { name: "Save role" }));
+
+    await waitFor(() => expect(revisions).toEqual([4, 5]));
+  });
 });
 
 describe("TeamPage RBAC and errors", () => {

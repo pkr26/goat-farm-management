@@ -5,7 +5,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Home, Loader2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
 import { useAuth, type FarmEntry } from "@/lib/auth-context";
 import {
   firstPermittedPathFromList,
@@ -61,6 +61,7 @@ function FarmSelectPageContent() {
   const { user, farms, farmId, loading, selectFarm, refreshFarms } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
+  const mounted = useRef(true);
   const farmTransition = useSingleFlight();
   const {
     register,
@@ -72,7 +73,16 @@ function FarmSelectPageContent() {
     defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
   });
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   async function openFarm(farm: FarmEntry) {
+    if (!mounted.current) return;
+    const sessionEpoch = authSessionEpochValue();
     setServerError(null);
     setSelectingFarmId(farm.id);
     // A just-created farm may not be in AuthProvider's cached list when the
@@ -81,6 +91,7 @@ function FarmSelectPageContent() {
     selectFarm(farm.id, farm.timezone);
     try {
       const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
+      if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       const requestedPath = permittedAppPathFromList(
         searchParams.get("returnTo"),
         permissions.permissions,
@@ -94,6 +105,7 @@ function FarmSelectPageContent() {
       // landed on farm A's route with farm B's header. This page unmounts on a
       // successful navigation, so the flag has no later life.
     } catch (error) {
+      if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       setServerError(
         error instanceof ApiError ? error.detail : "Could not load permissions for this farm.",
       );
@@ -108,6 +120,8 @@ function FarmSelectPageContent() {
 
   async function onSubmit(values: FarmValues) {
     await farmTransition.run(async () => {
+      if (!mounted.current) return;
+      const sessionEpoch = authSessionEpochValue();
       setServerError(null);
       let farm: FarmEntry;
       try {
@@ -116,11 +130,13 @@ function FarmSelectPageContent() {
           body: JSON.stringify({ ...values, location: values.location || null }),
         });
       } catch (err) {
+        if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
         setServerError(
           err instanceof ApiError ? err.detail : "Could not create the farm.",
         );
         return;
       }
+      if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       // The farm is durably created from here on. Never report a follow-up
       // failure as a creation failure: the retry would mint a fresh
       // Idempotency-Key and create a second, identical farm.
@@ -131,6 +147,7 @@ function FarmSelectPageContent() {
         // Best-effort: the list is re-fetched on the next load, and openFarm()
         // below takes the operator straight into the farm they just created.
       }
+      if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
       await openFarm(farm);
     });
   }
@@ -198,7 +215,14 @@ function FarmSelectPageContent() {
             <CardDescription>Owners can manage multiple farms.</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+            <form
+              onSubmit={(event) => void handleSubmit(onSubmit)(event)}
+              noValidate
+            >
+              <fieldset
+                disabled={isSubmitting || farmTransition.pending}
+                className="min-w-0 space-y-4"
+              >
               <div className="space-y-1.5">
                 <Label htmlFor="name">Farm name</Label>
                 <Input
@@ -272,6 +296,7 @@ function FarmSelectPageContent() {
               <Button type="submit" disabled={isSubmitting || farmTransition.pending}>
                 {isSubmitting ? "Creating…" : "Create farm"}
               </Button>
+              </fieldset>
             </form>
           </CardContent>
         </Card>

@@ -109,4 +109,27 @@ describe("PaginationControls", () => {
     await user.click(previous);
     expect(onOffsetChange).toHaveBeenCalledWith(80);
   });
+
+  it("blocks both directions while its rows are placeholder data", async () => {
+    const onOffsetChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <PaginationControls
+        total={55}
+        limit={20}
+        offset={20}
+        disabled
+        onOffsetChange={onOffsetChange}
+      />,
+    );
+
+    expect(screen.getByRole("navigation")).toHaveAttribute("aria-busy", "true");
+    const previous = screen.getByRole("button", { name: "Previous" });
+    const next = screen.getByRole("button", { name: "Next" });
+    expect(previous).toBeDisabled();
+    expect(next).toBeDisabled();
+    await user.click(previous);
+    await user.click(next);
+    expect(onOffsetChange).not.toHaveBeenCalled();
+  });
 });

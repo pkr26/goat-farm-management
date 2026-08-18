@@ -407,6 +407,105 @@ describe("SimulationPage herd events", () => {
     expect(updates[1].expected_revision).toBe(8);
   });
 
+  it("refreshes a conflicted scenario instead of retrying its stale revision", async () => {
+    const scenario = {
+      id: 8,
+      farm_id: 1,
+      name: "Versioned plan",
+      notes: "",
+      assumptions: DEFAULTS,
+      revision: 7,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fresh = {
+      ...scenario,
+      assumptions: {
+        ...DEFAULTS,
+        herd: { ...DEFAULTS.herd, does: 88 },
+      },
+      revision: 8,
+      updated_at: "2026-01-03T00:00:00Z",
+    };
+    const revisions: number[] = [];
+    server.use(
+      http.patch("/api/simulation/scenarios/8", async ({ request }) => {
+        const body = (await request.json()) as { expected_revision: number };
+        revisions.push(body.expected_revision);
+        return revisions.length === 1
+          ? HttpResponse.json({ detail: "scenario changed concurrently" }, { status: 409 })
+          : HttpResponse.json({ ...fresh, revision: 9 });
+      }),
+      http.get("/api/simulation/scenarios/8", () => HttpResponse.json(fresh)),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update Versioned plan" }));
+    await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(88));
+    await user.click(screen.getByRole("button", { name: "Update Versioned plan" }));
+
+    await waitFor(() => expect(revisions).toEqual([7, 8]));
+  });
+
+  it("does not let a late update rebind the editor after another scenario is loaded", async () => {
+    const first = {
+      id: 8,
+      farm_id: 1,
+      name: "First plan",
+      notes: "",
+      assumptions: { ...DEFAULTS, herd: { ...DEFAULTS.herd, does: 61 } },
+      revision: 1,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const second = {
+      ...first,
+      id: 9,
+      name: "Second plan",
+      assumptions: { ...DEFAULTS, herd: { ...DEFAULTS.herd, does: 92 } },
+    };
+    let releaseUpdate!: () => void;
+    let markUpdateStarted!: () => void;
+    const updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    const updateStarted = new Promise<void>((resolve) => {
+      markUpdateStarted = resolve;
+    });
+    server.use(
+      http.patch("/api/simulation/scenarios/8", async () => {
+        markUpdateStarted();
+        await updateGate;
+        return HttpResponse.json({ ...first, revision: 2 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [first, second] });
+
+    const firstRow = screen.getByText("First plan").closest("tr") as HTMLElement;
+    const secondRow = screen.getByText("Second plan").closest("tr") as HTMLElement;
+    await user.click(within(firstRow).getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update First plan" }));
+    await updateStarted;
+
+    await user.click(within(secondRow).getByRole("button", { name: "Load" }));
+    expect(screen.getByText("Editing scenario: Second plan")).toBeInTheDocument();
+    expect(screen.getByLabelText("Does")).toHaveValue(92);
+
+    releaseUpdate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Update Second plan" })).toBeEnabled(),
+    );
+    expect(screen.getByText("Editing scenario: Second plan")).toBeInTheDocument();
+    expect(screen.getByLabelText("Does")).toHaveValue(92);
+  });
+
   // REGRESSION — clicking "Add event" during the initial defaults fetch
   // flipped acceptDefaultsRef, so the arriving payload was dropped and the
   // editor stayed permanently stuck on "Loading defaults…" with Run disabled.
@@ -436,6 +535,43 @@ describe("SimulationPage herd events", () => {
     // With the defaults loaded the editor is live again.
     await user.click(addEvent);
     expect(screen.getByLabelText("Month")).toHaveValue(12);
+  });
+
+  it("freezes the editor while an explicit defaults load is in flight", async () => {
+    let calls = 0;
+    let releaseDefaults!: () => void;
+    let markDefaultsStarted!: () => void;
+    const defaultsGate = new Promise<void>((resolve) => {
+      releaseDefaults = resolve;
+    });
+    const defaultsStarted = new Promise<void>((resolve) => {
+      markDefaultsStarted = resolve;
+    });
+    registerApiHandlers();
+    server.use(
+      http.get("/api/simulation/defaults", async () => {
+        calls += 1;
+        if (calls === 1) return HttpResponse.json(DEFAULTS);
+        markDefaultsStarted();
+        await defaultsGate;
+        return HttpResponse.json({
+          ...DEFAULTS,
+          herd: { ...DEFAULTS.herd, does: 55 },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+    expect(await screen.findByLabelText("Does")).toHaveValue(50);
+
+    await user.click(screen.getByRole("button", { name: "Load defaults" }));
+    await defaultsStarted;
+    expect(screen.getByLabelText("Does")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add event" })).toBeDisabled();
+
+    releaseDefaults();
+    await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(55));
+    expect(screen.getByLabelText("Does")).toBeEnabled();
   });
 
   it("shows event log lines in the monthly projection table", async () => {
@@ -492,6 +628,153 @@ describe("SimulationPage use current herd", () => {
 
     expect(await screen.findByLabelText("Does")).toHaveValue(48);
     expect(snapshotBreeds).toEqual(["osmanabadi"]);
+  });
+
+  it("keeps a newer herd import when an older calibration resolves late", async () => {
+    let releaseCalibration!: () => void;
+    let markCalibrationStarted!: () => void;
+    const calibrationGate = new Promise<void>((resolve) => {
+      releaseCalibration = resolve;
+    });
+    const calibrationStarted = new Promise<void>((resolve) => {
+      markCalibrationStarted = resolve;
+    });
+    registerApiHandlers({ permissions: CALIBRATION_PERMS });
+    server.use(
+      http.get("/api/simulation/calibration", async () => {
+        markCalibrationStarted();
+        await calibrationGate;
+        return HttpResponse.json({
+          assumptions: {
+            ...DEFAULTS,
+            herd: { ...DEFAULTS.herd, does: 73, bucks: 3 },
+          },
+          evidence: [],
+          warnings: [],
+          coverage_score: 0,
+          reference_date: "2026-08-10",
+          lookback_months: 24,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+    expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
+    await calibrationStarted;
+    await user.click(screen.getByRole("button", { name: "Use current herd" }));
+    await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(48));
+
+    releaseCalibration();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Calibrate from farm" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Does")).toHaveValue(48);
+  });
+
+  it("discards calibration when its visible parameters change in flight", async () => {
+    let releaseCalibration!: () => void;
+    let markCalibrationStarted!: () => void;
+    const calibrationGate = new Promise<void>((resolve) => {
+      releaseCalibration = resolve;
+    });
+    const calibrationStarted = new Promise<void>((resolve) => {
+      markCalibrationStarted = resolve;
+    });
+    registerApiHandlers({ permissions: CALIBRATION_PERMS });
+    server.use(
+      http.get("/api/simulation/defaults/breeds", () =>
+        HttpResponse.json({
+          breeds: ["osmanabadi", "sirohi"],
+          systems: ["stall_fed"],
+        }),
+      ),
+      http.get("/api/simulation/calibration", async () => {
+        markCalibrationStarted();
+        await calibrationGate;
+        return HttpResponse.json({
+          assumptions: {
+            ...DEFAULTS,
+            herd: { ...DEFAULTS.herd, does: 73 },
+          },
+          evidence: [],
+          warnings: [],
+          coverage_score: 0,
+          reference_date: "2026-08-10",
+          lookback_months: 24,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+    expect(await screen.findByLabelText("Does")).toHaveValue(50);
+
+    await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
+    await calibrationStarted;
+    await user.click(screen.getByLabelText("Breed"));
+    await user.click(await screen.findByRole("option", { name: "sirohi" }));
+    releaseCalibration();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Calibrate from farm" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Breed")).toHaveTextContent("sirohi");
+    expect(screen.getByLabelText("Does")).toHaveValue(50);
+  });
+
+  it("does not swallow an in-flight defaults fallback when calibration fails", async () => {
+    let defaultsCalls = 0;
+    let releaseDefaults!: () => void;
+    let markDefaultsStarted!: () => void;
+    let releaseCalibration!: () => void;
+    let markCalibrationStarted!: () => void;
+    const defaultsGate = new Promise<void>((resolve) => {
+      releaseDefaults = resolve;
+    });
+    const defaultsStarted = new Promise<void>((resolve) => {
+      markDefaultsStarted = resolve;
+    });
+    const calibrationGate = new Promise<void>((resolve) => {
+      releaseCalibration = resolve;
+    });
+    const calibrationStarted = new Promise<void>((resolve) => {
+      markCalibrationStarted = resolve;
+    });
+    registerApiHandlers({ permissions: CALIBRATION_PERMS });
+    server.use(
+      http.get("/api/simulation/defaults", async () => {
+        defaultsCalls += 1;
+        if (defaultsCalls === 1) return HttpResponse.json(DEFAULTS);
+        markDefaultsStarted();
+        await defaultsGate;
+        return HttpResponse.json({
+          ...DEFAULTS,
+          herd: { ...DEFAULTS.herd, does: 55 },
+        });
+      }),
+      http.get("/api/simulation/calibration", async () => {
+        markCalibrationStarted();
+        await calibrationGate;
+        return HttpResponse.json({ detail: "calibration unavailable" }, { status: 503 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+    expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Load defaults" }));
+    await defaultsStarted;
+    await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
+    await calibrationStarted;
+
+    releaseDefaults();
+    await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(55));
+    releaseCalibration();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Calibrate from farm" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Does")).toHaveValue(55);
   });
 });
 
@@ -659,14 +942,21 @@ describe("SimulationPage results and scenario management", () => {
     await renderLoaded({ scenarios: [scenario] });
 
     const deleteButton = await screen.findByRole("button", { name: "Delete" });
+    const runButton = screen.getByRole("button", { name: "Run" });
     await user.click(deleteButton);
 
     // Mutation in flight: a second click can't fire a duplicate DELETE.
     expect(deleteButton).toBeDisabled();
+    expect(runButton).toBeDisabled();
+    // Read-only loading stays available, but a late successful deletion must
+    // clear this now-orphaned editor binding.
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    expect(screen.getByText("Editing scenario: Old plan")).toBeInTheDocument();
 
     resolveDelete!();
     await waitFor(() => expect(deleteCalls).toBe(1));
     await waitFor(() => expect(deleteButton).toBeEnabled());
+    expect(screen.queryByText("Editing scenario: Old plan")).not.toBeInTheDocument();
   });
 });
 

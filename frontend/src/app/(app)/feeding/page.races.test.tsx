@@ -110,6 +110,7 @@ describe("FeedingPage dispensing — in-flight double-submit", () => {
 
     await waitFor(() => expect(dispenseCalls).toBe(1));
     expect(within(dialog).getByRole("button", { name: "Recording…" })).toBeDisabled();
+    expect(dialog.querySelector("fieldset")).toBeDisabled();
 
     // The operator gives up on the stalled save and dismisses the dialog. That
     // is deliberately still allowed — blocking it on an in-flight write is what

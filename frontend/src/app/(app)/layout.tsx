@@ -259,7 +259,10 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
           </div>
         </header>
         <div className="flex-1 bg-muted/40">
-          <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+          <main
+            key={farmId}
+            className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6"
+          >
             {children}
           </main>
         </div>

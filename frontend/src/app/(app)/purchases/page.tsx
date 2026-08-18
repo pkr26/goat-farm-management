@@ -58,6 +58,7 @@ import {
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 function localToday(): string {
   return farmToday();
@@ -267,6 +268,7 @@ export default function PurchasesPage() {
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const createMutation = useCreateBatchApiPurchasesNewPost();
+  const createFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -290,33 +292,35 @@ export default function PurchasesPage() {
   }
 
   async function createBatch(values: BatchValues) {
-    try {
-      await createMutation.mutateAsync({
-        data: {
-          date: values.date,
-          supplier: values.supplier?.trim() ? values.supplier.trim() : null,
-          count: values.count,
-          sex: values.sex,
-          avg_age_months: values.avg_age_months ?? null,
-          avg_weight_kg: values.avg_weight_kg ?? null,
-          total_price: values.total_price ?? null,
-          notes: values.notes?.trim() ? values.notes.trim() : null,
-          create_animals: values.create_animals,
-        },
-      });
-      toast.success("Purchase batch created.");
-      invalidateFarmData(queryClient);
-      setOpen(false);
-      setPendingBatch(null);
-      reset({
-        date: localToday(),
-        count: 1,
-        sex: PurchaseBatchInSex.F,
-        create_animals: true,
-      });
-    } catch (err) {
-      toast.error(mutationError(err));
-    }
+    await createFlight.run(async () => {
+      try {
+        await createMutation.mutateAsync({
+          data: {
+            date: values.date,
+            supplier: values.supplier?.trim() ? values.supplier.trim() : null,
+            count: values.count,
+            sex: values.sex,
+            avg_age_months: values.avg_age_months ?? null,
+            avg_weight_kg: values.avg_weight_kg ?? null,
+            total_price: values.total_price ?? null,
+            notes: values.notes?.trim() ? values.notes.trim() : null,
+            create_animals: values.create_animals,
+          },
+        });
+        toast.success("Purchase batch created.");
+        invalidateFarmData(queryClient);
+        setOpen(false);
+        setPendingBatch(null);
+        reset({
+          date: localToday(),
+          count: 1,
+          sex: PurchaseBatchInSex.F,
+          create_animals: true,
+        });
+      } catch (err) {
+        toast.error(mutationError(err));
+      }
+    });
   }
 
   if (permsLoading) {
@@ -346,6 +350,7 @@ export default function PurchasesPage() {
   const batches = payload.batches;
 
   function openNewBatch() {
+    if (createFlight.pending) return;
     reset({
       date: localToday(),
       count: 1,
@@ -363,7 +368,7 @@ export default function PurchasesPage() {
         description="Incoming groups of goats — each batch auto-creates its 45-day quarantine protocol."
         actions={
           canManage && (
-            <Button onClick={openNewBatch}>
+            <Button disabled={createFlight.pending} onClick={openNewBatch}>
               <Plus /> New batch
             </Button>
           )
@@ -377,7 +382,7 @@ export default function PurchasesPage() {
           description="Record your first batch to create animal stubs and its quarantine task schedule."
         >
           {canManage && (
-            <Button onClick={openNewBatch}>
+            <Button disabled={createFlight.pending} onClick={openNewBatch}>
               <Plus /> Add your first batch
             </Button>
           )}
@@ -496,17 +501,17 @@ export default function PurchasesPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={createMutation.isPending}
+                  disabled={createFlight.pending}
                   onClick={() => setPendingBatch(null)}
                 >
                   Back and edit
                 </Button>
                 <Button
                   type="button"
-                  disabled={createMutation.isPending}
+                  disabled={createFlight.pending}
                   onClick={() => void createBatch(pendingBatch)}
                 >
-                  {createMutation.isPending ? "Creating…" : "Confirm and create"}
+                  {createFlight.pending ? "Creating…" : "Confirm and create"}
                 </Button>
               </DialogFooter>
             </>

@@ -80,6 +80,7 @@ import {
 } from "@/lib/persisted-numbers";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 import { taskPrefill } from "./task-prefill";
 
@@ -374,6 +375,7 @@ function HealthPageContent() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const returnTo = permittedAppPath(searchParams.get("returnTo"), can);
   const hasDeepLink = ["task_id", "animal_id", "purchase_batch_id"].some((key) =>
     searchParams.has(key),
@@ -430,6 +432,7 @@ function HealthPageContent() {
 
   const recordMutation = useRecordEventApiHealthEventsPost();
   const previewMutation = usePreviewBulkEventTargetsApiHealthEventsPreviewPost();
+  const eventSubmission = useSingleFlight();
   const [recordError, setRecordError] = useState<string | null>(null);
   const [bulkPreview, setBulkPreview] = useState<HealthBulkTargetPreviewOut | null>(null);
   const [scheduleAnimalId, setScheduleAnimalId] = useState(
@@ -487,9 +490,11 @@ function HealthPageContent() {
     name: "suspected_scheduled_disease",
   });
 
-  /** The URL deep link is hydrated into the dialog exactly once per page
-   *  visit, however often `canManage` settles. */
-  const deepLinkHydratedRef = useRef(false);
+  /** The last URL deep link hydrated into the dialog. Next can reuse this
+   *  page for a query-only navigation, so a lifetime boolean would discard a
+   *  later task/animal link. The signature still prevents permission-query
+   *  rerenders from reopening a link the operator just dismissed. */
+  const deepLinkHydratedRef = useRef<string | null>(null);
 
   /** Identifies one dialog session's submission. The record dialog stays
    *  dismissible while its write is in flight — deliberately, because the
@@ -639,21 +644,27 @@ function HealthPageContent() {
 
   // /health/new?... redirects here: auto-open the dialog and preserve any
   // animal/batch/task context supplied by the originating workflow.
+  /* eslint-disable react-hooks/set-state-in-effect -- distinct URL intents initialize a controlled dialog session */
   useEffect(() => {
-    // Latch on a dedicated ref, not on `prefillTaskId`: that flag is cleared
-    // both when the resolution is consumed and (now) when the dialog is reset,
-    // so a later `canManage` flip would re-open a dialog the operator closed
-    // and re-apply a deep link they already discarded.
-    if (!canManage || deepLinkHydratedRef.current) return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParamsKey);
     const taskId = positiveIdString(params.get("task_id"));
     const animalId = positiveIdString(params.get("animal_id"));
     const batchId = positiveIdString(params.get("purchase_batch_id"));
-    if (!taskId && !animalId && !batchId) return;
-    deepLinkHydratedRef.current = true;
+    if (!taskId && !animalId && !batchId) {
+      deepLinkHydratedRef.current = null;
+      return;
+    }
+    const signature = `${taskId ?? ""}|${animalId ?? ""}|${batchId ?? ""}`;
+    // Latch on the URL identity, not on `prefillTaskId`: that flag is cleared
+    // both when resolution is consumed and when the dialog is reset. A
+    // permission-query rerender must not reopen the same dismissed link, but
+    // a later query-only navigation to a different link must be honored.
+    if (!canManage || deepLinkHydratedRef.current === signature) return;
+    deepLinkHydratedRef.current = signature;
+    resetEventForm();
     // One-time mount initialization from URL params — cascading-render risk
-    // doesn't apply here (runs once, not reactive to props/state).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // doesn't apply here (runs once per distinct URL intent, not reactively to
+    // the form state it writes).
     setOpen(true);
     if (animalId) {
       changeScope("animal");
@@ -668,7 +679,8 @@ function HealthPageContent() {
       setValue("task_id", taskId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManage]);
+  }, [canManage, searchParamsKey]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Resolve the deep link through the exact task endpoint. The tab response is
   // only a fallback because it is a bounded window and cannot establish that
@@ -713,7 +725,7 @@ function HealthPageContent() {
     canViewTasks,
   ]);
 
-  async function onSubmit(values: EventValues) {
+  async function submitEvent(values: EventValues) {
     let reviewedAnimalIds: number[] | undefined;
     if (values.scope !== "animal") {
       const selectedBatchId = values.purchase_batch_id
@@ -741,6 +753,7 @@ function HealthPageContent() {
                 ...(selectedTaskId !== null ? { task_id: selectedTaskId } : {}),
               };
         setRecordError(null);
+        const epoch = ++submissionEpoch.current;
         try {
           const response = await previewMutation.mutateAsync({ data: target });
           if (response.status !== 200) return;
@@ -751,6 +764,7 @@ function HealthPageContent() {
               ? Number(currentTaskIdValue)
               : null;
           const stillCurrent =
+            submissionEpoch.current === epoch &&
             currentScope === target.scope &&
             currentTaskId === selectedTaskId &&
             response.data.task_id === selectedTaskId &&
@@ -759,6 +773,7 @@ function HealthPageContent() {
               : Number(getValues("purchase_batch_id")) === target.purchase_batch_id);
           if (stillCurrent) setBulkPreview(response.data);
         } catch (err) {
+          if (submissionEpoch.current !== epoch) return;
           const message =
             err instanceof ApiError ? err.detail : "Could not review the bulk target set.";
           setRecordError(message);
@@ -840,6 +855,10 @@ function HealthPageContent() {
       setRecordError(message);
       toast.error(message);
     }
+  }
+
+  async function onSubmit(values: EventValues) {
+    await eventSubmission.run(() => submitEvent(values));
   }
 
   if (permsLoading) {
@@ -1071,9 +1090,12 @@ function HealthPageContent() {
           </DialogHeader>
           <form
             onSubmit={handleSubmit(onSubmit, revealCollapsedErrors)}
-            className="space-y-4"
             noValidate
           >
+            {/* Bulk preview is intentionally editable and guarded by an
+                epoch/selection check. Freeze only the durable record write,
+                whose payload must match the values the operator still sees. */}
+            <fieldset disabled={recordMutation.isPending} className="space-y-4">
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">Apply to</legend>
               <Controller
@@ -1654,14 +1676,19 @@ function HealthPageContent() {
                   {recordError} Check the event details, then try again.
                 </p>
               )}
-              <Button type="submit" disabled={isSubmitting || previewMutation.isPending}>
+              <Button
+                type="submit"
+                disabled={
+                  isSubmitting || eventSubmission.pending || previewMutation.isPending
+                }
+              >
                 {/* Branch on the mutation actually in flight: a single-animal
                     event never previews, so keying this off bulkPreview
                     announced "Reviewing targets…" while the immutable event
                     was being written. */}
                 {previewMutation.isPending
                   ? "Reviewing targets…"
-                  : isSubmitting
+                  : isSubmitting || eventSubmission.pending
                     ? "Saving…"
                     : scope !== "animal" && !bulkPreview
                       ? "Review target animals"
@@ -1674,6 +1701,7 @@ function HealthPageContent() {
                           : "Save event"}
               </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

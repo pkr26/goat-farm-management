@@ -10,8 +10,10 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
+import { useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useAuth } from "@/lib/auth-context";
 import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -68,6 +70,24 @@ function navLinks() {
     .filter((el) => el.closest('[data-slot="sidebar-content"]'));
 }
 
+function FarmScopedDraft() {
+  const { refreshFarms } = useAuth();
+  const [draft, setDraft] = useState("");
+  return (
+    <div>
+      <label htmlFor="farm-scoped-draft">Farm-scoped draft</label>
+      <input
+        id="farm-scoped-draft"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+      <button type="button" onClick={() => void refreshFarms()}>
+        refresh memberships
+      </button>
+    </div>
+  );
+}
+
 describe("AppLayout — header", () => {
   beforeEach(() => {
     pushMock.mockClear();
@@ -106,6 +126,57 @@ describe("AppLayout — header", () => {
       "href",
       "/farm-select?returnTo=%2Ftasks%3Ftab%3Doverdue",
     );
+  });
+
+  it("remounts page state when a membership refresh replaces the active farm", async () => {
+    let membershipChanged = false;
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json(
+          membershipChanged
+            ? [
+                {
+                  id: 2,
+                  name: "Replacement Farm",
+                  location: null,
+                  timezone: "America/Phoenix",
+                  role: null,
+                },
+              ]
+            : [
+                {
+                  id: 1,
+                  name: "Original Farm",
+                  location: null,
+                  timezone: "Asia/Kolkata",
+                  role: null,
+                },
+                {
+                  id: 2,
+                  name: "Replacement Farm",
+                  location: null,
+                  timezone: "America/Phoenix",
+                  role: null,
+                },
+              ],
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(
+      <AppLayout>
+        <FarmScopedDraft />
+      </AppLayout>,
+    );
+    await screen.findByText("Original Farm");
+    await user.type(screen.getByLabelText("Farm-scoped draft"), "farm A notes");
+    expect(screen.getByLabelText("Farm-scoped draft")).toHaveValue("farm A notes");
+
+    membershipChanged = true;
+    await user.click(screen.getByRole("button", { name: "refresh memberships" }));
+
+    await screen.findByText("Replacement Farm");
+    expect(screen.getByLabelText("Farm-scoped draft")).toHaveValue("");
   });
 
   it("falls back to the email when the user has no name", async () => {

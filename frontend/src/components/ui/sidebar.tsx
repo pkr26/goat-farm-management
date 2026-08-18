@@ -35,7 +35,7 @@ const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
-  setOpen: (open: boolean) => void
+  setOpen: React.Dispatch<React.SetStateAction<boolean>>
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
@@ -68,14 +68,29 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const previousIsMobile = React.useRef(isMobile)
+
+  React.useEffect(() => {
+    const leftMobileViewport = previousIsMobile.current && !isMobile
+    previousIsMobile.current = isMobile
+    if (leftMobileViewport) setOpenMobile(false)
+  }, [isMobile])
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
+  const openRef = React.useRef(open)
+  React.useEffect(() => {
+    openRef.current = open
+  }, [open])
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value
+      // Resolve functional updates against a synchronously maintained value.
+      // Reading `open` from this callback's render makes two shortcut/click
+      // events in one batch both invert the same stale value.
+      const openState = typeof value === "function" ? value(openRef.current) : value
+      openRef.current = openState
       if (setOpenProp) {
         setOpenProp(openState)
       } else {
@@ -87,7 +102,7 @@ function SidebarProvider({
       // everything is https and the browser upgrades the flag context.
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax`
     },
-    [setOpenProp, open]
+    [setOpenProp]
   )
 
   // Helper to toggle the sidebar.

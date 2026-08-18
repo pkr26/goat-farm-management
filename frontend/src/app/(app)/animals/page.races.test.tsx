@@ -17,7 +17,7 @@
 // against the live input, which is blind to neither edit ordering nor the
 // debounce lag.
 
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -146,5 +146,55 @@ describe("AnimalsPage — typing while the page clamp navigates", () => {
       String(url).includes("q=G7"),
     );
     expect(issued).toBe(true);
+  });
+});
+
+describe("AnimalsPage — create dialog lifecycle", () => {
+  beforeEach(() => {
+    nav.state.search = "";
+    nav.push.mockClear();
+    nav.replace.mockClear();
+  });
+
+  it("does not reopen the form while a dismissed create request can still reset it", async () => {
+    let createCalls = 0;
+    let releaseCreate: (() => void) | undefined;
+    const parked = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    server.use(
+      http.get("/api/animals", () =>
+        HttpResponse.json({ animals: [animal(1)], total: 1 }),
+      ),
+      http.post("/api/animals", async () => {
+        createCalls += 1;
+        await parked;
+        return HttpResponse.json(animal(2), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<AnimalsPage />);
+    await screen.findByText("G-001");
+
+    await user.click(screen.getByRole("button", { name: "Add animal" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+    await waitFor(() => expect(createCalls).toBe(1));
+    expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // A late success calls reset() and setOpen(false). Until it settles, a
+    // second dialog must not be allowed to open and lose a newly typed draft.
+    const trigger = screen.getByRole("button", { name: "Add animal" });
+    expect(trigger).toBeDisabled();
+    await user.click(trigger);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseCreate?.();
+    await waitFor(() => expect(trigger).toBeEnabled());
+    expect(createCalls).toBe(1);
   });
 });

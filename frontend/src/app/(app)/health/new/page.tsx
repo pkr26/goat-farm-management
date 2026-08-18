@@ -4,15 +4,25 @@
  *  The new UI records events in a dialog on /health, so redirect there,
  *  preserving the query string — the health page auto-opens the dialog. */
 
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 
-export default function HealthNewRedirect() {
+function HealthNewRedirectContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const search = searchParams.toString();
 
   useEffect(() => {
-    router.replace(`/health${window.location.search}`);
-  }, [router]);
+    router.replace(`/health${search ? `?${search}` : ""}`);
+  }, [router, search]);
 
   return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+}
+
+export default function HealthNewRedirect() {
+  return (
+    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <HealthNewRedirectContent />
+    </Suspense>
+  );
 }

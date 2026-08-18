@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -233,6 +233,34 @@ describe("AccountDialog", () => {
     expect(within(dialog).getByLabelText("Current password for password change")).toHaveValue("");
   });
 
+  it("does not let a late password success close a newly reopened dialog", async () => {
+    let resolveChange: ((value: { status: number }) => void) | undefined;
+    mocks.mutateAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveChange = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    let dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledOnce());
+    expect(
+      within(dialog).getByLabelText("Current password for password change"),
+    ).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    dialog = await openAccount(user);
+    await act(async () => resolveChange?.({ status: 200 }));
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Change password" })).toBeEnabled(),
+    );
+    expect(screen.getByRole("dialog", { name: "Account & password" })).toBeInTheDocument();
+  });
+
   it("always removes the temporary export link and revokes its object URL", async () => {
     mocks.apiFetch.mockResolvedValue({ account: { id: 1 } });
     const createObjectURL = vi.fn(() => "blob:account-export");
@@ -322,6 +350,40 @@ describe("AccountDialog", () => {
     dialog = await openAccount(user);
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Download my data" })).toBeEnabled();
+  });
+
+  it("runs only one account action while an export is pending", async () => {
+    let rejectExport: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectExport = reject;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "owner-password",
+    );
+
+    const download = within(dialog).getByRole("button", { name: "Download my data" });
+    fireEvent.click(download);
+    fireEvent.click(download);
+
+    expect(mocks.apiFetch).toHaveBeenCalledOnce();
+    expect(mocks.apiFetch).toHaveBeenCalledWith("/api/auth/account/export");
+    expect(within(dialog).getByRole("button", { name: "Change password" })).toBeDisabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Delete account and access" }),
+    ).toBeDisabled();
+
+    await act(async () => rejectExport?.(new ApiError(503, "Export unavailable")));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Download my data" })).toBeEnabled(),
+    );
   });
 
   it("clears deletion confirmation state and errors when cancelled", async () => {

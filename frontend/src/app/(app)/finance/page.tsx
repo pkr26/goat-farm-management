@@ -194,11 +194,13 @@ function CorrectionDialog({
   transaction,
   canViewAnimals,
   onClose,
+  onPendingChange,
   onSaved,
 }: {
   transaction: TransactionOut;
   canViewAnimals: boolean;
   onClose: () => void;
+  onPendingChange: (pending: boolean) => void;
   onSaved: () => void;
 }) {
   const mutation = useCorrectTransactionApiFinanceTransactionsTransactionIdCorrectPost();
@@ -231,6 +233,7 @@ function CorrectionDialog({
   async function submit(values: CorrectionValues) {
     if (!consequenceConfirmed) return;
     await correctionFlight.run(async () => {
+      onPendingChange(true);
       setFormError(null);
       try {
         const correctionPayload: TransactionCorrectionIn & { feed_quantity_kg?: number } = {
@@ -259,6 +262,8 @@ function CorrectionDialog({
         const message = mutationError(error);
         setFormError(message);
         toast.error(message);
+      } finally {
+        onPendingChange(false);
       }
     });
   }
@@ -279,6 +284,7 @@ function CorrectionDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(submit)} className="space-y-4" noValidate>
+          <fieldset disabled={isSubmitting || correctionFlight.pending} className="contents">
           {formError && (
             <p role="alert" className="text-sm text-destructive">
               {formError}
@@ -472,6 +478,7 @@ function CorrectionDialog({
                   : "Record correction"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -492,6 +499,7 @@ export default function FinancePage() {
   const [categoryFilter, setCategoryFilter] = useState<typeof ALL | TransactionInCategory>(ALL);
   const [open, setOpen] = useState(false);
   const [correcting, setCorrecting] = useState<TransactionOut | null>(null);
+  const [correctionPending, setCorrectionPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -512,6 +520,7 @@ export default function FinancePage() {
     query: { enabled: allowed, placeholderData: (previous) => previous },
   });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const ledgerSettling = query.isPlaceholderData;
 
   const addMutation = useAddTransactionApiFinanceNewPost();
   const addFlight = useSingleFlight();
@@ -697,6 +706,11 @@ export default function FinancePage() {
         description="Filter the ledger by month, type or category."
         contentClassName="space-y-4"
       >
+        {ledgerSettling && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Updating transactions…
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <Input
             type="month"
@@ -847,7 +861,13 @@ export default function FinancePage() {
                   {canManage && (
                     <TableCell>
                       {!t.voided_at && (
-                        <Button type="button" size="sm" variant="outline" onClick={() => setCorrecting(t)}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={correctionPending || ledgerSettling}
+                          onClick={() => setCorrecting(t)}
+                        >
                           Correct
                         </Button>
                       )}
@@ -864,6 +884,7 @@ export default function FinancePage() {
           offset={payload.offset}
           onOffsetChange={setOffset}
           label="transactions"
+          disabled={ledgerSettling}
         />
       </DataTableCard>
 
@@ -871,7 +892,12 @@ export default function FinancePage() {
         <CorrectionDialog
           transaction={correcting}
           canViewAnimals={canViewAnimals}
-          onClose={() => setCorrecting(null)}
+          onClose={() =>
+            setCorrecting((current) =>
+              current?.id === correcting.id ? null : current,
+            )
+          }
+          onPendingChange={setCorrectionPending}
           onSaved={() => invalidateFarmData(queryClient)}
         />
       )}
@@ -902,6 +928,7 @@ export default function FinancePage() {
             className="space-y-4"
             noValidate
           >
+            <fieldset disabled={isSubmitting || addFlight.pending} className="contents">
             {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -1022,6 +1049,7 @@ export default function FinancePage() {
                     : "Add transaction"}
               </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         </DialogContent>
       </Dialog>

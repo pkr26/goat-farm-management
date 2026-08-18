@@ -66,6 +66,7 @@ import {
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 const BUCKETS = Object.values(MoveInToBucket);
 const PROFILE_HISTORY_LIMIT = 25;
@@ -131,6 +132,7 @@ type WeightValues = z.output<typeof weightSchema>;
 function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const mut = useRecordWeightApiAnimalsAnimalIdWeightPost();
+  const weightFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -139,28 +141,35 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
   } = useForm<WeightInput, unknown, WeightValues>({ resolver: zodResolver(weightSchema) });
 
   async function onSubmit(values: WeightValues) {
-    try {
-      await mut.mutateAsync({
-        animalId,
-        data: {
-          date: emptyToNull(values.date),
-          weight_kg: values.weight_kg,
-          bcs: values.bcs ?? null,
-          notes: emptyToNull(values.notes),
-        },
-      });
-      toast.success("Weight recorded.");
-      reset();
-      setOpen(false);
-      onDone();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
-    }
+    await weightFlight.run(async () => {
+      try {
+        await mut.mutateAsync({
+          animalId,
+          data: {
+            date: emptyToNull(values.date),
+            weight_kg: values.weight_kg,
+            bcs: values.bcs ?? null,
+            notes: emptyToNull(values.notes),
+          },
+        });
+        toast.success("Weight recorded.");
+        reset();
+        setOpen(false);
+        onDone();
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+      }
+    });
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={weightFlight.pending}
+        onClick={() => setOpen(true)}
+      >
         Record weight
       </Button>
       <DialogContent>
@@ -168,6 +177,7 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
           <DialogTitle>Record weight</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
+          <fieldset disabled={isSubmitting || weightFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="w_date">Date (defaults to today)</Label>
             <Input
@@ -225,10 +235,11 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : "Save"}
+            <Button type="submit" disabled={isSubmitting || weightFlight.pending}>
+              {isSubmitting || weightFlight.pending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -254,6 +265,7 @@ function MoveBucketDialog({
 }) {
   const [open, setOpen] = useState(false);
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
+  const moveFlight = useSingleFlight();
   const {
     handleSubmit,
     control,
@@ -263,26 +275,33 @@ function MoveBucketDialog({
   } = useForm<MoveValues>({ resolver: zodResolver(moveSchema) });
 
   async function onSubmit(values: MoveValues) {
-    try {
-      await mut.mutateAsync({
-        animalId,
-        data: {
-          to_bucket: values.to_bucket as MoveInToBucket,
-          reason: emptyToNull(values.reason),
-        },
-      });
-      toast.success("Animal moved.");
-      reset();
-      setOpen(false);
-      onDone();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
-    }
+    await moveFlight.run(async () => {
+      try {
+        await mut.mutateAsync({
+          animalId,
+          data: {
+            to_bucket: values.to_bucket as MoveInToBucket,
+            reason: emptyToNull(values.reason),
+          },
+        });
+        toast.success("Animal moved.");
+        reset();
+        setOpen(false);
+        onDone();
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+      }
+    });
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={moveFlight.pending}
+        onClick={() => setOpen(true)}
+      >
         Move bucket
       </Button>
       <DialogContent>
@@ -290,6 +309,7 @@ function MoveBucketDialog({
           <DialogTitle>Move bucket</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
+          <fieldset disabled={isSubmitting || moveFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="move-to-bucket">To bucket *</Label>
             <Controller
@@ -340,10 +360,11 @@ function MoveBucketDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Moving…" : "Move"}
+            <Button type="submit" disabled={isSubmitting || moveFlight.pending}>
+              {isSubmitting || moveFlight.pending ? "Moving…" : "Move"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -432,6 +453,7 @@ function StatusDialog({
 }) {
   const [open, setOpen] = useState(false);
   const mut = useChangeStatusApiAnimalsAnimalIdStatusPost();
+  const statusFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -454,54 +476,61 @@ function StatusDialog({
   });
 
   async function onSubmit(values: StatusValues) {
-    try {
-      await mut.mutateAsync({
-        animalId,
-        data: {
-          new_status: values.new_status,
-          date: emptyToNull(values.date),
-          sale_price: statusCanRecordSale(values.new_status)
-            ? (values.sale_price ?? null)
-            : null,
-          buyer_name: statusCanRecordSale(values.new_status)
-            ? emptyToNull(values.buyer_name)
-            : null,
-          notes: emptyToNull(values.notes),
-          mortality_cause:
-            values.new_status === StatusChangeInNewStatus.DEAD
-              ? emptyToNull(values.mortality_cause)
+    await statusFlight.run(async () => {
+      try {
+        await mut.mutateAsync({
+          animalId,
+          data: {
+            new_status: values.new_status,
+            date: emptyToNull(values.date),
+            sale_price: statusCanRecordSale(values.new_status)
+              ? (values.sale_price ?? null)
               : null,
-          mortality_reported_at:
-            values.new_status === StatusChangeInNewStatus.DEAD
-              ? emptyToNull(values.mortality_reported_at)
+            buyer_name: statusCanRecordSale(values.new_status)
+              ? emptyToNull(values.buyer_name)
               : null,
-          suspected_scheduled_disease:
-            values.new_status === StatusChangeInNewStatus.DEAD &&
-            values.suspected_scheduled_disease,
-          suspected_disease:
-            values.new_status === StatusChangeInNewStatus.DEAD &&
-            values.suspected_scheduled_disease
-              ? emptyToNull(values.suspected_disease)
-              : null,
-          authority_notified_at:
-            values.new_status === StatusChangeInNewStatus.DEAD &&
-            values.suspected_scheduled_disease
-              ? emptyToNull(values.authority_notified_at)
-              : null,
-        },
-      });
-      toast.success(`Marked ${values.new_status}.`);
-      reset();
-      setOpen(false);
-      onDone();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
-    }
+            notes: emptyToNull(values.notes),
+            mortality_cause:
+              values.new_status === StatusChangeInNewStatus.DEAD
+                ? emptyToNull(values.mortality_cause)
+                : null,
+            mortality_reported_at:
+              values.new_status === StatusChangeInNewStatus.DEAD
+                ? emptyToNull(values.mortality_reported_at)
+                : null,
+            suspected_scheduled_disease:
+              values.new_status === StatusChangeInNewStatus.DEAD &&
+              values.suspected_scheduled_disease,
+            suspected_disease:
+              values.new_status === StatusChangeInNewStatus.DEAD &&
+              values.suspected_scheduled_disease
+                ? emptyToNull(values.suspected_disease)
+                : null,
+            authority_notified_at:
+              values.new_status === StatusChangeInNewStatus.DEAD &&
+              values.suspected_scheduled_disease
+                ? emptyToNull(values.authority_notified_at)
+                : null,
+          },
+        });
+        toast.success(`Marked ${values.new_status}.`);
+        reset();
+        setOpen(false);
+        onDone();
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+      }
+    });
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="destructive" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="destructive"
+        disabled={statusFlight.pending}
+        onClick={() => setOpen(true)}
+      >
         Change status
       </Button>
       <DialogContent>
@@ -509,6 +538,7 @@ function StatusDialog({
           <DialogTitle>Change status</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
+          <fieldset disabled={isSubmitting || statusFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="animal-new-status">New status *</Label>
             <Controller
@@ -709,10 +739,15 @@ function StatusDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" variant="destructive" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : "Confirm"}
+            <Button
+              type="submit"
+              variant="destructive"
+              disabled={isSubmitting || statusFlight.pending}
+            >
+              {isSubmitting || statusFlight.pending ? "Saving…" : "Confirm"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -795,6 +830,7 @@ function ClearRestrictionDialog({
           <Input
             id={`clearance-reference-${animalId}`}
             value={reference}
+            disabled={mutation.isPending || awaitingEpisodeRefresh}
             maxLength={255}
             placeholder="certificate/order number and issuing authority"
             aria-invalid={Boolean(error) || undefined}

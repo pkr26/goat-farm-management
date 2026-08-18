@@ -2,6 +2,7 @@
  *  create-animal dialog. */
 
 import { render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AnimalsNewRedirect from "./page";
@@ -20,11 +21,16 @@ describe("/animals/new redirect shim", () => {
     replaceMock.mockClear();
   });
 
-  it("redirects to /animals?new=1", async () => {
-    render(<AnimalsNewRedirect />);
+  it("redirects once to /animals?new=1 when Strict Mode replays the effect", async () => {
+    render(
+      <StrictMode>
+        <AnimalsNewRedirect />
+      </StrictMode>,
+    );
 
     await waitFor(() =>
       expect(replaceMock).toHaveBeenCalledWith("/animals?new=1"),
     );
+    expect(replaceMock).toHaveBeenCalledTimes(1);
   });
 });

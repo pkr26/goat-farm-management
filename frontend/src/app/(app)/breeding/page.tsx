@@ -234,7 +234,11 @@ function NewBreedingDialog({
             pregnant).
           </p>
         ) : (
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
+            <fieldset
+              disabled={isSubmitting || createFlight.pending}
+              className="space-y-4"
+            >
             {formError && (
               <p role="alert" className="text-sm text-destructive">
                 {formError}
@@ -323,6 +327,7 @@ function NewBreedingDialog({
                     : "Save breeding"}
               </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         )}
       </DialogContent>
@@ -584,7 +589,8 @@ function PregnancyLossDialog({
             This closes the pregnancy and retains an auditable reason.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={onSubmit} className="space-y-4" noValidate>
+        <form onSubmit={onSubmit} noValidate>
+          <fieldset disabled={saving} className="space-y-4">
           {formError && (
             <p role="alert" className="text-sm text-destructive">
               {formError}
@@ -663,6 +669,7 @@ function PregnancyLossDialog({
               {saving ? "Recording…" : formError ? "Retry record loss" : "Record pregnancy loss"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -678,7 +685,9 @@ function BreedingPageContent() {
   const [newOpen, setNewOpen] = useState(false);
   const [ultrasoundFor, setUltrasoundFor] = useState<BreedingRecordOut | null>(null);
   const [lossFor, setLossFor] = useState<BreedingRecordOut | null>(null);
-  const [prefillDismissed, setPrefillDismissed] = useState(false);
+  // Remember which URL intent was dismissed, not a page-lifetime boolean:
+  // Next reuses this page for query-only navigation to another record.
+  const [dismissedPrefillId, setDismissedPrefillId] = useState<number | null>(null);
   // Read from the router, not window.location: Next commits the browser URL
   // in an insertion effect, i.e. after this component has already rendered, so
   // a router.replace("/breeding?ultrasound_id=…") redirect is still invisible
@@ -721,7 +730,7 @@ function BreedingPageContent() {
   // link opens — then latches on its own id.
   const deepLinkedUltrasound =
     canManage &&
-    !prefillDismissed &&
+    dismissedPrefillId !== requestedUltrasoundId &&
     !lossFor &&
     !newOpen &&
     requestedRecord?.outcome === "PENDING"
@@ -943,7 +952,9 @@ function BreedingPageContent() {
             // there silently dropped the task they arrived from, leaving
             // ?ultrasound_id= in the address bar with no UI trace and no way
             // back short of a reload.
-            if (activeUltrasound.id === requestedUltrasoundId) setPrefillDismissed(true);
+            if (activeUltrasound.id === requestedUltrasoundId) {
+              setDismissedPrefillId(requestedUltrasoundId);
+            }
             setUltrasoundFor(null);
           }}
           onSaved={refresh}

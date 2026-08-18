@@ -173,6 +173,39 @@ describe("FarmSelectPage — farm picker", () => {
     expect(pushMock).not.toHaveBeenCalledWith(expect.stringContaining("evil.test"));
   });
 
+  it("does not navigate from a farm picker that unmounted mid-permissions read", async () => {
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)));
+    let releasePermissions!: () => void;
+    let permissionsStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      permissionsStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releasePermissions = resolve;
+    });
+    server.use(
+      http.get("/api/auth/permissions", async () => {
+        permissionsStarted();
+        await gate;
+        return HttpResponse.json({
+          is_owner: true,
+          permissions: ["dashboard.view"],
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    const rendered = renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+    await started;
+
+    rendered.unmount();
+    releasePermissions();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
   it("shows the empty-state hint when the user has no farms", async () => {
     server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
 
@@ -441,6 +474,9 @@ describe("FarmSelectPage — create a farm", () => {
     await user.click(screen.getByRole("button", { name: /create farm/i }));
 
     expect(screen.getByRole("button", { name: /creating…/i })).toBeDisabled();
+    expect(screen.getByLabelText(/farm name/i)).toBeDisabled();
+    expect(screen.getByLabelText(/location/i)).toBeDisabled();
+    expect(screen.getByLabelText(/timezone/i)).toBeDisabled();
     // Selecting a different farm while creation is pending would let the two
     // completions race and whichever resolved last would replace the active
     // farm/navigation chosen by the operator.
@@ -516,6 +552,42 @@ describe("FarmSelectPage — create a farm", () => {
     // The name is cleared, so the operator is not nudged into a duplicate.
     expect(screen.getByLabelText(/farm name/i)).toHaveValue("");
     expect(posts).toBe(1);
+  });
+
+  it("does not reopen a created farm after its follow-up refresh logs the user out", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    let refreshCalls = 0;
+    server.use(
+      http.post("/api/auth/farms", () =>
+        HttpResponse.json({
+          id: 3,
+          name: "Green Acres",
+          location: null,
+          timezone: "Asia/Kolkata",
+          role: null,
+        }),
+      ),
+      http.get("/api/auth/farms", () => {
+        refreshCalls += 1;
+        return HttpResponse.json({ detail: "Expired" }, { status: 401 });
+      }),
+      http.post("/api/auth/refresh", () =>
+        new HttpResponse(null, { status: 401 }),
+      ),
+    );
+
+    await user.type(screen.getByLabelText(/farm name/i), "Green Acres");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    await waitFor(() => expect(refreshCalls).toBe(1));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
+    expect(pushMock).not.toHaveBeenCalled();
   });
 
   it("clears a previous server error when a retry succeeds", async () => {

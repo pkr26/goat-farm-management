@@ -13,7 +13,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch, setAccessToken, setCurrentFarmId } from "./api-client";
+import {
+  apiFetch,
+  setAccessToken,
+  setCurrentFarmId,
+  setOnAuthFailure,
+} from "./api-client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -35,6 +40,7 @@ describe("request timeout (CC-1)", () => {
   afterEach(() => {
     setAccessToken(null);
     setCurrentFarmId(null);
+    setOnAuthFailure(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -119,6 +125,7 @@ describe("transport failures and the session epoch (F5)", () => {
   afterEach(() => {
     setAccessToken(null);
     setCurrentFarmId(null);
+    setOnAuthFailure(null);
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -171,5 +178,60 @@ describe("transport failures and the session epoch (F5)", () => {
     await expect(apiFetch("/api/auth/farms")).rejects.toMatchObject({
       name: "AuthSessionChangedError",
     });
+  });
+
+  it("does not deliver an old forced-logout error after a newer login takes over", async () => {
+    let releaseErrorBody!: (body: unknown) => void;
+    let errorBodyStarted!: () => void;
+    const bodyStarted = new Promise<void>((resolve) => {
+      errorBodyStarted = resolve;
+    });
+    const expiredResponse = {
+      status: 401,
+      statusText: "Unauthorized",
+      ok: false,
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: () => {
+        errorBodyStarted();
+        return new Promise<unknown>((resolve) => {
+          releaseErrorBody = resolve;
+        });
+      },
+    } as Response;
+    fetchMock.mockImplementation(async (input) =>
+      String(input) === "/api/auth/refresh"
+        ? jsonResponse(401, { detail: "Session expired" })
+        : expiredResponse,
+    );
+    setOnAuthFailure(vi.fn());
+
+    const oldRequest = apiFetch("/api/animals");
+    await bodyStarted;
+    // The rejected refresh already cleared actor one. A fresh login can now
+    // install actor two while the old 401 body is still streaming.
+    setAccessToken("actor-two-token", 2);
+    releaseErrorBody({ detail: "Expired actor-one request" });
+
+    await expect(oldRequest).rejects.toMatchObject({
+      name: "AuthSessionChangedError",
+    });
+  });
+
+  it("does not let an older provider cleanup remove a newer auth-failure handler", async () => {
+    const olderHandler = vi.fn();
+    const newerHandler = vi.fn();
+    const cleanupOlder = setOnAuthFailure(olderHandler);
+    setOnAuthFailure(newerHandler);
+    cleanupOlder();
+    fetchMock.mockImplementation(async (input) =>
+      String(input) === "/api/auth/refresh"
+        ? jsonResponse(401, { detail: "No session" })
+        : jsonResponse(401, { detail: "Expired" }),
+    );
+
+    await apiFetch("/api/animals").catch(() => undefined);
+
+    expect(olderHandler).not.toHaveBeenCalled();
+    expect(newerHandler).toHaveBeenCalledTimes(1);
   });
 });

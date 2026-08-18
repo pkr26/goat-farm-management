@@ -51,4 +51,13 @@ describe("useIsMobile", () => {
     });
     expect(screen.getByLabelText("viewport mode")).toHaveTextContent("mobile");
   });
+
+  it("removes its media-query listener when the consumer unmounts", () => {
+    const view = render(<Probe />);
+    expect(listeners.size).toBe(1);
+
+    view.unmount();
+
+    expect(listeners.size).toBe(0);
+  });
 });

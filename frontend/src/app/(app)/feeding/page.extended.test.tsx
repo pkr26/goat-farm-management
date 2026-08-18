@@ -841,4 +841,80 @@ describe("FeedingPage kg/head override dialog", () => {
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(1.8);
   });
+
+  it("preserves an open ration draft across a background plan refresh", async () => {
+    let currentKg = 1;
+    let planCalls = 0;
+    server.use(
+      http.get("/api/feeding/plan", () => {
+        planCalls += 1;
+        return HttpResponse.json({
+          lines: [{ ...LINE_BREEDING, kg_per_head: currentKg, daily_kg: currentKg * 20 }],
+          records: [],
+          records_total: 0,
+          records_limit: 200,
+          dispensed_totals: [],
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(<FeedingPage />);
+    await screen.findByText("Lactating 60/40");
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    let dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByLabelText(/kg per head per day/);
+    await user.clear(input);
+    await user.type(input, "1.8");
+
+    // Another write/operator changes the server value while this operator is
+    // still editing. The refetch should update the next-open baseline, not
+    // call reset() over the live draft.
+    currentKg = 2.2;
+    await queryClient.invalidateQueries({ queryKey: ["/api/feeding/plan"] });
+    await waitFor(() => expect(planCalls).toBeGreaterThan(1));
+    await waitFor(() => expect(planRow()).toHaveTextContent("2.2"));
+    expect(input).toHaveValue(1.8);
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(2.2);
+  });
+
+  it("does not reopen a ration editor while its dismissed save is pending", async () => {
+    let settingsCalls = 0;
+    let releaseSetting: (() => void) | undefined;
+    const parked = new Promise<void>((resolve) => {
+      releaseSetting = resolve;
+    });
+    server.use(
+      http.post("/api/feeding/settings", async () => {
+        settingsCalls += 1;
+        await parked;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByLabelText(/kg per head per day/);
+    await user.clear(input);
+    await user.type(input, "1.8");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(settingsCalls).toBe(1));
+    expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const trigger = screen.getByRole("button", { name: "Edit" });
+    expect(trigger).toBeDisabled();
+    await user.click(trigger);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseSetting?.();
+    await waitFor(() => expect(trigger).toBeEnabled());
+    expect(settingsCalls).toBe(1);
+  });
 });

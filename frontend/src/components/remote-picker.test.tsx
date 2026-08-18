@@ -142,6 +142,30 @@ describe("RemotePicker", () => {
     expect(queries).toEqual(["", "G-0012"]);
   });
 
+  it("does not load another page for the old term while a search is settling", async () => {
+    const user = userEvent.setup();
+    const requests: Array<{ query: string; offset: number }> = [];
+    const loadPage = vi.fn(async ({ query, offset }: RemotePickerLoadArgs) => {
+      requests.push({ query, offset });
+      return query
+        ? { options: [], total: 0, nextOffset: 0 }
+        : { options: [], total: 100, nextOffset: 50 };
+    });
+    const Harness = renderPicker({ loadPage });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    const dialog = screen.getByRole("dialog", { name: "Choose an animal" });
+    expect(await within(dialog).findByRole("button", { name: "Load more" })).toBeEnabled();
+
+    await user.type(within(dialog).getByLabelText("Search animals"), "Nila");
+
+    expect(within(dialog).queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    await waitFor(() => expect(requests).toContainEqual({ query: "Nila", offset: 0 }));
+    expect(requests).not.toContainEqual({ query: "", offset: 50 });
+  });
+
   it("trims searches and resets both the input and request when closed", async () => {
     const user = userEvent.setup();
     const queries: string[] = [];
@@ -234,6 +258,25 @@ describe("RemotePicker", () => {
     release?.();
     expect(await screen.findByRole("option", { name: /G-0001 · Nila/ })).toBeInTheDocument();
     expect(listbox).not.toHaveAttribute("aria-busy");
+  });
+
+  it("aborts an in-flight page when the picker closes", async () => {
+    const user = userEvent.setup();
+    let requestSignal: AbortSignal | undefined;
+    const Harness = renderPicker({
+      loadPage: ({ signal }) => {
+        requestSignal = signal;
+        return new Promise<RemotePickerPage>(() => undefined);
+      },
+    });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    await waitFor(() => expect(requestSignal).toBeDefined());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(requestSignal?.aborted).toBe(true);
   });
 
   it("shows an exhausted empty state and lets the user retry an initial error", async () => {

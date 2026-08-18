@@ -861,5 +861,28 @@ describe("KiddingPage", () => {
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("Record kidding")).toBeInTheDocument();
     });
+
+    it("opens a different deep-linked pregnancy after the first link was dismissed", async () => {
+      const secondPregnancy = makeBreeding({
+        id: 13,
+        doe_tag: "G-013",
+        expected_kidding_date: daysFromToday(12),
+      });
+      payload.upcoming = [UPCOMING_REC, secondPregnancy];
+      payload.upcoming_total = 2;
+      navState.search = "?breeding_id=12";
+      const view = renderWithProviders(<KiddingPage />);
+      const firstDialog = await screen.findByRole("dialog", { name: "Record kidding" });
+      await userEvent
+        .setup()
+        .click(within(firstDialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      navState.search = "?breeding_id=13";
+      view.rerender(<KiddingPage />);
+
+      const nextDialog = await screen.findByRole("dialog", { name: "Record kidding" });
+      expect(within(nextDialog).getByText(/Doe G-013 · due/)).toBeInTheDocument();
+    });
   });
 });

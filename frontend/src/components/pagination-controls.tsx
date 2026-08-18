@@ -10,12 +10,16 @@ export function PaginationControls({
   offset,
   onOffsetChange,
   label = "records",
+  disabled = false,
 }: {
   total: number;
   limit: number;
   offset: number;
   onOffsetChange: (offset: number) => void;
   label?: string;
+  /** Keep placeholder rows from dispatching another page transition while
+   * the page they describe is no longer the one being requested. */
+  disabled?: boolean;
 }) {
   if (total <= 0) return null;
   const last = Math.min(offset + limit, total);
@@ -27,6 +31,7 @@ export function PaginationControls({
   return (
     <nav
       aria-label={`${label} pagination`}
+      aria-busy={disabled || undefined}
       className="flex flex-wrap items-center justify-between gap-3 pt-3"
     >
       <p className="text-sm text-muted-foreground" aria-live="polite">
@@ -37,7 +42,7 @@ export function PaginationControls({
           type="button"
           variant="outline"
           size="sm"
-          disabled={offset === 0}
+          disabled={disabled || offset === 0}
           onClick={() => onOffsetChange(Math.max(0, offset - limit))}
         >
           Previous
@@ -46,7 +51,7 @@ export function PaginationControls({
           type="button"
           variant="outline"
           size="sm"
-          disabled={offset + limit >= total}
+          disabled={disabled || offset + limit >= total}
           onClick={() => onOffsetChange(offset + limit)}
         >
           Next

@@ -64,6 +64,7 @@ import {
 } from "@/lib/persisted-numbers";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 const ALL = "ALL";
 const PAGE_SIZE = 50;
@@ -302,6 +303,7 @@ function CreateAnimalDialog({
 }) {
   const [open, setOpen] = useState(startOpen);
   const createMut = useCreateAnimalApiAnimalsPost();
+  const createFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -341,51 +343,56 @@ function CreateAnimalDialog({
   }, [isOwner, setValue, source]);
 
   async function onSubmit(values: CreateValues) {
-    try {
-      await createMut.mutateAsync({
-        data: {
-          tag_number: values.tag_number?.trim() || undefined,
-          name: emptyToNull(values.name),
-          sex: values.sex,
-          source: values.source,
-          current_bucket:
-            values.source === AnimalCreateInSource.PURCHASED
-              ? AnimalCreateInCurrentBucket.QUARANTINE
-              : (values.current_bucket as AnimalCreateInCurrentBucket),
-          breed: values.breed || "Osmanabadi",
-          date_of_birth: emptyToNull(values.date_of_birth),
-          estimated_dob: emptyToNull(values.estimated_dob),
-          birth_type: (values.birth_type || null) as AnimalCreateInBirthType,
-          birth_weight: values.birth_weight ?? null,
-          purchase_date: emptyToNull(values.purchase_date),
-          purchase_price: values.purchase_price ?? null,
-          seller_name: emptyToNull(values.seller_name),
-          weight_kg: values.weight_kg ?? null,
-          weight_date: emptyToNull(values.weight_date),
-          notes: emptyToNull(values.notes),
-          historical_import_reason:
-            values.source === AnimalCreateInSource.BORN
-              ? values.historical_import_reason?.trim() || null
-              : null,
-        },
-      });
-      toast.success("Animal added.");
-      reset();
-      setOpen(false);
-      onCreated();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
-    }
+    await createFlight.run(async () => {
+      try {
+        await createMut.mutateAsync({
+          data: {
+            tag_number: values.tag_number?.trim() || undefined,
+            name: emptyToNull(values.name),
+            sex: values.sex,
+            source: values.source,
+            current_bucket:
+              values.source === AnimalCreateInSource.PURCHASED
+                ? AnimalCreateInCurrentBucket.QUARANTINE
+                : (values.current_bucket as AnimalCreateInCurrentBucket),
+            breed: values.breed || "Osmanabadi",
+            date_of_birth: emptyToNull(values.date_of_birth),
+            estimated_dob: emptyToNull(values.estimated_dob),
+            birth_type: (values.birth_type || null) as AnimalCreateInBirthType,
+            birth_weight: values.birth_weight ?? null,
+            purchase_date: emptyToNull(values.purchase_date),
+            purchase_price: values.purchase_price ?? null,
+            seller_name: emptyToNull(values.seller_name),
+            weight_kg: values.weight_kg ?? null,
+            weight_date: emptyToNull(values.weight_date),
+            notes: emptyToNull(values.notes),
+            historical_import_reason:
+              values.source === AnimalCreateInSource.BORN
+                ? values.historical_import_reason?.trim() || null
+                : null,
+          },
+        });
+        toast.success("Animal added.");
+        reset();
+        setOpen(false);
+        onCreated();
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
+      }
+    });
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button onClick={() => setOpen(true)}>Add animal</Button>
+      <Button disabled={createFlight.pending} onClick={() => setOpen(true)}>
+        Add animal
+      </Button>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Add animal</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
+          <fieldset disabled={isSubmitting || createFlight.pending} className="contents">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="tag_number">Tag number</Label>
@@ -646,10 +653,11 @@ function CreateAnimalDialog({
           </div>
 
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Saving…" : "Save animal"}
+            <Button type="submit" disabled={isSubmitting || createFlight.pending}>
+              {isSubmitting || createFlight.pending ? "Saving…" : "Save animal"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -774,9 +782,18 @@ function AnimalsPageContent() {
   // i.e. before CreateAnimalDialog is ever mounted, so reading the live
   // params at render time loses the /animals/new deep link on a cold load.
   const [openFromUrl] = useState(() => searchParams.get("new") === "1");
+  const newParamStripPending = useRef(false);
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
-    if (params.get("new") !== "1") return;
+    if (params.get("new") !== "1") {
+      newParamStripPending.current = false;
+      return;
+    }
+    // Strict Mode replays mount effects. A second identical replacement can
+    // never produce a distinct params commit, so its pending-navigation entry
+    // would otherwise survive forever and misclassify a later history visit.
+    if (newParamStripPending.current) return;
+    newParamStripPending.current = true;
     params.delete("new");
     const rest = params.toString();
     replaceListUrl(rest ? `${pathname}?${rest}` : pathname);

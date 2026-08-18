@@ -1,5 +1,5 @@
 import { renderToString } from "react-dom/server";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -46,5 +46,15 @@ describe("ThemeToggle", () => {
     expect(button.querySelector(".lucide-sun")).toBeInTheDocument();
     await user.click(button);
     expect(theme.setTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("composes rapid toggles before the provider publishes its update", () => {
+    render(<ThemeToggle />);
+    const button = screen.getByRole("button", { name: "Switch to dark theme" });
+
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(theme.setTheme.mock.calls).toEqual([["dark"], ["light"]]);
   });
 });

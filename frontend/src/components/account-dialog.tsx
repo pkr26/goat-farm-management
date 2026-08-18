@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, KeyRound, Trash2 } from "lucide-react";
-import { useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -34,18 +34,20 @@ const passwordSchema = z
   });
 
 type PasswordValues = z.infer<typeof passwordSchema>;
+type AccountAction = "export" | "password" | "delete";
 
 export function AccountDialog({ name, email }: { name: string | null; email: string }) {
   const { signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [activeAction, setActiveAction] = useState<AccountAction | null>(null);
+  const activeActionRef = useRef<AccountAction | null>(null);
   const dialogEpoch = useRef(0);
+  const mounted = useRef(true);
   const mutation = useChangePasswordApiAuthChangePasswordPost();
   const {
     register,
@@ -56,6 +58,33 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     resolver: zodResolver(passwordSchema),
     defaultValues: { current_password: "", new_password: "", confirm_password: "" },
   });
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // The dialog can disappear with the surrounding shell without close()
+      // running. Invalidate late failures so they never target a dead
+      // component lifecycle.
+      dialogEpoch.current += 1;
+    };
+  }, []);
+
+  function beginAction(action: AccountAction) {
+    // Disabled buttons update on the next render. The ref is the synchronous
+    // lock that also covers two events delivered in the same React batch and
+    // prevents different account operations from racing each other.
+    if (activeActionRef.current !== null) return false;
+    activeActionRef.current = action;
+    setActiveAction(action);
+    return true;
+  }
+
+  function finishAction(action: AccountAction) {
+    if (activeActionRef.current !== action) return;
+    activeActionRef.current = null;
+    if (mounted.current) setActiveAction(null);
+  }
 
   function close() {
     // Async actions may settle after the user closes the dialog. Advance the
@@ -72,8 +101,8 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   }
 
   async function downloadExport() {
+    if (!beginAction("export")) return;
     const operationEpoch = dialogEpoch.current;
-    setExporting(true);
     setExportError(null);
     try {
       const payload = await apiFetch<unknown>("/api/auth/account/export");
@@ -99,14 +128,13 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         );
       }
     } finally {
-      setExporting(false);
+      finishAction("export");
     }
   }
 
   async function deleteAccount() {
-    if (!deletePassword) return;
+    if (!deletePassword || !beginAction("delete")) return;
     const operationEpoch = dialogEpoch.current;
-    setDeleting(true);
     setDeleteError(null);
     try {
       await apiFetch<void>("/api/auth/account", {
@@ -124,7 +152,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         );
       }
     } finally {
-      setDeleting(false);
+      finishAction("delete");
     }
   }
 
@@ -155,7 +183,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         if (outcome.kind === "rejected") {
           // The server answered: the rotated cookie will not produce a token.
           toast.success("Password changed. Sign in again to continue.");
-          close();
+          if (operationEpoch === dialogEpoch.current && mounted.current) close();
           await signOut();
           return;
         }
@@ -166,17 +194,28 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           // that is unrecoverable. Keep the installed token; the ordinary
           // 401 → refresh retry self-heals once the network is back.
           toast.success("Password changed. Reconnecting to your session…");
-          close();
+          if (operationEpoch === dialogEpoch.current && mounted.current) close();
           return;
         }
       }
       toast.success("Password changed. Other signed-in sessions were revoked.");
-      close();
+      if (operationEpoch === dialogEpoch.current && mounted.current) close();
     } catch (error) {
       if (operationEpoch === dialogEpoch.current) {
         setServerError(error instanceof ApiError ? error.detail : "Could not change the password.");
       }
     }
+  }
+
+  function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!beginAction("password")) return;
+    const submission = handleSubmit(onSubmit)(event);
+    const release = () => finishAction("password");
+    // A detached finally() creates a second rejected promise if validation or
+    // an unexpected handler path throws. Two-branch settlement releases the
+    // lock without publishing an unhandled rejection.
+    void submission.then(release, release);
   }
 
   return (
@@ -209,23 +248,19 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             type="button"
             variant="outline"
             onClick={() => void downloadExport()}
-            disabled={exporting}
+            disabled={activeAction !== null}
           >
             <Download aria-hidden />
-            {exporting ? "Preparing…" : "Download my data"}
+            {activeAction === "export" ? "Preparing…" : "Download my data"}
           </Button>
         </section>
         <form
-          onSubmit={(event) => {
-            // Construct react-hook-form's submit handler at event time. The
-            // callback reads the dialog lifecycle ref, which must never be
-            // evaluated during render.
-            void handleSubmit(onSubmit)(event);
-          }}
+          onSubmit={submitPassword}
           className="space-y-4"
           aria-labelledby="change-password-heading"
           noValidate
         >
+          <fieldset disabled={activeAction !== null || isSubmitting} className="space-y-4">
           <h3 id="change-password-heading" className="text-sm font-medium">
             Change password
           </h3>
@@ -286,10 +321,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             Changing your password signs out every other device and keeps this one active.
           </p>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Changing…" : "Change password"}
+            <Button type="submit" disabled={activeAction !== null || isSubmitting}>
+              {activeAction === "password" || isSubmitting ? "Changing…" : "Change password"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
         <section
           className="space-y-3 rounded-lg border border-destructive/40 p-3"
@@ -308,6 +344,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Button
               type="button"
               variant="destructive"
+              disabled={activeAction !== null}
               onClick={() => setDeleteMode(true)}
             >
               <Trash2 aria-hidden />
@@ -329,6 +366,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                 <Input
                   id="account-delete-password"
                   type="password"
+                  disabled={activeAction !== null}
                   autoComplete="current-password"
                   value={deletePassword}
                   onChange={(event) => setDeletePassword(event.target.value)}
@@ -338,15 +376,15 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                 <Button
                   type="button"
                   variant="destructive"
-                  disabled={!deletePassword || deleting}
+                  disabled={!deletePassword || activeAction !== null}
                   onClick={() => void deleteAccount()}
                 >
-                  {deleting ? "Deleting…" : "Delete account and access"}
+                  {activeAction === "delete" ? "Deleting…" : "Delete account and access"}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={deleting}
+                  disabled={activeAction === "delete"}
                   onClick={() => {
                     setDeleteMode(false);
                     setDeletePassword("");

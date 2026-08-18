@@ -344,6 +344,7 @@ export async function runIdempotencyProtectedRequest<T>({
   actorScope,
   execute,
   cloneResult,
+  assertRequestScope,
 }: {
   url: string;
   init: RequestInit;
@@ -352,7 +353,13 @@ export async function runIdempotencyProtectedRequest<T>({
   actorScope: string | null;
   execute: (init: RequestInit) => Promise<T>;
   cloneResult?: (result: T) => T;
+  /** Re-check external ownership after asynchronous preparation. A logout can
+   * clear the registry while SHA-256 is still pending; without this fence the
+   * stale continuation could recreate the previous actor's durable retry key
+   * after teardown had completed. */
+  assertRequestScope?: () => void;
 }): Promise<T> {
+  assertRequestScope?.();
   if (!isIdempotencyProtectedMutation(url, init.method)) return execute(init);
 
   const headers = new Headers(init.headers);
@@ -367,6 +374,9 @@ export async function runIdempotencyProtectedRequest<T>({
     !callerProvidedKey && actorScope && allowsPersistedRecovery(url)
       ? await sha256(persistentSignature(url, init, farmScope, actorScope))
       : null;
+  // sha256() is the only yield before the registry and sessionStorage writes.
+  // Ownership may have changed while Web Crypto was working.
+  assertRequestScope?.();
   const now = Date.now();
   cleanup(now);
 

@@ -94,8 +94,13 @@ export function setCurrentFarmId(farmId: string | null): void {
   currentFarmId = farmId;
 }
 
-export function setOnAuthFailure(handler: (() => void) | null): void {
+export function setOnAuthFailure(handler: (() => void) | null): () => void {
   onAuthFailure = handler;
+  // Providers can briefly overlap during a root replacement. The older
+  // provider's cleanup must not erase the newer provider's handler.
+  return () => {
+    if (onAuthFailure === handler) onAuthFailure = null;
+  };
 }
 
 /** A /api/auth/refresh that never settles (black-holed network, captive-portal
@@ -240,14 +245,17 @@ function refreshSessionOutcome(): Promise<RefreshOutcome> {
     refreshPromise = performCoordinatedRefresh(expectedEpoch, expectedActorScope);
     refreshPromiseEpoch = expectedEpoch;
     const settled = refreshPromise;
-    void settled.finally(() => {
+    const release = () => {
       setTimeout(() => {
         if (refreshPromise === settled) {
           refreshPromise = null;
           refreshPromiseEpoch = null;
         }
       }, 0);
-    });
+    };
+    // Unlike an ignored finally() chain, the two-branch handler cannot mint a
+    // second rejected promise if an unexpected lock implementation rejects.
+    void settled.then(release, release);
   }
   return refreshPromise;
 }
@@ -431,7 +439,7 @@ async function apiResponseOnce(
     sessionScope,
   );
   assertAuthSession(sessionScope);
-  let clearedSession = false;
+  let responseSessionScope = sessionScope;
   const requestPath = path.split("?", 1)[0];
   const authRoute =
     requestPath.length > 1 && requestPath.endsWith("/")
@@ -449,8 +457,11 @@ async function apiResponseOnce(
     } else if (outcome.kind === "rejected") {
       // The server answered: this session is over.
       setAccessToken(null);
+      // The request is allowed to report its original 401 after performing
+      // its own teardown, but not after a subsequent login has installed a
+      // different actor while that error body is still streaming.
+      responseSessionScope = authSessionEpoch;
       onAuthFailure?.();
-      clearedSession = true;
     }
     // "unavailable": we never reached the server, so the still-installed token
     // and the httpOnly refresh cookie stay put and the caller sees the
@@ -465,10 +476,10 @@ async function apiResponseOnce(
     } catch {
       /* non-JSON error body */
     }
-    // A failed refresh deliberately ended this request's own session; retain
-    // the original 401 in that one case. All other delayed error bodies must
-    // not cross an unrelated logout/login boundary either.
-    if (!clearedSession) assertAuthSession(sessionScope);
+    // A failed refresh deliberately ended this request's own session, so its
+    // post-clear epoch is the valid boundary for the original 401. A newer
+    // login during delayed body parsing still supersedes it.
+    assertAuthSession(responseSessionScope);
     throw new ApiError(resp.status, extractDetail(body, resp.statusText));
   }
   // Fully consume and validate protected successful JSON bodies before their
@@ -499,6 +510,7 @@ async function apiResponse(path: string, init: RequestInit = {}): Promise<Respon
     actorScope,
     execute: (preparedInit) =>
       apiResponseOnce(path, preparedInit, farmScope, sessionScope, protectedMutation),
+    assertRequestScope: () => assertAuthSession(sessionScope),
     // The registry owns the untouched canonical response. Every concurrent
     // consumer gets an independent body stream.
     cloneResult: (response) => response.clone(),

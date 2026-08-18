@@ -297,10 +297,78 @@ describe("RegisterPage", () => {
 
       const button = screen.getByRole("button", { name: /creating account…/i });
       expect(button).toBeDisabled();
+      expect(screen.getByLabelText(/name/i)).toBeDisabled();
+      expect(screen.getByLabelText(/email/i)).toBeDisabled();
+      expect(screen.getByLabelText(/password/i)).toBeDisabled();
       expect(pushMock).not.toHaveBeenCalled();
 
       resolveRegister();
       await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
+    });
+
+    it("coalesces same-tick form submissions into one registration request", async () => {
+      let registerCalls = 0;
+      let releaseRegister!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseRegister = resolve;
+      });
+      server.use(
+        http.post("/api/auth/register", async () => {
+          registerCalls += 1;
+          await gate;
+          return HttpResponse.json({
+            access_token: "register-token",
+            user: { id: 9, email: "new@goatfarm.in", name: null },
+          });
+        }),
+        http.get("/api/auth/farms", () => HttpResponse.json([])),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<RegisterPage />);
+      await fillValid(user);
+
+      const form = screen
+        .getByRole("button", { name: /create account/i })
+        .closest("form")!;
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      await waitFor(() => expect(registerCalls).toBeGreaterThan(0));
+      releaseRegister();
+
+      await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
+      expect(registerCalls).toBe(1);
+    });
+
+    it("does not establish or navigate a registration page that unmounted", async () => {
+      let releaseRegister!: () => void;
+      let registerStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        registerStarted = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        releaseRegister = resolve;
+      });
+      server.use(
+        http.post("/api/auth/register", async () => {
+          registerStarted();
+          await gate;
+          return HttpResponse.json({
+            access_token: "stale-register-token",
+            user: { id: 9, email: "new@goatfarm.in", name: null },
+          });
+        }),
+      );
+      const user = userEvent.setup();
+      const rendered = renderWithProviders(<RegisterPage />);
+      await fillValid(user);
+      await user.click(screen.getByRole("button", { name: /create account/i }));
+      await started;
+
+      rendered.unmount();
+      releaseRegister();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(pushMock).not.toHaveBeenCalled();
     });
   });
 

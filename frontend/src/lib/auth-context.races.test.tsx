@@ -21,9 +21,10 @@
 // bootstrap is always the epoch loser, because performRefresh installs its
 // token directly without bumping the epoch.
 
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
@@ -49,6 +50,7 @@ function Probe() {
     <div>
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="user">{auth.user ? auth.user.email : "none"}</span>
+      <span data-testid="farms">{auth.farms.map((farm) => farm.id).join(",")}</span>
       <button
         onClick={() =>
           void auth
@@ -62,8 +64,25 @@ function Probe() {
       >
         sign-in
       </button>
+      <button onClick={() => void auth.refreshFarms()}>refresh-farms</button>
+      <button onClick={() => void auth.signOut()}>sign-out</button>
     </div>
   );
+}
+
+function ActionCapture({
+  capture,
+}: {
+  capture: (actions: {
+    refreshFarms: () => Promise<void>;
+    signOut: () => Promise<void>;
+  }) => void;
+}) {
+  const { refreshFarms, signOut } = useAuth();
+  useEffect(() => {
+    capture({ refreshFarms, signOut });
+  }, [capture, refreshFarms, signOut]);
+  return null;
 }
 
 /** Parks the FIRST /api/auth/farms call (the bootstrap's) until released, and
@@ -141,5 +160,195 @@ describe("AuthProvider bootstrap racing a sign-in", () => {
 
     expect(screen.getByTestId("user")).toHaveTextContent("worker@goatfarm.test");
     expect(screen.getByTestId("loading")).toHaveTextContent("false");
+  });
+});
+
+describe("AuthProvider stale async completions", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("keeps the newest farm refresh when an older response arrives last", async () => {
+    renderWithProviders(<Probe />);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        calls += 1;
+        if (calls === 1) {
+          await firstGate;
+          return HttpResponse.json([
+            {
+              id: 2,
+              name: "Older membership snapshot",
+              location: null,
+              timezone: "Asia/Kolkata",
+              role: null,
+            },
+          ]);
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "Newest membership snapshot",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+
+    const refresh = screen.getByRole("button", { name: "refresh-farms" });
+    fireEvent.click(refresh);
+    fireEvent.click(refresh);
+    await waitFor(() => expect(screen.getByTestId("farms")).toHaveTextContent("3"));
+
+    await act(async () => {
+      releaseFirst();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+
+  it("suppresses an older refresh error after a newer refresh succeeds", async () => {
+    let actions:
+      | { refreshFarms: () => Promise<void>; signOut: () => Promise<void> }
+      | undefined;
+    renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        calls += 1;
+        if (calls === 1) {
+          await firstGate;
+          return HttpResponse.error();
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "Newest membership snapshot",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+
+    let older!: Promise<void>;
+    await act(async () => {
+      older = actions!.refreshFarms();
+      await actions!.refreshFarms();
+    });
+    await waitFor(() => expect(screen.getByTestId("farms")).toHaveTextContent("3"));
+    await act(async () => {
+      releaseFirst();
+      await expect(older).resolves.toBeUndefined();
+    });
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+
+  it("does not let an unmounted bootstrap clear a later tree's query cache", async () => {
+    let releaseFarms!: () => void;
+    let farmsStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      farmsStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseFarms = resolve;
+    });
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        farmsStarted();
+        await gate;
+        return HttpResponse.json(TEST_FARMS);
+      }),
+    );
+
+    const rendered = renderWithProviders(<Probe />);
+    await started;
+    rendered.unmount();
+    rendered.queryClient.setQueryData(["new-tree-data"], { safe: true });
+
+    await act(async () => {
+      releaseFarms();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(rendered.queryClient.getQueryData(["new-tree-data"])).toEqual({
+      safe: true,
+    });
+  });
+
+  it("coalesces same-tick logout requests into one revocation", async () => {
+    let logoutCalls = 0;
+    server.use(
+      http.post("/api/auth/logout", () => {
+        logoutCalls += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderWithProviders(<Probe />);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    const signOut = screen.getByRole("button", { name: "sign-out" });
+    fireEvent.click(signOut);
+    fireEvent.click(signOut);
+
+    await waitFor(() => expect(logoutCalls).toBe(1));
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores stale auth actions invoked after their provider unmounted", async () => {
+    let actions:
+      | { refreshFarms: () => Promise<void>; signOut: () => Promise<void> }
+      | undefined;
+    const rendered = renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(actions).toBeDefined();
+    rendered.unmount();
+
+    let staleRequests = 0;
+    server.use(
+      http.get("/api/auth/farms", () => {
+        staleRequests += 1;
+        return HttpResponse.json(TEST_FARMS);
+      }),
+      http.post("/api/auth/logout", () => {
+        staleRequests += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    replaceMock.mockClear();
+
+    await actions!.refreshFarms();
+    await actions!.signOut();
+
+    expect(staleRequests).toBe(0);
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });

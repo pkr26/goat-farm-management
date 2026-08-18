@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { HeartPulse, PawPrint, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { TokenOut } from "@/api/generated/models";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 const registerSchema = z.object({
   name: z.string().max(120).optional(),
@@ -59,32 +60,47 @@ export default function RegisterPage() {
   const router = useRouter();
   const { signIn } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const submission = useSingleFlight();
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<RegisterValues>({ resolver: zodResolver(registerSchema) });
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   async function onSubmit(values: RegisterValues) {
-    setServerError(null);
-    try {
-      const body = await apiFetch<TokenOut>(
-        "/api/auth/register",
-        {
-          method: "POST",
-          body: JSON.stringify({ ...values, name: values.name?.trim() || null }),
-        },
-      );
-      await signIn(body.access_token, body.user);
-      router.push("/farm-select");
-    } catch (err) {
-      // Surface the server's own message for every API error (400 duplicate
-      // email, 429 rate limit, 422 password policy, 5xx) — only a network
-      // failure gets the fallback.
-      setServerError(
-        err instanceof ApiError ? err.detail : "Could not register — is the backend running?",
-      );
-    }
+    await submission.run(async () => {
+      setServerError(null);
+      try {
+        const body = await apiFetch<TokenOut>(
+          "/api/auth/register",
+          {
+            method: "POST",
+            body: JSON.stringify({ ...values, name: values.name?.trim() || null }),
+          },
+        );
+        if (!mounted.current) return;
+        await signIn(body.access_token, body.user);
+        if (mounted.current) router.push("/farm-select");
+      } catch (err) {
+        if (!mounted.current) return;
+        // Surface the server's own message for every API error (400 duplicate
+        // email, 429 rate limit, 422 password policy, 5xx) — only a network
+        // failure gets the fallback.
+        setServerError(
+          err instanceof ApiError
+            ? err.detail
+            : "Could not register — is the backend running?",
+        );
+      }
+    });
   }
 
   return (
@@ -136,7 +152,14 @@ export default function RegisterPage() {
               <CardDescription>Start managing your herd in minutes</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+              <form
+                onSubmit={(event) => void handleSubmit(onSubmit)(event)}
+                noValidate
+              >
+                <fieldset
+                  disabled={isSubmitting || submission.pending}
+                  className="min-w-0 space-y-4"
+                >
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name (optional)</Label>
                   <Input
@@ -192,9 +215,16 @@ export default function RegisterPage() {
                     {serverError}
                   </p>
                 )}
-                <Button type="submit" className="w-full" disabled={isSubmitting}>
-                  {isSubmitting ? "Creating account…" : "Create account"}
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={isSubmitting || submission.pending}
+                >
+                  {isSubmitting || submission.pending
+                    ? "Creating account…"
+                    : "Create account"}
                 </Button>
+                </fieldset>
               </form>
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Already have an account?{" "}

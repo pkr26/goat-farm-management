@@ -420,7 +420,11 @@ function AddWorkerDialog({
           allows. This form creates a new worker account; an email that is already registered
           cannot be enrolled here.
         </p>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <fieldset
+            disabled={isSubmitting || createFlight.pending}
+            className="space-y-4"
+          >
           {formError && (
             <p role="alert" className="text-sm text-destructive">
               {formError}
@@ -521,6 +525,7 @@ function AddWorkerDialog({
                   : "Add worker"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -573,7 +578,11 @@ function ResetPasswordDialog({
         <DialogHeader>
           <DialogTitle>Reset password — {membership.name ?? membership.email}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <fieldset
+            disabled={isSubmitting || resetFlight.pending}
+            className="space-y-4"
+          >
           {formError && (
             <p role="alert" className="text-sm text-destructive">
               {formError}
@@ -606,6 +615,7 @@ function ResetPasswordDialog({
                   : "Reset password"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -693,9 +703,10 @@ function RoleDialog({
       } catch (err) {
         // A 409 means another admin already changed this role, so the
         // `expected_revision` closed over here is stale. Without refreshing
-        // the cache the offered "Retry save role" replays the same stale
-        // revision and is guaranteed to 409 again, forever. `invalidate()`
-        // sits inside the success path above, which a 409 never reaches.
+        // the cache a retry replays the same stale revision and is guaranteed
+        // to 409 forever. The parent keys this dialog by the refreshed
+        // revision, so invalidation remounts a truthful editor instead of
+        // preserving stale permissions and overwriting the other admin.
         if (err instanceof ApiError && err.status === 409) invalidate();
         const message = mutationError(err);
         setFormError(message);
@@ -713,7 +724,11 @@ function RoleDialog({
         <DialogHeader>
           <DialogTitle>{role ? `Edit role: ${role.name}` : "New role"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
+          <fieldset
+            disabled={isSubmitting || saveFlight.pending}
+            className="space-y-4"
+          >
           {formError && (
             <p role="alert" className="text-sm text-destructive">
               {formError}
@@ -839,6 +854,7 @@ function RoleDialog({
                     : "Create role"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -1005,6 +1021,13 @@ export default function TeamPage() {
   const assignableRoles = payload.roles.filter(
     (role) => roleWithinCeiling(role, can, isOwner),
   );
+  // The dialog state records which role was opened, while the query payload
+  // owns its current revision. A 409 invalidation must therefore remount the
+  // editor from the refreshed role instead of retrying the stale revision (or
+  // preserving stale permissions and overwriting a concurrent admin).
+  const currentDialogRole = roleDialog?.role
+    ? payload.roles.find((role) => role.id === roleDialog.role?.id)
+    : null;
   function isProtectedTarget(membership: MembershipOut): boolean {
     if (isOwner) return false;
     const role = payload!.roles.find((candidate) => candidate.id === membership.role_id);
@@ -1114,10 +1137,14 @@ export default function TeamPage() {
           onClose={() => setResetTarget(null)}
         />
       )}
-      {roleDialog && (
+      {roleDialog && (roleDialog.role === null || currentDialogRole) && (
         <RoleDialog
-          key={roleDialog.role?.id ?? "new"}
-          role={roleDialog.role}
+          key={
+            currentDialogRole
+              ? `${currentDialogRole.id}:${currentDialogRole.revision}`
+              : "new"
+          }
+          role={currentDialogRole ?? null}
           team={payload}
           can={can}
           isOwner={isOwner}

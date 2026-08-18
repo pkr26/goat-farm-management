@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { useSingleFlight } from "./use-single-flight";
@@ -73,6 +74,43 @@ describe("useSingleFlight", () => {
     expect(result.current.pending).toBe(false);
     await act(async () => {
       await expect(result.current.run(async () => "retried")).resolves.toBe("retried");
+    });
+    expect(result.current.pending).toBe(false);
+  });
+
+  it("settles safely after unmount without trying to publish pending state", async () => {
+    const gate = deferred<string>();
+    const { result, unmount } = renderHook(() => useSingleFlight());
+    let request!: Promise<string | undefined>;
+
+    act(() => {
+      request = result.current.run(() => gate.promise);
+    });
+    expect(result.current.pending).toBe(true);
+    unmount();
+
+    gate.resolve("saved");
+    await expect(request).resolves.toBe("saved");
+  });
+
+  it("ignores a stale run callback invoked after its component unmounted", async () => {
+    const action = vi.fn(async () => "must-not-run");
+    const { result, unmount } = renderHook(() => useSingleFlight());
+    const staleRun = result.current.run;
+
+    unmount();
+
+    await expect(staleRun(action)).resolves.toBeUndefined();
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it("remains mounted after Strict Mode's effect cleanup rehearsal", async () => {
+    const { result } = renderHook(() => useSingleFlight(), {
+      wrapper: StrictMode,
+    });
+
+    await act(async () => {
+      await expect(result.current.run(async () => "saved")).resolves.toBe("saved");
     });
     expect(result.current.pending).toBe(false);
   });

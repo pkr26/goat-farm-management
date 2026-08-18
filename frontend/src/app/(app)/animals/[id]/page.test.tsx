@@ -1081,6 +1081,40 @@ describe("AnimalProfilePage", () => {
       await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Something went wrong"));
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
+
+    it("does not reopen the weight form while its dismissed write is pending", async () => {
+      let releaseWeight: (() => void) | undefined;
+      const parked = new Promise<void>((resolve) => {
+        releaseWeight = resolve;
+      });
+      server.use(
+        http.post("/api/animals/1/weight", async ({ request }) => {
+          weightBodies.push((await request.json()) as Record<string, unknown>);
+          await parked;
+          return HttpResponse.json(
+            { id: 99, date: "2026-08-06", weight_kg: 31, bcs: null, notes: null },
+            { status: 201 },
+          );
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record weight");
+      setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "31");
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(weightBodies).toHaveLength(1));
+      expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      const trigger = screen.getByRole("button", { name: "Record weight" });
+      expect(trigger).toBeDisabled();
+      await user.click(trigger);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+      releaseWeight?.();
+      await waitFor(() => expect(trigger).toBeEnabled());
+    });
   });
 
   describe("move bucket dialog", () => {
@@ -1177,6 +1211,37 @@ describe("AnimalProfilePage", () => {
         expect(toastMock.error).toHaveBeenCalledWith("Animal must complete quarantine first"),
       );
       expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("does not reopen the move form while its dismissed write is pending", async () => {
+      let releaseMove: (() => void) | undefined;
+      const parked = new Promise<void>((resolve) => {
+        releaseMove = resolve;
+      });
+      server.use(
+        http.post("/api/animals/1/move", async ({ request }) => {
+          moveBodies.push((await request.json()) as Record<string, unknown>);
+          await parked;
+          return HttpResponse.json({}, { status: 201 });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Move bucket");
+      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await user.click(within(dialog).getByRole("button", { name: "Move" }));
+      await waitFor(() => expect(moveBodies).toHaveLength(1));
+      expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      const trigger = screen.getByRole("button", { name: "Move bucket" });
+      expect(trigger).toBeDisabled();
+      await user.click(trigger);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+      releaseMove?.();
+      await waitFor(() => expect(trigger).toBeEnabled());
     });
   });
 
@@ -1456,6 +1521,36 @@ describe("AnimalProfilePage", () => {
         expect(toastMock.error).toHaveBeenCalledWith("Sale price is required for SOLD"),
       );
       expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("does not reopen the status form while its dismissed write is pending", async () => {
+      let releaseStatus: (() => void) | undefined;
+      const parked = new Promise<void>((resolve) => {
+        releaseStatus = resolve;
+      });
+      server.use(
+        http.post("/api/animals/1/status", async ({ request }) => {
+          statusBodies.push((await request.json()) as Record<string, unknown>);
+          await parked;
+          return HttpResponse.json({}, { status: 201 });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      const trigger = screen.getByRole("button", { name: "Change status" });
+      expect(trigger).toBeDisabled();
+      await user.click(trigger);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+      releaseStatus?.();
+      await waitFor(() => expect(trigger).toBeEnabled());
     });
   });
 });

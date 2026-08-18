@@ -147,6 +147,7 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
   const mut = useAddStockApiFeedingInventoryItemIdAddPost();
+  const addFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -155,30 +156,37 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
   } = useForm<AddStockInput, unknown, AddStockValues>({ resolver: zodResolver(addStockSchema) });
 
   async function onSubmit(values: AddStockValues) {
-    try {
-      const res = await mut.mutateAsync({
-        itemId: item.id,
-        data: { qty_kg: values.qty_kg, price_per_kg: values.price_per_kg ?? null },
-      });
-      // The API quantizes qty_kg to 3 dp (ROUND_HALF_UP) before it touches the
-      // balance, so confirming the typed value would put a quantity that was
-      // never stored in writing. Report the balance the server came back with.
-      toast.success(
-        res.status === 200
-          ? `Stock added — ${item.ingredient} is now at ${formatPersistedKg(res.data.qty_on_hand)} kg.`
-          : `Stock added — ${item.ingredient}.`,
-      );
-      invalidateFarmData(queryClient);
-      reset();
-      setOpen(false);
-    } catch (err) {
-      toast.error(mutationError(err));
-    }
+    await addFlight.run(async () => {
+      try {
+        const res = await mut.mutateAsync({
+          itemId: item.id,
+          data: { qty_kg: values.qty_kg, price_per_kg: values.price_per_kg ?? null },
+        });
+        // The API quantizes qty_kg to 3 dp (ROUND_HALF_UP) before it touches the
+        // balance, so confirming the typed value would put a quantity that was
+        // never stored in writing. Report the balance the server came back with.
+        toast.success(
+          res.status === 200
+            ? `Stock added — ${item.ingredient} is now at ${formatPersistedKg(res.data.qty_on_hand)} kg.`
+            : `Stock added — ${item.ingredient}.`,
+        );
+        invalidateFarmData(queryClient);
+        reset();
+        setOpen(false);
+      } catch (err) {
+        toast.error(mutationError(err));
+      }
+    });
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={addFlight.pending}
+        onClick={() => setOpen(true)}
+      >
         Add stock
       </Button>
       <DialogContent className="sm:max-w-sm">
@@ -189,6 +197,7 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
           Adding stock with a price books a FEED expense automatically.
         </p>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <fieldset disabled={isSubmitting || addFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor={`qty-${item.id}`}>Quantity (kg) *</Label>
             <Input
@@ -214,10 +223,11 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Adding…" : "Add"}
+            <Button type="submit" disabled={isSubmitting || addFlight.pending}>
+              {isSubmitting || addFlight.pending ? "Adding…" : "Add"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>
@@ -322,6 +332,7 @@ function MixBatchDialog() {
           </p>
         )}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          <fieldset disabled={isSubmitting || mixFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="mix-recipe">Recipe</Label>
             {recipesQuery.isLoading && (
@@ -383,6 +394,7 @@ function MixBatchDialog() {
               {isSubmitting || mixFlight.pending ? "Mixing…" : "Mix batch"}
             </Button>
           </DialogFooter>
+          </fieldset>
         </form>
       </DialogContent>
     </Dialog>

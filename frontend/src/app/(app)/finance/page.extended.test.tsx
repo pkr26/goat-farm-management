@@ -580,6 +580,57 @@ describe("FinancePage correction dialog", () => {
     await waitFor(() => expect(correctionCalls).toBe(1));
   });
 
+  it("does not let an older correction completion close a newer correction dialog", async () => {
+    let financeCalls = 0;
+    let releaseCorrection: (() => void) | undefined;
+    const parked = new Promise<void>((resolve) => {
+      releaseCorrection = resolve;
+    });
+    server.use(
+      http.get("/api/finance", () => {
+        financeCalls += 1;
+        return HttpResponse.json(PAYLOAD);
+      }),
+      http.post("/api/finance/transactions/1/correct", async ({ request }) => {
+        correctionCalls += 1;
+        correctionBody = (await request.json()) as Record<string, unknown>;
+        await parked;
+        return HttpResponse.json(
+          { ...TXN_INCOME, id: 3, correction_of_id: 1, amount: 145000 },
+          { status: 201 },
+        );
+      }),
+    );
+    const { user, dialog } = await openCorrection();
+    await confirmCorrection(user, dialog);
+    await user.type(within(dialog).getByLabelText("Correction reason *"), "Correct receipt");
+    await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
+    await waitFor(() => expect(correctionCalls).toBe(1));
+    expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+    // Dismissal intentionally does not cancel the durable write.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    let expenseRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
+    let nextCorrection = within(expenseRow).getByRole("button", { name: "Correct" });
+    expect(nextCorrection).toBeDisabled();
+    await user.click(nextCorrection);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseCorrection?.();
+    await waitFor(() => expect(financeCalls).toBeGreaterThan(1));
+    expenseRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
+    nextCorrection = within(expenseRow).getByRole("button", { name: "Correct" });
+    await waitFor(() => expect(nextCorrection).toBeEnabled());
+    await user.click(nextCorrection);
+    // The completed transaction #1 continuation no longer has any live work
+    // that can clear transaction #2.
+    expect(
+      await screen.findByRole("dialog", { name: "Correct transaction #2" }),
+    ).toBeInTheDocument();
+  });
+
   it("rejects a correction amount above the ₹1,000,000,000 cap", async () => {
     const { user, dialog } = await openCorrection();
     await confirmCorrection(user, dialog);
