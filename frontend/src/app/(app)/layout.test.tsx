@@ -139,7 +139,7 @@ describe("AppLayout — header", () => {
 
     await user.click(screen.getByRole("button", { name: "Logout" }));
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
     expect(logoutCalls).toBe(1);
     expect(localStorage.getItem("goatfarm.farmId")).toBeNull();
   });
@@ -153,7 +153,7 @@ describe("AppLayout — header", () => {
 
     await user.click(screen.getByRole("button", { name: "Logout" }));
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("validates password confirmation before submitting", async () => {
@@ -318,7 +318,7 @@ describe("AppLayout — header", () => {
     expect(toastMock.success).toHaveBeenCalledWith(
       "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",
     );
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 });
 
@@ -503,5 +503,37 @@ describe("AppLayout — loading and no-farm states", () => {
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
+  });
+  it("closes the mobile nav drawer after following a nav link", async () => {
+    // Below the breakpoint the sidebar is a modal Sheet with a backdrop and a
+    // body scroll lock; the (app) layout does not unmount on an intra-group
+    // navigation, so the drawer has to be closed explicitly.
+    const user = userEvent.setup();
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    try {
+      renderWithProviders(<AppLayout>{null}</AppLayout>);
+      await screen.findByText("Test Goat Farm");
+
+      await user.click(screen.getByRole("button", { name: /toggle sidebar/i }));
+      const drawer = await screen.findByRole("dialog");
+
+      await user.click(within(drawer).getByRole("link", { name: "Animals" }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+      );
+    } finally {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }));
+    }
   });
 });

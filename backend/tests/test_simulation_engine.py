@@ -1819,10 +1819,14 @@ def test_sale_event_young_stock_booked_as_meat() -> None:
     s_grower = 1.0 - monthly_mortality_rate(0.04)
     assert m2.m_growers - m2_base.m_growers == pytest.approx(-5.0 * s_grower, abs=1e-6)
     assert m2.total_herd - m2_base.total_herd == pytest.approx(-5.0 * s_grower, abs=1e-6)
-    # Young-stock disposals are meat sales: 5 x 10.5 kg x ₹350/kg = ₹18,375.
+    # Young-stock disposals are meat sales, priced at the weight of the animals
+    # actually drawn. These weaners were PLACED mid-class (age 4, 10.5 kg) but
+    # the event fires in month 2, by which time the pool has aged into the
+    # age-5 slot (12.5 kg): 5 x 12.5 kg x ₹350/kg = ₹21,875. Pricing every draw
+    # at the fixed placement age understated this by 16%.
     assert m2_base.sales_head == 0.0
     assert m2.sales_head == pytest.approx(5.0)
-    assert m2.sales_revenue == pytest.approx(5.0 * 10.5 * 350.0)
+    assert m2.sales_revenue == pytest.approx(5.0 * 12.5 * 350.0)
     assert m2.culls_head == pytest.approx(m2_base.culls_head, abs=1e-9)
     assert m2.cull_revenue == pytest.approx(m2_base.cull_revenue, abs=1e-9)
 
@@ -1886,8 +1890,11 @@ def test_event_purchase_cost_reaches_annual_pl_and_lowers_npv() -> None:
 
 def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     # Month 12 is before the first organic meat sale (month 13), so the event
-    # sale is the only year-1 meat-revenue delta: 3 x 20.5 kg x ₹350/kg
-    # (20.5 kg is the age-9 mid-class slot the engine stocks growers in).
+    # sale is the only year-1 meat-revenue delta. The draw is priced at the
+    # grower pool's WEIGHT-WEIGHTED AVERAGE, not a fixed mid-class age: _draw
+    # takes head proportionally from every age slot, and by month 12 the chain
+    # holds promoted animals rather than the mid-class placement the foundation
+    # stock started at. 18.5035 kg is that pool average.
     event = HerdEventAssumptions(month=12, kind="sale", animal_class="male_grower", count=3)
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24), events=[event])
     res = run_simulation(a, with_break_even=False)
@@ -1896,7 +1903,7 @@ def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     )
     assert res.months[11].sales_head - base.months[11].sales_head == pytest.approx(3.0)
     assert res.annual_pl[0].meat_revenue - base.annual_pl[0].meat_revenue == pytest.approx(
-        3.0 * 20.5 * 350.0
+        3.0 * 18.5035 * 350.0, rel=1e-4
     )
 
 

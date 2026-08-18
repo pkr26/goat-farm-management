@@ -21,6 +21,7 @@ view), complementing the golden unit tests in test_simulation_engine.py:
 """
 
 import math
+import re
 from itertools import pairwise
 
 import httpx
@@ -33,13 +34,15 @@ from app.simulation import (
     MonthlyRow,
     SimulationAssumptions,
     amortization_schedule,
+    finance,
     npv,
     run_monte_carlo,
     run_sensitivity,
     run_simulation,
 )
 from app.simulation.assumptions import MAX_MONEY, FinanceAssumptions, HerdEventAssumptions
-from app.simulation.engine import _ceil_head_ratio
+from app.simulation.defaults import get_preset
+from app.simulation.engine import _ceil_head_ratio, _pool_avg_weight, weight_at_age
 from app.simulation.montecarlo import _DRAW_ORDER, _apply_draws
 
 from .conftest import owner_with_farm
@@ -1171,3 +1174,154 @@ async def test_api_accepts_afb_at_boundary_of_min_doe_age(client: httpx.AsyncCli
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )
     assert resp.status_code == 200, resp.text
+
+
+class TestIrrRootIsolationRouting:
+    """The exact-Decimal isolation must be reserved for whole-period series.
+
+    ``Decimal.__pow__`` is exact integer exponentiation for an integral
+    exponent but correctly-rounded exp/ln for a fractional one — ~70x dearer
+    per term at 96 digits. Routing on term count alone sent the *shortest*
+    legal horizons (13-24 monthly terms) into the expensive branch and every
+    longer one into the cheap scan, so horizon 23 cost 2.5s against horizon
+    24's 0.06s while the API priced requests as proportional to the horizon.
+    """
+
+    @staticmethod
+    def _monthly_terms(count: int) -> list[tuple[float, float]]:
+        flows = [-500_000.0] + [(-1.0) ** index * 40_000.0 for index in range(count - 1)]
+        return [(index / 12.0, flow) for index, flow in enumerate(flows)]
+
+    def test_monthly_series_never_enters_the_decimal_isolation(self) -> None:
+        terms = self._monthly_terms(24)
+        normalised = finance._normalise_power_terms(terms)
+        assert finance._sign_variations(normalised) > 1, "must reach the multi-root branch"
+        assert not finance._has_integral_exponents(normalised)
+
+        calls = 0
+        original = finance._decimal_power_sum
+
+        def counting(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return original(*args, **kwargs)
+
+        finance._decimal_power_sum = counting  # type: ignore[assignment]
+        try:
+            roots = finance._positive_power_roots(normalised, 1.0 / 11.0, 1.0 / 0.01)
+        finally:
+            finance._decimal_power_sum = original  # type: ignore[assignment]
+
+        assert calls == 0, "a sub-annual series must not pay for 96-digit Decimal work"
+        # ...and the cheap path still finds what the exact one did.
+        assert roots == finance._scanned_power_roots(normalised, 1.0 / 11.0, 1.0 / 0.01)
+
+    def test_annual_series_keeps_exact_isolation_and_its_multiple_roots(self) -> None:
+        # The series irr()'s docstring documents: three genuine crossings, so
+        # irr() must report None rather than pick one.
+        flows = [
+            -954_244.0,
+            -390_293.0,
+            -528_292.0,
+            1_930_642.0,
+            1_572_511.0,
+            -238_266.0,
+            -51_854.0,
+            -865_625.0,
+            94_536.0,
+        ]
+        times = [float(index) for index in range(len(flows))]
+        normalised = finance._normalise_power_terms(
+            [(time, flow) for flow, time in zip(flows, times, strict=True)]
+        )
+        assert finance._has_integral_exponents(normalised)
+
+        roots = finance.irr_roots(flows, times)
+        assert len(roots) == 3
+        assert roots == pytest.approx([-0.8916, -0.2645, 0.1633], abs=1e-3)
+        assert finance.irr(flows, times) is None
+
+    def test_short_and_long_horizons_agree_across_the_old_routing_boundary(self) -> None:
+        # The 24-term cap used to split these two; their IRRs must stay on the
+        # same smooth curve.
+        results = {}
+        for horizon in (22, 23, 24, 25):
+            assumptions = get_preset("osmanabadi", "stall_fed").model_copy(deep=True)
+            assumptions.meta.horizon_months = horizon
+            results[horizon] = run_simulation(assumptions, with_break_even=False).metrics.irr
+        assert all(value is not None for value in results.values())
+        for shorter, longer in pairwise(sorted(results)):
+            assert results[shorter] < results[longer], "IRR must rise monotonically with horizon"
+
+
+class TestScheduledSaleUsesRealPoolWeight:
+    """Young-stock event sales are priced at live weight, per the module docstring.
+
+    ``_draw`` removes head proportionally across every age slot, so the draw's
+    mean weight IS the pool's mean weight. Pricing it at one hard-coded
+    mid-class age was only correct for freshly placed stock; a pool filled by
+    promotions can sit anywhere in its class, and a grower chain spans up to 24
+    monthly slots.
+    """
+
+    def test_pool_average_tracks_the_actual_age_distribution(self) -> None:
+        assumptions = get_preset("osmanabadi", "stall_fed")
+        growth = assumptions.growth
+        doe_weight = growth.adult_weight_doe_kg
+        first_breeding = assumptions.reproduction.age_at_first_breeding_months
+        slots = first_breeding - 6
+        mid_age = (6 + first_breeding - 1) // 2
+
+        # Every head parked in the OLDEST slot must price above the mid age...
+        oldest = [0.0] * slots
+        oldest[-1] = 10.0
+        assert _pool_avg_weight(oldest, 6, growth, doe_weight, mid_age) == pytest.approx(
+            weight_at_age(6 + slots - 1, growth, doe_weight)
+        )
+
+        # ...and in the youngest slot, below it.
+        youngest = [0.0] * slots
+        youngest[0] = 10.0
+        assert _pool_avg_weight(youngest, 6, growth, doe_weight, mid_age) == pytest.approx(
+            weight_at_age(6, growth, doe_weight)
+        )
+
+        # A uniform pool is exactly the mean of its slot weights.
+        uniform = [1.0] * slots
+        expected = sum(weight_at_age(6 + i, growth, doe_weight) for i in range(slots)) / slots
+        assert _pool_avg_weight(uniform, 6, growth, doe_weight, mid_age) == pytest.approx(expected)
+
+        # An empty pool has no composition; keep the placement age.
+        assert _pool_avg_weight([0.0] * slots, 6, growth, doe_weight, mid_age) == pytest.approx(
+            weight_at_age(mid_age, growth, doe_weight)
+        )
+
+    def test_event_sale_price_follows_the_pool_it_draws_from(self) -> None:
+        """End to end: the event's own quoted price moves with the pool's age mix.
+
+        The monthly row mixes routine sale-age sales into sales_revenue, so
+        the event's contribution is read from the note it logs.
+        """
+
+        def event_price(sale_month: int) -> float:
+            assumptions = get_preset("osmanabadi", "stall_fed").model_copy(deep=True)
+            assumptions.meta.horizon_months = 36
+            # Hold the meat price flat so composition is the only variable.
+            assumptions.sales.annual_livestock_price_growth_rate = 0.0
+            assumptions.events = [
+                HerdEventAssumptions(
+                    month=sale_month, kind="sale", animal_class="male_grower", count=5
+                )
+            ]
+            result = run_simulation(assumptions, with_break_even=False)
+            note = result.months[sale_month - 1].events[0]
+            match = re.search(r"₹([\d,]+)/head", note)
+            assert match, note
+            return float(match.group(1).replace(",", ""))
+
+        # Month 9's grower chain still holds the young foundation cohort;
+        # by month 21 it has filled out with older promoted animals. Pricing
+        # every draw at one fixed mid-class age made these identical.
+        early = event_price(9)
+        mature = event_price(21)
+        assert mature > early * 1.05, f"per-head {mature} should clearly exceed {early}"

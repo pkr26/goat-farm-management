@@ -2978,3 +2978,59 @@ async def test_template_abbreviation_is_an_accepted_disease_target(
     assert row_by_name(
         await get_schedule(client, headers, animal["id"]), "Haemorrhagic Septicaemia (HS)"
     )["last_done"] == iso(today())
+
+
+async def test_schedule_templates_lists_the_only_names_events_accept(
+    client: httpx.AsyncClient,
+) -> None:
+    """The recording form needs the seeded names to be discoverable.
+
+    ``validated_template`` accepts only an exact ``vaccine_templates.name`` for
+    a VACCINE/DEWORMING event, and a ``next_due_date`` requires a schedule
+    name — so without this endpoint the field was free text whose every value
+    422'd unless the operator already knew one of the seeded programme names.
+    """
+    headers = await owner_with_farm(client)
+    listing = await client.get("/api/health/schedule-templates", headers=headers)
+    assert listing.status_code == 200, listing.text
+    templates = listing.json()["templates"]
+    assert templates, "seeded reference data must be exposed"
+    names = [item["name"] for item in templates]
+    assert names == sorted(names), "stable, ordered list"
+    assert "Deworming" in names
+    by_name = {item["name"]: item for item in templates}
+    assert by_name["Deworming"]["event_type"] == "DEWORMING"
+    assert all(
+        item["event_type"] == "VACCINE" for name, item in by_name.items() if name != "Deworming"
+    )
+
+    # Every advertised name must actually be accepted by the write path.
+    animal = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "TPL-1",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "BREEDING",
+        },
+        headers=headers,
+    )
+    assert animal.status_code == 201, animal.text
+    animal_id = animal.json()["id"]
+
+    vaccine = next(item for item in templates if item["event_type"] == "VACCINE")
+    recorded = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": animal_id,
+            "type": "VACCINE",
+            "product_name": "Programme dose",
+            "date": today().isoformat(),
+            "next_due_date": (today() + timedelta(days=365)).isoformat(),
+            "schedule_template_name": vaccine["name"],
+            "next_due_authority": "Farm veterinarian",
+        },
+        headers=headers,
+    )
+    assert recorded.status_code in (200, 201), recorded.text

@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..models.constants import HISTORY_OVERRIDE_REASON_PREFIX
 from .common import (
     MAX_FREE_TEXT_LENGTH,
     NonNegativeMoneyFloat,
@@ -178,6 +179,20 @@ class MoveIn(StrictInputModel):
     def _history_override_requires_reason(self) -> "MoveIn":
         if self.history_override and not (self.reason or "").strip():
             raise ValueError("A history override requires a reason")
+        # move_bucket prepends HISTORY_OVERRIDE_REASON_PREFIX itself, and four
+        # domain predicates read it back as proof that a RECOVERY departure was
+        # an owner-authorised backdating rather than a real one (orphan-wean
+        # provenance, the dam-retirement sweep, weaning dependants, and
+        # replan_dam_after_last_kid_death). Any holder of animals.move could
+        # otherwise author the marker by hand and hide a genuine departure from
+        # all four. Reserve the sentinel at the boundary.
+        if (
+            (self.reason or "")
+            .lstrip()
+            .upper()
+            .startswith(HISTORY_OVERRIDE_REASON_PREFIX.strip().upper())
+        ):
+            raise ValueError("reason must not begin with the reserved history-override marker")
         return self
 
 

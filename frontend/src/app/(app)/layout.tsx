@@ -43,6 +43,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
@@ -117,6 +118,80 @@ function isActiveRoute(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** The sidebar lives in its own component so it can consume `useSidebar()`,
+ * which is only available *below* the SidebarProvider that the shell creates.
+ * Below the mobile breakpoint the sidebar is a modal Sheet with a backdrop and
+ * a body scroll lock; a client-side nav does not unmount the provider, so
+ * without an explicit close the drawer stays over the page it just opened. */
+function AppSidebar({
+  groups,
+  pathname,
+  landingHref,
+  landingLabel,
+  permsError,
+}: {
+  groups: { label: string; items: NavItem[] }[];
+  pathname: string;
+  landingHref: string | null;
+  landingLabel: string;
+  permsError: boolean;
+}) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const closeOnMobile = () => {
+    if (isMobile) setOpenMobile(false);
+  };
+
+  return (
+    <Sidebar>
+      <SidebarHeader className="p-4">
+        {landingHref ? (
+          <Link
+            href={landingHref}
+            aria-label={`GoatFarm — go to ${landingLabel}`}
+            onClick={closeOnMobile}
+          >
+            <Logo />
+          </Link>
+        ) : (
+          <div aria-label="GoatFarm">
+            <Logo />
+          </div>
+        )}
+      </SidebarHeader>
+      <SidebarContent>
+        {/* A failed permissions call must not look like "no access" (7-6). */}
+        {permsError && (
+          <p className="px-4 py-2 text-sm text-destructive">
+            Could not load your permissions — refresh the page to try again.
+          </p>
+        )}
+        {groups.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      render={<Link href={item.href} />}
+                      isActive={isActiveRoute(pathname, item.href)}
+                      tooltip={item.label}
+                      onClick={closeOnMobile}
+                    >
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
+      </SidebarContent>
+    </Sidebar>
+  );
+}
+
 function AppLayoutContent({ children }: { children: ReactNode }) {
   const { user, farms, farmId, loading, signOut } = useAuth();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
@@ -153,51 +228,13 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider>
-      <Sidebar>
-        <SidebarHeader className="p-4">
-          {landingHref ? (
-            <Link
-              href={landingHref}
-              aria-label={`GoatFarm — go to ${landingItem?.label ?? "access status"}`}
-            >
-              <Logo />
-            </Link>
-          ) : (
-            <div aria-label="GoatFarm">
-              <Logo />
-            </div>
-          )}
-        </SidebarHeader>
-        <SidebarContent>
-          {/* A failed permissions call must not look like "no access" (7-6). */}
-          {permsError && (
-            <p className="px-4 py-2 text-sm text-destructive">
-              Could not load your permissions — refresh the page to try again.
-            </p>
-          )}
-          {visibleGroups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.items.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        render={<Link href={item.href} />}
-                        isActive={isActiveRoute(pathname, item.href)}
-                        tooltip={item.label}
-                      >
-                        <item.icon />
-                        <span>{item.label}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
-        </SidebarContent>
-      </Sidebar>
+      <AppSidebar
+        groups={visibleGroups}
+        pathname={pathname}
+        landingHref={landingHref}
+        landingLabel={landingItem?.label ?? "access status"}
+        permsError={permsError}
+      />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
           <SidebarTrigger />

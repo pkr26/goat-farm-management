@@ -99,6 +99,17 @@ def _postgres_text(value: str) -> str:
     allowed = "\t\n\r"
     if any(char < " " and char not in allowed for char in value):
         raise ValueError("cannot contain control characters")
+    # A lone UTF-16 surrogate survives json.loads ('"\\ud800"' decodes to a
+    # real str) and clears the control-character rule, but str.encode("utf-8")
+    # — exactly what asyncpg's text codec calls on a bind parameter — raises
+    # UnicodeEncodeError. That is not a DBAPI error, so SQLAlchemy never wraps
+    # it and no router's `except IntegrityError` sees it: it reached the
+    # catch-all handler as the opaque 500 this validator exists to prevent.
+    # Encodability is the property actually being promised, so test it.
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("cannot contain unpaired surrogate characters") from None
     return value
 
 

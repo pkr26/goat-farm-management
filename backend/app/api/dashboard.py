@@ -286,9 +286,18 @@ async def dashboard(
     if can_view_breeding:
         kiddings_due, kiddings_due_total = await _kidding_due_preview(db, farm.id, now)
         cull_candidates, cull_candidates_total = await _cull_preview(db, farm.id)
-    suggestions, suggestions_total = await ready_to_move_suggestions(
-        db, farm, limit=DASHBOARD_PREVIEW_LIMIT, include_breeding=can_view_breeding
-    )
+    # Every suggestion carries the animal's tag and name, and the sell reason
+    # embeds its exact latest weight ("25.0 mo, 25.0 kg — market ready") —
+    # the same weight/identity pair `recent_weights` withholds two blocks
+    # below. Acting on a suggestion needs animals.move, which depends on
+    # animals.view (permissions.PERMISSION_DEPENDENCIES), so a caller without
+    # it could never use these rows anyway.
+    suggestions: list[dict[str, object]] = []
+    suggestions_total = 0
+    if "animals.view" in perms:
+        suggestions, suggestions_total = await ready_to_move_suggestions(
+            db, farm, limit=DASHBOARD_PREVIEW_LIMIT, include_breeding=can_view_breeding
+        )
 
     # Weight records (weight/BCS plus the animal's identity) live behind
     # animals.view everywhere else — the animal list and profile refuse a
@@ -332,7 +341,20 @@ async def dashboard(
         ],
         total_active=total_active,
         sex_counts=sex_counts,
-        status_totals=status_totals,
+        # DEAD/CULLED are clinical outcomes, not inventory facts. `reports`
+        # already withholds exactly these from a caller without health.view;
+        # returning them here handed the same figures back through the other
+        # endpoint, so an aggregate view became a side door around field-level
+        # authorization. Apply the identical convention.
+        status_totals=(
+            status_totals
+            if can_view_health
+            else {
+                status: count
+                for status, count in status_totals.items()
+                if status not in _CLINICAL_OUTCOME_STATUSES
+            }
+        ),
         todays_tasks=[task_out(t) for t in todays_tasks],
         todays_tasks_total=todays_tasks_total,
         overdue_tasks=[task_out(t) for t in overdue_tasks],

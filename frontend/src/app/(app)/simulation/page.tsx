@@ -283,6 +283,9 @@ const FIELD_UNITS: Record<string, string> = {
   "feed.initial_fodder_stock_kg_dm": "kg DM",
   "feed.fodder_storage_capacity_kg_dm": "kg DM",
   "costs.planned_capacity_head": "head",
+  // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
+  // heuristic chain's trailing `ratio` test would otherwise caption it one.
+  "culling.buck_doe_ratio": "does per buck",
   "optimization.maximum_project_cost": "₹",
   "optimization.maximum_funding_gap": "₹",
   // Fractions and multipliers whose names also contain a money or duration
@@ -687,6 +690,28 @@ function NumberInput(props: NumberInputProps) {
     }
   }
 
+  // Bounds can come from live state (the herd-event Month field takes
+  // `max={horizonMonths}`), and validation otherwise ran only on keystroke —
+  // so a bound change stranded both the error text and this field's entry in
+  // the parent's `invalidFields` set, which gates Run and Save. Re-derive
+  // while rendering (React's documented pattern for state that depends on
+  // props) rather than in an effect.
+  const boundsKey = `${min}|${max}|${exclusiveMin}|${integer}|${nullable}`;
+  const [seenBounds, setSeenBounds] = useState(boundsKey);
+  if (boundsKey !== seenBounds) {
+    setSeenBounds(boundsKey);
+    setError(validate(draft ?? (value === null ? "" : String(value))).error ?? null);
+  }
+
+  // Keep the parent's invalidFields in step with `error`, however it changed.
+  const notifyValidity = useRef(onValidityChange);
+  useEffect(() => {
+    notifyValidity.current = onValidityChange;
+  });
+  useEffect(() => {
+    notifyValidity.current?.(!error);
+  }, [error]);
+
   return (
     <>
       <Input
@@ -733,14 +758,8 @@ function NumberArrayInput({
   const [error, setError] = useState<string | null>(null);
   const errorId = `${id}-error`;
 
-  function update(raw: string) {
-    setDraft(raw);
-    if (raw.trim() === "" && rule.allowEmpty) {
-      setError(null);
-      onValidityChange(true);
-      onCommit([]);
-      return;
-    }
+  function validate(raw: string): { parsed: number[]; message: string | null } {
+    if (raw.trim() === "" && rule.allowEmpty) return { parsed: [], message: null };
     const tokens = raw.split(",").map((token) => token.trim());
     let message: string | null = null;
     const parsed = tokens.map(Number);
@@ -768,11 +787,47 @@ function NumberArrayInput({
       parsed.some((n, index) => index > 0 && n < parsed[index - 1])
     )
       message = `${humanize(rule.itemLabel)} must not decrease.`;
+    return { parsed, message };
+  }
 
+  function update(raw: string) {
+    setDraft(raw);
+    const { parsed, message } = validate(raw);
     setError(message);
-    onValidityChange(!message);
     if (!message) onCommit(parsed);
   }
+
+  // Some bounds are derived from live state rather than constants — notably
+  // `max: horizonMonths` for sales.festival_sale_months. Validation otherwise
+  // ran only on keystroke, so raising the horizon left the old error rendered
+  // AND left this field in the parent's `invalidFields` set, which gates Run
+  // and Save; lowering it did the reverse, letting an out-of-range payload
+  // through. `rule` is rebuilt every render, so key on its primitive fields.
+  const boundsKey = [
+    rule.min,
+    rule.max,
+    rule.exclusiveMin,
+    rule.exactLength,
+    rule.maxLength,
+    rule.integer,
+    rule.unique,
+    rule.nondecreasing,
+    rule.allowEmpty,
+  ].join("|");
+  const [seenBounds, setSeenBounds] = useState(boundsKey);
+  if (boundsKey !== seenBounds) {
+    setSeenBounds(boundsKey);
+    setError(validate(draft ?? value.join(", ")).message);
+  }
+
+  // Keep the parent's invalidFields in step with `error`, however it changed.
+  const notifyValidity = useRef(onValidityChange);
+  useEffect(() => {
+    notifyValidity.current = onValidityChange;
+  });
+  useEffect(() => {
+    notifyValidity.current(!error);
+  }, [error]);
 
   return (
     <>

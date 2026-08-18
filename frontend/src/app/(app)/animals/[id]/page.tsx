@@ -412,11 +412,15 @@ const statusSchema = z
 type StatusInput = z.input<typeof statusSchema>;
 type StatusValues = z.output<typeof statusSchema>;
 
+/** Mirrors the API's SALE_CAPABLE_STATUSES: both statuses persist sale_price
+ * and post an ANIMAL_SALE transaction, so both must also render it. */
+const SALE_CAPABLE_STATUSES: readonly string[] = [
+  StatusChangeInNewStatus.SOLD,
+  StatusChangeInNewStatus.CULLED,
+];
+
 function statusCanRecordSale(status: StatusValues["new_status"]): boolean {
-  return (
-    status === StatusChangeInNewStatus.SOLD ||
-    status === StatusChangeInNewStatus.CULLED
-  );
+  return SALE_CAPABLE_STATUSES.includes(status);
 }
 
 function StatusDialog({
@@ -1056,7 +1060,7 @@ function ProfileBody({
             {!active && (
               <>
                 <Detail label="Status date">{formatDate(a.status_date)}</Detail>
-                {a.status === "SOLD" && (
+                {SALE_CAPABLE_STATUSES.includes(a.status) && (
                   <Detail label="Sale price">{formatMoney(a.sale_price)}</Detail>
                 )}
                 {a.status === "DEAD" && (
@@ -1066,7 +1070,9 @@ function ProfileBody({
                       {formatDate(a.mortality_reported_at)}
                     </Detail>
                     <Detail label="Scheduled disease suspected">
-                      {a.suspected_scheduled_disease ? "Yes" : "No"}
+                      {/* The API fails closed to `false` without health.view,
+                          so a bare "No" would assert a fact we were not told. */}
+                      {!canViewHealth ? "—" : a.suspected_scheduled_disease ? "Yes" : "No"}
                     </Detail>
                     {a.suspected_disease && (
                       <Detail label="Suspected disease">{a.suspected_disease}</Detail>

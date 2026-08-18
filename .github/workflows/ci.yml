@@ -53,6 +53,11 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --no-cache-dir uv==0.12.1
+          # --frozen installs uv.lock as-is and never compares it to
+          # pyproject.toml, so a dependency bump that was not re-locked would
+          # be silently dropped here and in the production image. --check fails
+          # the build instead.
+          uv lock --check
           uv sync --frozen --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
@@ -205,6 +210,11 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install --no-cache-dir uv==0.12.1
+          # --frozen installs uv.lock as-is and never compares it to
+          # pyproject.toml, so a dependency bump that was not re-locked would
+          # be silently dropped here and in the production image. --check fails
+          # the build instead.
+          uv lock --check
           uv sync --frozen --extra dev
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 

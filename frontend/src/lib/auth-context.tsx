@@ -157,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* cookie may already be gone */
     });
     clearSession();
-    router.push("/login");
+    router.replace("/login");
     await revoked;
   }, [router, clearSession]);
 
@@ -209,12 +209,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Login/register already rotated an httpOnly refresh cookie. Revoke
           // that server session before reporting failure; otherwise a reload
           // could silently sign in after this supposedly transactional step.
-          try {
-            await apiFetch("/api/auth/logout", { method: "POST" });
-          } catch {
+          // Fired while the bearer is still installed but never awaited, for
+          // the same reason as signOut: a black-holed connection would
+          // otherwise hang the login form forever with a live token.
+          void apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {
             // A network-wide outage can also block logout; local state is
             // still cleared and the refresh cookie remains httpOnly.
-          }
+          });
         }
         clearSession();
         throw error;
@@ -242,7 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (forcedLogout.current) return;
       forcedLogout.current = true;
       clearSession();
-      router.push("/login");
+      router.replace("/login");
     });
     return () => setOnAuthFailure(null);
   }, [clearSession, router]);
@@ -271,7 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!loading && !user && !PUBLIC_PATHS.includes(pathname)) {
-      router.push("/login");
+      router.replace("/login");
     }
   }, [loading, user, pathname, router]);
 

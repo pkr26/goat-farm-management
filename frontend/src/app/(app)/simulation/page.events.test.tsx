@@ -966,4 +966,29 @@ describe("SimulationPage advanced financial controls", () => {
     expect(screen.getByText("Annual uncertainty checkpoints")).toBeInTheDocument();
     expect(screen.getByText(/0.40 disease, 0.25 drought/)).toBeInTheDocument();
   });
+
+  it("re-validates horizon-bounded inputs when the horizon changes", async () => {
+    // A herd event's Month is bounded by meta.horizon_months, which is live
+    // state. Validation used to run only on keystroke, so a value that was out
+    // of range at the old horizon kept its error AND kept the field in the
+    // parent's invalidFields set — permanently disabling Run and Save even
+    // after the horizon grew past it.
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "5 yr" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    const month = screen.getByLabelText("Month");
+    await user.clear(month);
+    await user.type(month, "90");
+    expect(await screen.findByText("Must be at most 60.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    // Raising the horizon to 10 yr (120 months) makes month 90 legal again.
+    await user.click(screen.getByRole("button", { name: "10 yr" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Must be at most 60.")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
 });

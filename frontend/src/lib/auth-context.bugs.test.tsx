@@ -48,10 +48,13 @@ import { IDEMPOTENCY_SESSION_STORAGE_KEY } from "@/lib/idempotent-request";
 import { TEST_USER, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
-const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
+const { pushMock, replaceMock } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+  replaceMock: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => "/dashboard",
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
@@ -92,6 +95,7 @@ function Probe() {
 describe("AuthProvider bootstrap — refresh failure handling", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
   });
@@ -107,7 +111,7 @@ describe("AuthProvider bootstrap — refresh failure handling", () => {
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     // The redirect is a separate effect that fires the render AFTER loading
     // flips — an immediate assertion races it (flaky).
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("non-JSON 200 body during silent refresh still settles loading and redirects", async () => {
@@ -128,7 +132,7 @@ describe("AuthProvider bootstrap — refresh failure handling", () => {
       expect(screen.getByTestId("loading")).toHaveTextContent("false"),
     );
     expect(screen.getByTestId("user")).toHaveTextContent("none");
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("a farms failure after a valid refresh does not partially commit the user", async () => {
@@ -144,13 +148,14 @@ describe("AuthProvider bootstrap — refresh failure handling", () => {
       expect(screen.getByTestId("loading")).toHaveTextContent("false"),
     );
     expect(screen.getByTestId("user")).toHaveTextContent("none");
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 });
 
 describe("AuthProvider — query cache cleared on farm switch / sign-out", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
   });
@@ -268,6 +273,7 @@ describe("AuthProvider — query cache cleared on farm switch / sign-out", () =>
 describe("AccountDialog — password change keeps the session's in-flight requests alive", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
   });
@@ -351,6 +357,7 @@ describe("AccountDialog — password change keeps the session's in-flight reques
 describe("AuthProvider — establishSession must not tear down a newer session on a stale-request race", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     setAccessToken(null);
     setCurrentFarmId(null);
   });

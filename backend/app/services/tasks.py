@@ -2,6 +2,7 @@
 
 # MAX_RECUR_DAYS lives in models.py.
 
+from collections.abc import Sequence
 from datetime import date, timedelta
 from uuid import uuid4
 
@@ -123,6 +124,40 @@ async def _guard_quarantine_release(
     return animals
 
 
+async def _litter_has_surviving_kid(
+    db: AsyncSession, farm_id: int, kids: Sequence[KidEntry]
+) -> bool:
+    """Whether any kid of this litter is still in the herd.
+
+    ``KidEntry.status`` is an immutable birth fact — selling or culling a kid
+    never rewrites it — whereas ``replan_dam_after_last_kid_death`` decides the
+    dam's postpartum duty from *live* herd status. Judging survivorship from
+    the birth record here made the two disagree the moment a sibling left the
+    herd alive: the producer skipped weaning and scheduled a postpartum duty
+    that this guard could never accept, stranding the dam in RECOVERY with an
+    uncompletable task. Both sides must therefore ask the same question.
+    """
+    # A stillborn carries no Animal row; a pre-auto-creation ALIVE row may also
+    # have none, and its animal's fate is unknowable — fail closed there.
+    if any(kid.animal_id is None and kid.status == "ALIVE" for kid in kids):
+        return True
+    animal_ids = [kid.animal_id for kid in kids if kid.animal_id is not None]
+    if not animal_ids:
+        return False
+    survivor = (
+        await db.execute(
+            select(Animal.id)
+            .where(
+                Animal.farm_id == farm_id,
+                Animal.id.in_(animal_ids),
+                Animal.status == AnimalStatus.ACTIVE.value,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return survivor is not None
+
+
 async def _guard_generated_movement_task(
     db: AsyncSession,
     task: Task,
@@ -167,7 +202,7 @@ async def _guard_generated_movement_task(
         )
 
     if linked_animal.current_bucket == Bucket.RECOVERY.value:
-        if kidding is None or any(kid.status == "ALIVE" for kid in kids):
+        if kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids):
             raise ValueError("The postpartum movement duty has no eligible kidding record")
         mortality_dates = [
             kid.mortality_reported_at for kid in kids if kid.mortality_reported_at is not None
@@ -278,7 +313,9 @@ async def complete_task(
         movement_animal = linked_animal
         kidding, kids = await _guard_generated_movement_task(db, task, linked_animal)
         if linked_animal.current_bucket == Bucket.RECOVERY.value:
-            if kidding is None or any(kid.status == "ALIVE" for kid in kids):  # pragma: no cover
+            if kidding is None or await _litter_has_surviving_kid(
+                db, task.farm_id, kids
+            ):  # pragma: no cover
                 raise ValueError("Postpartum recovery duty is invalid while a kid survives")
             if error := bucket_transition_error(
                 linked_animal,

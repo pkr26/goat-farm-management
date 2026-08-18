@@ -26,6 +26,16 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
+/** Authorization header of the most recent protected request. */
+function lastAuthorizationHeader(mock: ReturnType<typeof vi.fn>): string | null {
+  for (let index = mock.mock.calls.length - 1; index >= 0; index -= 1) {
+    const [input, init] = mock.mock.calls[index] as [unknown, RequestInit | undefined];
+    if (String(input) === "/api/auth/refresh") continue;
+    return new Headers(init?.headers).get("Authorization");
+  }
+  return null;
+}
+
 function refreshPayload(accessToken: string, actorId = 1) {
   return {
     access_token: accessToken,
@@ -602,13 +612,60 @@ describe("apiFetch refresh-retry edge cases", () => {
     expect(onAuthFailure).not.toHaveBeenCalled();
   });
 
-  it("treats a network failure during refresh as an auth failure", async () => {
+  it("keeps the session when refresh cannot reach the server", async () => {
+    // A transport failure is not the server saying the session ended. Tearing
+    // down here logged the operator out of a session still valid for the rest
+    // of the refresh cookie's 14-day life — losing the query cache, the farm
+    // selection and any unsaved dialog state — on one dropped request.
     const onAuthFailure = vi.fn();
     setOnAuthFailure(onAuthFailure);
+    setAccessToken("live-token", 7);
 
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
       if (url === "/api/auth/refresh") throw new Error("network down");
+      return jsonResponse(401, { detail: "Expired" });
+    });
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(401);
+    expect(onAuthFailure).not.toHaveBeenCalled();
+    // The bearer is still installed: a later request once the network returns
+    // still authenticates, so no re-login is needed.
+    expect(lastAuthorizationHeader(fetchMock)).toBe("Bearer live-token");
+  });
+
+  it("keeps the session when refresh returns a 5xx", async () => {
+    // Same reasoning for a rolling backend deploy: 502/503 is "ask again",
+    // not "you are signed out".
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+    setAccessToken("live-token", 7);
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") return jsonResponse(503, { detail: "unavailable" });
+      return jsonResponse(401, { detail: "Expired" });
+    });
+
+    const err = await catchApiError(apiFetch("/api/animals"));
+
+    expect(err.status).toBe(401);
+    expect(onAuthFailure).not.toHaveBeenCalled();
+    expect(lastAuthorizationHeader(fetchMock)).toBe("Bearer live-token");
+  });
+
+  it("ends the session when refresh is authoritatively rejected", async () => {
+    // The other half of the contract: a 401 from /api/auth/refresh IS the
+    // server's answer, and must still sign the user out.
+    const onAuthFailure = vi.fn();
+    setOnAuthFailure(onAuthFailure);
+    setAccessToken("live-token", 7);
+
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/api/auth/refresh") return jsonResponse(401, { detail: "Revoked" });
       return jsonResponse(401, { detail: "Expired" });
     });
 

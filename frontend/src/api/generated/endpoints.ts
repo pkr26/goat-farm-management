@@ -110,6 +110,7 @@ import type {
   ScenarioOut,
   ScenarioUpdateIn,
   ScheduleOut,
+  ScheduleTemplateListOut,
   SimulationAssumptions,
   SimulationResult,
   StatusChangeIn,
@@ -3199,6 +3200,134 @@ export function useKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGet<TDat
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getKiddingPregnancyApiKiddingPregnanciesBreedingRecordIdGetQueryOptions(breedingRecordId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse200 = {
+  data: ScheduleTemplateListOut
+  status: 200
+}
+
+export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type scheduleTemplatesApiHealthScheduleTemplatesGetResponseSuccess = (scheduleTemplatesApiHealthScheduleTemplatesGetResponse200) & {
+  headers: Headers;
+};
+export type scheduleTemplatesApiHealthScheduleTemplatesGetResponseError = (scheduleTemplatesApiHealthScheduleTemplatesGetResponse422) & {
+  headers: Headers;
+};
+
+export type scheduleTemplatesApiHealthScheduleTemplatesGetResponse = (scheduleTemplatesApiHealthScheduleTemplatesGetResponseSuccess | scheduleTemplatesApiHealthScheduleTemplatesGetResponseError)
+
+export const getScheduleTemplatesApiHealthScheduleTemplatesGetUrl = () => {
+
+
+
+
+  return `/api/health/schedule-templates`
+}
+
+/**
+ * The seeded programme items a health event may cite.
+ *
+ * ``validated_template`` accepts ONLY an exact ``vaccine_templates.name`` for
+ * a VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name —
+ * so without this list the recording form was a free-text box whose every
+ * value 422s unless the operator already knew one of the seeded names.
+ * Fixed global reference data, identical for every farm; the farm dependency
+ * keeps it behind the same tenant auth as the rest of the module.
+ * @summary Schedule Templates
+ */
+export const scheduleTemplatesApiHealthScheduleTemplatesGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<scheduleTemplatesApiHealthScheduleTemplatesGetResponse> => {
+
+  return customInstance<scheduleTemplatesApiHealthScheduleTemplatesGetResponse>(getScheduleTemplatesApiHealthScheduleTemplatesGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getScheduleTemplatesApiHealthScheduleTemplatesGetQueryKey = () => {
+    return [
+    `/api/health/schedule-templates`
+    ] as const;
+    }
+
+
+export const getScheduleTemplatesApiHealthScheduleTemplatesGetQueryOptions = <TData = Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError = ErrorType<HTTPValidationError>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getScheduleTemplatesApiHealthScheduleTemplatesGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>> = ({ signal }) => scheduleTemplatesApiHealthScheduleTemplatesGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ScheduleTemplatesApiHealthScheduleTemplatesGetQueryResult = NonNullable<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>>
+export type ScheduleTemplatesApiHealthScheduleTemplatesGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useScheduleTemplatesApiHealthScheduleTemplatesGet<TData = Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError = ErrorType<HTTPValidationError>>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>,
+          TError,
+          Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useScheduleTemplatesApiHealthScheduleTemplatesGet<TData = Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>,
+          TError,
+          Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useScheduleTemplatesApiHealthScheduleTemplatesGet<TData = Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Schedule Templates
+ */
+
+export function useScheduleTemplatesApiHealthScheduleTemplatesGet<TData = Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError = ErrorType<HTTPValidationError>>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof scheduleTemplatesApiHealthScheduleTemplatesGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getScheduleTemplatesApiHealthScheduleTemplatesGetQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

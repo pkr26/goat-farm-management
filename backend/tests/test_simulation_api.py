@@ -32,7 +32,14 @@ from app.api.simulation import (
 )
 from app.core.config import get_settings
 from app.db import get_sessionmaker
-from app.models import BreedingRecord, FeedInventory, KiddingRecord, KidEntry, Transaction
+from app.models import (
+    Animal,
+    BreedingRecord,
+    FeedInventory,
+    KiddingRecord,
+    KidEntry,
+    Transaction,
+)
 from app.schemas.common import MAX_PAGE_OFFSET
 from app.simulation import SimulationAssumptions
 
@@ -1456,3 +1463,63 @@ async def test_adult_weight_below_yearling_curve_is_422(client: httpx.AsyncClien
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )
     assert resp.status_code == 422, resp.text
+
+
+async def test_farm_calibration_labour_is_a_per_labourer_wage_not_the_farm_total(
+    client: httpx.AsyncClient,
+) -> None:
+    """The engine charges ``labourers * costs.labour_per_month``, so calibration
+    must store a per-head-of-staff wage. Writing the farm's whole monthly bill
+    into that field made the engine re-multiply it by the labourer count — a
+    4x overstatement on a 300-head farm, invisible in fixtures small enough to
+    imply a single labourer."""
+    headers = await owner_with_farm(client)
+    farm_id = int(headers["X-Farm-Id"])
+
+    # Enough active head that the default threshold (75/labourer) implies > 1.
+    head_count = 160
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                Animal(
+                    farm_id=farm_id,
+                    tag_number=f"LAB-{index:04d}",
+                    sex="F",
+                    status="ACTIVE",
+                    source="PURCHASED",
+                    current_bucket="BREEDING",
+                    date_of_birth=date.today() - timedelta(days=800),
+                    purchase_date=date.today() - timedelta(days=400),
+                )
+                for index in range(head_count)
+            ]
+        )
+        db.add(
+            Transaction(
+                farm_id=farm_id,
+                date=date.today(),
+                type="EXPENSE",
+                category="LABOUR",
+                amount=Decimal("90000.00"),
+            )
+        )
+        await db.commit()
+
+    resp = await client.get(
+        "/api/simulation/calibration", params={"lookback_months": 6}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assumptions = body["assumptions"]
+
+    threshold = assumptions["costs"]["labour_per_head_threshold"]
+    labourers = max(1, math.ceil(head_count / threshold))
+    assert labourers > 1, "fixture must imply more than one labourer to be meaningful"
+
+    per_labourer = assumptions["costs"]["labour_per_month"]
+    # The round trip the engine performs must reproduce the farm's real bill.
+    assert per_labourer * labourers == pytest.approx(90_000.0)
+    assert per_labourer == pytest.approx(90_000.0 / labourers)
+
+    evidence = {item["path"]: item for item in body["evidence"]}
+    assert "labourer" in evidence["costs.labour_per_month"]["method"]

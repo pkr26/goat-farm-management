@@ -46,7 +46,7 @@ function parseRefreshSessionResult(body: unknown): RefreshSessionResult | null {
   return { access_token: candidate.access_token, user: user as UserOut };
 }
 
-let refreshPromise: Promise<RefreshSessionResult | null> | null = null;
+let refreshPromise: Promise<RefreshOutcome> | null = null;
 let refreshPromiseEpoch: number | null = null;
 
 function tokenActorScope(token: string | null): string | null {
@@ -107,11 +107,32 @@ export function setOnAuthFailure(handler: (() => void) | null): void {
 const REFRESH_REQUEST_TIMEOUT_MS = 10_000;
 const REFRESH_LOCK_WAIT_TIMEOUT_MS = 12_000;
 
+/** Why a refresh did not produce a session.
+ *
+ *  "rejected" is the server's authoritative answer — the refresh cookie is
+ *  expired, revoked, replayed, or describes a different actor — and is the
+ *  only outcome that may destroy local session state. "unavailable" means we
+ *  never got that answer (transport failure, timeout, 5xx during a rolling
+ *  deploy). Collapsing the two logged the operator out of a session the
+ *  server still considers valid for the rest of the refresh cookie's 14-day
+ *  life, discarding the query cache, the farm selection and any unsaved
+ *  dialog state — on one dropped request. */
+type RefreshOutcome =
+  | { kind: "session"; body: RefreshSessionResult }
+  | { kind: "rejected" }
+  | { kind: "unavailable" };
+
+/** 408/429 and 5xx are "the server could not answer right now", not "your
+ *  session is invalid". Every other non-2xx is treated as authoritative. */
+function isTransientRefreshStatus(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429;
+}
+
 async function performRefresh(
   expectedEpoch: number,
   expectedActorScope: string | null,
-): Promise<RefreshSessionResult | null> {
-  if (authSessionEpoch !== expectedEpoch) return null;
+): Promise<RefreshOutcome> {
+  if (authSessionEpoch !== expectedEpoch) return { kind: "rejected" };
   const requestTimeout = new AbortController();
   const requestTimer = setTimeout(
     () => requestTimeout.abort(),
@@ -123,10 +144,14 @@ async function performRefresh(
       credentials: "include",
       signal: requestTimeout.signal,
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      return isTransientRefreshStatus(resp.status)
+        ? { kind: "unavailable" }
+        : { kind: "rejected" };
+    }
     const body = parseRefreshSessionResult(await resp.json());
-    if (!body) return null;
-    if (authSessionEpoch !== expectedEpoch) return null;
+    if (!body) return { kind: "rejected" };
+    if (authSessionEpoch !== expectedEpoch) return { kind: "rejected" };
     const tokenScope = tokenActorScope(body.access_token);
     const userScope = String(body.user.id);
     if (tokenScope !== null && tokenScope !== userScope) {
@@ -135,7 +160,7 @@ async function performRefresh(
       // immediately diverge even during a signed-out bootstrap.
       setAccessToken(null);
       onAuthFailure?.();
-      return null;
+      return { kind: "rejected" };
     }
     const refreshedActorScope = tokenScope ?? userScope;
     if (
@@ -147,15 +172,16 @@ async function performRefresh(
       // current React tree still displays the old identity.
       setAccessToken(null);
       onAuthFailure?.();
-      return null;
+      return { kind: "rejected" };
     }
     accessToken = body.access_token;
     accessTokenActorScope = refreshedActorScope;
-    return body;
+    return { kind: "session", body };
   } catch {
-    // An aborted (timed-out) refresh is indistinguishable from any other
-    // network failure here and takes the same path: no token, auth failure.
-    return null;
+    // An aborted (timed-out) refresh and any other transport failure mean the
+    // server never answered. That is not evidence the session ended, so the
+    // caller keeps the installed token and surfaces a transient error.
+    return { kind: "unavailable" };
   } finally {
     clearTimeout(requestTimer);
   }
@@ -164,7 +190,7 @@ async function performRefresh(
 async function performCoordinatedRefresh(
   expectedEpoch: number,
   expectedActorScope: string | null,
-): Promise<RefreshSessionResult | null> {
+): Promise<RefreshOutcome> {
   // Web Locks coordinates all same-origin tabs/windows. Waiting tabs begin
   // their fetch only after the first response has installed the rotated
   // httpOnly cookie, so they present the current token rather than replaying
@@ -205,7 +231,8 @@ async function performCoordinatedRefresh(
   }
 }
 
-export function refreshSession(): Promise<RefreshSessionResult | null> {
+/** Shared single-flight refresh, reporting WHY it did not produce a session. */
+function refreshSessionOutcome(): Promise<RefreshOutcome> {
   // De-duplicate React/query concurrency inside this JavaScript realm too.
   const expectedEpoch = authSessionEpoch;
   const expectedActorScope = accessTokenActorScope;
@@ -225,8 +252,12 @@ export function refreshSession(): Promise<RefreshSessionResult | null> {
   return refreshPromise;
 }
 
-async function tryRefresh(): Promise<boolean> {
-  return (await refreshSession()) !== null;
+/** Public bootstrap/reauth entry point: the session, or null if there is none.
+ *  Callers that must distinguish "no session" from "server unreachable" use
+ *  refreshSessionOutcome instead. */
+export async function refreshSession(): Promise<RefreshSessionResult | null> {
+  const outcome = await refreshSessionOutcome();
+  return outcome.kind === "session" ? outcome.body : null;
 }
 
 export class ApiError extends Error {
@@ -347,16 +378,22 @@ async function apiResponseOnce(
       ? requestPath.slice(0, -1)
       : requestPath;
   if (resp.status === 401 && !NO_REFRESH_PATHS.has(authRoute)) {
-    const refreshed = await tryRefresh();
+    const outcome = await refreshSessionOutcome();
     assertAuthSession(sessionScope);
-    if (refreshed) {
+    if (outcome.kind === "session") {
       resp = await rawFetch(path, init, farmScope);
       assertAuthSession(sessionScope);
-    } else {
+    } else if (outcome.kind === "rejected") {
+      // The server answered: this session is over.
       setAccessToken(null);
       onAuthFailure?.();
       clearedSession = true;
     }
+    // "unavailable": we never reached the server, so the still-installed token
+    // and the httpOnly refresh cookie stay put and the caller sees the
+    // original 401 as a transient error. A later request (or the user's next
+    // action) retries once the network is back, instead of the operator being
+    // thrown to /login mid-task with the query cache and farm selection gone.
   }
   if (!resp.ok) {
     let body: unknown = null;

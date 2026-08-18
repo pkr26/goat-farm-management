@@ -252,6 +252,35 @@ def _draw(pool: list[float], requested: float) -> float:
     return take
 
 
+def _pool_avg_weight(
+    pool: list[float],
+    base_age: int,
+    growth: GrowthAssumptions,
+    adult_weight_kg: float,
+    fallback_age: int,
+) -> float:
+    """Mean live weight of an age-indexed pool, for pricing a proportional draw.
+
+    ``_draw`` removes head proportionally across every age slot, so a draw's
+    mean weight is the pool's mean weight. Pricing it at one hard-coded
+    mid-class age was only ever right for freshly *placed* stock: a pool filled
+    organically by promotions has whatever distribution the run produced, and a
+    grower chain spans up to 24 monthly slots. ``pool`` is indexed from
+    ``base_age``; an empty pool has no composition to average, so it keeps the
+    placement age (nothing is drawn from it anyway).
+    """
+    total = sum(pool)
+    if total <= 0.0:
+        return weight_at_age(fallback_age, growth, adult_weight_kg)
+    return (
+        sum(
+            count * weight_at_age(base_age + offset, growth, adult_weight_kg)
+            for offset, count in enumerate(pool)
+        )
+        / total
+    )
+
+
 def _ceil_head_ratio(heads: float, heads_per_unit: int) -> int:
     """Whole units needed for an expected (fractional) animal population.
 
@@ -516,31 +545,37 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     bucks -= take
                     default_price = cull_buck_price * buck_w
                 elif event.animal_class == "female_kid":
+                    avg_kg = _pool_avg_weight(f_kid, 0, g, doe_w, 1)
                     take = _draw(f_kid, requested)
-                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                    default_price = avg_kg * meat_price
                 elif event.animal_class == "male_kid":
+                    avg_kg = _pool_avg_weight(m_kid, 0, g, doe_w, 1)
                     take = _draw(m_kid, requested)
-                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                    default_price = avg_kg * meat_price
                 elif event.animal_class == "female_weaner":
+                    avg_kg = _pool_avg_weight(f_weaner, 3, g, doe_w, 4)
                     take = _draw(f_weaner, requested)
-                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                    default_price = avg_kg * meat_price
                 elif event.animal_class == "male_weaner":
+                    avg_kg = _pool_avg_weight(m_weaner, 3, g, doe_w, 4)
                     take = _draw(m_weaner, requested)
-                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                    default_price = avg_kg * meat_price
                 elif event.animal_class == "female_grower":
+                    avg_kg = _pool_avg_weight(f_grower, 6, g, doe_w, f_grower_mid_age)
                     if f_grower:
                         take = _draw(f_grower, requested)
                     else:
                         take = min(requested, f_boundary_grower)
                         f_boundary_grower -= take
-                    default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
+                    default_price = avg_kg * meat_price
                 else:  # male_grower
+                    avg_kg = _pool_avg_weight(m_grower, 6, g, buck_w, m_grower_mid_age)
                     if m_grower:
                         take = _draw(m_grower, requested)
                     else:
                         take = min(requested, m_boundary_grower)
                         m_boundary_grower -= take
-                    default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
+                    default_price = avg_kg * meat_price
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 revenue = take * price
                 if event.animal_class in _EVENT_ADULT_CLASSES:

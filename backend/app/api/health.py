@@ -24,6 +24,7 @@ from ..models import (
     Task,
     TaskCategory,
     TaskStatus,
+    VaccineTemplate,
 )
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.health import (
@@ -44,6 +45,8 @@ from ..schemas.health import (
     MovementRestrictionHistoryOut,
     ScheduleOut,
     ScheduleRowOut,
+    ScheduleTemplateListOut,
+    ScheduleTemplateOut,
 )
 from ..schemas.summaries import AnimalIdentityOut
 from ..services import (
@@ -85,6 +88,41 @@ def _escaped_contains(raw: str) -> str:
     """Literal, case-insensitive SQL substring pattern (no wildcard injection)."""
     escaped = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
+
+
+@router.get("/schedule-templates")
+async def schedule_templates(
+    db: DbSession,
+    _farm: CurrentFarm,
+    _perms: VIEW,
+) -> ScheduleTemplateListOut:
+    """The seeded programme items a health event may cite.
+
+    ``validated_template`` accepts ONLY an exact ``vaccine_templates.name`` for
+    a VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name —
+    so without this list the recording form was a free-text box whose every
+    value 422s unless the operator already knew one of the seeded names.
+    Fixed global reference data, identical for every farm; the farm dependency
+    keeps it behind the same tenant auth as the rest of the module.
+    """
+    rows = (await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.name))).scalars()
+    return ScheduleTemplateListOut(
+        templates=[
+            ScheduleTemplateOut(
+                id=row.id,
+                name=row.name,
+                timing_note=row.timing_note,
+                # Mirrors validated_template's rule: the deworming programme
+                # belongs to DEWORMING events, every other item to VACCINE.
+                event_type=(
+                    HealthEventType.DEWORMING.value
+                    if row.name == "Deworming"
+                    else HealthEventType.VACCINE.value
+                ),
+            )
+            for row in rows
+        ]
+    )
 
 
 @router.get("/animals")
@@ -338,7 +376,26 @@ async def clear_movement_restriction(
     # (cited by the PLACED action via health_event_id) and on the CLEARED
     # action's disease_target captured above.
     animal.suspected_disease = None
-    animal.authority_notified_at = None
+    # ...but that is only true when a HealthEvent actually recorded it. The
+    # mortality path (POST /api/animals/{id}/status with
+    # suspected_scheduled_disease) places the hold with health_event_id=None
+    # and writes no HealthEvent at all, so the animal column is the ONLY copy
+    # of a statutorily mandated notification date. Nulling it there destroyed
+    # the record irrecoverably, health events being immutable. Clear it only
+    # once the audit trail genuinely holds it.
+    notification_is_recorded_elsewhere = (
+        await db.execute(
+            select(HealthEvent.id)
+            .where(
+                HealthEvent.farm_id == farm.id,
+                HealthEvent.animal_id == animal.id,
+                HealthEvent.authority_notified_at.is_not(None),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none() is not None
+    if notification_is_recorded_elsewhere:
+        animal.authority_notified_at = None
     await db.commit()
 
 

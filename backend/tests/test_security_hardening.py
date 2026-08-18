@@ -24,6 +24,7 @@ import os
 import stat
 import threading
 from collections.abc import Callable, Iterator
+from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
@@ -1391,3 +1392,49 @@ async def test_account_password_workflows_share_one_argon_reservation(
         assert delete_account.status_code == 429
     finally:
         auth_limiter.release(scope, str(user_id))
+
+
+async def test_move_reason_cannot_forge_the_history_override_marker(
+    client: httpx.AsyncClient,
+) -> None:
+    """``[HISTORY OVERRIDE] `` is a server-authored audit sentinel.
+
+    Four domain predicates read it back as proof that a RECOVERY departure was
+    an owner-authorised backdating rather than a real one. A caller holding
+    only ``animals.move`` must therefore not be able to write it by hand.
+    """
+    headers = await owner_with_farm(client)
+    created = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "FORGE-1",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "BREEDING",
+            "date_of_birth": (date.today() - timedelta(days=800)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    animal_id = created.json()["id"]
+
+    for forged in (
+        "[HISTORY OVERRIDE] weaned",
+        "  [history override] weaned",
+        "[History Override] anything",
+    ):
+        resp = await client.post(
+            f"/api/animals/{animal_id}/move",
+            json={"to_bucket": "RESTING", "reason": forged},
+            headers=headers,
+        )
+        assert resp.status_code == 422, f"{forged!r} was accepted: {resp.text}"
+
+    # An ordinary reason still passes the validator (whatever the domain then
+    # decides about the transition itself).
+    ok = await client.post(
+        f"/api/animals/{animal_id}/move",
+        json={"to_bucket": "RESTING", "reason": "routine move"},
+        headers=headers,
+    )
+    assert ok.status_code != 422, ok.text

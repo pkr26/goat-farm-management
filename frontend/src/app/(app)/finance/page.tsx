@@ -507,7 +507,11 @@ export default function FinancePage() {
     limit,
     offset,
   };
-  const query = useListTransactionsApiFinanceGet(params, { query: { enabled: allowed } });
+  // Keep the previous ledger rendered while a filter change or page turn
+  // resolves; a newly-keyed observer otherwise blanks the whole page.
+  const query = useListTransactionsApiFinanceGet(params, {
+    query: { enabled: allowed, placeholderData: (previous) => previous },
+  });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const addMutation = useAddTransactionApiFinanceNewPost();

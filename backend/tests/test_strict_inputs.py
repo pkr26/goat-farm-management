@@ -1,13 +1,15 @@
 """Transport schemas must reject misspelled client fields, never ignore them."""
 
+import json
 from datetime import date
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from app.schemas.animals import AnimalCreateIn, MoveIn, StatusChangeIn, WeightIn
 from app.schemas.auth import AccountDeleteIn, ChangePasswordIn, FarmCreateIn, LoginIn, RegisterIn
 from app.schemas.breeding import BreedingCreateIn, UltrasoundIn
+from app.schemas.common import PostgresText
 from app.schemas.feeding import DispenseIn, FeedSettingIn, MixIn, StockAddIn
 from app.schemas.finance import TransactionCorrectionIn, TransactionIn
 from app.schemas.health import HealthEventIn, MovementRestrictionClearIn
@@ -172,3 +174,28 @@ def test_nested_simulation_assumptions_do_not_coerce_numbers(bad_number: object)
     assumptions["herd"]["does"] = bad_number
     with pytest.raises(ValidationError):
         RunIn.model_validate({"assumptions": assumptions})
+
+
+def test_postgres_text_rejects_lone_surrogates_that_cannot_reach_postgres() -> None:
+    """A lone UTF-16 surrogate clears the control-character rule but explodes
+    in asyncpg's text codec (``str.encode('utf-8')``). That is not a DBAPI
+    error, so SQLAlchemy never wraps it and no router catches it — it reached
+    the catch-all handler as the opaque 500 this validator exists to prevent.
+    """
+    adapter = TypeAdapter(PostgresText)
+
+    # This is exactly what a client body containing "\ud800" decodes to.
+    lone_surrogate = json.loads('"A\\ud800"')
+    assert lone_surrogate == "A\ud800"
+    with pytest.raises(ValidationError, match="surrogate"):
+        adapter.validate_python(lone_surrogate)
+
+    for hostile in ("\ud800", "\udfff", "tail\udc00", "\ud83d"):  # incl. a split emoji pair
+        with pytest.raises(ValidationError):
+            adapter.validate_python(hostile)
+
+    # Ordinary text — including astral characters and the allowed whitespace —
+    # is untouched.
+    for benign in ("Ravi's herd", "गोट", "🐐", "line\nbreak\ttab\r", "A"):
+        assert adapter.validate_python(benign) == benign
+        assert adapter.validate_python(benign).encode("utf-8")

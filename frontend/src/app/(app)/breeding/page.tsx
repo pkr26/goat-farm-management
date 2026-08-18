@@ -25,6 +25,7 @@ import {
   type BreedingRecordOut,
 } from "@/api/generated/models";
 import { BreedingCandidatePicker } from "@/components/breeding-candidate-picker";
+import type { RemotePickerOption } from "@/components/remote-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -145,6 +146,13 @@ function NewBreedingDialog({
   const createMutation = useCreateBreedingApiBreedingPost();
   const createFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
+  // RemotePicker resolves a selected label from its loaded page, then this
+  // prop, then its own state — and that state dies with the picker when the
+  // dialog unmounts its content, while react-hook-form deliberately keeps the
+  // id. Holding the labels here (the dialog outlives the picker) keeps the
+  // trigger showing the chosen animal instead of falling back to "Select doe".
+  const [doeOption, setDoeOption] = useState<RemotePickerOption | null>(null);
+  const [buckOption, setBuckOption] = useState<RemotePickerOption | null>(null);
   const eligibleDoeCount = candidateAvailability?.eligible_doe_count ?? null;
   const eligibleBuckCount = candidateAvailability?.eligible_buck_count ?? null;
   const hasEligibleBuck = eligibleBuckCount !== null && eligibleBuckCount > 0;
@@ -185,6 +193,10 @@ function NewBreedingDialog({
         });
         toast.success("Breeding saved.");
         reset(breedingDefaults());
+        // Clear the lifted labels alongside the form values, or the next
+        // breeding would open showing the animals this one used.
+        setDoeOption(null);
+        setBuckOption(null);
         onOpenChange(false);
         onSaved();
       } catch (err) {
@@ -239,6 +251,8 @@ function NewBreedingDialog({
                     kind="doe"
                     value={field.value}
                     onValueChange={field.onChange}
+                    onOptionChange={setDoeOption}
+                    selectedOption={doeOption?.value === field.value ? doeOption : null}
                     placeholder="Select doe"
                     dialogTitle="Choose a breeding-ready doe"
                     aria-invalid={Boolean(errors.doe_id) || undefined}
@@ -261,6 +275,8 @@ function NewBreedingDialog({
                     kind="buck"
                     value={field.value}
                     onValueChange={field.onChange}
+                    onOptionChange={setBuckOption}
+                    selectedOption={buckOption?.value === field.value ? buckOption : null}
                     placeholder="Select buck"
                     dialogTitle="Choose an active buck"
                     disabled={!hasEligibleBuck}

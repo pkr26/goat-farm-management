@@ -112,6 +112,7 @@ export default function DashboardPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("dashboard.view");
   const canViewAnimals = can("animals.view");
+  const canViewBreeding = can("breeding.view");
   const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -289,9 +290,17 @@ export default function DashboardPage() {
           )}
         </DataTableCard>
 
+        {/* The total is overdue + the next 14 days, and the overdue side is
+            unbounded backwards, so the title must not claim a 14-day span.
+            Without breeding.view the API returns [] / 0 — a withheld section,
+            which must not render as a factual count or an empty state. */}
         <DataTableCard
-          title={`Kiddings due in 14 days (${payload.kiddings_due_total})`}
-          actions={can("breeding.view") ? (
+          title={
+            canViewBreeding
+              ? `Kiddings due or overdue (${payload.kiddings_due_total})`
+              : "Kiddings due or overdue"
+          }
+          actions={canViewBreeding ? (
             <Link
               href="/breeding"
               className={buttonVariants({ variant: "ghost", size: "sm" })}
@@ -300,7 +309,13 @@ export default function DashboardPage() {
             </Link>
           ) : undefined}
         >
-          {payload.kiddings_due.length === 0 ? (
+          {!canViewBreeding ? (
+            <EmptyState
+              icon={Baby}
+              title="Kiddings require breeding access."
+              description="Ask an admin to grant breeding.view to see kiddings due here."
+            />
+          ) : payload.kiddings_due.length === 0 ? (
             <EmptyState icon={Baby} title="None." className="py-8" />
           ) : (
             <Table>
@@ -319,7 +334,18 @@ export default function DashboardPage() {
                         r.doe_tag ?? `Doe #${r.doe_id}`
                       )}
                     </TableCell>
-                    <TableCell>due {formatDate(r.expected_kidding_date)}</TableCell>
+                    <TableCell>
+                      due {formatDate(r.expected_kidding_date)}
+                      {/* Overdue pregnancies are mixed into this list; mark
+                          them like the overdue-tasks card does. */}
+                      {r.expected_kidding_date !== null &&
+                        r.expected_kidding_date < today && (
+                          <span className="text-destructive">
+                            {" "}
+                            ({daysBetween(r.expected_kidding_date, today)}d late)
+                          </span>
+                        )}
+                    </TableCell>
                     <TableCell className="text-right">
                       {/* Recording needs kidding.manage — without it the link
                           lands on an access-denied page. */}
@@ -390,8 +416,13 @@ export default function DashboardPage() {
           )}
         </DataTableCard>
 
+        {/* Suggestions carry animal identity and the exact latest weight, so
+            the API withholds them without animals.view. Say so rather than
+            claiming the herd has nothing ready to move. */}
         <DataTableCard
-          title={`Ready to move (${payload.suggestions_total})`}
+          title={
+            canViewAnimals ? `Ready to move (${payload.suggestions_total})` : "Ready to move"
+          }
           actions={canViewAnimals ? (
             <Link
               href="/animals"
@@ -402,7 +433,13 @@ export default function DashboardPage() {
           ) : undefined}
           contentClassName="space-y-3"
         >
-          {payload.suggestions.length === 0 ? (
+          {!canViewAnimals ? (
+            <EmptyState
+              icon={MoveRight}
+              title="Move suggestions require animal access."
+              description="Ask an admin to grant animals.view to see which animals are ready to move."
+            />
+          ) : payload.suggestions.length === 0 ? (
             <EmptyState icon={MoveRight} title="No suggestions." className="py-8" />
           ) : (
             <Table>

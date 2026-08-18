@@ -26,6 +26,7 @@ from ..models import (
     Bucket,
     Farm,
     FarmMembership,
+    PurchaseBatch,
     Role,
     Task,
     TaskCategory,
@@ -185,7 +186,9 @@ async def _lock_completion_animals(
     if target is None:
         return []
 
+    batch_lock_id: int | None = None
     if target.category == TaskCategory.BUCKET_MOVE.value and target.purchase_batch_id is not None:
+        batch_lock_id = int(target.purchase_batch_id)
         animal_filter = and_(
             Animal.purchase_batch_id == target.purchase_batch_id,
             Animal.current_bucket == Bucket.QUARANTINE.value,
@@ -205,7 +208,7 @@ async def _lock_completion_animals(
     else:
         return []
 
-    return list(
+    locked_animals = list(
         (
             await db.execute(
                 select(Animal)
@@ -215,6 +218,26 @@ async def _lock_completion_animals(
             )
         ).scalars()
     )
+
+    # Serialize against skip_pending_tasks_for_empty_batch, which locks
+    # animal -> batch -> tasks (ascending id). This path then locks the
+    # release duty — always the HIGHEST id in the protocol series — before
+    # _guard_quarantine_release locks its siblings ascending, i.e. the exact
+    # inverse. That was only safe while the two sides serialized on animals
+    # first, and they do not: this filter takes only QUARANTINE animals, while
+    # the sweep fires when the batch has no ACTIVE animal in ANY bucket. Once
+    # the batch's last active animal sits outside QUARANTINE (reachable via the
+    # owner-only history override), this locks zero animals and nothing orders
+    # the pair — a genuine PostgreSQL deadlock, surfaced as a 500. Taking the
+    # batch row here restores the shared animal -> batch -> task order.
+    if batch_lock_id is not None:
+        await db.execute(
+            select(PurchaseBatch.id)
+            .where(PurchaseBatch.id == batch_lock_id, PurchaseBatch.farm_id == farm.id)
+            .with_for_update()
+        )
+
+    return locked_animals
 
 
 async def _batch_has_active_animal(db: AsyncSession, farm: Farm, purchase_batch_id: int) -> bool:

@@ -24,8 +24,9 @@ from ..models import (
     WeightRecord,
 )
 from ..schemas.simulation import CalibrationEvidence, FarmCalibrationOut
-from ..simulation.assumptions import MAX_MONEY, SimulationAssumptions
+from ..simulation.assumptions import MAX_MONEY, MAX_WEIGHT_KG, SimulationAssumptions
 from ..simulation.defaults import System, get_preset
+from ..simulation.engine import _ceil_head_ratio
 from ..utils import add_months, today
 
 type CalibrationValue = int | float | list[float]
@@ -109,6 +110,20 @@ def _isotonic_fit(points: list[tuple[int, float]]) -> list[tuple[int, float]]:
     return [(age, total / count) for total, count, ages in blocks for age in ages]
 
 
+#: How far a farm's own measurements may stretch or shrink the preset's shape
+#: outside the observed age range. The rescale multiplies the *whole* tail, so
+#: leaving it unbounded let a single mis-keyed weight ("250" for 25.0 kg) push
+#: derived points past the schema ceiling and turn every later calibration
+#: request into a 500. A 4x band still lets a genuinely heavier or lighter
+#: flock reshape the preset well beyond breed variation.
+_CURVE_RESCALE_BAND = (0.25, 4.0)
+
+
+def _curve_rescale(observed_weight: float, preset_weight: float) -> float:
+    """Bounded ratio used to extend the preset's shape past the observations."""
+    return _clamp(observed_weight / preset_weight, *_CURVE_RESCALE_BAND)
+
+
 def _curve_from_observations(
     observed: dict[int, float],
     preset: list[float],
@@ -141,9 +156,9 @@ def _curve_from_observations(
         elif age < first_age:
             # Preset shape rescaled so it lands exactly on the first fitted
             # point. WeightKg is gt=0, so the denominator is never zero.
-            curve.append(preset[age] * (lookup[first_age] / preset[first_age]))
+            curve.append(preset[age] * _curve_rescale(lookup[first_age], preset[first_age]))
         elif age > last_age:
-            curve.append(preset[age] * (lookup[last_age] / preset[last_age]))
+            curve.append(preset[age] * _curve_rescale(lookup[last_age], preset[last_age]))
         else:
             lower = max(a for a in ages if a < age)
             upper = min(a for a in ages if a > age)
@@ -153,7 +168,12 @@ def _curve_from_observations(
     # preset are both monotone, so this only absorbs float noise.
     for index in range(1, len(curve)):
         curve[index] = max(curve[index], curve[index - 1])
-    return curve
+    # The observed anchors themselves are only bounded by the weight_records
+    # CHECK (0, 1000]; a legal-but-mistyped value could still land a rescaled
+    # tail point above the assumption schema's own ceiling, and the endpoint
+    # turns that ValidationError into a 500. Keep the result inside the domain
+    # the model accepts.
+    return [min(value, float(MAX_WEIGHT_KG)) for value in curve]
 
 
 async def calibrate_farm_assumptions(
@@ -921,7 +941,19 @@ async def calibrate_farm_assumptions(
     labour_total = category_expense["LABOUR"]
     if labour_total > 0.0:
         labour_previous = assumptions.costs.labour_per_month
-        labour_calibrated = min(MAX_MONEY, labour_total / cost_months)
+        # ``labour_per_month`` is a PER-LABOURER wage: the engine charges
+        # ``max(1, ceil(total_herd / labour_per_head_threshold)) *
+        # labour_per_month``. The ledger only knows the farm's whole labour
+        # bill, so it must be split across the labourers that headcount
+        # implies — via the engine's own helper, so the two cannot drift.
+        # Assigning the total directly made the engine re-multiply it by the
+        # labourer count (4x on a 300-head farm).
+        labour_headcount = (
+            max(1, _ceil_head_ratio(current_head, assumptions.costs.labour_per_head_threshold))
+            if current_head > 0
+            else 1
+        )
+        labour_calibrated = min(MAX_MONEY, labour_total / cost_months / labour_headcount)
         assumptions.costs.labour_per_month = labour_calibrated
         sample_size = sum(
             1 for transaction_row in transaction_rows if transaction_row.category == "LABOUR"
@@ -931,7 +963,10 @@ async def calibrate_farm_assumptions(
             labour_previous,
             labour_calibrated,
             sample_size,
-            f"Total labour expense {cost_basis}",
+            (
+                f"Total labour expense {cost_basis}, then split across the "
+                f"{labour_headcount} labourer(s) implied by {current_head} head"
+            ),
             "transactions",
         )
     vet_total = category_expense["VET"] + category_expense["MEDICINE"]

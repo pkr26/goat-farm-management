@@ -18,13 +18,14 @@ import { TEST_ACCESS_TOKEN, TEST_USER, server } from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { QueryClientProvider } from "@tanstack/react-query";
 
-const { pushMock, navState } = vi.hoisted(() => ({
+const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
+  replaceMock: vi.fn(),
   navState: { pathname: "/dashboard" },
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => navState.pathname,
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
@@ -90,6 +91,7 @@ function countLogouts(): () => number {
 describe("AuthProvider bootstrap — valid session", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.pathname = "/dashboard";
     setAccessToken(null);
     setCurrentFarmId(null);
@@ -197,6 +199,7 @@ describe("AuthProvider bootstrap — valid session", () => {
 describe("AuthProvider bootstrap — no session", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.pathname = "/dashboard";
     setAccessToken(null);
     setCurrentFarmId(null);
@@ -209,7 +212,7 @@ describe("AuthProvider bootstrap — no session", () => {
     await expectLoaded();
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("does not redirect away from the public /login path", async () => {
@@ -219,13 +222,14 @@ describe("AuthProvider bootstrap — no session", () => {
 
     await expectLoaded();
     expect(screen.getByTestId("user")).toHaveTextContent("none");
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });
 
 describe("AuthProvider actions", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.pathname = "/dashboard";
     setAccessToken(null);
     setCurrentFarmId(null);
@@ -353,7 +357,7 @@ describe("AuthProvider actions", () => {
     await waitFor(() => expect(logoutCalled).toBe(true));
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 
   it("signOut still clears local state when the logout request fails", async () => {
@@ -373,7 +377,7 @@ describe("AuthProvider actions", () => {
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 
   it("signOut clears the session even when the logout request never settles", async () => {
@@ -400,7 +404,7 @@ describe("AuthProvider actions", () => {
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 
   it("refreshFarms re-fetches the list and applies membership changes", async () => {
@@ -451,7 +455,7 @@ describe("AuthProvider actions", () => {
     await waitFor(() =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 
   it("clears the displayed actor instead of replaying a mutation as another account", async () => {
@@ -476,6 +480,7 @@ describe("AuthProvider actions", () => {
       ),
     );
     pushMock.mockClear();
+    replaceMock.mockClear();
     await act(async () => {
       await apiFetch("/api/tasks", {
         method: "POST",
@@ -485,7 +490,7 @@ describe("AuthProvider actions", () => {
 
     expect(mutationCalls).toBe(1);
     await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    expect(replaceMock).toHaveBeenCalledWith("/login");
   });
 
   it("forced logout runs the same cleanup as signOut, once per transition", async () => {
@@ -509,6 +514,7 @@ describe("AuthProvider actions", () => {
       // concurrent 401s must share ONE forced logout, not two.
       rejectRefresh();
       pushMock.mockClear();
+    replaceMock.mockClear();
       await act(async () => {
         await Promise.all([
           apiFetch("/api/animals").catch(() => undefined),
@@ -525,8 +531,8 @@ describe("AuthProvider actions", () => {
       expect(screen.getByTestId("farmId")).toHaveTextContent("none");
       expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
       expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
-      expect(pushMock).toHaveBeenCalledTimes(1);
-      expect(pushMock).toHaveBeenCalledWith("/login");
+      expect(replaceMock).toHaveBeenCalledTimes(1);
+      expect(replaceMock).toHaveBeenCalledWith("/login");
     } finally {
       navState.pathname = previousPath;
     }
@@ -536,6 +542,7 @@ describe("AuthProvider actions", () => {
 describe("AuthProvider — silent bootstrap must not destroy a valid session", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.pathname = "/dashboard";
     setAccessToken(null);
     setCurrentFarmId(null);
@@ -558,7 +565,7 @@ describe("AuthProvider — silent bootstrap must not destroy a valid session", (
     await expectLoaded();
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     expect(logouts()).toBe(0);
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("establishes the session with site storage blocked, without revoking it", async () => {
@@ -619,11 +626,12 @@ describe("AuthProvider — silent bootstrap must not destroy a valid session", (
     );
     rejectRefresh();
     pushMock.mockClear();
+    replaceMock.mockClear();
     await act(async () => {
       await apiFetch("/api/animals").catch(() => undefined);
     });
 
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
   });
 });
 

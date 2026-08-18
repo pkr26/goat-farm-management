@@ -177,6 +177,28 @@ class MovementRestrictionHistoryOut(BaseModel):
     offset: int
 
 
+class ScheduleTemplateOut(BaseModel):
+    """One seeded vaccination/deworming programme item.
+
+    ``name`` is the exact value POST /api/health/events accepts as
+    ``schedule_template_name`` for a VACCINE/DEWORMING event; nothing else is
+    accepted, so clients must choose from this list rather than free-text it.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    timing_note: str | None
+    #: DEWORMING for the deworming programme, VACCINE for every other item —
+    #: the event type this template may be attached to.
+    event_type: str
+
+
+class ScheduleTemplateListOut(BaseModel):
+    templates: list[ScheduleTemplateOut]
+
+
 class ScheduleRowOut(BaseModel):
     template_id: int
     template_name: str

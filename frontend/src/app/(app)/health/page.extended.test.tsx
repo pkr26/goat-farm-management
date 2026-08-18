@@ -632,9 +632,7 @@ describe("HealthPage", () => {
       target: { value: TODAY },
     });
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
-    fireEvent.change(within(dialog).getByLabelText("Schedule/template name"), {
-      target: { value: "Authorised programme" },
-    });
+    await pickOption(user, within(dialog).getByLabelText("Schedule/template name"), /^PPR/);
     fireEvent.change(within(dialog).getByLabelText("Next-due authority"), {
       target: { value: "Farm veterinarian" },
     });
@@ -712,9 +710,7 @@ describe("HealthPage", () => {
       target: { value: addDays(eventDate, 730) },
     });
 
-    fireEvent.change(within(dialog).getByLabelText("Schedule/template name"), {
-      target: { value: "Authorised programme" },
-    });
+    await pickOption(user, within(dialog).getByLabelText("Schedule/template name"), /^PPR/);
     fireEvent.change(within(dialog).getByLabelText("Next-due authority"), {
       target: { value: "Farm veterinarian" },
     });
@@ -804,7 +800,6 @@ describe("HealthPage", () => {
       target: { value: addDays(TODAY, 30) },
     });
     const values: Record<string, string> = {
-      "Schedule/template name": "Annual PPR programme",
       "Next-due authority": "Farm veterinarian",
       "Product lot/batch": "LOT-PPR-26",
       "Administered by": "Dr Rao",
@@ -818,6 +813,9 @@ describe("HealthPage", () => {
     for (const [label, value] of Object.entries(values)) {
       fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
     }
+    // A next-due date requires a schedule, and a VACCINE event accepts only a
+    // seeded programme name — so it is chosen, not typed.
+    await pickOption(user, within(dialog).getByLabelText("Schedule/template name"), /^PPR/);
     await user.click(
       within(dialog).getByRole("checkbox", {
         name: "Suspected scheduled/notifiable disease — apply movement restriction",
@@ -835,7 +833,7 @@ describe("HealthPage", () => {
     expect(postBody).toMatchObject({
       disease_target: "PPR",
       next_due_date: addDays(TODAY, 30),
-      schedule_template_name: "Annual PPR programme",
+      schedule_template_name: "PPR",
       next_due_authority: "Farm veterinarian",
       product_lot: "LOT-PPR-26",
       product_manufactured_on: addDays(TODAY, -30),
@@ -1063,8 +1061,7 @@ describe("HealthPage", () => {
 
   it("offers only pending VACCINE/DEWORMING duties as linked duties", async () => {
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    const dutySelect = combos[combos.length - 1];
+    const dutySelect = within(dialog).getByLabelText("Linked duty (completes it)");
     await user.click(dutySelect);
     const options = await screen.findAllByRole("option");
     const names = options.map((o) => o.textContent ?? "");
@@ -1089,8 +1086,7 @@ describe("HealthPage", () => {
       }),
     ];
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    await user.click(combos[combos.length - 1]);
+    await user.click(within(dialog).getByLabelText("Linked duty (completes it)"));
 
     expect(await screen.findByRole("option", { name: /PPR vaccination/ })).toBeInTheDocument();
     expect(
@@ -1110,8 +1106,9 @@ describe("HealthPage", () => {
     expect(
       await within(dialog).findByText(/Could not link duty #734/),
     ).toBeInTheDocument();
-    const combos = within(dialog).getAllByRole("combobox");
-    expect(combos[combos.length - 1]).toHaveTextContent("— none —");
+    expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
+      "— none —",
+    );
 
     await userEvent.setup().click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -1179,8 +1176,7 @@ describe("HealthPage", () => {
   it("prefills scope, animal and type when an animal duty is linked", async () => {
     tasks = [makeTask({ id: 8, title: "Deworm Kaveri", category: "DEWORMING", animal_id: 3 })];
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    await pickOption(user, combos[combos.length - 1], /Deworm Kaveri/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /Deworm Kaveri/);
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
     // Type switched to the duty's category.
@@ -1194,8 +1190,7 @@ describe("HealthPage", () => {
   it("prefills the batch scope when a batch duty is linked", async () => {
     tasks = [DEWORM_BATCH_TASK];
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    await pickOption(user, combos[combos.length - 1], /Deworm batch #2/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
     await reviewAndConfirmBulk(user, dialog);
@@ -1319,8 +1314,7 @@ describe("HealthPage", () => {
       }),
     ];
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    await pickOption(user, combos[combos.length - 1], /vaccinate PPR/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /vaccinate PPR/);
 
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("PPR");
 
@@ -1344,8 +1338,7 @@ describe("HealthPage", () => {
       }),
     ];
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    await pickOption(user, combos[combos.length - 1], /deworm/);
+    await pickOption(user, within(dialog).getByLabelText("Linked duty (completes it)"), /deworm/);
 
     expect(within(dialog).getByLabelText(/product name/i)).toHaveValue(
       "Albendazole/Closantel oral + Ivermectin SC",
@@ -1365,8 +1358,7 @@ describe("HealthPage", () => {
   it("switching the linked duty back to '— none —' reverts the prefills", async () => {
     tasks = [DEWORM_BATCH_TASK];
     const { user, dialog } = await openDialog();
-    const combos = within(dialog).getAllByRole("combobox");
-    const dutySelect = combos[combos.length - 1];
+    const dutySelect = within(dialog).getByLabelText("Linked duty (completes it)");
     await pickOption(user, dutySelect, /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
@@ -1438,4 +1430,32 @@ describe("HealthPage", () => {
     await renderLoaded();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("offers only seeded programme names for a vaccine event's schedule", async () => {
+    // validated_template accepts an exact vaccine_templates.name and nothing
+    // else, while a next-due date REQUIRES a schedule name. The field used to
+    // be free text with no hint and no endpoint exposing the seeded names, so
+    // every value an operator could invent returned 422 "Unknown schedule
+    // template" and the only escape was to delete the next-due date.
+    const user = userEvent.setup();
+    renderWithProviders(<HealthPage />);
+    await screen.findByText("Event log");
+    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    const dialog = await screen.findByRole("dialog");
+
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+    fireEvent.change(within(dialog).getByLabelText("Next due date"), {
+      target: { value: addDays(TODAY, 30) },
+    });
+
+    // Type defaults to VACCINE: the vaccine programmes are offered, and the
+    // DEWORMING-only programme is not.
+    await user.click(within(dialog).getByLabelText("Schedule/template name"));
+    expect(await screen.findByRole("option", { name: /^FMD/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^PPR/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /^Deworming/ })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+  });
+
 });

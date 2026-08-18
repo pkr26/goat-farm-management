@@ -909,7 +909,15 @@ async def test_refresh_is_rate_limited_per_ip_before_repeated_jwt_work(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Once the invalid threshold is full, even a valid token skips PyJWT."""
+    """A repeat of the SAME bad cookie skips PyJWT; a neighbour's does not.
+
+    The pre-verification budget used to be keyed on the client address, so ten
+    garbage cookies from one NAT/CGNAT egress turned every co-located user's
+    still-valid refresh into a 429 — a whole office logged out for the window,
+    renewable indefinitely for ~10 requests. Authenticity is unknowable before
+    decoding, which is exactly why ``deps`` keys its access-token pre-check on
+    sha256(token); /refresh now matches that rule.
+    """
     registered = await client.post(
         "/api/auth/register",
         json={"email": "refresh-budget@farm.in", "password": OWNER_PW},
@@ -940,12 +948,21 @@ async def test_refresh_is_rate_limited_per_ip_before_repeated_jwt_work(
         broad_limit,
         window,
     )
+    # Re-presenting the SAME exhausted cookie is refused without another RSA
+    # verification: that cookie's own budget is full.
+    set_refresh_cookie(client, "garbage")
+    repeat = await client.post("/api/auth/refresh")
+    assert repeat.status_code == 429
+    assert decode_calls == limit, "a known-bad cookie must not be verified again"
+    assert repeat.headers["Retry-After"] == str(window)
+    assert "Too many" in repeat.json()["detail"]
+
+    # ...but a DIFFERENT cookie from the same address is still judged on its
+    # own merits: it is verified rather than refused by a neighbour's history.
     set_refresh_cookie(client, valid_cookie)
     resp = await client.post("/api/auth/refresh")
-    assert resp.status_code == 429
-    assert decode_calls == limit
-    assert resp.headers["Retry-After"] == str(get_settings().auth_rate_limit_window_seconds)
-    assert "Too many" in resp.json()["detail"]
+    assert resp.status_code != 429, resp.text
+    assert decode_calls == limit + 1, "a fresh cookie must reach PyJWT"
 
 
 @pytest.mark.usefixtures("rate_limit_on")
@@ -953,15 +970,21 @@ async def test_refresh_preverification_ceiling_skips_jwt_work(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The broad all-refresh ceiling is checked before PyJWT work starts."""
+    """A cookie already known to be invalid is refused before PyJWT runs.
+
+    The ceiling is keyed on the presented cookie rather than the client
+    address: an address-keyed budget cannot distinguish an attacker's garbage
+    from a neighbour's valid credential, so it 429'd innocent sessions.
+    """
     settings = get_settings()
-    key = "127.0.0.1"
-    limit = auth_api._refresh_preverification_limit(settings.auth_rate_limit_max_attempts)
+    cookie = "syntactically-valid-looking-cookie"
+    limit = settings.auth_rate_limit_max_attempts
     for _ in range(limit):
         auth_limiter.record(
             auth_api.REFRESH_PREVERIFY_SCOPE,
-            key,
+            auth_api._refresh_token_key(cookie),
             settings.auth_rate_limit_window_seconds,
+            max_attempts=limit,
         )
 
     decode_calls = 0
@@ -972,11 +995,17 @@ async def test_refresh_preverification_ceiling_skips_jwt_work(
         return None
 
     monkeypatch.setattr(auth_api, "decode_refresh_claims", must_not_decode)
-    set_refresh_cookie(client, "syntactically-valid-looking-cookie")
+    set_refresh_cookie(client, cookie)
     response = await client.post("/api/auth/refresh")
 
     assert response.status_code == 429
     assert decode_calls == 0
+
+    # A different cookie from the same address is unaffected by that budget.
+    set_refresh_cookie(client, "a-completely-different-cookie")
+    other = await client.post("/api/auth/refresh")
+    assert other.status_code != 429, other.text
+    assert decode_calls == 1
 
 
 async def test_refresh_rejects_duplicate_same_name_cookies(
@@ -2435,3 +2464,37 @@ def test_decode_token_rejects_wrong_issuer_or_audience() -> None:
 def test_issue_token_refuses_reserved_claim_override() -> None:
     with pytest.raises(ValueError, match="reserved JWT claims"):
         issue_token(1, "access", 60, extra_claims={"sub": "2"})
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_garbage_refreshes_do_not_lock_out_a_co_located_session(
+    client: httpx.AsyncClient,
+) -> None:
+    """One attacker must not sign out everyone behind a shared address.
+
+    The pre-verification budget was keyed on the client address, so ten
+    garbage cookies from a NAT/CGNAT egress made every co-located user's
+    still-valid refresh return 429 — the SPA treats that exactly like a 401,
+    so the whole office was logged out for the window and the attacker could
+    renew it indefinitely for ~10 requests.
+    """
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "colocated-victim@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    victim_cookie = client.cookies.get(COOKIE)
+    assert victim_cookie
+
+    # The attacker shares this address and burns well past the base ceiling
+    # with distinct garbage cookies (so no single cookie budget saves us).
+    limit = get_settings().auth_rate_limit_max_attempts
+    for attempt in range(limit * 2):
+        set_refresh_cookie(client, f"garbage-{attempt}")
+        assert (await client.post("/api/auth/refresh")).status_code in (401, 429)
+
+    # The victim's untouched, still-valid cookie must not be judged by that
+    # history: it is verified on its own merits.
+    set_refresh_cookie(client, victim_cookie)
+    victim = await client.post("/api/auth/refresh")
+    assert victim.status_code != 429, victim.text

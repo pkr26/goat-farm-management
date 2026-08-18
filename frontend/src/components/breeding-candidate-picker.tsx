@@ -17,6 +17,10 @@ interface BreedingCandidatePickerProps {
   kind: BreedingCandidatesApiBreedingCandidatesGetKind;
   value: string;
   onValueChange: (value: string) => void;
+  /** Lifted so the chosen label survives this component unmounting — the
+   *  enclosing dialog keeps the form value but destroys picker state. */
+  onOptionChange?: (option: RemotePickerOption) => void;
+  selectedOption?: RemotePickerOption | null;
   placeholder: string;
   dialogTitle: string;
   disabled?: boolean;
@@ -46,6 +50,8 @@ export function BreedingCandidatePicker({
   kind,
   value,
   onValueChange,
+  onOptionChange,
+  selectedOption,
   placeholder,
   dialogTitle,
   disabled,
@@ -75,6 +81,8 @@ export function BreedingCandidatePicker({
       id={id}
       value={value}
       onValueChange={onValueChange}
+      onOptionChange={onOptionChange}
+      selectedOption={selectedOption}
       placeholder={placeholder}
       dialogTitle={dialogTitle}
       dialogDescription="Search eligible animals by tag or name. Results are loaded in pages."

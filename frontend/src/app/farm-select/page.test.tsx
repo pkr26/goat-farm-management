@@ -17,13 +17,14 @@ import { renderWithProviders } from "@/test/render";
 
 import FarmSelectPage from "./page";
 
-const { pushMock, navState } = vi.hoisted(() => ({
+const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
+  replaceMock: vi.fn(),
   navState: { search: "" },
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock, replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => "/farm-select",
   useSearchParams: () => new URLSearchParams(navState.search),
   useParams: () => ({}),
@@ -43,6 +44,7 @@ function cardOf(name: string): HTMLElement {
 describe("FarmSelectPage — loading & logged-out states", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.search = "";
   });
 
@@ -63,7 +65,7 @@ describe("FarmSelectPage — loading & logged-out states", () => {
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByText("Your farms")).not.toBeInTheDocument();
     releaseRefresh?.();
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
 
   it("shows 'Loading…' when logged out and the AuthProvider redirects to /login", async () => {
@@ -74,7 +76,7 @@ describe("FarmSelectPage — loading & logged-out states", () => {
     renderWithProviders(<FarmSelectPage />);
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("Your farms")).not.toBeInTheDocument();
   });
 });
@@ -82,6 +84,7 @@ describe("FarmSelectPage — loading & logged-out states", () => {
 describe("FarmSelectPage — farm picker", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.search = "";
   });
 
@@ -185,6 +188,7 @@ describe("FarmSelectPage — farm picker", () => {
 describe("FarmSelectPage — create a farm", () => {
   beforeEach(() => {
     pushMock.mockClear();
+    replaceMock.mockClear();
     navState.search = "";
   });
 

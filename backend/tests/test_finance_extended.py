@@ -2233,18 +2233,24 @@ async def test_dashboard_view_alone_reveals_no_breeding_programme(
     assert cleaner_dash["cull_candidates"] == []
     # null marks the section as withheld rather than genuinely empty.
     assert cleaner_dash["cull_candidates_total"] is None
-    # Selling a grown male kid is an age/weight call, not a breeding one, so it
-    # survives — and the count still matches the rows actually returned.
-    assert [row["animal"]["tag_number"] for row in cleaner_dash["suggestions"]] == ["GATE-MARKET"]
-    assert cleaner_dash["suggestions_total"] == 1
-    assert not any("Gestation" in row["reason"] for row in cleaner_dash["suggestions"])
+    # Selling a grown male kid is an age/weight call rather than a breeding
+    # one, so breeding.view is not what withholds it — but every suggestion
+    # names the animal and its exact latest weight ("25.0 kg — market ready"),
+    # the identity/weight pair recent_weights withholds without animals.view,
+    # and acting on one needs animals.move (which depends on animals.view).
+    # A CLEANER holds neither, so the section is withheld from it entirely.
+    assert cleaner_dash["suggestions"] == []
+    assert cleaner_dash["suggestions_total"] == 0
+    assert "GATE-MARKET" not in str(cleaner_dash["suggestions"])
     # Empty sections, not a 403: the page must still render its herd counts.
     assert cleaner_dash["total_active"] == owner_dash["total_active"]
     assert cleaner_dash["buckets"] == owner_dash["buckets"]
 
     # The gate is breeding.view specifically — nothing about being a worker.
+    # animals.view is included so this role isolates the breeding gate alone:
+    # the suggestions section has its own animals.view gate (above).
     reader_role = await custom_role_id(
-        client, owner, "Breeding Reader", ["dashboard.view", "breeding.view"]
+        client, owner, "Breeding Reader", ["dashboard.view", "breeding.view", "animals.view"]
     )
     reader = await worker_headers(client, owner, reader_role, "gate-breeding@farm.in")
     reader_dash = await get_dashboard(client, reader)

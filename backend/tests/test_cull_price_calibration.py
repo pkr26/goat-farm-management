@@ -7,6 +7,9 @@ from datetime import timedelta
 import httpx
 import pytest
 
+from app.services.simulation_calibration import _curve_from_observations
+from app.simulation.assumptions import MAX_WEIGHT_KG, GrowthAssumptions
+from app.simulation.defaults import get_preset
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -94,3 +97,43 @@ async def test_calibration_separates_cull_doe_buck_and_ordinary_sale_prices(
     assert evidence["sales.cull_buck_price_per_kg"]["sample_size"] == 3
     # Cull proceeds must not contaminate the ordinary live-meat sale sample.
     assert evidence["sales.meat_price_per_kg"]["sample_size"] == 5
+
+
+def test_weight_curve_extrapolation_survives_one_mis_keyed_weight() -> None:
+    """A single decimal-point slip must not 500 every later calibration.
+
+    Ages past the last observation keep the preset's shape rescaled to meet
+    the final fitted point. That ratio multiplied the whole tail unbounded, so
+    one "250" typed for 25.0 kg drove derived points past the assumption
+    schema's 1000 kg ceiling — and ``GET /api/simulation/calibration`` turns
+    the resulting ValidationError into a hard 500, permanently, because the
+    bad weight record stays in the ledger.
+    """
+    preset = list(get_preset("osmanabadi", "stall_fed").growth.weight_by_age_months)
+    curve = _curve_from_observations({0: 2.55, 1: 4.45, 2: 250.0}, preset)
+
+    assert len(curve) == len(preset)
+    assert max(curve) <= MAX_WEIGHT_KG
+    assert curve == sorted(curve), "curve must stay nondecreasing"
+    # The observation itself is still honoured exactly...
+    assert curve[2] == pytest.approx(250.0)
+    # ...but it no longer multiplies the whole preset tail by that outlier:
+    # the tail flattens onto the observation instead of climbing past the
+    # ceiling (unclamped this produced ~1019 kg at 12 months).
+    assert curve[12] == pytest.approx(250.0)
+    assert curve[12] <= max(250.0, 4.0 * preset[12])
+
+    # The schema the endpoint validates against now accepts the result.
+    GrowthAssumptions(birth_weight_kg=curve[0], weight_by_age_months=curve)
+
+
+def test_weight_curve_still_follows_an_ordinary_farm_exactly() -> None:
+    """The clamp must not disturb a normal, in-band flock."""
+    preset = list(get_preset("osmanabadi", "stall_fed").growth.weight_by_age_months)
+    observed = {0: 2.5, 3: 9.0, 6: 15.0}
+    curve = _curve_from_observations(observed, preset)
+
+    for age, weight in observed.items():
+        assert curve[age] == pytest.approx(weight), "observations are honoured exactly"
+    assert curve == sorted(curve)
+    assert max(curve) <= MAX_WEIGHT_KG

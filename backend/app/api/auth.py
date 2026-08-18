@@ -2,6 +2,7 @@
 by a server-side session row with reuse detection), logout (revokes the
 presented session), change-password, and farm listing/creation."""
 
+import hashlib
 import logging
 import uuid
 from datetime import timedelta
@@ -385,32 +386,38 @@ def _refresh_cookie(request: Request) -> str | None:
     return request.cookies.get(name)
 
 
-def _check_refresh_preverification_budget(request: Request) -> None:
-    """Bound JWT verification work before decoding the supplied cookie."""
+def _refresh_token_key(token: str | None) -> str:
+    """Bucket key for one specific presented cookie (never the raw value)."""
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def _check_refresh_preverification_budget(request: Request, token: str | None) -> None:
+    """Bound JWT verification work before decoding the supplied cookie.
+
+    Keyed on the PRESENTED COOKIE, not the client address. Authenticity is
+    unknowable before decoding, so a shared-IP history must never reject a
+    credential this budget has not itself classified — keying the pre-check on
+    the address let ten garbage cookies from one NAT/CGNAT egress turn every
+    co-located user's still-valid refresh into a 429, logging out a whole
+    office for the window and renewably so. ``deps`` states exactly this rule
+    for access tokens and keys its own pre-check on sha256(token); /refresh now
+    matches it. The wider per-IP ceiling still bounds verification CPU, but
+    only where it cannot harm a valid credential: it is consulted after a token
+    has actually failed, in ``_raise_invalid_refresh``.
+    """
     settings = get_settings()
     if not settings.auth_rate_limit_enabled:
         return
-    key = _client_key(request)
     invalid_limit = settings.auth_rate_limit_max_attempts
-    preverification_limit = _refresh_preverification_limit(invalid_limit)
     window = settings.auth_rate_limit_window_seconds
-    if auth_limiter.is_blocked("refresh-invalid", key, invalid_limit, window):
-        logger.info("refresh-invalid throttled before verification (ip=%s)", key)
-        raise _too_many_attempts()
     if auth_limiter.is_blocked(
         REFRESH_PREVERIFY_SCOPE,
-        key,
-        preverification_limit,
+        _refresh_token_key(token),
+        invalid_limit,
         window,
     ):
-        logger.info("refresh pre-verification throttled (ip=%s)", key)
+        logger.info("refresh pre-verification throttled (repeatedly invalid cookie)")
         raise _too_many_attempts()
-    auth_limiter.record(
-        REFRESH_PREVERIFY_SCOPE,
-        key,
-        window,
-        max_attempts=preverification_limit,
-    )
 
 
 async def _make_refresh_session_slot(
@@ -557,31 +564,36 @@ def _refresh_token_expired_but_genuine(token: str) -> bool:
     return family_id is None or (isinstance(family_id, str) and 1 <= len(family_id) <= 64)
 
 
-def _raise_invalid_refresh(request: Request) -> NoReturn:
-    """Track only rejected refreshes at the base auth ceiling.
+def _raise_invalid_refresh(request: Request, token: str | None = None) -> NoReturn:
+    """Record one classified-invalid refresh and reject it.
 
-    The wider predecode counter necessarily sees all requests because validity
-    is unknowable until after signature checking. This smaller bucket is also
-    checked before decoding the next request.
+    Both ledgers are written only once the presented cookie has actually
+    failed, so neither can reject an unclassified credential:
+
+    * the per-cookie bucket makes a repeat of THIS bad cookie cheap to refuse
+      before the next RSA verification (``_check_refresh_preverification_budget``);
+    * the per-IP bucket remains the CPU backstop, but it can only turn *this
+      already-invalid* request into a 429 — a valid cookie arriving from the
+      same address is never judged by a neighbour's history.
+
+    This mirrors ``deps.record_invalid_token_verification`` for access tokens.
     """
     settings = get_settings()
-    rate_key = _client_key(request)
-    limit = settings.auth_rate_limit_max_attempts
     if settings.auth_rate_limit_enabled:
-        if auth_limiter.is_blocked(
-            "refresh-invalid",
-            rate_key,
-            limit,
-            settings.auth_rate_limit_window_seconds,
-        ):
-            logger.info("refresh-invalid throttled (key=%s)", rate_key)
-            raise _too_many_attempts()
+        rate_key = _client_key(request)
+        limit = settings.auth_rate_limit_max_attempts
+        window = settings.auth_rate_limit_window_seconds
+        ip_limit = _refresh_preverification_limit(limit)
         auth_limiter.record(
-            "refresh-invalid",
-            rate_key,
-            settings.auth_rate_limit_window_seconds,
+            REFRESH_PREVERIFY_SCOPE,
+            _refresh_token_key(token),
+            window,
             max_attempts=limit,
         )
+        auth_limiter.record("refresh-invalid", rate_key, window, max_attempts=ip_limit)
+        if auth_limiter.is_blocked("refresh-invalid", rate_key, ip_limit, window):
+            logger.info("refresh-invalid throttled (key=%s)", rate_key)
+            raise _too_many_attempts()
     raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
 
@@ -728,8 +740,8 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
 @router.post("/refresh")
 async def refresh(request: Request, response: Response, db: DbSession) -> TokenOut:
     _guard_cookie_request_origin(request)
-    _check_refresh_preverification_budget(request)
     token = _refresh_cookie(request)
+    _check_refresh_preverification_budget(request, token)
     claims = decode_refresh_claims(token) if token else None
     if claims is None:
         if token is not None and _refresh_token_expired_but_genuine(token):
@@ -738,7 +750,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             # material that was never valid, not for a returning client whose
             # cookie simply outlived its TTL.
             raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-        _raise_invalid_refresh(request)
+        _raise_invalid_refresh(request, token)
     # Lock order for every auth/session mutation is User -> RefreshSession.
     # Password reset/change holds the same user lock before revoking sessions,
     # preventing a refresh from minting a successor after revocation.
@@ -751,7 +763,7 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
         )
     ).scalar_one_or_none()
     if user is None:
-        _raise_invalid_refresh(request)
+        _raise_invalid_refresh(request, token)
     # Lock the row: two concurrent refreshes presenting the same jti must not
     # both pass the consumption check.
     session = (
@@ -775,10 +787,10 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             await db.commit()
         _raise_invalid_refresh(request)  # predates session tracking, or never issued here
     if claims.family_id is not None and claims.family_id != session.family_id:
-        _raise_invalid_refresh(request)
+        _raise_invalid_refresh(request, token)
     now = utcnow()
     if session.revoked_at is not None:
-        _raise_invalid_refresh(request)
+        _raise_invalid_refresh(request, token)
     if session.consumed_at is not None:
         # A tiny grace window makes the same rotation idempotent across tabs.
         # The successor's fixed iat/exp/jti reconstruct the exact same signed
@@ -825,9 +837,9 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             session.family_id,
             session.user_id,
         )
-        _raise_invalid_refresh(request)
+        _raise_invalid_refresh(request, token)
     if session.user_id != claims.user_id or session.expires_at <= now:
-        _raise_invalid_refresh(request)
+        _raise_invalid_refresh(request, token)
     session.consumed_at = now
     out = await _issue_tokens(
         db, user, response, family_id=session.family_id, replacement_for=session

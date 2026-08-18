@@ -192,6 +192,8 @@ export * from './scenarioOut';
 export * from './scenarioUpdateIn';
 export * from './scheduleOut';
 export * from './scheduleRowOut';
+export * from './scheduleTemplateListOut';
+export * from './scheduleTemplateOut';
 export * from './sensitivityItem';
 export * from './simulationAssumptions';
 export * from './simulationResult';

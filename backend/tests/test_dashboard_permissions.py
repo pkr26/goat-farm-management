@@ -159,3 +159,75 @@ async def test_reports_breeding_and_mortality_aggregates_require_permission(
     assert delegated_mortality["stillborn_rate"] is None
     # Births aren't a clinical/mortality figure — health.view doesn't gate it.
     assert delegated_mortality["total_kids_born"] == mortality["total_kids_born"]
+
+
+async def test_dashboard_withholds_clinical_status_totals_without_health_view(
+    client: httpx.AsyncClient,
+) -> None:
+    """DEAD/CULLED are clinical outcomes, not inventory facts.
+
+    GET /api/dashboard/reports already withholds exactly these counts from a
+    caller without health.view; GET /api/dashboard returned the same figures
+    raw, so the second endpoint was a side door around the first's gate.
+    """
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="STATUS-GATE", weight_kg=20.0)
+    await change_status(client, owner, animal["id"], "DEAD", date=iso(today()))
+    cleaner_role = await preset_role_id(client, owner, "CLEANER")
+    cleaner = await worker_headers(client, owner, cleaner_role, "status-gate@farm.in")
+
+    owner_dash = await get_dashboard(client, owner)
+    assert owner_dash["status_totals"].get("DEAD") == 1
+
+    cleaner_dash = await get_dashboard(client, cleaner)
+    assert "DEAD" not in cleaner_dash["status_totals"]
+    assert "CULLED" not in cleaner_dash["status_totals"]
+    # The reports endpoint has always withheld this figure; the dashboard now
+    # matches it. (A CLEANER holds no reports.view, so compare on the owner.)
+    owner_reports = await get_reports(client, owner)
+    assert owner_reports["status_counts"].get("DEAD") == 1
+
+
+async def test_move_suggestions_withheld_without_animals_view(
+    client: httpx.AsyncClient,
+) -> None:
+    """Each suggestion names the animal and its exact latest weight.
+
+    That is the same identity/weight pair `recent_weights` withholds one block
+    below, so the suggestions list must sit behind the same animals.view gate —
+    especially since acting on one needs animals.move, which depends on it.
+    """
+    owner = await owner_with_farm(client)
+    # A male kid past the sale-age cutoff and over the 24 kg market weight is
+    # what the market rule actually fires on.
+    await make_animal(
+        client,
+        owner,
+        tag="MOVE-GATE",
+        sex="M",
+        bucket="MALE_KIDS",
+        date_of_birth=iso(today() - timedelta(days=400)),
+        weight_kg=26.0,
+    )
+
+    # The owner must genuinely see the suggestion, or this test proves nothing.
+    owner_dash = await get_dashboard(client, owner)
+    assert owner_dash["suggestions_total"] >= 1
+    owner_blob = str(owner_dash["suggestions"])
+    assert "MOVE-GATE" in owner_blob
+    assert "26.0 kg" in owner_blob
+
+    cleaner_role = await preset_role_id(client, owner, "CLEANER")
+    cleaner = await worker_headers(client, owner, cleaner_role, "move-gate@farm.in")
+    cleaner_dash = await get_dashboard(client, cleaner)
+    assert cleaner_dash["suggestions"] == []
+    assert cleaner_dash["suggestions_total"] == 0
+    # Neither the tag nor the exact weight leaks through the reason strings.
+    assert "MOVE-GATE" not in str(cleaner_dash["suggestions"])
+
+    # A MOVER holds animals.view, so it keeps the section.
+    mover_role = await preset_role_id(client, owner, "MOVER")
+    mover = await worker_headers(client, owner, mover_role, "mover-gate@farm.in")
+    mover_dash = await get_dashboard(client, mover)
+    assert mover_dash["suggestions_total"] >= 1
+    assert "MOVE-GATE" in str(mover_dash["suggestions"])

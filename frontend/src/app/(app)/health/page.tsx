@@ -18,6 +18,7 @@ import {
   useListTasksApiTasksGet,
   usePreviewBulkEventTargetsApiHealthEventsPreviewPost,
   useRecordEventApiHealthEventsPost,
+  useScheduleTemplatesApiHealthScheduleTemplatesGet,
 } from "@/api/generated/endpoints";
 import {
   HealthEventInBucket,
@@ -471,6 +472,16 @@ function HealthPageContent() {
   const wTaskId = useWatch({ control, name: "task_id" });
   const wType = useWatch({ control, name: "type" });
   const scope = useWatch({ control, name: "scope" });
+  // VACCINE/DEWORMING events accept ONLY an exact seeded programme name
+  // (validated_template rejects anything else); the other types take free text.
+  const templateIsSeeded = wType === "VACCINE" || wType === "DEWORMING";
+  const scheduleTemplates = useScheduleTemplatesApiHealthScheduleTemplatesGet({
+    query: { enabled: templateIsSeeded, staleTime: Infinity },
+  });
+  const templateOptions =
+    scheduleTemplates.data?.status === 200
+      ? scheduleTemplates.data.data.templates.filter((item) => item.event_type === wType)
+      : [];
   const suspectedScheduledDisease = useWatch({
     control,
     name: "suspected_scheduled_disease",
@@ -1367,13 +1378,57 @@ function HealthPageContent() {
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="schedule_template_name">Schedule/template name</Label>
-                  <Input
-                    id="schedule_template_name"
-                    maxLength={120}
-                    aria-invalid={Boolean(errors.schedule_template_name) || undefined}
-                    aria-describedby={errors.schedule_template_name ? "schedule-template-error" : undefined}
-                    {...register("schedule_template_name")}
-                  />
+                  {/* A vaccine/deworming event is only accepted with an exact
+                      seeded programme name, and no other screen reveals those
+                      names — free text here 422'd every time. Offer the list
+                      the API will actually accept, and keep free text for the
+                      types (treatment/footbath/vitamin) that allow it. */}
+                  {templateIsSeeded ? (
+                    <Controller
+                      control={control}
+                      name="schedule_template_name"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value ?? ""}
+                          onValueChange={field.onChange}
+                          disabled={templateOptions.length === 0}
+                        >
+                          <SelectTrigger
+                            id="schedule_template_name"
+                            aria-invalid={Boolean(errors.schedule_template_name) || undefined}
+                            aria-describedby={
+                              errors.schedule_template_name ? "schedule-template-error" : undefined
+                            }
+                          >
+                            <SelectValue
+                              placeholder={
+                                scheduleTemplates.isLoading
+                                  ? "Loading programmes…"
+                                  : "Select a seeded programme"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {templateOptions.map((template) => (
+                              <SelectItem key={template.id} value={template.name}>
+                                {template.timing_note
+                                  ? `${template.name} — ${template.timing_note}`
+                                  : template.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  ) : (
+                    <Input
+                      id="schedule_template_name"
+                      maxLength={120}
+                      aria-invalid={Boolean(errors.schedule_template_name) || undefined}
+                      aria-describedby={errors.schedule_template_name ? "schedule-template-error" : undefined}
+                      {...register("schedule_template_name")}
+                    />
+                  )}
                   {errors.schedule_template_name && (
                     <p id="schedule-template-error" role="alert" className="text-sm text-destructive">
                       {errors.schedule_template_name.message}
@@ -1558,17 +1613,23 @@ function HealthPageContent() {
                 </p>
               )}
               <Button type="submit" disabled={isSubmitting || previewMutation.isPending}>
-                {isSubmitting || previewMutation.isPending
-                  ? bulkPreview
+                {/* Branch on the mutation actually in flight: a single-animal
+                    event never previews, so keying this off bulkPreview
+                    announced "Reviewing targets…" while the immutable event
+                    was being written. */}
+                {previewMutation.isPending
+                  ? "Reviewing targets…"
+                  : isSubmitting
                     ? "Saving…"
-                    : "Reviewing targets…"
-                  : scope !== "animal" && !bulkPreview
-                    ? "Review target animals"
-                    : scope !== "animal"
-                      ? `Confirm for ${bulkPreview?.target_count ?? 0} animals`
-                      : recordError
-                        ? "Retry save"
-                        : "Save event"}
+                    : scope !== "animal" && !bulkPreview
+                      ? "Review target animals"
+                      : scope !== "animal"
+                        ? `Confirm for ${bulkPreview?.target_count ?? 0} ${
+                            (bulkPreview?.target_count ?? 0) === 1 ? "animal" : "animals"
+                          }`
+                        : recordError
+                          ? "Retry save"
+                          : "Save event"}
               </Button>
             </DialogFooter>
           </form>

@@ -4,7 +4,7 @@ import secrets
 from datetime import date, timedelta
 from typing import TypedDict
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -105,6 +105,20 @@ async def record_kidding(
                 raise ValueError("Kid mortality date cannot be in the future")
         elif mortality_date is not None:
             raise ValueError("Only a died kid may have a mortality date")
+
+    # The tag-namespace triggers (migration d3b5f7c9e024) key their advisory
+    # locks on farm_id alone: an `animals` INSERT takes SHARE, while a tagged
+    # STILLBORN `kid_entries` INSERT takes EXCLUSIVE. The kid loop below walks
+    # the payload in order, so a litter listing a live kid before a stillborn
+    # one asks for SHARE and then EXCLUSIVE on the same key inside a single
+    # transaction. Two such kiddings in one farm each hold SHARE and each wait
+    # for the other to drop it — a lock-upgrade deadlock that rolls the entire
+    # kidding back and surfaces as a 500. Acquire the exclusive lock once, up
+    # front: it is the very lock the stillborn insert would take anyway, so
+    # this adds no new contention class, it only removes the upgrade.
+    if any(kid["status"] == KidStatus.STILLBORN.value for kid in kids):
+        await db.execute(select(func.pg_advisory_xact_lock(literal(farm.id))))
+
     record = KiddingRecord(
         farm_id=farm.id,
         doe_id=doe.id,

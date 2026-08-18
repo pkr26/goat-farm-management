@@ -907,3 +907,65 @@ async def test_health_cost_and_audit_counts_are_one_per_actual_mutation(
             await db.execute(select(func.count(MovementRestrictionAction.id)))
         ).scalar_one() == len(animals)
         assert (await db.execute(select(func.count(Transaction.id)))).scalar_one() == 1
+
+
+async def test_clearing_a_mortality_hold_keeps_the_authority_notification_date(
+    client: httpx.AsyncClient,
+) -> None:
+    """The mortality path writes no HealthEvent, so the animal column is the
+    only copy of a statutorily mandated notification date.
+
+    ``clear_movement_restriction`` justified nulling it by saying the fact
+    "stays on the HealthEvent that recorded the suspicion" — true for
+    ``record_health_event``, false for ``POST /api/animals/{id}/status`` with
+    ``suspected_scheduled_disease``, which places the hold with
+    ``health_event_id=None``. There the clearance erased the date for good.
+    """
+    headers = await owner_with_farm(client)
+    created = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "NOTIFY-1",
+            "sex": "F",
+            "source": "PURCHASED",
+            "current_bucket": "BREEDING",
+            "date_of_birth": (today() - timedelta(days=700)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    animal_id = created.json()["id"]
+
+    notified_on = today()
+    dead = await client.post(
+        f"/api/animals/{animal_id}/status",
+        json={
+            "new_status": "DEAD",
+            "mortality_cause": "Sudden death",
+            "suspected_scheduled_disease": True,
+            "suspected_disease": "Anthrax",
+            "authority_notified_at": notified_on.isoformat(),
+        },
+        headers=headers,
+    )
+    assert dead.status_code == 200, dead.text
+    assert dead.json()["authority_notified_at"] == notified_on.isoformat()
+    version = dead.json()["restriction_version"]
+
+    cleared = await client.post(
+        f"/api/health/restrictions/{animal_id}/clear",
+        json={"clearance_reference": "AHD-2026-9", "expected_restriction_version": version},
+        headers=headers,
+    )
+    assert cleared.status_code in (200, 204), cleared.text
+
+    after = await client.get(f"/api/animals/{animal_id}", headers=headers)
+    assert after.status_code == 200, after.text
+    # GET /api/animals/{id} returns the profile, with the animal nested.
+    body = after.json()["animal"]
+    # The hold itself is closed...
+    assert body["movement_restricted"] is False
+    assert body["suspected_scheduled_disease"] is False
+    assert body["suspected_disease"] is None
+    # ...but the notification date, whose only copy this is, survives.
+    assert body["authority_notified_at"] == notified_on.isoformat()

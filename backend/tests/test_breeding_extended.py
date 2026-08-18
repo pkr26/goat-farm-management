@@ -3513,3 +3513,60 @@ async def test_kidding_cannot_predate_the_pregnancy_confirmation(
     )
     assert response.status_code == 409, response.text
     assert response.json()["detail"] == "Kidding date cannot predate the pregnancy confirmation"
+
+
+async def test_sold_sibling_does_not_strand_the_dam_in_recovery(
+    client: httpx.AsyncClient,
+) -> None:
+    """A litter-mate that left the herd alive must not deadlock the dam.
+
+    ``replan_dam_after_last_kid_death`` decides survivorship from live herd
+    status (a SOLD kid is not a survivor) and therefore schedules the dam's
+    postpartum duty. The completion guard used to read ``KidEntry.status``
+    instead — an immutable birth fact that selling never rewrites — so it saw
+    the sold sibling as still ALIVE and refused the very duty the other half
+    of the workflow had just created, leaving the doe in RECOVERY forever.
+    """
+    headers = await owner_with_farm(client)
+    doe, _buck, br = await pregnant_doe(client, headers, gestation_days=220)
+    record = await kid_on_ekd(client, headers, br, kids=[{"sex": "F"}, {"sex": "M"}])
+    first, second = record["kids"][0]["animal_id"], record["kids"][1]["animal_id"]
+    assert first is not None and second is not None
+
+    sold = await client.post(
+        f"/api/animals/{first}/status",
+        json={"new_status": "SOLD", "sale_price": 3000.0},
+        headers=headers,
+    )
+    assert sold.status_code == 200, sold.text
+    # The sold kid keeps its ALIVE birth record — that is the whole point.
+    async with get_sessionmaker()() as db:
+        entries = list(
+            (
+                await db.execute(select(KidEntry).where(KidEntry.kidding_record_id == record["id"]))
+            ).scalars()
+        )
+    assert any(entry.animal_id == first and entry.status == "ALIVE" for entry in entries)
+
+    # Backdate the death so the postpartum duty it schedules is already due.
+    death_date = today() - timedelta(days=POSTPARTUM_RECOVERY_DAYS + 1)
+    died = await client.post(
+        f"/api/animals/{second}/status",
+        json={
+            "new_status": "DEAD",
+            "mortality_cause": "illness",
+            "date": iso(death_date),
+            "mortality_reported_at": iso(death_date),
+        },
+        headers=headers,
+    )
+    assert died.status_code == 200, died.text
+
+    postpartum = next(
+        task
+        for task in tasks_by_category(await all_tasks(client, headers), "BUCKET_MOVE")
+        if task["status"] == "PENDING" and task["animal_id"] == doe["id"]
+    )
+    completed = await client.post(f"/api/tasks/{postpartum['id']}/complete", headers=headers)
+    assert completed.status_code == 200, completed.text
+    assert (await get_animal(client, headers, doe["id"]))["current_bucket"] == "RESTING"

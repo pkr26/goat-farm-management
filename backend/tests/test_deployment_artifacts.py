@@ -1620,7 +1620,21 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
     assert "$http_x_forwarded_proto" not in proxy_conf
     assert "$$" not in proxy_conf
     assert "location /api/" in proxy_conf
-    assert "proxy_pass http://backend:8000;" in proxy_conf
+    # Both upstreams must be re-resolved per request. nginx caches a literal
+    # proxy_pass hostname for the worker's lifetime, so a redeployed backend
+    # (a new container IP that Docker's IPAM does not reissue) left this edge
+    # — which compose does not recreate with its dependencies — 502'ing every
+    # request until it was restarted by hand. A variable upstream plus the
+    # embedded DNS resolver is what forces re-resolution, and a variable in
+    # proxy_pass drops the automatic URI pass-through, so $request_uri has to
+    # be restated or every path would collapse to "/".
+    assert "resolver 127.0.0.11" in proxy_conf
+    assert "proxy_pass http://backend:8000;" not in proxy_conf
+    assert "proxy_pass http://frontend:3000;" not in proxy_conf
+    assert "set $backend_upstream backend;" in proxy_conf
+    assert "proxy_pass http://$backend_upstream:8000$request_uri;" in proxy_conf
+    assert "set $frontend_upstream frontend;" in proxy_conf
+    assert "proxy_pass http://$frontend_upstream:3000$request_uri;" in proxy_conf
 
     # The backend trusts exactly the edge's fixed address — not the bridge
     # range, which also covers the docker gateway and other containers.

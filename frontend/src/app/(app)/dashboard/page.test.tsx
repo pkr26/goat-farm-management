@@ -304,7 +304,7 @@ describe("DashboardPage — populated aggregates", () => {
     expect(within(taskCard).getByText("12")).toBeInTheDocument();
     expect(screen.getByText("Showing 2 of 7.")).toBeInTheDocument();
     expect(screen.getByText("Showing 1 of 5.")).toBeInTheDocument();
-    expect(screen.getByText("Kiddings due in 14 days (8)")).toBeInTheDocument();
+    expect(screen.getByText("Kiddings due or overdue (8)")).toBeInTheDocument();
     expect(screen.getByText("Showing 2 of 8.")).toBeInTheDocument();
     expect(screen.getByText("Ultrasounds due in 7 days (6)")).toBeInTheDocument();
     expect(screen.getByText("Showing 1 of 6.")).toBeInTheDocument();
@@ -380,7 +380,12 @@ describe("DashboardPage — populated aggregates", () => {
   });
 
   it("hides the Record shortcut without kidding.manage", async () => {
-    server.use(permissionsHandler(["dashboard.view"]), dashboardHandler(POPULATED));
+    // breeding.view is required for the rows to be returned at all; the point
+    // of this case is that kidding.manage alone gates the Record action.
+    server.use(
+      permissionsHandler(["dashboard.view", "breeding.view"]),
+      dashboardHandler(POPULATED),
+    );
     renderWithProviders(<DashboardPage />);
 
     // The row and doe link stay; only the Record action is gone.
@@ -720,8 +725,16 @@ describe("DashboardPage — loading, error and permission states", () => {
       await screen.findByRole("heading", { name: "Test Goat Farm — Dashboard" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Action unavailable").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("D-101").length).toBeGreaterThan(0);
-    expect(screen.getByText("G-077 · Lakshmi")).toBeInTheDocument();
+    // Without breeding.view the API returns no kiddings; the card must say so
+    // rather than assert an empty herd.
+    expect(screen.getByText("Kiddings require breeding access.")).toBeInTheDocument();
+    expect(screen.queryByText("D-101")).not.toBeInTheDocument();
+    // Move suggestions carry animal identity and the exact latest weight, so
+    // the API withholds them without animals.view too.
+    expect(
+      screen.getByText("Move suggestions require animal access."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("G-077 · Lakshmi")).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

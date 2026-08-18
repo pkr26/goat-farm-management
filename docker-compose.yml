@@ -172,11 +172,27 @@ configs:
           # the edge rather than inside the application.
           client_max_body_size 1m;
 
+          # nginx resolves a literal upstream name once, at configuration load,
+          # and caches that address for the worker's lifetime. Recreating
+          # `backend` or `frontend` (any routine redeploy) hands it a new
+          # container IP, and Docker's IPAM does not reissue the freed one — so
+          # the edge, which compose does not recreate alongside its
+          # dependencies, kept proxying to a dead address and 502'd until it
+          # was restarted by hand. Naming Docker's embedded DNS server and
+          # putting the host in a variable forces re-resolution per request.
+          resolver 127.0.0.11 valid=10s ipv6=off;
+
           location /api/ {
-              proxy_pass http://backend:8000;
+              # A variable in proxy_pass disables nginx's automatic URI
+              # pass-through, so the original URI must be restated;
+              # $request_uri is the unmodified request target including its
+              # query string, which is what the literal form sent.
+              set $$backend_upstream backend;
+              proxy_pass http://$$backend_upstream:8000$$request_uri;
           }
           location / {
-              proxy_pass http://frontend:3000;
+              set $$frontend_upstream frontend;
+              proxy_pass http://$$frontend_upstream:3000$$request_uri;
           }
       }
 

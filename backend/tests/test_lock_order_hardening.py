@@ -14,13 +14,14 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from sqlalchemy import event as sa_event
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
 import app.api.tasks as tasks_api
 import app.api.team as team_api
 import app.services.tasks as task_service
-from app.db import get_sessionmaker
+from app.db import get_engine, get_sessionmaker
 from app.main import create_app
 from app.models import (
     WEANING_DAYS,
@@ -30,6 +31,7 @@ from app.models import (
     HealthEvent,
     KiddingRecord,
     KidEntry,
+    PurchaseBatch,
     Role,
     Task,
     TaskStatus,
@@ -39,6 +41,7 @@ from app.models import (
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
+from .test_breeding_extended import pregnant_doe
 
 WORKER_PASSWORD = "workerpass123"
 
@@ -1665,3 +1668,132 @@ async def test_target_role_promotion_is_revalidated_under_share_lock(
     async with get_sessionmaker()() as db:
         membership = await db.get(FarmMembership, target_membership_id)
     assert membership is not None and membership.is_active is True
+
+
+async def test_quarantine_release_takes_the_batch_lock_before_the_task_lock(
+    client: httpx.AsyncClient,
+) -> None:
+    """Both sides of the empty-batch race must order batch before tasks.
+
+    ``skip_pending_tasks_for_empty_batch`` locks animal -> batch -> tasks
+    (ascending id). Release completion locks the release duty — always the
+    HIGHEST id in the protocol series — and only then, via
+    ``_guard_quarantine_release``, its siblings ascending: the exact inverse.
+    That was safe only while both sides serialized on animals first, and they
+    do not — the completion pre-lock takes QUARANTINE animals only, while the
+    sweep fires when the batch holds no ACTIVE animal in ANY bucket. Once the
+    last active animal sits outside QUARANTINE the completion locked nothing,
+    nothing ordered the pair, and PostgreSQL broke the cycle with a 500.
+
+    Parking the batch row proves the completion now blocks on it *before*
+    touching any Task row.
+    """
+    owner = await owner_with_farm(client)
+    purchase = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 1,
+            "create_animals": True,
+            "total_price": 100,
+        },
+        headers=owner,
+    )
+    assert purchase.status_code == 201, purchase.text
+    batch_id = int(purchase.json()["id"])
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    release_id = max(int(task["id"]) for task in detail.json()["tasks"])
+
+    # Hold the batch row exactly as the empty-batch sweep does.
+    holder = get_sessionmaker()()
+    await holder.execute(
+        select(PurchaseBatch.id).where(PurchaseBatch.id == batch_id).with_for_update()
+    )
+    async with second_client() as release_client:
+        request = asyncio.create_task(
+            release_client.post(f"/api/tasks/{release_id}/complete", headers=owner)
+        )
+        try:
+            # Fails if the completion reaches the Task rows without the batch.
+            await wait_for_lock_waiters(1)
+            assert not request.done()
+            await holder.rollback()
+            async with asyncio.timeout(10):
+                response = await request
+        finally:
+            await holder.rollback()
+            await holder.close()
+            if not request.done():
+                request.cancel()
+
+    # Whatever the guard then decides, it must not be a deadlock 500.
+    assert response.status_code != 500, response.text
+
+
+async def test_stillborn_kidding_takes_the_exclusive_tag_lock_before_any_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """A kidding must never upgrade SHARE -> EXCLUSIVE on the tag-namespace key.
+
+    Migration d3b5f7c9e024 keys those advisory locks on farm_id alone: an
+    `animals` INSERT takes SHARE (trigger enforce_animal_tag_against_stillborns)
+    and a tagged STILLBORN `kid_entries` INSERT takes EXCLUSIVE
+    (enforce_stillborn_tag_namespace). Both are transaction-scoped, so a litter
+    listing a live kid before a stillborn one held SHARE and then asked for
+    EXCLUSIVE on the same key. Two such kiddings in one farm each hold SHARE
+    and each wait for the other — a textbook lock-upgrade deadlock (verified
+    directly against PostgreSQL: the farm-keyed pattern reports 40P01, the
+    per-tag keys it replaced do not). record_kidding therefore takes the
+    exclusive lock up front, before any Animal row exists.
+    """
+    owner = await owner_with_farm(client)
+    _doe, _buck, br = await pregnant_doe(client, owner, tag="DL-A", gestation_days=160)
+
+    statements: list[str] = []
+
+    def capture_statement(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    sa_event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        response = await client.post(
+            "/api/kidding",
+            json={
+                "breeding_record_id": br["id"],
+                "date": br["expected_kidding_date"],
+                # Live kid FIRST, stillborn second: the order that forced the
+                # SHARE -> EXCLUSIVE upgrade.
+                "kids": [{"sex": "M"}, {"sex": "F", "status": "STILLBORN"}],
+                "ease": "NORMAL",
+            },
+            headers=owner,
+        )
+    finally:
+        sa_event.remove(engine, "before_cursor_execute", capture_statement)
+
+    assert response.status_code == 201, response.text
+
+    lowered = [statement.lower() for statement in statements]
+    lock_at = next(
+        (index for index, sql in enumerate(lowered) if "pg_advisory_xact_lock(" in sql),
+        None,
+    )
+    animal_at = next(
+        (index for index, sql in enumerate(lowered) if "insert into animals" in sql),
+        None,
+    )
+    assert lock_at is not None, "no exclusive tag-namespace lock was taken"
+    assert animal_at is not None, "the live kid should have created an animal"
+    assert lock_at < animal_at, (
+        "the exclusive lock must precede every animals INSERT, otherwise the "
+        "transaction upgrades SHARE -> EXCLUSIVE and can deadlock"
+    )

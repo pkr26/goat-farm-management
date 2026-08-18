@@ -69,6 +69,14 @@ export function permissionsHandler(permissions: string[]) {
   );
 }
 
+/** Seeded global reference data: the exact programme names a VACCINE or
+ *  DEWORMING event may cite (the API accepts nothing else). */
+export const SCHEDULE_TEMPLATES = [
+  { id: 1, name: "FMD", timing_note: "Every 6 months", event_type: "VACCINE" },
+  { id: 2, name: "PPR", timing_note: "Core vaccine", event_type: "VACCINE" },
+  { id: 3, name: "Deworming", timing_note: "Every 3 months", event_type: "DEWORMING" },
+];
+
 export const server = setupServer(
   http.post("/api/auth/refresh", () =>
     HttpResponse.json({ access_token: TEST_ACCESS_TOKEN, user: TEST_USER }),
@@ -78,6 +86,11 @@ export const server = setupServer(
     HttpResponse.json({ records: [], total: 0, limit: 50, offset: 0 }),
   ),
   http.get("/api/feeding/finished-stock", () => HttpResponse.json([])),
+  // Seeded global reference data: the exact programme names a VACCINE/
+  // DEWORMING event may cite.
+  http.get("/api/health/schedule-templates", () =>
+    HttpResponse.json({ templates: SCHEDULE_TEMPLATES }),
+  ),
   http.get("/api/auth/permissions", () =>
     HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }),
   ),

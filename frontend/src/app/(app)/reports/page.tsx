@@ -58,6 +58,7 @@ export default function ReportsPage() {
   const allowed = can("reports.view");
   const canViewAnimals = can("animals.view");
   const canViewHealth = can("health.view");
+  const canViewBreeding = can("breeding.view");
   const query = useReportsApiDashboardReportsGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -160,17 +161,34 @@ export default function ReportsPage() {
         <Table>
           <TableBody>
             <SummaryRow label="Breeding records" value={breeding.total_records} />
+            {/* The API nulls these four rates without breeding.view, which is
+                indistinguishable on the wire from "not enough data" — the
+                meaning "—" carries here. Name the withholding instead. */}
             <SummaryRow
               label="Conception rate (ultrasound-confirmed / completed)"
-              value={pct(breeding.conception_rate)}
+              value={
+                canViewBreeding ? pct(breeding.conception_rate) : <Withheld permission="breeding" />
+              }
             />
-            <SummaryRow label="First-cycle success" value={pct(breeding.first_cycle_rate)} />
+            <SummaryRow
+              label="First-cycle success"
+              value={
+                canViewBreeding ? pct(breeding.first_cycle_rate) : <Withheld permission="breeding" />
+              }
+            />
             <SummaryRow label="Kiddings recorded" value={breeding.kiddings} />
             <SummaryRow
               label="Alive kids per kidding"
-              value={breeding.kids_per_kidding ?? "—"}
+              value={
+                canViewBreeding
+                  ? (breeding.kids_per_kidding ?? "—")
+                  : <Withheld permission="breeding" />
+              }
             />
-            <SummaryRow label="Twin rate (≥2 kids)" value={pct(breeding.twin_rate)} />
+            <SummaryRow
+              label="Twin rate (≥2 kids)"
+              value={canViewBreeding ? pct(breeding.twin_rate) : <Withheld permission="breeding" />}
+            />
             <TableRow>
               <TableCell>Cull candidates</TableCell>
               <TableCell className="text-right tabular-nums">

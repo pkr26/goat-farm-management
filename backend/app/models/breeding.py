@@ -264,7 +264,16 @@ class KidEntry(Base):
             "farm_id",
             "tag",
             unique=True,
-            postgresql_where=text("tag IS NOT NULL AND btrim(tag) <> ''"),
+            # `tag IS NOT NULL` only: PostgreSQL's predicate-implication
+            # prover derives that from the strict `tag = $1`, but it cannot
+            # derive `btrim(tag) <> ''`. With the extra arm the index was
+            # ineligible for the one query that needs it — the BEFORE INSERT
+            # trigger on `animals` checking this farm's stillborn tags — so
+            # every animal insert seq-scanned the farm's whole kid_entries
+            # (20k rows: 748 buffers / 2.5ms, versus 3 buffers / 0.014ms
+            # through the index). The dropped arm was dead weight regardless:
+            # every writer stores `tag or None`, so a blank tag never lands.
+            postgresql_where=text("tag IS NOT NULL"),
         ),
     )
 

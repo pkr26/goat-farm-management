@@ -1730,6 +1730,54 @@
         }
       }
     },
+    "/api/health/schedule-templates": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Schedule Templates",
+        "description": "The seeded programme items a health event may cite.\n\n``validated_template`` accepts ONLY an exact ``vaccine_templates.name`` for\na VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name \u2014\nso without this list the recording form was a free-text box whose every\nvalue 422s unless the operator already knew one of the seeded names.\nFixed global reference data, identical for every farm; the farm dependency\nkeeps it behind the same tenant auth as the rest of the module.",
+        "operationId": "schedule_templates_api_health_schedule_templates_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleTemplateListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/health/animals": {
       "get": {
         "tags": [
@@ -13057,6 +13105,58 @@
           "status"
         ],
         "title": "ScheduleRowOut"
+      },
+      "ScheduleTemplateListOut": {
+        "properties": {
+          "templates": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleTemplateOut"
+            },
+            "type": "array",
+            "title": "Templates"
+          }
+        },
+        "type": "object",
+        "required": [
+          "templates"
+        ],
+        "title": "ScheduleTemplateListOut"
+      },
+      "ScheduleTemplateOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "timing_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timing Note"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "timing_note",
+          "event_type"
+        ],
+        "title": "ScheduleTemplateOut",
+        "description": "One seeded vaccination/deworming programme item.\n\n``name`` is the exact value POST /api/health/events accepts as\n``schedule_template_name`` for a VACCINE/DEWORMING event; nothing else is\naccepted, so clients must choose from this list rather than free-text it."
       },
       "SensitivityItem": {
         "properties": {
