@@ -447,7 +447,7 @@ async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
     retries without overwriting an operator's edits.
 
     A Farm ROW lock is correct here, unlike the manual-duty queue in
-    `api.tasks._lock_manual_task_queue`, which had to become an advisory lock.
+    `services.tasks.lock_manual_task_queue`, which uses an advisory lock.
     The difference is what the holder already owns: this function's own
     `roles` INSERT takes FOR KEY SHARE on the very same Farm row, and its
     callers (farm creation, the legacy-repair worker) reach it already holding
@@ -692,8 +692,20 @@ async def repair_legacy_data_batch(
     farm_batch_size: int,
     task_batch_size: int,
 ) -> tuple[int, int]:
-    """One bounded repair unit for the non-blocking maintenance worker."""
+    """One bounded repair unit for the non-blocking maintenance worker.
+
+    Farm repair takes ``Farm FOR UPDATE`` while task backfill takes ``Task FOR
+    UPDATE``.  Do not retain the farm locks across the task phase: a live
+    recurring-task transition can already hold that Task and then need a Farm
+    FK ``KEY SHARE`` lock for its successor insert.  Combining both phases in
+    one transaction creates Farm -> Task opposite Task -> Farm and lets
+    PostgreSQL deadlock the maintenance worker with a valid request.
+
+    The farm phase is therefore an independently committed unit.  The caller
+    commits (or rolls back) the task phase as usual.
+    """
     farms = await repair_legacy_farms_batch(db, batch_size=farm_batch_size)
+    await db.commit()
     tasks = await backfill_task_assignments_batch(db, batch_size=task_batch_size)
     return farms, tasks
 

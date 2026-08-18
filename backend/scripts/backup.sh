@@ -22,8 +22,7 @@ fi
 # Settings resolution and validation live in backup_env.sh, shared verbatim
 # with restore.sh so the two scripts cannot drift apart on the safety gates.
 source "${SCRIPT_DIR}/backup_env.sh"
-load_app_setting DB_SSLMODE GOATFARM_DB_SSLMODE disable
-load_app_setting ENVIRONMENT GOATFARM_ENVIRONMENT development
+load_app_safety_settings
 S3_URI="${GOATFARM_BACKUP_S3_URI:-}"
 GPG_RECIPIENT="${GOATFARM_BACKUP_GPG_RECIPIENT:-}"
 GPG_SIGNER="${GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT:-}"
@@ -157,7 +156,12 @@ unset GOATFARM_DATABASE_URL GOATFARM_MIGRATION_DATABASE_URL
 unset PGPASSWORD PGSERVICE PGSERVICEFILE
 
 install -d -m 0700 "${DEST_DIR}"
-# FD 9 remains open in this shell and every database/encryption child. flock
+# FD 9 remains open in this shell and every database/encryption child. ``<>``
+# is deliberately non-truncating read/write rather than append-only: if the
+# named path is raced from a regular file to a FIFO after the check, opening a
+# FIFO read/write returns immediately and backup_flock.py rejects its type.
+# A write-only ``>>`` open would block forever waiting for a FIFO reader before
+# the helper ever had a chance to validate it. flock
 # ownership therefore survives the tiny helper's exit and is released by the
 # kernel only after the complete producer process tree exits, including after
 # a kill or host crash. Never unlink or rename this persistent inode.
@@ -165,7 +169,7 @@ if [[ -L "${FLOCK_PATH}" || -e "${FLOCK_PATH}" && ! -f "${FLOCK_PATH}" ]]; then
     echo "Backup lock path is not a regular file: ${FLOCK_PATH}" >&2
     exit 2
 fi
-if ! exec 9>> "${FLOCK_PATH}"; then
+if ! exec 9<> "${FLOCK_PATH}"; then
     echo "Cannot open backup lock: ${FLOCK_PATH}" >&2
     exit 2
 fi

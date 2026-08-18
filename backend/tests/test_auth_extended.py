@@ -11,6 +11,7 @@ JWT forgeries are built with the dev keypair in backend/keys/ or with
 attacker-controlled keys, mirroring test_adversarial.py.
 """
 
+import asyncio
 import hashlib
 import os
 import uuid
@@ -752,6 +753,88 @@ async def test_refresh_rotation_and_family_history_are_hard_bounded(
     assert (await client.post("/api/auth/refresh")).status_code == 401
 
 
+async def test_lowered_refresh_history_limit_compacts_on_next_rotation(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A legal configuration decrease becomes the new bound immediately."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "refresh_max_sessions_per_family", 4)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "lowered-session-cap@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    user_id = registered.json()["user"]["id"]
+    for _ in range(3):
+        assert (await client.post("/api/auth/refresh")).status_code == 200
+
+    async with get_sessionmaker()() as db:
+        before = (
+            await db.execute(
+                select(func.count())
+                .select_from(RefreshSession)
+                .where(RefreshSession.user_id == user_id)
+            )
+        ).scalar_one()
+    assert before == 4
+
+    monkeypatch.setattr(settings, "refresh_max_sessions_per_family", 2)
+    rotated = await client.post("/api/auth/refresh")
+    assert rotated.status_code == 200, rotated.text
+    async with get_sessionmaker()() as db:
+        after = (
+            await db.execute(
+                select(func.count())
+                .select_from(RefreshSession)
+                .where(RefreshSession.user_id == user_id)
+            )
+        ).scalar_one()
+    assert after == 2
+
+
+async def test_rotation_preserves_presented_row_when_wall_clock_moves_backward(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Grace identity follows the presented JTI, never created_at ordering."""
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 3)
+    await register(client, "backward-clock-refresh@farm.in")
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    presented = client.cookies.get(COOKIE)
+    assert presented
+    presented_claims = decode_refresh_claims(presented)
+    assert presented_claims is not None and presented_claims.family_id is not None
+
+    async with get_sessionmaker()() as db:
+        oldest = (
+            await db.execute(
+                select(func.min(RefreshSession.created_at)).where(
+                    RefreshSession.family_id == presented_claims.family_id
+                )
+            )
+        ).scalar_one()
+        await db.execute(
+            update(RefreshSession)
+            .where(RefreshSession.jti == presented_claims.jti)
+            .values(created_at=oldest - timedelta(days=1))
+        )
+        await db.commit()
+
+    rotated = await client.post("/api/auth/refresh")
+    assert rotated.status_code == 200, rotated.text
+    successor = client.cookies.get(COOKIE)
+    assert successor and successor != presented
+
+    # The presented row remains available for the narrow same-request grace,
+    # even though its wall-clock timestamp sorts behind every predecessor.
+    set_refresh_cookie(client, presented)
+    replay = await client.post("/api/auth/refresh")
+    assert replay.status_code == 200, replay.text
+    assert replay.cookies.get(COOKIE) == successor
+
+
 async def test_successful_logins_evict_old_refresh_families_at_hard_cap(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -784,6 +867,66 @@ async def test_successful_logins_evict_old_refresh_families_at_hard_cap(
     assert (await client.post("/api/auth/refresh")).status_code == 401
     set_refresh_cookie(client, newest)
     assert (await client.post("/api/auth/refresh")).status_code == 200
+
+
+async def test_family_eviction_uses_issue_order_when_wall_clock_moves_backward(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "refresh_max_families_per_user", 2)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "backward-clock-family@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    user_id = registered.json()["user"]["id"]
+    first = client.cookies.get(COOKIE)
+    assert first
+    first_claims = decode_refresh_claims(first)
+    assert first_claims is not None and first_claims.family_id is not None
+
+    second_login = await client.post(
+        "/api/auth/login",
+        json={"email": "backward-clock-family@farm.in", "password": OWNER_PW},
+    )
+    assert second_login.status_code == 200, second_login.text
+    second = client.cookies.get(COOKIE)
+    assert second
+    second_claims = decode_refresh_claims(second)
+    assert second_claims is not None and second_claims.family_id is not None
+
+    async with get_sessionmaker()() as db:
+        first_created = (
+            await db.execute(
+                select(RefreshSession.created_at).where(RefreshSession.jti == first_claims.jti)
+            )
+        ).scalar_one()
+        await db.execute(
+            update(RefreshSession)
+            .where(RefreshSession.jti == second_claims.jti)
+            .values(created_at=first_created - timedelta(days=1))
+        )
+        await db.commit()
+
+    third_login = await client.post(
+        "/api/auth/login",
+        json={"email": "backward-clock-family@farm.in", "password": OWNER_PW},
+    )
+    assert third_login.status_code == 200, third_login.text
+    third = client.cookies.get(COOKIE)
+    assert third
+    third_claims = decode_refresh_claims(third)
+    assert third_claims is not None and third_claims.family_id is not None
+
+    async with get_sessionmaker()() as db:
+        retained = set(
+            (
+                await db.execute(
+                    select(RefreshSession.family_id).where(RefreshSession.user_id == user_id)
+                )
+            ).scalars()
+        )
+    assert retained == {second_claims.family_id, third_claims.family_id}
 
 
 async def test_expired_refresh_cleanup_is_ordered_and_strictly_batched(
@@ -858,6 +1001,42 @@ async def test_immediate_refresh_replay_returns_exact_successor(
     assert all(r.revoked_at is None for r in rows)
 
 
+async def test_refresh_grace_tolerates_small_backward_wall_clock_step(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "refresh_reuse_grace_seconds", 3)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "backward-clock-grace@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    predecessor = client.cookies.get(COOKIE)
+    assert predecessor
+    predecessor_claims = decode_refresh_claims(predecessor)
+    assert predecessor_claims is not None
+
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    successor = client.cookies.get(COOKIE)
+    assert successor and successor != predecessor
+
+    # Model NTP stepping the application clock backward one second after the
+    # first tab consumed the token: consumed_at is briefly in "the future" for
+    # the second tab, but still inside the explicitly bounded grace interval.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(RefreshSession)
+            .where(RefreshSession.jti == predecessor_claims.jti)
+            .values(consumed_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(seconds=1))
+        )
+        await db.commit()
+
+    set_refresh_cookie(client, predecessor)
+    replay = await client.post("/api/auth/refresh")
+    assert replay.status_code == 200, replay.text
+    assert replay.cookies.get(COOKIE) == successor
+
+
 async def test_refresh_with_unknown_jti_is_401(client: httpx.AsyncClient) -> None:
     """A correctly signed refresh token whose jti has no live session row
     (forged with the dev key, or issued before session tracking) is refused."""
@@ -868,6 +1047,180 @@ async def test_refresh_with_unknown_jti_is_401(client: httpx.AsyncClient) -> Non
     set_refresh_cookie(client, forge_token(user_id, kind="refresh"))
     resp = await client.post("/api/auth/refresh")
     assert resp.status_code == 401
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_unknown_refresh_jti_is_cached_as_the_presented_bad_token(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing session row must still populate this token's preverify key."""
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "unknown-jti-budget@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    unknown = forge_token(registered.json()["user"]["id"], kind="refresh")
+    real_decode = auth_api.decode_refresh_claims
+    decode_calls = 0
+
+    def counted_decode(token: str) -> object:
+        nonlocal decode_calls
+        decode_calls += 1
+        return real_decode(token)
+
+    monkeypatch.setattr(auth_api, "decode_refresh_claims", counted_decode)
+    limit = get_settings().auth_rate_limit_max_attempts
+    for _ in range(limit):
+        set_refresh_cookie(client, unknown)
+        assert (await client.post("/api/auth/refresh")).status_code == 401
+
+    set_refresh_cookie(client, unknown)
+    blocked = await client.post("/api/auth/refresh")
+    assert blocked.status_code == 429
+    assert decode_calls == limit
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_refresh_expiry_boundary_is_not_classified_as_invalid_replay(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expiry can cross after signature verification but before row locking."""
+    monkeypatch.setattr(get_settings(), "refresh_token_ttl_seconds", 30)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "refresh-expiry-race@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    user_id = registered.json()["user"]["id"]
+    cookie = client.cookies.get(COOKIE)
+    assert cookie
+    claims = decode_refresh_claims(cookie)
+    assert claims is not None
+
+    # PyJWT reads the real wall clock and still authenticates this token. Move
+    # the route's authoritative clock across the signed boundary while its User
+    # lock is parked, reproducing expiry after the early check but before the
+    # persisted session evaluation deterministically.
+    clock_calls = 0
+
+    def crossing_expiry() -> datetime:
+        nonlocal clock_calls
+        clock_calls += 1
+        offset = -1 if clock_calls == 1 else 1
+        return claims.expires_at + timedelta(microseconds=offset)
+
+    monkeypatch.setattr(auth_api, "utcnow", crossing_expiry)
+    holder = get_sessionmaker()()
+    await holder.execute(select(User.id).where(User.id == user_id).with_for_update())
+    request = asyncio.create_task(client.post("/api/auth/refresh"))
+    try:
+        for _ in range(1_000):
+            if clock_calls == 1:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("refresh did not reach its pre-lock expiry check")
+        assert not request.done()
+        await holder.rollback()
+        response = await asyncio.wait_for(request, timeout=10)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+
+    assert response.status_code == 401, response.text
+    assert (
+        auth_api.REFRESH_PREVERIFY_SCOPE,
+        auth_api._refresh_token_key(cookie),
+    ) not in auth_limiter._hits
+    assert ("refresh-invalid", "127.0.0.1") not in auth_limiter._hits
+
+    async with get_sessionmaker()() as db:
+        session = (
+            await db.execute(select(RefreshSession).where(RefreshSession.jti == claims.jti))
+        ).scalar_one()
+    assert session.consumed_at is None
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_compacted_refresh_expiry_while_waiting_does_not_revoke_family(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An absent predecessor crossing expiry at the User lock is not replay."""
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "compacted-expiry-race@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    user_id = registered.json()["user"]["id"]
+    predecessor = client.cookies.get(COOKIE)
+    assert predecessor
+    predecessor_claims = decode_refresh_claims(predecessor)
+    assert predecessor_claims is not None and predecessor_claims.family_id is not None
+
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    async with get_sessionmaker()() as db:
+        assert (
+            await db.execute(
+                select(RefreshSession.id).where(RefreshSession.jti == predecessor_claims.jti)
+            )
+        ).scalar_one_or_none() is None
+
+    clock_calls = 0
+
+    def crossing_expiry() -> datetime:
+        nonlocal clock_calls
+        clock_calls += 1
+        offset = -1 if clock_calls == 1 else 1
+        return predecessor_claims.expires_at + timedelta(microseconds=offset)
+
+    monkeypatch.setattr(auth_api, "utcnow", crossing_expiry)
+    set_refresh_cookie(client, predecessor)
+    holder = get_sessionmaker()()
+    await holder.execute(select(User.id).where(User.id == user_id).with_for_update())
+    request = asyncio.create_task(client.post("/api/auth/refresh"))
+    try:
+        for _ in range(1_000):
+            if clock_calls == 1:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("refresh did not reach its pre-lock expiry check")
+        assert not request.done()
+        await holder.rollback()
+        response = await asyncio.wait_for(request, timeout=10)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+
+    assert response.status_code == 401, response.text
+    assert (
+        auth_api.REFRESH_PREVERIFY_SCOPE,
+        auth_api._refresh_token_key(predecessor),
+    ) not in auth_limiter._hits
+    assert ("refresh-invalid", "127.0.0.1") not in auth_limiter._hits
+    async with get_sessionmaker()() as db:
+        family = list(
+            (
+                await db.execute(
+                    select(RefreshSession).where(
+                        RefreshSession.user_id == user_id,
+                        RefreshSession.family_id == predecessor_claims.family_id,
+                    )
+                )
+            ).scalars()
+        )
+    assert family
+    assert all(session.revoked_at is None for session in family)
+    assert any(session.consumed_at is None for session in family)
 
 
 async def test_refresh_consumes_the_presented_session_row(client: httpx.AsyncClient) -> None:
@@ -1269,6 +1622,154 @@ async def test_logout_revokes_successor_when_presented_refresh_already_rotated(
     assert (await client.post("/api/auth/logout")).status_code == 204
     set_refresh_cookie(client, successor)
     assert (await client.post("/api/auth/refresh")).status_code == 401
+
+
+async def test_logout_with_compacted_predecessor_revokes_live_family_once(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Session-history compaction must not weaken the family logout boundary."""
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": "compacted-logout@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    user_id = registered.json()["user"]["id"]
+    predecessor = client.cookies.get(COOKIE)
+    assert predecessor
+
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    assert (await client.post("/api/auth/refresh")).status_code == 200
+    successor = client.cookies.get(COOKIE)
+    assert successor and successor != predecessor
+    predecessor_claims = decode_refresh_claims(predecessor)
+    assert predecessor_claims is not None
+    predecessor_jti = predecessor_claims.jti
+
+    async with get_sessionmaker()() as db:
+        assert (
+            await db.execute(select(RefreshSession.id).where(RefreshSession.jti == predecessor_jti))
+        ).scalar_one_or_none() is None
+
+    set_refresh_cookie(client, predecessor)
+    assert (await client.post("/api/auth/logout")).status_code == 204
+    async with get_sessionmaker()() as db:
+        version_after_first = (
+            await db.execute(select(User.token_version).where(User.id == user_id))
+        ).scalar_one()
+
+    # The absent predecessor stays absent; a duplicate must not keep advancing
+    # the account version after the live family was already revoked.
+    set_refresh_cookie(client, predecessor)
+    assert (await client.post("/api/auth/logout")).status_code == 204
+    async with get_sessionmaker()() as db:
+        version_after_second = (
+            await db.execute(select(User.token_version).where(User.id == user_id))
+        ).scalar_one()
+    assert version_after_second == version_after_first
+
+    set_refresh_cookie(client, successor)
+    assert (await client.post("/api/auth/refresh")).status_code == 401
+
+
+@pytest.mark.parametrize("compacted", [False, True])
+async def test_logout_rechecks_signed_expiry_after_wait_before_family_revocation(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    compacted: bool,
+) -> None:
+    """Neither a retained nor compacted expired predecessor may log out family."""
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    registered = await client.post(
+        "/api/auth/register",
+        json={"email": f"logout-expiry-{compacted}@farm.in", "password": OWNER_PW},
+    )
+    assert registered.status_code == 201, registered.text
+    user_id = registered.json()["user"]["id"]
+    predecessor = client.cookies.get(COOKIE)
+    assert predecessor
+    predecessor_claims = decode_refresh_claims(predecessor)
+    assert predecessor_claims is not None and predecessor_claims.family_id is not None
+
+    rotations = 2 if compacted else 1
+    for _ in range(rotations):
+        assert (await client.post("/api/auth/refresh")).status_code == 200
+    successor = client.cookies.get(COOKIE)
+    assert successor and successor != predecessor
+    async with get_sessionmaker()() as db:
+        predecessor_row = (
+            await db.execute(
+                select(RefreshSession.id).where(RefreshSession.jti == predecessor_claims.jti)
+            )
+        ).scalar_one_or_none()
+        # Make the persisted family lifetime explicitly later than the signed
+        # predecessor so the regression proves signed expiry wins for both the
+        # retained-row and compacted-row branches.
+        await db.execute(
+            update(RefreshSession)
+            .where(
+                RefreshSession.user_id == user_id,
+                RefreshSession.family_id == predecessor_claims.family_id,
+            )
+            .values(expires_at=predecessor_claims.expires_at + timedelta(days=1))
+        )
+        await db.commit()
+    assert (predecessor_row is None) is compacted
+
+    decoded = asyncio.Event()
+    real_decode = auth_api.decode_refresh_claims
+    real_utcnow = auth_api.utcnow
+
+    def mark_decode(token: str) -> object:
+        result = real_decode(token)
+        if token == predecessor:
+            decoded.set()
+        return result
+
+    monkeypatch.setattr(auth_api, "decode_refresh_claims", mark_decode)
+    set_refresh_cookie(client, predecessor)
+    holder = get_sessionmaker()()
+    await holder.execute(select(User.id).where(User.id == user_id).with_for_update())
+    request = asyncio.create_task(client.post("/api/auth/logout"))
+    try:
+        await asyncio.wait_for(decoded.wait(), timeout=2)
+        monkeypatch.setattr(
+            auth_api,
+            "utcnow",
+            lambda: predecessor_claims.expires_at + timedelta(microseconds=1),
+        )
+        await asyncio.sleep(0.05)
+        assert not request.done()
+        await holder.rollback()
+        response = await asyncio.wait_for(request, timeout=10)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+
+    assert response.status_code == 204, response.text
+    async with get_sessionmaker()() as db:
+        token_version = (
+            await db.execute(select(User.token_version).where(User.id == user_id))
+        ).scalar_one()
+        family = list(
+            (
+                await db.execute(
+                    select(RefreshSession).where(
+                        RefreshSession.user_id == user_id,
+                        RefreshSession.family_id == predecessor_claims.family_id,
+                    )
+                )
+            ).scalars()
+        )
+    assert token_version == 0
+    assert family and all(session.revoked_at is None for session in family)
+
+    monkeypatch.setattr(auth_api, "utcnow", real_utcnow)
+    set_refresh_cookie(client, successor)
+    assert (await client.post("/api/auth/refresh")).status_code == 200
 
 
 async def test_bearer_only_logout_revokes_every_refresh_family(

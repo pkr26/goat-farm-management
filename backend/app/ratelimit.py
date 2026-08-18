@@ -75,6 +75,22 @@ class SlidingWindowRateLimiter:
     ) -> None:
         bucket = (scope, key)
         hits = self._prune(scope, key, window_seconds)
+        effective_limit = max_attempts if max_attempts is not None else self._limits.get(bucket)
+        if effective_limit is not None:
+            if effective_limit < 1:
+                raise ValueError("max_attempts must be positive")
+            # Once a bucket is blocked, later rejected attempts carry no new
+            # admission information. Keeping every one of them lets a single
+            # hot IP defeat the key-cardinality bound with an unbounded deque
+            # (invalid-token callers deliberately classify a fresh token before
+            # consulting their shared IP budget). Preserve the original
+            # threshold hits so denied traffic does not extend the window, just
+            # as routes that can pre-check a bucket stop recording at the limit.
+            if len(hits) >= effective_limit:
+                self._windows[bucket] = window_seconds
+                self._limits[bucket] = effective_limit
+                self._reclassify(bucket, touch=True)
+                return
         # Bound cardinality even during a distributed unique-key spray. Sweep
         # expired buckets first. If all are still live, evict the least
         # security-relevant bucket: below-threshold one-shot entries before a
@@ -92,8 +108,8 @@ class SlidingWindowRateLimiter:
         # _prune drops emptied deques from the map — re-store so this hit lands.
         self._hits[bucket] = hits
         self._windows[bucket] = window_seconds
-        if max_attempts is not None:
-            self._limits[bucket] = max_attempts
+        if effective_limit is not None:
+            self._limits[bucket] = effective_limit
         self._reclassify(bucket, touch=True)
 
     def reset(self, scope: str, key: str) -> None:

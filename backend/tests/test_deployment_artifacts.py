@@ -7,6 +7,7 @@ failure behavior.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import ipaddress
 import json
@@ -24,7 +25,7 @@ import yaml
 from sqlalchemy.engine import make_url
 
 from app.core.config import Settings
-from scripts import backup_legacy_lock, healthcheck
+from scripts import backup_legacy_lock, dotenv_value, healthcheck, pinned_copy
 
 from .conftest import _admin_sql
 
@@ -35,6 +36,7 @@ URL_HELPER = REPO_ROOT / "backend" / "scripts" / "libpq_url.py"
 DOTENV_HELPER = REPO_ROOT / "backend" / "scripts" / "dotenv_value.py"
 FLOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_flock.py"
 LEGACY_LOCK_HELPER = REPO_ROOT / "backend" / "scripts" / "backup_legacy_lock.py"
+PINNED_COPY_HELPER = REPO_ROOT / "backend" / "scripts" / "pinned_copy.py"
 ENV_LIB = REPO_ROOT / "backend" / "scripts" / "backup_env.sh"
 SIGNER_A = "A" * 40
 SIGNER_B = "B" * 40
@@ -199,21 +201,6 @@ if (
     raise SystemExit(4)
 """,
     )
-    _write_executable(
-        mock_bin / "cp",
-        f"""#!/usr/bin/env python3
-{common}
-import shutil
-
-record("cp")
-operands = [argument for argument in sys.argv[1:] if argument != "--"]
-source, destination = operands[-2:]
-shutil.copyfile(source, destination)
-replace_source = os.environ.get("MOCK_REPLACE_SOURCE_AFTER_COPY")
-if replace_source and Path(source).resolve() == Path(replace_source).resolve():
-    Path(source).write_bytes(b"source replaced after private snapshot")
-""",
-    )
     return mock_bin
 
 
@@ -318,6 +305,58 @@ def test_backup_restore_and_url_helper_parse() -> None:
     compile(DOTENV_HELPER.read_text(), str(DOTENV_HELPER), "exec")
     compile(FLOCK_HELPER.read_text(), str(FLOCK_HELPER), "exec")
     compile(LEGACY_LOCK_HELPER.read_text(), str(LEGACY_LOCK_HELPER), "exec")
+    compile(PINNED_COPY_HELPER.read_text(), str(PINNED_COPY_HELPER), "exec")
+
+    # The regular-file check and shell open are necessarily separate. A FIFO
+    # raced into the name must not make the open block before the Python helper
+    # can fstat and reject it; O_RDWR (`<>`) is nonblocking for a FIFO.
+    backup_source = BACKUP.read_text()
+    assert 'exec 9<> "${FLOCK_PATH}"' in backup_source
+    assert 'exec 9>> "${FLOCK_PATH}"' not in backup_source
+
+
+def test_pinned_copy_rejects_fifo_without_blocking(tmp_path: Path) -> None:
+    source = tmp_path / "raced-source"
+    destination = tmp_path / "private-copy"
+    os.mkfifo(source)
+
+    result = subprocess.run(
+        [sys.executable, str(PINNED_COPY_HELPER), str(source), str(destination)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=2,
+    )
+
+    assert result.returncode == 2
+    assert "not a regular file" in result.stderr
+    assert not destination.exists()
+
+
+def test_pinned_copy_bounds_and_rejects_a_growing_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "growing-source"
+    destination = tmp_path / "private-copy"
+    source.write_bytes(b"A" * (pinned_copy._COPY_CHUNK_BYTES + 1))
+    real_read = pinned_copy.os.read
+    first_read = True
+
+    def append_after_first_read(file_descriptor: int, size: int) -> bytes:
+        nonlocal first_read
+        content = real_read(file_descriptor, size)
+        if first_read:
+            first_read = False
+            with source.open("ab") as stream:
+                stream.write(b"raced growth")
+        return content
+
+    monkeypatch.setattr(pinned_copy.os, "read", append_after_first_read)
+
+    with pytest.raises(pinned_copy.PinnedCopyError, match="grew"):
+        pinned_copy.copy_pinned_regular_file(source, destination)
+    assert not destination.exists()
 
 
 def test_url_helper_uses_stdin_and_writes_escaped_private_passfile(tmp_path: Path) -> None:
@@ -716,6 +755,55 @@ def test_legacy_helper_restores_replacement_raced_after_final_lstat(
     assert not quarantine.exists()
 
 
+def test_legacy_helper_never_degrades_to_racy_check_then_rename(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unsupported atomic rename must stop, never enter the racy fallback.
+
+    A plain directory rename can replace an empty directory that a legacy
+    producer just created.  That producer may populate its path only after our
+    post-move verification, so re-reading the destination cannot close the
+    race. Fail before moving anything when the filesystem lacks
+    RENAME_NOREPLACE/RENAME_EXCL.
+    """
+    source = tmp_path / ".goatfarm-backup.legacy-claim.private"
+    destination = tmp_path / ".goatfarm-backup.lock"
+    source.mkdir()
+    (source / "pid").write_text("999999999\n")
+    (source / ".flock-owner").write_text("999999999-1-2\n")
+
+    def unsupported(_source: bytes, _destination: bytes) -> None:
+        raise OSError(errno.EINVAL, "exclusive rename unsupported")
+
+    monkeypatch.setattr(backup_legacy_lock, "_rename_noreplace_darwin", unsupported)
+    monkeypatch.setattr(backup_legacy_lock.sys, "platform", "darwin")
+
+    with pytest.raises(OSError, match="exclusive rename unsupported"):
+        backup_legacy_lock._platform_rename_noreplace(source, destination)
+
+    assert source.is_dir()
+    assert set(path.name for path in source.iterdir()) == {"pid", ".flock-owner"}
+    assert not destination.exists()
+
+
+def test_legacy_helper_rejects_fifo_metadata_without_blocking(tmp_path: Path) -> None:
+    lock_path = tmp_path / ".goatfarm-backup.lock"
+    lock_path.mkdir()
+    os.mkfifo(lock_path / "pid")
+
+    result = subprocess.run(
+        [sys.executable, str(LEGACY_LOCK_HELPER), "snapshot", str(lock_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=2,
+    )
+
+    assert result.returncode == 3
+    assert "legacy PID file is not a regular file" in result.stderr
+
+
 def test_backup_killed_while_private_claim_is_complete_never_publishes_partial(
     tmp_path: Path,
 ) -> None:
@@ -1092,7 +1180,6 @@ def test_restore_rejects_non_exact_checksum_records_before_tools(
     assert result.returncode == 2
     assert "checksum" in result.stderr
     log = _log_text(env)
-    assert '"tool": "cp"' in log
     assert '"tool": "gpg"' not in log
     assert '"tool": "pg_restore"' not in log
     assert '"tool": "psql"' not in log
@@ -1114,23 +1201,19 @@ def test_restore_rejects_checksum_tampering_before_archive_or_database_tools(
     assert result.returncode == 2
     assert "checksum mismatch" in result.stderr
     log = _log_text(env)
-    assert '"tool": "cp"' in log
     assert '"tool": "pg_restore"' not in log
     assert '"tool": "psql"' not in log
 
 
-def test_restore_uses_private_snapshot_after_source_replacement(tmp_path: Path) -> None:
+def test_restore_uses_private_snapshot_paths(tmp_path: Path) -> None:
     mock_bin = _install_mock_tools(tmp_path)
     env = _base_env(tmp_path, mock_bin)
     archive = tmp_path / "goatfarm.dump"
     archive.write_bytes(b"original verified archive")
     _write_checksum(archive)
-    env["MOCK_REPLACE_SOURCE_AFTER_COPY"] = str(archive)
-
     result = _run_restore(archive, env)
 
     assert result.returncode == 0, result.stderr
-    assert archive.read_bytes() == b"source replaced after private snapshot"
     calls = [json.loads(line) for line in _log_text(env).splitlines()]
     restore_calls = [call for call in calls if call["tool"] == "pg_restore"]
     assert len(restore_calls) == 2
@@ -1447,12 +1530,151 @@ def _stage_scripts(tmp_path: Path, env_file: str | None) -> Path:
         DOTENV_HELPER,
         FLOCK_HELPER,
         LEGACY_LOCK_HELPER,
+        PINNED_COPY_HELPER,
         ENV_LIB,
     ):
         shutil.copy(source, staged / source.name)
     if env_file is not None:
         (staged.parent / ".env").write_text(env_file)
     return staged
+
+
+def test_dotenv_helper_parses_a_pinned_snapshot_across_path_removal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A name race must not silently downgrade deployment safety settings."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("GOATFARM_ENVIRONMENT=production\n")
+    real_dotenv_values = __import__("dotenv").dotenv_values
+
+    def remove_name_before_parse(*args: object, **kwargs: object) -> object:
+        env_file.unlink()
+        return real_dotenv_values(*args, **kwargs)
+
+    monkeypatch.setattr(__import__("dotenv"), "dotenv_values", remove_name_before_parse)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dotenv_value.py", str(env_file), "GOATFARM_ENVIRONMENT"],
+    )
+
+    assert dotenv_value.main() == 0
+    assert capsys.readouterr().out == "production"
+
+
+def test_dotenv_helper_bounds_a_growing_or_oversized_config_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_bytes(b"A" * (dotenv_value._MAX_ENV_FILE_BYTES + 1))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["dotenv_value.py", str(env_file), "GOATFARM_ENVIRONMENT"],
+    )
+
+    assert dotenv_value.main() == 2
+    assert "file exceeds" in capsys.readouterr().err
+
+
+def test_dotenv_helper_rejects_fifo_without_blocking(tmp_path: Path) -> None:
+    """Regular-file validation must happen without waiting for a FIFO writer."""
+    env_file = tmp_path / ".env"
+    os.mkfifo(env_file)
+
+    result = subprocess.run(
+        [sys.executable, str(DOTENV_HELPER), str(env_file), "GOATFARM_ENVIRONMENT"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=2,
+    )
+
+    assert result.returncode == 2
+    assert "not a regular file" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_error"),
+    [
+        ("backup", "authenticated GPG encryption"),
+        ("restore", "authenticated GPG backup"),
+    ],
+)
+def test_deployment_safety_settings_come_from_one_env_file_snapshot(
+    tmp_path: Path,
+    operation: str,
+    expected_error: str,
+) -> None:
+    """Atomic replacement/removal cannot mix two .env generations.
+
+    Before the safety settings were loaded together, the first helper could
+    read ``verify-full`` from a production file that disappeared before the
+    second helper. The second lookup then defaulted to ``development`` and both
+    scripts permitted an unsigned artifact. This Python shim deterministically
+    removes the pathname after the helper's first completed read: one snapshot
+    retains both production values, while the old two-call implementation
+    reproduced the unsafe mixed configuration.
+    """
+    mock_bin = _install_mock_tools(tmp_path)
+    env = _base_env(tmp_path, mock_bin)
+    env.pop("GOATFARM_ENVIRONMENT")
+    env.pop("GOATFARM_DB_SSLMODE")
+    staged = _stage_scripts(
+        tmp_path,
+        "GOATFARM_ENVIRONMENT=production\nGOATFARM_DB_SSLMODE=verify-full\n",
+    )
+    env_file = staged.parent / ".env"
+    marker = tmp_path / "dotenv-helper-returned"
+    env.update(
+        {
+            "REAL_PYTHON": sys.executable,
+            "RACE_ENV_FILE": str(env_file),
+            "RACE_MARKER": str(marker),
+        }
+    )
+    _write_executable(
+        mock_bin / "python3",
+        """#!/bin/sh
+"${REAL_PYTHON}" "$@"
+status=$?
+if [ "${1##*/}" = "dotenv_value.py" ] && [ ! -e "${RACE_MARKER}" ]; then
+    rm -f -- "${RACE_ENV_FILE}"
+    : > "${RACE_MARKER}"
+fi
+exit "${status}"
+""",
+    )
+
+    if operation == "backup":
+        command = ["bash", str(staged / "backup.sh"), str(tmp_path / "dest")]
+    else:
+        archive = tmp_path / "goatfarm.dump"
+        archive.write_bytes(b"archive")
+        _write_checksum(archive)
+        env["GOATFARM_RESTORE_DATABASE_URL"] = (
+            "postgresql://restore_user:secret@db.invalid:5432/goatfarm_restore_test"
+        )
+        env["GOATFARM_RESTORE_CONFIRM"] = "goatfarm_restore_test"
+        command = ["bash", str(staged / "restore.sh"), str(archive)]
+
+    result = subprocess.run(
+        command,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 2
+    assert expected_error in result.stderr
+    assert marker.exists()
+    assert _log_text(env) == ""  # the mixed snapshot never reaches a database tool
 
 
 @pytest.mark.parametrize(

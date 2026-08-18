@@ -636,12 +636,25 @@ async def farm_calibration(
 
 @router.post("/run")
 async def run_adhoc(
-    payload: RunIn, user: CurrentUser, farm: CurrentFarm, perms: SimView
+    payload: RunIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: SimView,
 ) -> SimulationResult:
     """Run a simulation from posted assumptions (no persistence)."""
+    farm_id = farm.id
+    user_id = user.id
+    # Unsafe-request authorization deliberately pins Membership/User/Role rows
+    # only for the database mutation it authorizes. A simulation is CPU-only
+    # after admission; retaining that transaction for a worst-case ~25-second
+    # worker run needlessly blocks revocation/role changes and keeps one pool
+    # connection checked out. Capture the immutable request snapshot, then
+    # release both the authorization locks and connection before CPU work.
+    await db.rollback()
     return await _run_for_farm(
-        farm.id,
-        user.id,
+        farm_id,
+        user_id,
         payload.assumptions,
         payload.monte_carlo,
         payload.sensitivity,
@@ -782,19 +795,26 @@ async def compare_scenarios(
             status_code=400, detail=f"compare is limited to {MAX_COMPARE_IDS} scenarios"
         )
 
+    farm_id = farm.id
+    user_id = user.id
+
     async def run_compare() -> ScenarioCompareOut:
-        scenarios = [await _get_scenario(db, farm.id, scenario_id) for scenario_id in id_list]
+        scenarios = [await _get_scenario(db, farm_id, scenario_id) for scenario_id in id_list]
         loaded = [_load_assumptions(scenario) for scenario in scenarios]
+        scenario_snapshots = [_scenario_out(scenario) for scenario in scenarios]
         cost = sum(_run_cost(a, False, False, False) for a in loaded)
+        # The response models and validated assumptions are detached snapshots
+        # now. Do not pin a pool connection for the sequential off-thread runs.
+        await db.rollback()
         # Charged once the scenarios are known, before any engine work starts.
-        _check_run_budget(farm.id, user.id, cost)
-        _charge_run_budget(farm.id, user.id, cost)
+        _check_run_budget(farm_id, user_id, cost)
+        _charge_run_budget(farm_id, user_id, cost)
         return ScenarioCompareOut(
-            scenarios=[_scenario_out(scenario) for scenario in scenarios],
+            scenarios=scenario_snapshots,
             results=[await _run_offloaded(a, False, False, False) for a in loaded],
         )
 
-    return await _with_run_limits(farm.id, user.id, run_compare)
+    return await _with_run_limits(farm_id, user_id, run_compare)
 
 
 @router.get("/scenarios/{scenario_id}")
@@ -869,11 +889,18 @@ async def run_scenario(
     optimization: bool = False,
 ) -> SimulationResult:
     """Run a stored scenario's assumptions (optionally with MC / sensitivity)."""
-    scenario = await _get_scenario(db, farm.id, scenario_id)
+    farm_id = farm.id
+    user_id = user.id
+    scenario = await _get_scenario(db, farm_id, scenario_id)
+    assumptions = _load_assumptions(scenario)
+    # The validated assumptions are a complete point-in-time scenario snapshot;
+    # the simulation no longer needs the ORM row or its authorization
+    # transaction. Release the connection and auth SHARE locks before CPU work.
+    await db.rollback()
     return await _run_for_farm(
-        farm.id,
-        user.id,
-        _load_assumptions(scenario),
+        farm_id,
+        user_id,
+        assumptions,
         monte_carlo,
         sensitivity,
         optimization,

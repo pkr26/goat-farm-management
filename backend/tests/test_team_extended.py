@@ -22,7 +22,7 @@ from sqlalchemy import event, func, insert, select, text
 import app.api.team as team_api
 from app.core.config import get_settings
 from app.db import get_engine, get_sessionmaker
-from app.models import FarmMembership, Role, Task, User
+from app.models import Farm, FarmMembership, Role, Task, User
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm, register
@@ -2043,6 +2043,68 @@ async def test_role_limit_is_concurrency_safe(
     assert sorted([first.status_code, second.status_code]) == [201, 409]
     rejected = first if first.status_code == 409 else second
     assert rejected.json()["detail"] == "This farm has reached its role limit."
+    assert len((await team_page(client, owner))["roles"]) == existing + 1
+
+
+async def test_role_capacity_recounts_after_legacy_farm_repair(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Farm UPDATE repair and advisory provisioning share a count boundary."""
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    existing = len((await team_page(client, owner))["roles"])
+    assert existing == 5
+    monkeypatch.setattr(get_settings(), "max_roles_per_farm", existing + 1)
+
+    holder = get_sessionmaker()()
+    await holder.execute(select(Farm.id).where(Farm.id == farm_id).with_for_update())
+    create = asyncio.create_task(
+        client.post(
+            "/api/team/roles",
+            json={"name": "Concurrent custom role", "permissions": []},
+            headers=owner,
+        )
+    )
+    try:
+        for _ in range(1_000):
+            async with get_sessionmaker()() as probe:
+                blocked = (
+                    await probe.execute(
+                        text(
+                            "SELECT count(*) FROM pg_stat_activity "
+                            "WHERE datname = current_database() "
+                            "AND pid <> pg_backend_pid() "
+                            "AND wait_event_type = 'Lock'"
+                        )
+                    )
+                ).scalar_one()
+            if blocked:
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("role creation never reached the Farm lock boundary")
+
+        holder.add(
+            Role(
+                farm_id=farm_id,
+                code="REPAIRED_PRESET",
+                name="Repair-added preset",
+                description=None,
+                permissions="[]",
+            )
+        )
+        await holder.commit()
+        async with asyncio.timeout(10):
+            response = await create
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not create.done():
+            create.cancel()
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "This farm has reached its role limit."
     assert len((await team_page(client, owner))["roles"]) == existing + 1
 
 

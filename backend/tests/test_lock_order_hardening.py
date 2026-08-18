@@ -15,7 +15,7 @@ from datetime import timedelta
 import httpx
 import pytest
 from sqlalchemy import event as sa_event
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 
 import app.api.tasks as tasks_api
@@ -842,7 +842,7 @@ async def test_generic_quarantine_release_prelocks_entire_active_batch(
     purchase = await client.post(
         "/api/purchases/new",
         json={
-            "date": today().isoformat(),
+            "date": (today() - timedelta(days=50)).isoformat(),
             "count": 2,
             "create_animals": True,
             "total_price": 200,
@@ -857,6 +857,29 @@ async def test_generic_quarantine_release_prelocks_entire_active_batch(
     release_task = next(
         task for task in detail.json()["tasks"] if task["category"] == "BUCKET_MOVE"
     )
+    # A history-corrected batch animal outside QUARANTINE can otherwise race
+    # back into the release cohort after its snapshot. It must be locked too,
+    # even though this release will leave its current classification alone.
+    moved = await client.post(
+        f"/api/animals/{animal_ids[0]}/move",
+        json={
+            "to_bucket": "BREEDING",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(Task)
+            .where(
+                Task.purchase_batch_id == batch_id,
+                Task.id != release_task["id"],
+            )
+            .values(status=TaskStatus.DONE.value, completed_at=utcnow())
+        )
+        await db.commit()
 
     holder = get_sessionmaker()()
     await holder.execute(select(Task.id).where(Task.id == release_task["id"]).with_for_update())
@@ -880,9 +903,18 @@ async def test_generic_quarantine_release_prelocks_entire_active_batch(
             if not request.done():
                 request.cancel()
 
-    # Day-45 release is not due and its prerequisites are incomplete, but all
-    # animals were demonstrably locked before the Task state check.
-    assert response.status_code == 409, response.text
+    assert response.status_code == 200, response.text
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(
+                    select(Animal).where(Animal.id.in_(animal_ids)).order_by(Animal.id)
+                )
+            ).scalars()
+        )
+    # The synchronization-only animal keeps its historical classification;
+    # only the batch member actually awaiting release moves to FOUNDATION.
+    assert [animal.current_bucket for animal in rows] == ["BREEDING", "FOUNDATION"]
 
 
 async def test_final_batch_animal_retirement_waits_for_locked_protocol_duty(
@@ -1679,11 +1711,10 @@ async def test_quarantine_release_takes_the_batch_lock_before_the_task_lock(
     (ascending id). Release completion locks the release duty — always the
     HIGHEST id in the protocol series — and only then, via
     ``_guard_quarantine_release``, its siblings ascending: the exact inverse.
-    That was safe only while both sides serialized on animals first, and they
-    do not — the completion pre-lock takes QUARANTINE animals only, while the
-    sweep fires when the batch holds no ACTIVE animal in ANY bucket. Once the
-    last active animal sits outside QUARANTINE the completion locked nothing,
-    nothing ordered the pair, and PostgreSQL broke the cycle with a 500.
+    They normally serialize on active animals first, but the sweep fires when
+    the batch holds no ACTIVE animal in ANY bucket. At zero occupancy the
+    completion also locks no animal, nothing orders the pair, and PostgreSQL
+    can break the cycle with a 500.
 
     Parking the batch row proves the completion now blocks on it *before*
     touching any Task row.

@@ -19,9 +19,12 @@ farm cap serializes concurrent creations on the user row.
 """
 
 import asyncio
+import fcntl
 import hashlib
 import os
 import stat
+import subprocess
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from datetime import date, timedelta
@@ -34,6 +37,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 import app.api.auth as auth_api
+import app.security as security_api
 from app.core.config import Settings, get_settings
 from app.db import get_sessionmaker
 from app.models import FarmMembership, Role, User
@@ -928,6 +932,27 @@ def test_sliding_window_cardinality_is_hard_bounded() -> None:
     assert len(limiter._limits) <= 25
 
 
+def test_hot_rate_limit_bucket_is_strictly_threshold_bounded() -> None:
+    """Post-classification IP ledgers still see every unique bad token.
+
+    Their bucket must not retain every denied request after it is blocked, or
+    one hot source grows a single deque without limit despite ``max_keys``.
+    """
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0], max_keys=2)
+    for _ in range(10_000):
+        limiter.record("access-token-invalid-ip", "attacker", 300, max_attempts=3)
+
+    hits = limiter._hits[("access-token-invalid-ip", "attacker")]
+    assert len(hits) == 3
+    assert limiter.is_blocked("access-token-invalid-ip", "attacker", 3, 300)
+
+    # Rejected traffic does not slide the ban forever. The original admitted
+    # threshold expires normally even if thousands of later attempts arrived.
+    now[0] += 301
+    assert not limiter.is_blocked("access-token-invalid-ip", "attacker", 3, 300)
+
+
 def test_cardinality_spray_cannot_evict_a_live_brute_force_counter() -> None:
     """A full limiter preserves a hot victim without denying a new identity.
 
@@ -1006,6 +1031,113 @@ def test_password_admission_reservations_are_nonwaiting_bounded_and_reusable() -
     assert limiter._reservations == {}
 
 
+async def test_cancelled_auth_workflow_keeps_identity_reserved_until_work_finishes() -> None:
+    scope = "cancelled-password-work"
+    key = "same-account"
+    auth_limiter.clear()
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def stalled_work() -> str:
+        started.set()
+        await finish.wait()
+        return "done"
+
+    reservation = auth_api._reserve_password_work(scope, key)
+    request = asyncio.create_task(reservation.run(stalled_work))
+    await started.wait()
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+    reservation.release_when_idle()
+
+    with pytest.raises(security_api.PasswordWorkCapacityError):
+        auth_api._reserve_password_work(scope, key)
+
+    finish.set()
+    for _ in range(10):
+        await asyncio.sleep(0)
+        if auth_limiter.try_reserve(scope, key):
+            break
+    else:
+        raise AssertionError("identity reservation was not released after native work became idle")
+    auth_limiter.release(scope, key)
+
+
+async def test_password_executor_submission_failure_returns_admission_slot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TrackingSlots:
+        def __init__(self) -> None:
+            self.in_flight = 0
+
+        def acquire(self, *, blocking: bool) -> bool:
+            assert blocking is False
+            self.in_flight += 1
+            return True
+
+        def release(self) -> None:
+            self.in_flight -= 1
+
+    class RejectingExecutor:
+        def submit(self, *_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("executor is shutting down")
+
+    slots = TrackingSlots()
+    monkeypatch.setattr(security_api, "_password_slots", slots)
+    monkeypatch.setattr(security_api, "_password_executor", RejectingExecutor())
+
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await security_api._run_password_work(lambda: "never runs")
+    assert slots.in_flight == 0
+
+
+async def test_cancelled_password_future_is_released_by_the_native_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TrackingSlots:
+        def __init__(self) -> None:
+            self.in_flight = 0
+
+        def acquire(self, *, blocking: bool) -> bool:
+            assert blocking is False
+            self.in_flight += 1
+            return True
+
+        def release(self) -> None:
+            self.in_flight -= 1
+
+    slots = TrackingSlots()
+    started = threading.Event()
+    finish = threading.Event()
+    monkeypatch.setattr(security_api, "_password_slots", slots)
+
+    def stalled_native_work() -> str:
+        started.set()
+        assert finish.wait(timeout=5)
+        return "done"
+
+    request = asyncio.create_task(security_api._run_password_work(stalled_native_work))
+    for _ in range(100):
+        if started.is_set():
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("password work never reached the executor")
+
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+    assert slots.in_flight == 1
+
+    finish.set()
+    for _ in range(100):
+        if slots.in_flight == 0:
+            break
+        await asyncio.sleep(0.01)
+    assert slots.in_flight == 0
+
+
 def test_client_key_falls_back_when_client_is_none() -> None:
     from starlette.requests import Request
 
@@ -1071,20 +1203,81 @@ def test_keys_are_read_from_disk_at_most_once(
     tmp_jwt_keys: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Signing/verifying must not re-read the PEM files per token."""
+    from app import security
+
     priv, pub = tmp_jwt_keys
     reads: list[Path] = []
-    real_read_text = Path.read_text
+    real_read = security._read_pinned_key_text
 
-    def spy(self: Path, *args: object, **kwargs: object) -> str:
-        reads.append(self)
-        return real_read_text(self, *args, **kwargs)
+    def spy(path: Path) -> str:
+        reads.append(path)
+        return real_read(path)
 
-    monkeypatch.setattr(Path, "read_text", spy)
+    monkeypatch.setattr(security, "_read_pinned_key_text", spy)
     for _ in range(20):
         token = issue_access_token(7)
         assert decode_token(token, "access") == 7
     assert reads.count(priv) == 1  # generated once, read once
     assert reads.count(pub) == 1
+
+
+def test_jwt_key_reader_follows_regular_secret_mount_symlinks(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    """Pinned reads keep Kubernetes-style stable symlink paths supported."""
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    material_dir = priv.parent / "..jwt-material"
+    material_dir.mkdir(parents=True)
+    real_priv = material_dir / "private.pem"
+    real_pub = material_dir / "public.pem"
+    security._generate_keypair(real_priv, real_pub)
+    priv.parent.mkdir(parents=True, exist_ok=True)
+    priv.symlink_to(real_priv)
+    pub.symlink_to(real_pub)
+
+    token = issue_access_token(17)
+    assert decode_token(token, "access") == 17
+
+
+def test_jwt_key_reader_rejects_fifo_without_blocking(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    """A mounted/nonregular key path cannot hang startup before validation."""
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    os.mkfifo(priv)
+    pub.write_text("not reached")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.security import issue_access_token; issue_access_token(1)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=3,
+    )
+
+    assert result.returncode != 0
+    assert "is not a regular file" in result.stderr
+
+
+def test_jwt_key_reader_rejects_oversized_material(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    priv.write_bytes(b"A" * (security._MAX_JWT_KEY_BYTES + 1))
+    pub.write_text("not reached")
+
+    with pytest.raises(RuntimeError, match="exceeds"):
+        issue_access_token(1)
 
 
 def test_concurrent_first_boot_yields_one_consistent_keypair(
@@ -1178,6 +1371,100 @@ def test_first_boot_generation_takes_a_process_lock(
     priv, _pub = tmp_jwt_keys
     issue_access_token(1)
     assert (priv.parent / ".jwt_keygen.lock").exists()
+
+
+def test_first_boot_lock_rejects_symlink_without_truncating_target(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    """A custom key directory cannot turn lock opening into an arbitrary write."""
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    victim = priv.parent / "operator-file"
+    victim.write_text("must survive")
+    (priv.parent / ".jwt_keygen.lock").symlink_to(victim)
+
+    with pytest.raises(RuntimeError, match="safely open JWT key-generation lock"):
+        issue_access_token(1)
+
+    assert victim.read_text() == "must survive"
+    assert not priv.exists()
+    assert not pub.exists()
+
+
+def test_first_boot_lock_rejects_fifo_without_blocking(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    """The pre-flock regular-file check must never wait for a FIFO writer."""
+    priv, _pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    os.mkfifo(priv.parent / ".jwt_keygen.lock")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.security import issue_access_token; issue_access_token(1)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=3,
+    )
+
+    assert result.returncode != 0
+    assert "JWT key-generation lock is not a regular file" in result.stderr
+
+
+def test_first_boot_rejects_lock_path_replaced_while_waiting(
+    tmp_jwt_keys: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two processes cannot silently flock different path inodes and generate."""
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    lock_path = priv.parent / ".jwt_keygen.lock"
+    lock_path.touch(mode=0o600)
+    displaced = priv.parent / ".jwt_keygen.displaced"
+    holder_fd = os.open(lock_path, os.O_RDWR)
+    real_flock = security.fcntl.flock
+    real_flock(holder_fd, fcntl.LOCK_EX)
+    entered_flock = threading.Event()
+    errors: list[BaseException] = []
+
+    def tracking_flock(fd: int, operation: int) -> object:
+        if operation == fcntl.LOCK_EX and fd != holder_fd:
+            entered_flock.set()
+        return real_flock(fd, operation)
+
+    def generate() -> None:
+        try:
+            issue_access_token(1)
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(security.fcntl, "flock", tracking_flock)
+    worker = threading.Thread(target=generate)
+    worker.start()
+    try:
+        assert entered_flock.wait(timeout=5)
+        lock_path.rename(displaced)
+        lock_path.touch(mode=0o600)
+        real_flock(holder_fd, fcntl.LOCK_UN)
+        worker.join(timeout=5)
+    finally:
+        real_flock(holder_fd, fcntl.LOCK_UN)
+        os.close(holder_fd)
+        if worker.is_alive():
+            worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert "lock path changed during acquisition" in str(errors[0])
+    assert not priv.exists()
+    assert not pub.exists()
 
 
 # --- config-level proxy / host / origin contracts ----------------------------

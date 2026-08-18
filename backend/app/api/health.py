@@ -55,6 +55,7 @@ from ..services import (
     complete_task,
     execute_idempotent,
     inferred_schedule_template,
+    lock_manual_task_queue,
     record_health_event,
     require_animal_event_chronology,
     require_farm_not_future,
@@ -573,8 +574,9 @@ async def _lock_event_targets(
 
     expected_ids = sorted(expected)
     # A linked quarantine protocol duty covers the whole authoritative batch,
-    # not an arbitrary reviewed subset. Lock that full ACTIVE+QUARANTINE set
-    # in canonical id order before the linked Task and compare exact ids. A
+    # not an arbitrary reviewed subset. Lock every ACTIVE batch animal in
+    # canonical id order before the linked Task, derive the QUARANTINE set,
+    # and compare exact ids. A
     # normal unlinked bulk ledger entry intentionally keeps snapshot semantics
     # (late entrants are not silently added), so this stronger rule is scoped
     # only to a compatible task's purchase batch.
@@ -584,7 +586,7 @@ async def _lock_event_targets(
                 status_code=422,
                 detail="Health event scope must match the linked batch",
             )
-        animals = list(
+        locked_batch_animals = list(
             (
                 await db.execute(
                     select(Animal)
@@ -592,13 +594,25 @@ async def _lock_event_targets(
                         Animal.farm_id == farm.id,
                         Animal.purchase_batch_id == linked_batch_id,
                         Animal.status == AnimalStatus.ACTIVE.value,
-                        Animal.current_bucket == Bucket.QUARANTINE.value,
                     )
                     .order_by(Animal.id)
                     .with_for_update()
                 )
             ).scalars()
         )
+        # Lock every ACTIVE animal in the batch, then derive the current
+        # quarantine cohort from the locked rows. Locking only rows whose
+        # bucket was already QUARANTINE left a predicate phantom: an active
+        # history-corrected outsider could move back into QUARANTINE after the
+        # snapshot but before this linked protocol task committed. The move
+        # and health paths now serialize on that outsider as well, so either
+        # its move wins and makes the reviewed ids stale, or the event
+        # completes before it enters the target cohort.
+        animals = [
+            animal
+            for animal in locked_batch_animals
+            if animal.current_bucket == Bucket.QUARANTINE.value
+        ]
         if not animals or [animal.id for animal in animals] != expected_ids:
             raise HTTPException(
                 status_code=409,
@@ -690,15 +704,26 @@ async def _record_event_mutation(
     # a genuine PostgreSQL deadlock rather than a harmless serialization.
     linked_batch_id: int | None = None
     if payload.task_id is not None and payload.task_id <= MAX_INT32_ID:
-        linked_batch_id = (
+        linked_task = (
             await db.execute(
-                select(Task.purchase_batch_id).where(
+                select(Task.purchase_batch_id, Task.recur_days).where(
                     Task.id == payload.task_id,
                     Task.farm_id == farm.id,
                     Task.category.in_((TaskCategory.VACCINE.value, TaskCategory.DEWORMING.value)),
                 )
             )
-        ).scalar_one_or_none()
+        ).one_or_none()
+        if linked_task is not None:
+            linked_batch_id = linked_task.purchase_batch_id
+            if linked_task.recur_days is not None:
+                # Completing a recurring form-linked duty is a net-zero manual
+                # queue transition (PENDING -> DONE plus one PENDING successor),
+                # so it does not need a free capacity slot. It does need the
+                # same transaction-scoped queue mutex as the generic task
+                # completion route: take FARM before ANIMAL(S) -> TASK so every
+                # recurring successor and count-changing manual-task mutation
+                # shares one lock order.
+                await lock_manual_task_queue(db, farm)
     animals, batch, batch_id = await _lock_event_targets(
         db,
         farm,

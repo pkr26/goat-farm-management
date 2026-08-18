@@ -492,7 +492,10 @@ by an incomplete cron environment. An explicit export still wins, which is why
 the invocations in this section pass both explicitly. They use the same pinned
 `python-dotenv` grammar as the application, including `export` declarations,
 quotes, inline comments, case-insensitive keys, and interpolation; install the
-backend environment before running either script.
+backend environment before running either script. The helper parses one pinned
+regular-file snapshot (capped at 1 MiB); an in-place change, non-regular file,
+or oversized file fails the job instead of silently falling back to development
+defaults.
 
 The database password is supplied to libpq through a mode-`0600` temporary
 passfile; `pg_dump`, `psql`, and `pg_restore` receive only a password-free URL
@@ -509,6 +512,11 @@ for its complete run, so a still-deployed old script cannot run beside it. The
 claim is prepared completely under a private name, then published with an
 exclusive atomic rename; the canonical name is therefore either absent or a
 complete claim even if initialization is killed or encounters an I/O error.
+The destination filesystem must implement the platform's atomic no-replace
+directory rename (`RENAME_NOREPLACE` on Linux or `RENAME_EXCL` on macOS).
+The script fails closed when that primitive is unavailable; it never degrades
+the cross-version lock to a raceable check-then-rename on NFS/CIFS or another
+unsupported mount. Validate this capability in the backup-host runbook.
 
 During this transition, a dead old-format PID is deliberately not reclaimed:
 the old shell may have died while its `pg_dump` child remains active and holds

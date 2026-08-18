@@ -20,6 +20,7 @@ import httpx
 import pytest
 from sqlalchemy import select, text
 
+from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.main import create_app
 from app.models import (
@@ -47,6 +48,7 @@ from app.seed import (
     seed_default_roles,
     seed_farm_inventory,
 )
+from app.services import lock_manual_task_queue
 from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
@@ -1080,6 +1082,87 @@ async def test_health_form_double_complete_spawns_one_occurrence(
     assert original["status"] == "DONE"
     spawned = [t for t in mine if t["id"] != task_id and t["status"] == "PENDING"]
     assert len(spawned) == 1  # the recurring series spawned exactly once
+
+
+async def test_health_recurring_completion_uses_manual_queue_lock_without_needing_slot(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A form-linked recurrence follows the same FARM -> ANIMAL -> TASK order.
+
+    Completing it is queue-neutral: the current PENDING row becomes DONE while
+    one PENDING successor is inserted. It must therefore take the queue mutex
+    (so it serializes with count-changing task routes) but must still succeed
+    when the current row already occupies the farm's final pending slot.
+    """
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    animal_id = await make_animal(client, owner, tag="HEALTH-QUEUE-1")
+    monkeypatch.setattr(get_settings(), "max_pending_manual_tasks_per_farm", 1)
+    async with get_sessionmaker()() as db:
+        task = Task(
+            farm_id=farm_id,
+            title="Herd FMD round",
+            due_date=today(),
+            category=TaskCategory.VACCINE.value,
+            animal_id=animal_id,
+            recur_days=1,
+            recurring_series_id="health-queue-lock-series",
+            auto_generated=False,
+        )
+        db.add(task)
+        await db.commit()
+        task_id = task.id
+
+    holder = get_sessionmaker()()
+    farm = await holder.get(Farm, farm_id)
+    assert farm is not None
+    await lock_manual_task_queue(holder, farm)
+    request = asyncio.create_task(
+        client.post(
+            "/api/health/events",
+            json={
+                "animal_id": animal_id,
+                "type": "VACCINE",
+                "product_name": "FMD",
+                "disease_target": "FMD",
+                "task_id": task_id,
+            },
+            headers=owner,
+        )
+    )
+    try:
+        await wait_until_blocked()
+        # The FARM advisory lock is first. While the request waits there it has
+        # not inverted the order by taking either downstream row lock.
+        async with get_sessionmaker()() as probe:
+            await probe.execute(
+                select(Animal.id).where(Animal.id == animal_id).with_for_update(nowait=True)
+            )
+            await probe.execute(
+                select(Task.id).where(Task.id == task_id).with_for_update(nowait=True)
+            )
+            await probe.rollback()
+        await holder.commit()
+        response = await asyncio.wait_for(request, timeout=10)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+
+    assert response.status_code == 201, response.text
+    async with get_sessionmaker()() as db:
+        series = list(
+            (
+                await db.execute(
+                    select(Task)
+                    .where(Task.recurring_series_id == "health-queue-lock-series")
+                    .order_by(Task.due_date, Task.id)
+                )
+            ).scalars()
+        )
+    assert [task.status for task in series] == [TaskStatus.DONE.value, TaskStatus.PENDING.value]
 
 
 # ---------------------------------------------------------------------------

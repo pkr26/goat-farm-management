@@ -496,6 +496,33 @@ async def _get_role(
     return role
 
 
+async def _pin_membership_user(
+    db: AsyncSession,
+    membership: FarmMembership,
+) -> User:
+    """Lock and revalidate a roster target after the Membership lock.
+
+    Account deletion intentionally does not enumerate an identity's retained
+    memberships. Without this second lock, a status/role request can pass the
+    membership query while the User is live, then reactivate or rewrite that
+    membership after deletion commits. Keeping Membership -> User matches the
+    authorization/task/reset lock graph and makes the roster mutation linearize
+    wholly before deletion or fail after it.
+    """
+    target = (
+        await db.execute(
+            select(User)
+            .where(User.id == membership.user_id, User.deleted_at.is_(None))
+            .execution_options(populate_existing=True)
+            .with_for_update(read=True, of=User)
+        )
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    membership.user = target
+    return target
+
+
 async def _pin_membership_role(
     db: AsyncSession,
     farm: Farm,
@@ -584,14 +611,23 @@ async def _lock_farm_provisioning(db: AsyncSession, farm: Farm) -> None:
     held for the rest of the request transaction serializes *all* tenant
     writes, not just the counted resource. A transaction-scoped advisory lock
     self-conflicts exactly like the row lock did (so the ceilings stay real
-    bounds), never conflicts with an FK key-share lock, and needs no
-    KEY SHARE -> stronger upgrade, so distinct idempotency keys still cannot
-    deadlock against each other.
+    bounds) and never conflicts with an FK key-share lock. It is acquired
+    before the compatible parent KEY SHARE pin below, and that pin is never
+    upgraded, so distinct idempotency keys still cannot deadlock each other.
     """
     await db.execute(
         select(
             func.pg_advisory_xact_lock(literal(TEAM_PROVISIONING_LOCK_NAMESPACE), literal(farm.id))
         )
+    )
+    # Legacy repair serializes its missing-preset decision with Farm FOR
+    # UPDATE, not this application advisory lock. Pin the parent only after the
+    # advisory mutex so a repair that was already in flight commits before our
+    # capacity COUNT. FOR KEY SHARE is compatible with ordinary farm-child
+    # inserts (including the idempotency claim) and therefore does not restore
+    # the tenant-wide write serialization the advisory lock replaced.
+    await db.execute(
+        select(Farm.id).where(Farm.id == farm.id).with_for_update(read=True, key_share=True)
     )
 
 
@@ -915,6 +951,7 @@ async def change_role(
     # must not let a worker promote his own membership to a richer role.
     if membership.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot change your own role.")
+    await _pin_membership_user(db, membership)
     if user.id != farm.owner_id:
         await _pin_membership_role(db, farm, membership)
     _guard_peer_manager(membership, user, farm)
@@ -980,6 +1017,7 @@ async def set_worker_status(
     )
     if membership.user_id == user.id:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own membership.")
+    await _pin_membership_user(db, membership)
     if user.id != farm.owner_id:
         await _pin_membership_role(db, farm, membership)
     _guard_peer_manager(membership, user, farm)

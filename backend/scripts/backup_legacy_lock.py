@@ -69,7 +69,9 @@ def _read_file(file_fd: int, description: str) -> bytes:
 
 
 def _snapshot_file(directory_fd: int, name: str, description: str) -> FileSnapshot:
-    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    # O_NONBLOCK is inert for regular files and prevents a malicious/malformed
+    # FIFO entry from hanging the safety helper before fstat can reject it.
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
     file_fd = os.open(name, flags, dir_fd=directory_fd)
     try:
         before = os.fstat(file_fd)
@@ -256,52 +258,25 @@ def _rename_noreplace_linux(source: bytes, destination: bytes) -> None:
         raise OSError(error, os.strerror(error))
 
 
-_RENAME_CAPABILITY_ERRNOS = frozenset(
-    {
-        errno.ENOSYS,  # syscall/libc wrapper missing (glibc < 2.28, musl, others)
-        errno.EINVAL,  # kernel or filesystem rejects RENAME_NOREPLACE (NFSv3, ...)
-        errno.ENOTSUP,  # macOS filesystems without RENAME_EXCL (SMB/NFS mounts)
-        getattr(errno, "EOPNOTSUPP", errno.ENOTSUP),
-    }
-)
-
-
-def _rename_noreplace_fallback(source: bytes, destination: bytes) -> None:
-    """Check-then-rename for platforms/filesystems without an exclusive rename.
-
-    RENAME_NOREPLACE support depends on both the OS and the destination
-    filesystem; refusing outright made every backup on an NFS/CIFS
-    destination or an older-libc host fail forever as phantom lock
-    contention. The tiny non-atomic window here is acceptable: the only
-    unsynchronized competitor is a one-release-old producer, and callers
-    re-verify the destination's identity after the move.
-    """
-    try:
-        os.lstat(destination)
-    except FileNotFoundError:
-        pass
-    else:
-        raise OSError(errno.EEXIST, os.strerror(errno.EEXIST))
-    os.rename(source, destination)
-
-
 def _platform_rename_noreplace(source: Path, destination: Path) -> None:
+    """Atomically rename ``source`` only when ``destination`` is absent.
+
+    There is deliberately no check-then-rename fallback.  For directories,
+    plain ``rename`` may replace a destination that another (legacy) producer
+    created empty just after the existence check.  That producer can then
+    populate the replacement directory after our post-move snapshot, leaving
+    both processes believing they own the backup lock.  Filesystems without
+    the required atomic primitive must fail closed instead of weakening the
+    serialization guarantee.
+    """
     encoded_source = os.fsencode(source)
     encoded_destination = os.fsencode(destination)
-    try:
-        if sys.platform == "darwin":
-            _rename_noreplace_darwin(encoded_source, encoded_destination)
-        elif sys.platform.startswith("linux"):
-            _rename_noreplace_linux(encoded_source, encoded_destination)
-        else:
-            raise OSError(errno.ENOSYS, "exclusive directory rename is unavailable")
-    except OSError as exc:
-        # EEXIST is a genuine lost race and must propagate as contention;
-        # only capability errors may degrade to the checked fallback.
-        if exc.errno in _RENAME_CAPABILITY_ERRNOS:
-            _rename_noreplace_fallback(encoded_source, encoded_destination)
-        else:
-            raise
+    if sys.platform == "darwin":
+        _rename_noreplace_darwin(encoded_source, encoded_destination)
+    elif sys.platform.startswith("linux"):
+        _rename_noreplace_linux(encoded_source, encoded_destination)
+    else:
+        raise OSError(errno.ENOSYS, "atomic exclusive directory rename is unavailable")
 
 
 def _restore_after_mismatch(source: Path, destination: Path) -> str:

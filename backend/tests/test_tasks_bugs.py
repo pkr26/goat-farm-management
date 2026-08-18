@@ -6,20 +6,138 @@ app (an int32-overflow path id crashed with an asyncpg DataError → 500;
 ck_tasks_user_assignment_has_role). Do not weaken them.
 """
 
-from datetime import timedelta
+from datetime import date, timedelta
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from sqlalchemy import select, text, update
 
+import app.services.tasks as task_service
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.models import Task, TaskStatus, User
-from app.services.tasks import reject_task
-from app.utils import today
+from app.services.tasks import reject_task, spawn_next_occurrence
+from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
 from .test_tasks_extended import complete_duty, make_animal, make_duty, role_id, worker_headers
+
+
+@pytest.mark.parametrize("recur_days", [0, -1, -3650])
+async def test_legacy_nonpositive_recurrence_is_bounded_without_date_overflow(
+    recur_days: int,
+) -> None:
+    """Malformed legacy intervals terminate the series instead of doing date math.
+
+    A negative interval used to pass the upper-bound-only service guard. Near
+    ``date.max`` its subsequent subtraction overflowed before the intended
+    representability check, turning completion/skip into an unhandled error.
+    """
+    task = Task(
+        farm_id=1,
+        title="Malformed legacy recurrence",
+        due_date=date.max,
+        status=TaskStatus.PENDING.value,
+        category="OTHER",
+        auto_generated=False,
+        recur_days=recur_days,
+        recurring_series_id="malformed-legacy-series",
+    )
+    db = AsyncMock()
+
+    assert await spawn_next_occurrence(db, task) is task
+    db.execute.assert_not_awaited()
+
+
+async def test_serialized_recurring_actions_across_midnight_reuse_live_successor(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A queue-lock wait crossing midnight must not fork one recurrence series."""
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    series_id = "cross-midnight-series"
+    base_date = today()
+    async with get_sessionmaker()() as db:
+        occurrences = [
+            Task(
+                farm_id=farm_id,
+                title="Cross-midnight clean",
+                due_date=base_date - timedelta(days=days_ago),
+                status=TaskStatus.DONE.value,
+                category="CLEANING",
+                auto_generated=False,
+                recur_days=1,
+                recurring_series_id=series_id,
+                completed_at=utcnow(),
+            )
+            for days_ago in (2, 1)
+        ]
+        db.add_all(occurrences)
+        await db.commit()
+        occurrence_ids = [task.id for task in occurrences]
+
+    monkeypatch.setattr(task_service, "today", lambda _timezone=None: base_date)
+    first = await client.post(f"/api/tasks/{occurrence_ids[0]}/verify", headers=owner)
+    assert first.status_code == 200, first.text
+
+    # Model the second request acquiring the farm queue mutex just after the
+    # farm's date rolled over. Its calculated due date would differ, so the DB
+    # per-date unique constraint alone cannot collapse the pair.
+    monkeypatch.setattr(
+        task_service,
+        "today",
+        lambda _timezone=None: base_date + timedelta(days=1),
+    )
+    second = await client.post(f"/api/tasks/{occurrence_ids[1]}/verify", headers=owner)
+    assert second.status_code == 200, second.text
+
+    rows = await _series_rows(series_id)
+    assert [row.status for row in rows].count(TaskStatus.VERIFIED.value) == 2
+    live = [row for row in rows if row.status == TaskStatus.PENDING.value]
+    assert len(live) == 1
+    assert live[0].due_date == base_date + timedelta(days=1)
+
+
+async def test_duplicate_recurring_verification_reuses_successor_at_capacity(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reusing a live successor is queue-neutral even when no slot is free."""
+    owner = await owner_with_farm(client)
+    farm_id = int(owner["X-Farm-Id"])
+    series_id = "capacity-reuse-series"
+    monkeypatch.setattr(get_settings(), "max_pending_manual_tasks_per_farm", 1)
+    async with get_sessionmaker()() as db:
+        occurrences = [
+            Task(
+                farm_id=farm_id,
+                title="Capacity reuse clean",
+                due_date=today() - timedelta(days=days_ago),
+                status=TaskStatus.DONE.value,
+                category="CLEANING",
+                auto_generated=False,
+                recur_days=1,
+                recurring_series_id=series_id,
+                completed_at=utcnow(),
+            )
+            for days_ago in (2, 1)
+        ]
+        db.add_all(occurrences)
+        await db.commit()
+        occurrence_ids = [task.id for task in occurrences]
+
+    first = await client.post(f"/api/tasks/{occurrence_ids[0]}/verify", headers=owner)
+    assert first.status_code == 200, first.text
+    # The first successor now occupies the only manual PENDING slot. The second
+    # verification closes history and points at that same row; it adds nothing.
+    second = await client.post(f"/api/tasks/{occurrence_ids[1]}/verify", headers=owner)
+    assert second.status_code == 200, second.text
+
+    rows = await _series_rows(series_id)
+    assert [row.status for row in rows].count(TaskStatus.VERIFIED.value) == 2
+    assert [row.status for row in rows].count(TaskStatus.PENDING.value) == 1
 
 
 async def _series_rows(series_id: str) -> list[Task]:

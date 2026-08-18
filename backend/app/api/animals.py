@@ -26,10 +26,14 @@ from ..models import (
     KiddingRecord,
     KidEntry,
     KidStatus,
+    PurchaseBatch,
+    Task,
+    TaskStatus,
     Transaction,
     TransactionCategory,
     TransactionType,
     WeightRecord,
+    quarantine_schedule,
 )
 from ..schemas.animals import (
     AnimalCreateIn,
@@ -84,12 +88,25 @@ SALE_CAPABLE_STATUSES = frozenset({AnimalStatus.SOLD.value, AnimalStatus.CULLED.
 
 def _unique_constraint_name(exc: IntegrityError) -> str | None:
     """Recover a PostgreSQL unique-constraint name through asyncpg's wrapper."""
-    orig = getattr(exc, "orig", None)
-    name = getattr(orig, "constraint_name", None)
-    if isinstance(name, str):
-        return name
-    match = re.search(r'violates unique constraint "([^"]+)"', str(orig))
-    return match.group(1) if match else None
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    # SQLAlchemy's asyncpg adapter wraps native asyncpg exceptions one level
+    # deeper than ordinary driver errors. Walk a small, explicitly bounded
+    # chain: trigger-raised UniqueViolationError carries ``constraint_name``
+    # only on that native cause and its message need not name the constraint.
+    for _ in range(5):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        name = getattr(current, "constraint_name", None)
+        if isinstance(name, str):
+            return name
+        match = re.search(r'violates unique constraint "([^"]+)"', str(current))
+        if match:
+            return match.group(1)
+        nested = getattr(current, "orig", None) or current.__cause__ or current.__context__
+        current = nested if isinstance(nested, BaseException) else None
+    return None
 
 
 async def _profile_computed_facts(
@@ -150,6 +167,91 @@ async def _animal_out(
         permissions=permissions,
         computed=computed,
     )
+
+
+async def _lock_pristine_batch_protocol_for_quarantine_reentry(
+    db: AsyncSession,
+    farm_id: int,
+    purchase_batch_id: int,
+) -> None:
+    """Allow a batch animal to re-enter quarantine only before work starts.
+
+    The caller already holds the Animal row.  Locking Batch and then its Tasks
+    preserves the status/removal/release order ``Animal -> Batch -> Task`` and
+    makes a concurrent protocol completion choose one deterministic outcome:
+    either the re-entry commits first and is part of that later protocol fact,
+    or the fact commits first and the re-entry is refused.
+
+    A valid purchase owns exactly the generated quarantine schedule.  Fetch
+    only ``expected + 1`` rows so corrupt legacy data cannot turn this guard
+    into an unbounded request; the extra row is enough to prove overflow.
+    Rejected verification work is PENDING again but has already recorded a
+    fact, so completion/rejection metadata must also remain pristine.
+    """
+    batch = (
+        await db.execute(
+            select(PurchaseBatch)
+            .where(
+                PurchaseBatch.id == purchase_batch_id,
+                PurchaseBatch.farm_id == farm_id,
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if batch is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This animal's purchase-batch quarantine protocol is unavailable.",
+        )
+
+    expected = quarantine_schedule(batch)
+    tasks = list(
+        (
+            await db.execute(
+                select(Task)
+                .where(
+                    Task.farm_id == farm_id,
+                    Task.purchase_batch_id == batch.id,
+                )
+                .order_by(Task.id)
+                .limit(len(expected) + 1)
+                .execution_options(populate_existing=True)
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    expected_shape = sorted(
+        (item["due_date"], item["category"], item["title"]) for item in expected
+    )
+    actual_shape = sorted((task.due_date, task.category, task.title) for task in tasks)
+    pristine = actual_shape == expected_shape and all(
+        task.auto_generated
+        and task.animal_id is None
+        and task.breeding_record_id is None
+        and task.recur_days is None
+        and task.recurring_series_id is None
+        and task.status == TaskStatus.PENDING.value
+        and task.completed_by_id is None
+        and task.completed_at is None
+        and task.verified_by_id is None
+        and task.verified_at is None
+        and task.skipped_by_id is None
+        and task.skipped_at is None
+        and task.skip_reason is None
+        and task.rejected_by_id is None
+        and task.rejected_at is None
+        and task.verification_note is None
+        for task in tasks
+    )
+    if not pristine:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This animal cannot re-enter quarantine because its purchase-batch "
+                "protocol has started, ended, or is incomplete."
+            ),
+        )
 
 
 @router.get("")
@@ -450,7 +552,16 @@ async def create_animal(
                     result = await _animal_out(db, animal, farm_date, farm_timezone, perms)
                 return result
             except IntegrityError as exc:
-                if _unique_constraint_name(exc) != "uq_animal_tag_per_farm":
+                # Animal tags and tagged stillbirth records share one farm
+                # namespace. The latter is enforced by a trigger-backed unique
+                # violation, so it must follow the same bounded retry/error
+                # path as the ordinary animals-table constraint. Otherwise a
+                # committed or concurrently inserted stillborn tag escaped the
+                # pre-check and surfaced as an unhandled 500.
+                if _unique_constraint_name(exc) not in {
+                    "uq_animal_tag_per_farm",
+                    "uq_stillborn_tag_farm_namespace",
+                }:
                     raise
                 if attempt + 1 == attempts:
                     raise HTTPException(
@@ -737,6 +848,16 @@ async def move_bucket(
         move_reason = f"{HISTORY_OVERRIDE_REASON_PREFIX}{move_reason}"[:255]
     elif context == "orphan_weaning" and not move_reason:
         move_reason = "Dam no longer active — deferred early wean after hold clearance"
+    if (
+        payload.to_bucket == Bucket.QUARANTINE.value
+        and animal.current_bucket != Bucket.QUARANTINE.value
+        and animal.purchase_batch_id is not None
+    ):
+        await _lock_pristine_batch_protocol_for_quarantine_reentry(
+            db,
+            farm.id,
+            animal.purchase_batch_id,
+        )
     move_animal(
         db,
         animal,

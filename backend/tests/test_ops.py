@@ -754,6 +754,55 @@ async def test_boot_seed_never_scans_or_locks_tenant_farms() -> None:
     assert (farms, tasks) == (1, 0)
 
 
+async def test_legacy_data_batch_releases_farm_locks_before_task_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Farm repair and task repair must not form a Farm -> Task lock edge.
+
+    A recurring task transition holds Task before its successor INSERT takes a
+    Farm FK key-share lock. If maintenance carried its Farm update lock into
+    the Task backfill, the two transactions could deadlock in opposite order.
+    Probe the exact phase boundary with a NOWAIT key-share acquisition.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="phase-lock-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Phase Lock Legacy Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.commit()
+        farm_id = farm.id
+
+    async def probe_released_farm_lock(_db, *, batch_size: int) -> int:
+        assert batch_size == 1
+        async with get_sessionmaker()() as probe:
+            locked_id = (
+                await probe.execute(
+                    select(Farm.id)
+                    .where(Farm.id == farm_id)
+                    .with_for_update(read=True, key_share=True, nowait=True)
+                )
+            ).scalar_one()
+            assert locked_id == farm_id
+            await probe.rollback()
+        return 0
+
+    monkeypatch.setattr(
+        seed_module,
+        "backfill_task_assignments_batch",
+        probe_released_farm_lock,
+    )
+    async with get_sessionmaker()() as db:
+        farms, tasks = await repair_legacy_data_batch(
+            db,
+            farm_batch_size=1,
+            task_batch_size=1,
+        )
+        await db.commit()
+
+    assert (farms, tasks) == (1, 0)
+
+
 async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
     async with get_sessionmaker()() as db:
         owner = User(email="backfill-owner@farm.in", password_hash="argon2-placeholder")

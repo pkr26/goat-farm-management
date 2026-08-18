@@ -2,11 +2,13 @@
 by a server-side session row with reuse detection), logout (revokes the
 presented session), change-password, and farm listing/creation."""
 
+import asyncio
 import hashlib
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import NoReturn
+from typing import Any, NoReturn
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -98,6 +100,9 @@ IP_LIMIT_MULTIPLIER = 10
 # repeat signature work merely to return 429.
 REFRESH_PREVERIFY_SCOPE = "refresh-preverify"
 REFRESH_PREVERIFY_LIMIT_MULTIPLIER = 10
+# Settings rejects values above this ceiling. It also gives down-configuration
+# compaction a finite legacy bound instead of ever loading an arbitrary family.
+REFRESH_SESSION_HISTORY_HARD_CEILING = 4096
 
 
 def _refresh_preverification_limit(max_attempts: int) -> int:
@@ -321,7 +326,54 @@ def _too_many_attempts() -> HTTPException:
     )
 
 
-def _reserve_password_work(scope: str, key: str) -> None:
+class _PasswordWorkReservation:
+    """Keep one identity admission until its native password job is idle.
+
+    ``security._run_password_work`` correctly retains the global Argon slot
+    after request cancellation.  A route-level identity reservation must have
+    the same lifetime; releasing it as soon as the cancelled route unwinds lets
+    one client cancel/retry until it occupies every global worker.  Each route
+    has at most one password task in flight, and this wrapper lets that task
+    finish under ``shield`` before a completion callback returns admission.
+    """
+
+    def __init__(self, scope: str, key: str) -> None:
+        self.scope = scope
+        self.key = key
+        self._current: asyncio.Future[Any] | None = None
+        self._released = False
+
+    async def run[ResultT](self, work: Callable[[], Awaitable[ResultT]]) -> ResultT:
+        if self._current is not None:
+            raise RuntimeError("Password reservation already has work in flight")
+        task: asyncio.Future[ResultT] = asyncio.ensure_future(work())
+        self._current = task
+        try:
+            return await asyncio.shield(task)
+        finally:
+            if task.done():
+                self._current = None
+
+    def release_when_idle(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        current = self._current
+        if current is None or current.done():
+            auth_limiter.release(self.scope, self.key)
+            return
+
+        def release(finished: asyncio.Future[Any]) -> None:
+            auth_limiter.release(self.scope, self.key)
+            # The cancelled HTTP caller no longer awaits this task. Consume a
+            # late exception so asyncio does not report it as unhandled.
+            if not finished.cancelled():
+                finished.exception()
+
+        current.add_done_callback(release)
+
+
+def _reserve_password_work(scope: str, key: str) -> _PasswordWorkReservation:
     """Admit at most one password workflow per identity at a time.
 
     Failure counters are recorded only after verification, so a simultaneous
@@ -332,6 +384,7 @@ def _reserve_password_work(scope: str, key: str) -> None:
     """
     if not auth_limiter.try_reserve(scope, key):
         raise PasswordWorkCapacityError("Password workflow already in flight")
+    return _PasswordWorkReservation(scope, key)
 
 
 def _set_refresh_cookie(response: Response, token: str, *, max_age: int | None = None) -> None:
@@ -426,24 +479,31 @@ async def _make_refresh_session_slot(
     user_id: int,
     family_id: str,
     new_family: bool,
+    preserve_session_id: int | None = None,
 ) -> None:
-    """Evict a finite oldest session/family before issuing a successor.
+    """Evict finite old session/family history before issuing a successor.
 
     The migration compacts legacy rows to these same hard ceilings. From then
-    on each successful issue removes at most one capped family or one row,
-    keeping password revocation, replay handling and account deletion finite.
+    on each successful issue stays within the configured ceiling. A deployment
+    that lowers its session limit compacts the bounded prior history in the same
+    transaction instead of deleting and adding one row forever at the old size.
     """
     settings = get_settings()
     if new_family:
+        if preserve_session_id is not None:
+            raise ValueError("A new refresh family cannot preserve a predecessor")
         family_rows = (
             await db.execute(
                 select(
                     RefreshSession.family_id,
-                    func.max(RefreshSession.created_at).label("latest_created_at"),
+                    func.max(RefreshSession.id).label("latest_session_id"),
                 )
                 .where(RefreshSession.user_id == user_id)
                 .group_by(RefreshSession.family_id)
-                .order_by(func.max(RefreshSession.created_at).desc(), RefreshSession.family_id)
+                # User-locked issuance makes the session sequence the stable
+                # family order. Wall clocks can move backward; using created_at
+                # would evict a newer login while retaining an older family.
+                .order_by(func.max(RefreshSession.id).desc(), RefreshSession.family_id)
             )
         ).all()
         # Keep the newest max-1 existing families, leaving one slot for this
@@ -451,7 +511,7 @@ async def _make_refresh_session_slot(
         # longer usable; deleting them is equivalent to server-side logout.
         evicted = [
             existing_family
-            for existing_family, _latest in family_rows[
+            for existing_family, _latest_id in family_rows[
                 settings.refresh_max_families_per_user - 1 :
             ]
             if existing_family != family_id
@@ -465,31 +525,39 @@ async def _make_refresh_session_slot(
             )
         return
 
-    at_capacity = (
-        await db.execute(
-            select(RefreshSession.id)
-            .where(
-                RefreshSession.user_id == user_id,
-                RefreshSession.family_id == family_id,
-            )
-            .order_by(RefreshSession.created_at.desc(), RefreshSession.id.desc())
-            .offset(settings.refresh_max_sessions_per_family - 1)
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if at_capacity is not None:
-        oldest_id = (
+    if preserve_session_id is None:
+        raise ValueError("Refresh rotation must preserve its presented session")
+    overflow_ids = list(
+        (
             await db.execute(
                 select(RefreshSession.id)
                 .where(
                     RefreshSession.user_id == user_id,
                     RefreshSession.family_id == family_id,
+                    RefreshSession.id != preserve_session_id,
                 )
-                .order_by(RefreshSession.created_at, RefreshSession.id)
-                .limit(1)
+                .order_by(RefreshSession.id.desc())
+                # Retain the presented row plus max-2 others, leaving exactly
+                # one slot for its successor. Never infer "presented/newest"
+                # from a wall-clock timestamp: NTP correction can move time
+                # backward, and deleting the row being rotated destroys the
+                # concurrent-tab grace link.
+                # Loading one more than the legal configuration ceiling detects
+                # manually corrupted history without an unbounded request query.
+                .offset(settings.refresh_max_sessions_per_family - 2)
+                .limit(REFRESH_SESSION_HISTORY_HARD_CEILING + 1)
             )
-        ).scalar_one()
-        await db.execute(delete(RefreshSession).where(RefreshSession.id == oldest_id))
+        ).scalars()
+    )
+    if len(overflow_ids) > REFRESH_SESSION_HISTORY_HARD_CEILING:
+        detail = "Refresh-session history exceeds its repairable bound"
+        detail += "; contact an administrator."
+        raise HTTPException(
+            status_code=409,
+            detail=detail,
+        )
+    if overflow_ids:
+        await db.execute(delete(RefreshSession).where(RefreshSession.id.in_(overflow_ids)))
 
 
 async def _issue_tokens(
@@ -512,6 +580,7 @@ async def _issue_tokens(
         user_id=user.id,
         family_id=effective_family_id,
         new_family=family_id is None,
+        preserve_session_id=replacement_for.id if replacement_for is not None else None,
     )
     issued_at = utcnow()
     expires_at = issued_at + timedelta(seconds=s.refresh_token_ttl_seconds)
@@ -638,7 +707,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
     if _login_blocked(request, payload.email):
         raise _too_many_attempts()
     reservation_scope = "login-password-work"
-    _reserve_password_work(reservation_scope, payload.email)
+    reservation = _reserve_password_work(reservation_scope, payload.email)
     try:
         # Re-check after the atomic admission reservation. A preceding request
         # may have recorded the threshold immediately before releasing its
@@ -662,19 +731,21 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
 
         invalid = HTTPException(status_code=401, detail="Invalid email or password.")
         stored_hash = snapshot.password_hash if snapshot is not None else _dummy_password_hash()
-        ok, needs_rehash, did_argon_work = await verify_password_with_work_async(
-            payload.password, stored_hash
+        ok, needs_rehash, did_argon_work = await reservation.run(
+            lambda: verify_password_with_work_async(payload.password, stored_hash)
         )
         if snapshot is None or not ok:
             # Every rejection has exactly two bounded executor submissions and
             # pays one Argon2 plus one fixed PBKDF2 budget. A legacy hash spent
             # part of the latter above; completion adds only the remainder.
             try:
-                await complete_rejected_login_timing_async(
-                    payload.password,
-                    stored_hash,
-                    _dummy_password_hash(),
-                    did_argon_work,
+                await reservation.run(
+                    lambda: complete_rejected_login_timing_async(
+                        payload.password,
+                        stored_hash,
+                        _dummy_password_hash(),
+                        did_argon_work,
+                    )
                 )
             except PasswordWorkCapacityError:
                 # The credential decision is already made. A saturated pool
@@ -685,7 +756,11 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             _record_login_failure(request, payload.email)
             raise invalid
 
-        replacement_hash = await hash_password_async(payload.password) if needs_rehash else None
+        replacement_hash = (
+            await reservation.run(lambda: hash_password_async(payload.password))
+            if needs_rehash
+            else None
+        )
         user = (
             await db.execute(
                 select(User)
@@ -715,8 +790,8 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
             # verify runs while the row lock is held, an accepted cost on this
             # cross-worker race path that the per-email reservation already
             # makes rare in a single process.
-            reverified, needs_current_rehash = await verify_password_async(
-                payload.password, user.password_hash
+            reverified, needs_current_rehash = await reservation.run(
+                lambda: verify_password_async(payload.password, user.password_hash)
             )
             if not reverified:
                 _record_login_failure(request, payload.email)
@@ -734,7 +809,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         _reset_login_failures(request, payload.email)
         return out
     finally:
-        auth_limiter.release(reservation_scope, payload.email)
+        reservation.release_when_idle()
 
 
 @router.post("/refresh")
@@ -751,6 +826,12 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             # cookie simply outlived its TTL.
             raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
         _raise_invalid_refresh(request, token)
+    if claims.expires_at <= utcnow():
+        # PyJWT's bounded leeway authenticates a client whose clock is slightly
+        # skewed, but the server-side session lifetime remains exact. Check the
+        # signed expiry before any family revocation so an ordinary token that
+        # crosses its boundary in flight is never misclassified as replay.
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     # Lock order for every auth/session mutation is User -> RefreshSession.
     # Password reset/change holds the same user lock before revoking sessions,
     # preventing a refresh from minting a successor after revocation.
@@ -774,6 +855,13 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             .with_for_update()
         )
     ).scalar_one_or_none()
+    now = utcnow()
+    if claims.expires_at <= now:
+        # The signed credential was live at decode but expired while this
+        # request waited for the User/session locks. Repeat the signed boundary
+        # before either an absent row is treated as replay or a drifted-later
+        # persisted expiry could admit it.
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     if session is None:
         # New refresh tokens carry their signed family id. Consumed rows may
         # have been compacted, but replay still revokes the bounded current
@@ -785,20 +873,32 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
                 user_id=claims.user_id,
             )
             await db.commit()
-        _raise_invalid_refresh(request)  # predates session tracking, or never issued here
+        _raise_invalid_refresh(
+            request,
+            token,
+        )  # predates session tracking, compacted, or never issued here
     if claims.family_id is not None and claims.family_id != session.family_id:
         _raise_invalid_refresh(request, token)
-    now = utcnow()
+    if session.user_id != claims.user_id:
+        _raise_invalid_refresh(request, token)
+    if session.expires_at <= now:
+        # The signature, user and persisted JTI already proved this was a real
+        # credential whose lifetime ended while/before the request was being
+        # checked. Do not classify that expiry-boundary race as attacker input
+        # or spend either invalid-token budget.
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     if session.revoked_at is not None:
         _raise_invalid_refresh(request, token)
     if session.consumed_at is not None:
         # A tiny grace window makes the same rotation idempotent across tabs.
         # The successor's fixed iat/exp/jti reconstruct the exact same signed
-        # cookie; anything outside the window remains a theft signal.
+        # cookie. Bound both sides so a small backward wall-clock correction
+        # between simultaneous requests does not become a false theft signal;
+        # anything outside the symmetric window still revokes the family.
         grace = timedelta(seconds=get_settings().refresh_reuse_grace_seconds)
         successor = None
         elapsed = now - session.consumed_at
-        if session.replacement_jti and timedelta(0) <= elapsed <= grace:
+        if session.replacement_jti and -grace <= elapsed <= grace:
             successor = (
                 await db.execute(
                     select(RefreshSession).where(
@@ -837,8 +937,6 @@ async def refresh(request: Request, response: Response, db: DbSession) -> TokenO
             session.family_id,
             session.user_id,
         )
-        _raise_invalid_refresh(request, token)
-    if session.user_id != claims.user_id or session.expires_at <= now:
         _raise_invalid_refresh(request, token)
     session.consumed_at = now
     out = await _issue_tokens(
@@ -937,11 +1035,13 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
                 .with_for_update()
             )
         ).scalar_one_or_none()
+        now = utcnow()
         if (
             session is not None
             and session.user_id == claims.user_id
             and session.revoked_at is None
-            and session.expires_at > utcnow()
+            and claims.expires_at > now
+            and session.expires_at > now
         ):
             # Logout is a family boundary, not merely a one-JTI revocation.
             # If a concurrent refresh won the User lock first, its committed
@@ -954,6 +1054,33 @@ async def logout(request: Request, response: Response, db: DbSession) -> Respons
             )
             candidate_user_id = session.user_id
             cookie_confirmed = True
+        elif session is None and claims.family_id is not None and claims.expires_at > now:
+            # Rotation compaction deliberately removes old consumed rows. A
+            # still-live, correctly signed predecessor nevertheless identifies
+            # its family, so compaction must not turn logout into a local cookie
+            # deletion that leaves the successor usable. Confirm that this
+            # family still has a live row before revoking/bumping: a duplicate
+            # logout then remains idempotent instead of advancing token_version
+            # again merely because the compacted predecessor stays absent.
+            live_family_session = (
+                await db.execute(
+                    select(RefreshSession.id)
+                    .where(
+                        RefreshSession.user_id == claims.user_id,
+                        RefreshSession.family_id == claims.family_id,
+                        RefreshSession.revoked_at.is_(None),
+                        RefreshSession.expires_at > now,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if live_family_session is not None:
+                await revoke_session_family(
+                    db,
+                    claims.family_id,
+                    user_id=claims.user_id,
+                )
+                cookie_confirmed = True
     if logged_out_user is not None:
         # A duplicate logout carrying only the now-stale access token must not
         # repeatedly advance the counter. A valid cookie already proved the
@@ -1001,19 +1128,23 @@ async def change_password(
     scopes = (CHANGE_PASSWORD_SCOPE, ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE, rate_key, user_id)
     if _account_password_blocked(*scopes):
         raise _too_many_attempts()
-    _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
+    reservation = _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
     try:
         if _account_password_blocked(*scopes):
             raise _too_many_attempts()
         # Release CurrentUser's read transaction/connection before Argon2.
         await db.rollback()
-        ok, _needs_rehash = await verify_password_async(
-            payload.current_password,
-            authenticated_password_hash,
+        ok, _needs_rehash = await reservation.run(
+            lambda: verify_password_async(
+                payload.current_password,
+                authenticated_password_hash,
+            )
         )
         if not ok:
             if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-                await verify_password_async(payload.current_password, _dummy_password_hash())
+                await reservation.run(
+                    lambda: verify_password_async(payload.current_password, _dummy_password_hash())
+                )
             _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
         # A rejected replacement still cost a full memory-hard verify. Charging
@@ -1030,7 +1161,7 @@ async def change_password(
         if error:
             _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail=error)
-        replacement_hash = await hash_password_async(payload.new_password)
+        replacement_hash = await reservation.run(lambda: hash_password_async(payload.new_password))
 
         locked_user = (
             await db.execute(
@@ -1062,7 +1193,7 @@ async def change_password(
         _reset_account_password_attempts(*scopes)
         return out
     finally:
-        auth_limiter.release(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
+        reservation.release_when_idle()
 
 
 @router.get("/me")
@@ -1175,27 +1306,33 @@ async def delete_account(
     scopes = (ACCOUNT_DELETE_SCOPE, ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE, rate_key, user_id)
     if _account_password_blocked(*scopes):
         raise _too_many_attempts()
-    _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
+    reservation = _reserve_password_work(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
     try:
         if _account_password_blocked(*scopes):
             raise _too_many_attempts()
         # CurrentUser performed only an unlocked read for this exempt auth
         # lifecycle route. End that transaction before password verification.
         await db.rollback()
-        ok, _needs_rehash = await verify_password_async(
-            payload.current_password,
-            authenticated_password_hash,
+        ok, _needs_rehash = await reservation.run(
+            lambda: verify_password_async(
+                payload.current_password,
+                authenticated_password_hash,
+            )
         )
         if not ok:
             if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
-                await verify_password_async(payload.current_password, _dummy_password_hash())
+                await reservation.run(
+                    lambda: verify_password_async(payload.current_password, _dummy_password_hash())
+                )
             _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
         # Produce unusable replacement material before acquiring the User
         # write lock. Exact snapshot comparison below discards it safely if a
         # concurrent reset/change/delete won during either Argon operation.
-        tombstone_password_hash = await hash_password_async(uuid.uuid4().hex + uuid.uuid4().hex)
+        tombstone_password_hash = await reservation.run(
+            lambda: hash_password_async(uuid.uuid4().hex + uuid.uuid4().hex)
+        )
         tombstone_email = f"deleted-{user_id}-{uuid.uuid4().hex}@deleted.invalid"
         locked_user = (
             await db.execute(
@@ -1247,7 +1384,7 @@ async def delete_account(
         response.status_code = 204
         return response
     finally:
-        auth_limiter.release(ACCOUNT_PASSWORD_RESERVATION_SCOPE, str(user_id))
+        reservation.release_when_idle()
 
 
 @router.get("/permissions")

@@ -19,6 +19,8 @@ C8_MONEY = "c8f1d3a5e709"
 B9_PARENT = "f7d8c9b0a1e2"
 CORRECTION_PARENT = "e3f4a5b6c7d9"
 CORRECTION = "a6c9e2f4b7d1"
+REFRESH_BOUNDS_PARENT = "e5f6a7b8c9d0"
+REFRESH_BOUNDS = "f6a7b8c9d0e1"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -166,6 +168,134 @@ async def test_exact_money_migration_refuses_lossy_rows_and_backfills_utc() -> N
         assert stored_amount == "1.01"
         assert before <= skipped_at <= after
         assert session_timezone == "America/Phoenix"
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+async def test_refresh_compaction_uses_issuance_ids_when_wall_time_moves_backward() -> None:
+    """The one-time bound must not log out the newest session/family by clock."""
+    database = _throwaway_name("refresh_compaction_order")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    try:
+        await _alembic(database, "upgrade", REFRESH_BOUNDS_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            family_user_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('family-order@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            family_rows = await connection.fetch(
+                """
+                INSERT INTO refresh_sessions (
+                    user_id, jti, family_id, expires_at, created_at
+                )
+                SELECT
+                    $1,
+                    'family-jti-' || ordinal,
+                    'family-' || ordinal,
+                    TIMESTAMP '2035-01-01 00:00:00',
+                    CASE
+                        WHEN ordinal = 11 THEN TIMESTAMP '2000-01-01 00:00:00'
+                        ELSE TIMESTAMP '2030-01-01 00:00:00' + ordinal * INTERVAL '1 second'
+                    END
+                FROM generate_series(1, 11) AS ordinal
+                RETURNING id, family_id
+                """,
+                family_user_id,
+            )
+            oldest_family_id = family_rows[0]["id"]
+            newest_family_id = family_rows[-1]["id"]
+
+            session_user_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('session-order@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            session_rows = await connection.fetch(
+                """
+                INSERT INTO refresh_sessions (
+                    user_id, jti, family_id, expires_at, created_at
+                )
+                SELECT
+                    $1,
+                    'session-jti-' || ordinal,
+                    'long-family',
+                    TIMESTAMP '2035-01-01 00:00:00',
+                    CASE
+                        WHEN ordinal = 1025 THEN TIMESTAMP '2000-01-01 00:00:00'
+                        ELSE TIMESTAMP '2030-01-01 00:00:00'
+                    END
+                FROM generate_series(1, 1025) AS ordinal
+                RETURNING id
+                """,
+                session_user_id,
+            )
+            oldest_session_id = session_rows[0]["id"]
+            newest_session_id = session_rows[-1]["id"]
+
+            collision_user_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('family-collision@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            await connection.execute(
+                """
+                INSERT INTO refresh_sessions (
+                    user_id, jti, family_id, expires_at, created_at
+                ) VALUES
+                    ($1, 'collision-jti-1', 'long-family',
+                     TIMESTAMP '2035-01-01 00:00:00', TIMESTAMP '2030-01-01 00:00:00'),
+                    ($1, 'collision-jti-2', 'long-family',
+                     TIMESTAMP '2035-01-01 00:00:00', TIMESTAMP '2030-01-01 00:00:01')
+                """,
+                collision_user_id,
+            )
+        finally:
+            await connection.close()
+
+        await _alembic(database, "upgrade", REFRESH_BOUNDS)
+
+        connection = await asyncpg.connect(database_url)
+        try:
+            retained_families = {
+                row["id"]
+                for row in await connection.fetch(
+                    "SELECT id FROM refresh_sessions WHERE user_id = $1",
+                    family_user_id,
+                )
+            }
+            assert len(retained_families) == 10
+            assert oldest_family_id not in retained_families
+            assert newest_family_id in retained_families
+
+            retained_sessions = {
+                row["id"]
+                for row in await connection.fetch(
+                    "SELECT id FROM refresh_sessions WHERE user_id = $1",
+                    session_user_id,
+                )
+            }
+            assert len(retained_sessions) == 1024
+            assert oldest_session_id not in retained_sessions
+            assert newest_session_id in retained_sessions
+            assert (
+                await connection.fetchval(
+                    "SELECT count(*) FROM refresh_sessions WHERE user_id = $1",
+                    collision_user_id,
+                )
+                == 2
+            )
+        finally:
+            await connection.close()
     finally:
         await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
 

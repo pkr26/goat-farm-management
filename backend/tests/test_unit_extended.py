@@ -111,8 +111,9 @@ from .conftest import owner_with_farm, register
 TODAY = today()
 TOMORROW = (TODAY + timedelta(days=1)).isoformat()
 # PastOrTodayDate tolerates one day of timezone headroom (clients east of
-# UTC), so "future" for the invalid pins below starts the day after tomorrow.
-DAY_AFTER_TOMORROW = (TODAY + timedelta(days=2)).isoformat()
+# UTC). Use a fixed far-future value for invalid pins: deriving it from TODAY
+# made the full suite flaky when it crossed midnight in the business timezone.
+GUARANTEED_FUTURE = date.max.isoformat()
 NAN = float("nan")
 INF = float("inf")
 
@@ -1235,9 +1236,9 @@ def test_animal_create_accepts_every_bucket(bucket: str) -> None:
         ("weight_kg", -1.0),
         ("weight_kg", NAN),
         ("weight_kg", INF),
-        ("date_of_birth", DAY_AFTER_TOMORROW),
-        ("estimated_dob", DAY_AFTER_TOMORROW),
-        ("purchase_date", DAY_AFTER_TOMORROW),
+        ("date_of_birth", GUARANTEED_FUTURE),
+        ("estimated_dob", GUARANTEED_FUTURE),
+        ("purchase_date", GUARANTEED_FUTURE),
         ("breed", "B" * 61),
         ("seller_name", "S" * 121),
     ],
@@ -1298,7 +1299,7 @@ def test_weight_in_valid(field: str, value: object) -> None:
         ("bcs", 0),
         ("bcs", 6),
         ("bcs", -1),
-        ("date", DAY_AFTER_TOMORROW),
+        ("date", GUARANTEED_FUTURE),
     ],
 )
 def test_weight_in_invalid(field: str, value: object) -> None:
@@ -1346,7 +1347,7 @@ def test_status_change_valid(field: str, value: object) -> None:
         ("new_status", "LOST"),
         ("sale_price", -0.01),
         ("sale_price", NAN),
-        ("date", DAY_AFTER_TOMORROW),
+        ("date", GUARANTEED_FUTURE),
         ("buyer_name", "B" * 121),
     ],
 )
@@ -1402,7 +1403,7 @@ def test_breeding_create_defaults_heat_cycle_to_1() -> None:
         ("doe_id", -3),
         ("doe_id", MAX_ID + 1),
         ("buck_id", 0),
-        ("breeding_date", DAY_AFTER_TOMORROW),
+        ("breeding_date", GUARANTEED_FUTURE),
     ],
 )
 def test_breeding_create_invalid(field: str, value: object) -> None:
@@ -1591,7 +1592,7 @@ def test_health_event_valid(payload: dict) -> None:
         {"scope": "batch", "purchase_batch_id": 0, "type": "VACCINE"},
         {"scope": "animal", "animal_id": 1, "type": "MAGIC"},
         {"scope": "animal", "animal_id": 1, "type": "vaccine"},  # case-sensitive
-        {"scope": "animal", "animal_id": 1, "type": "VACCINE", "date": DAY_AFTER_TOMORROW},
+        {"scope": "animal", "animal_id": 1, "type": "VACCINE", "date": GUARANTEED_FUTURE},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "cost": -0.01},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "cost": NAN},
         {"scope": "animal", "animal_id": 1, "type": "TREATMENT", "product_name": "P" * 121},
@@ -1656,7 +1657,7 @@ def test_dispense_valid(field: str, value: object) -> None:
         ("qty_kg", 0.0004),
         ("qty_kg", NAN),
         ("qty_kg", INF),
-        ("date", DAY_AFTER_TOMORROW),
+        ("date", GUARANTEED_FUTURE),
         ("recipe_code", None),
         ("recipe_code", ""),
     ],
@@ -1813,7 +1814,7 @@ def test_transaction_valid(field: str, value: object) -> None:
         ("amount", -100.0),
         ("amount", NAN),
         ("amount", INF),
-        ("date", DAY_AFTER_TOMORROW),
+        ("date", GUARANTEED_FUTURE),
         ("related_animal_id", 0),
         ("related_animal_id", MAX_ID + 1),
     ],
@@ -1876,7 +1877,7 @@ def test_purchase_batch_valid(field: str, value: object) -> None:
         ("total_price", -0.01),
         ("total_price", NAN),
         ("supplier", "S" * 121),
-        ("date", DAY_AFTER_TOMORROW),
+        ("date", GUARANTEED_FUTURE),
         ("date", "1999-12-31"),  # _not_ancient guard
         ("date", "1900-06-15"),
     ],

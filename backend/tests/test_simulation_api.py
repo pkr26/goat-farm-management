@@ -17,6 +17,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
+import app.api.simulation as simulation_api
 from app.api.simulation import (
     _BREAK_EVEN_PASSES,
     _RUN_BUDGET_UNITS,
@@ -31,7 +32,7 @@ from app.api.simulation import (
     _with_run_limits,
 )
 from app.core.config import get_settings
-from app.db import get_sessionmaker
+from app.db import get_engine, get_sessionmaker
 from app.models import (
     Animal,
     BreedingRecord,
@@ -391,6 +392,36 @@ async def test_scenario_update_rejects_a_stale_full_assumption_document(
     assert current.status_code == 200
     assert current.json()["assumptions"]["herd"]["does"] == 51
     assert current.json()["assumptions"]["herd"]["bucks"] == assumptions["herd"]["bucks"]
+
+
+async def test_concurrent_scenario_updates_accept_exactly_one_revision(
+    client: httpx.AsyncClient,
+) -> None:
+    """The row lock makes the revision token an atomic compare-and-swap."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    created = await create_scenario(client, headers, "Concurrent edit plan", assumptions)
+    path = f"/api/simulation/scenarios/{created['id']}"
+
+    first, second = await asyncio.gather(
+        client.patch(
+            path,
+            json={"expected_revision": created["revision"], "notes": "editor one"},
+            headers=headers,
+        ),
+        client.patch(
+            path,
+            json={"expected_revision": created["revision"], "notes": "editor two"},
+            headers=headers,
+        ),
+    )
+
+    assert sorted([first.status_code, second.status_code]) == [200, 409]
+    winner = first if first.status_code == 200 else second
+    current = await client.get(path, headers=headers)
+    assert current.status_code == 200
+    assert current.json()["revision"] == created["revision"] + 1
+    assert current.json()["notes"] == winner.json()["notes"]
 
 
 async def test_scenario_text_rejects_postgres_control_characters(
@@ -1057,6 +1088,72 @@ async def test_run_can_return_bounded_optimization(client: httpx.AsyncClient) ->
     assert len(body["assumptions_fingerprint"]) == 64
     assert body["optimization"]["evaluated_candidates"] <= 3
     assert body["optimization"]["feasible_candidates"] >= 0
+
+
+async def test_simulation_cpu_phase_releases_database_checkout(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ad-hoc, stored, and compare runs do not pin auth/DB transactions."""
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    assumptions["meta"]["horizon_months"] = 12
+    scenario = await create_scenario(client, headers, "Pool release plan", assumptions)
+    real_offloaded = simulation_api._run_offloaded
+
+    request_factories = (
+        lambda: client.post(
+            "/api/simulation/run",
+            json={"assumptions": assumptions},
+            headers=headers,
+        ),
+        lambda: client.post(
+            f"/api/simulation/scenarios/{scenario['id']}/run",
+            headers=headers,
+        ),
+        lambda: client.get(
+            "/api/simulation/scenarios/compare",
+            params={"ids": str(scenario["id"])},
+            headers=headers,
+        ),
+    )
+
+    try:
+        for request_factory in request_factories:
+            started = asyncio.Event()
+            release = asyncio.Event()
+
+            async def parked_run(
+                assumption_set: SimulationAssumptions,
+                monte_carlo: bool,
+                sensitivity: bool,
+                optimization: bool,
+                *,
+                started_signal: asyncio.Event = started,
+                release_signal: asyncio.Event = release,
+            ):
+                started_signal.set()
+                await release_signal.wait()
+                return await real_offloaded(
+                    assumption_set,
+                    monte_carlo,
+                    sensitivity,
+                    optimization,
+                )
+
+            monkeypatch.setattr(simulation_api, "_run_offloaded", parked_run)
+            request = asyncio.create_task(request_factory())
+            try:
+                await asyncio.wait_for(started.wait(), timeout=5)
+                assert get_engine().sync_engine.pool.checkedout() == 0
+                readiness = await asyncio.wait_for(client.get("/readyz"), timeout=2)
+                assert readiness.status_code == 200
+            finally:
+                release.set()
+            response = await asyncio.wait_for(request, timeout=10)
+            assert response.status_code == 200, response.text
+    finally:
+        _run_budget.clear()
 
 
 # ---------------------------------------------------------------------------

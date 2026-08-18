@@ -24,8 +24,13 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # First retain the ten newest families for each user, then the 1,024
-    # newest rotations in each retained family. This establishes the ceiling
-    # that request-time one-row/one-family eviction preserves thereafter.
+    # newest rotations in each retained family. Session IDs are the monotonic
+    # issuance order used by the live, User-serialized rotation path. Wall time
+    # is not an ordering token: NTP/manual correction can move created_at
+    # backward and must not make this one-time compaction evict a newer login or
+    # the currently presented rotation. Already-evicted ephemeral sessions on
+    # databases that applied an older copy cannot be reconstructed; runtime
+    # issuance nevertheless uses this same ID order going forward.
     op.execute(
         text(
             """
@@ -35,7 +40,7 @@ def upgrade() -> None:
                     family_id,
                     row_number() OVER (
                         PARTITION BY user_id
-                        ORDER BY max(created_at) DESC, family_id
+                        ORDER BY max(id) DESC, family_id
                     ) AS family_rank
                 FROM refresh_sessions
                 GROUP BY user_id, family_id
@@ -58,8 +63,12 @@ def upgrade() -> None:
                 SELECT
                     id,
                     row_number() OVER (
-                        PARTITION BY family_id
-                        ORDER BY created_at DESC, id DESC
+                        -- Runtime family identity is user-scoped. UUIDs make a
+                        -- collision unlikely, but the schema never made
+                        -- family_id globally unique; legacy/manual duplicates
+                        -- must receive independent 1,024-row ceilings.
+                        PARTITION BY user_id, family_id
+                        ORDER BY id DESC
                     ) AS session_rank
                 FROM refresh_sessions
             )

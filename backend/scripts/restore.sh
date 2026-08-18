@@ -32,8 +32,7 @@ fi
 # with backup.sh so the two scripts cannot drift apart on the safety gates
 # (TLS and the signed-and-encrypted artifact requirement below).
 source "${SCRIPT_DIR}/backup_env.sh"
-load_app_setting DB_SSLMODE GOATFARM_DB_SSLMODE disable
-load_app_setting ENVIRONMENT GOATFARM_ENVIRONMENT development
+load_app_safety_settings
 TMP_ROOT="${TMPDIR:-/tmp}"
 TMP_DIR=""
 
@@ -152,12 +151,17 @@ SOURCE_DIR="${TMP_DIR}/source"
 mkdir "${SOURCE_DIR}"
 chmod 0700 "${SOURCE_DIR}"
 
-# Work only from a private snapshot.  The source can be on removable/shared
-# storage; reopening it after verification would let a replacement race swap
-# different bytes into GPG or pg_restore.
+# Work only from private descriptor-pinned snapshots. The source can be on
+# removable/shared storage; a check followed by ordinary `cp` reopens the name
+# and can block on a raced FIFO or copy replacement bytes. The helper opens each
+# name once, rejects links/non-regular files without blocking, and bounds a
+# concurrently growing source to its initially observed size. The checksum
+# below rejects an archive/sidecar pair taken from different generations.
 BACKUP_PATH="${SOURCE_DIR}/${BACKUP_SOURCE##*/}"
-cp -- "${BACKUP_SOURCE}" "${BACKUP_PATH}"
-cp -- "${BACKUP_SOURCE}.sha256" "${BACKUP_PATH}.sha256"
+"${PYTHON_BIN}" "${SCRIPT_DIR}/pinned_copy.py" \
+    "${BACKUP_SOURCE}" "${BACKUP_PATH}"
+"${PYTHON_BIN}" "${SCRIPT_DIR}/pinned_copy.py" \
+    "${BACKUP_SOURCE}.sha256" "${BACKUP_PATH}.sha256"
 chmod 0600 "${BACKUP_PATH}" "${BACKUP_PATH}.sha256"
 
 # The URL travels over stdin to keep its password out of helper and libpq-tool

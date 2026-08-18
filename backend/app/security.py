@@ -27,6 +27,7 @@ import hashlib
 import hmac
 import logging
 import os
+import stat
 import tempfile
 import threading
 import uuid
@@ -84,20 +85,41 @@ async def _run_password_work[ResultT](work: Callable[[], ResultT]) -> ResultT:
     call actually finishes; otherwise repeated disconnects could enqueue an
     arbitrary number of 64-MiB jobs behind the fixed worker count.
     """
-    if not _password_slots.acquire(blocking=False):
+    slots = _password_slots
+    if not slots.acquire(blocking=False):
         raise PasswordWorkCapacityError("Password service is busy")
-    future = asyncio.get_running_loop().run_in_executor(_password_executor, work)
+    release_lock = threading.Lock()
+    released = False
 
-    def release_slot(_future: object) -> None:
-        _password_slots.release()
+    def release_slot_once() -> None:
+        nonlocal released
+        with release_lock:
+            if released:
+                return
+            released = True
+        slots.release()
+
+    def run_and_release() -> ResultT:
+        # Release in the executor thread itself. An asyncio Future completion
+        # callback needs its originating event loop to remain alive; test
+        # harnesses and graceful shutdown can close that loop while native
+        # Argon work is still finishing, permanently leaking a process-global
+        # semaphore slot into the next loop otherwise.
+        try:
+            return work()
+        finally:
+            release_slot_once()
 
     try:
-        return await asyncio.shield(future)
-    finally:
-        if future.done():
-            release_slot(future)
-        else:
-            future.add_done_callback(release_slot)
+        future = asyncio.get_running_loop().run_in_executor(_password_executor, run_and_release)
+    except BaseException:
+        # Executor shutdown and loop teardown can reject a submission after
+        # admission. There is no future whose callback could return the slot in
+        # that path, so release synchronously or every later password request
+        # eventually sees a permanently exhausted pool.
+        release_slot_once()
+        raise
+    return await asyncio.shield(future)
 
 
 def _password_hasher() -> PasswordHasher:
@@ -259,6 +281,7 @@ async def verify_password_with_work_async(password: str, stored: str) -> tuple[b
 # Guards first-boot keypair generation and the read-once keyring below.
 _key_lock = threading.RLock()
 _key_cache: dict[Path, str] = {}
+_MAX_JWT_KEY_BYTES = 1_048_576
 
 
 class _JwtKeyring(NamedTuple):
@@ -272,6 +295,44 @@ class _JwtKeyring(NamedTuple):
 
 
 _jwt_keyring: _JwtKeyring | None = None
+
+
+def _read_pinned_key_text(path: Path) -> str:
+    """Read one bounded regular key-file snapshot without reopening its name.
+
+    O_NONBLOCK lets fstat reject a raced FIFO without hanging startup. Symlinks
+    remain intentional here: Kubernetes and other secret mounts commonly expose
+    versioned regular files through stable symlink paths.
+    """
+    fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError(f"JWT key path {path} is not a regular file")
+        if before.st_size > _MAX_JWT_KEY_BYTES:
+            raise ValueError(f"JWT key path {path} exceeds {_MAX_JWT_KEY_BYTES} bytes")
+        raw = bytearray()
+        while len(raw) <= _MAX_JWT_KEY_BYTES:
+            chunk = os.read(fd, min(64 * 1024, _MAX_JWT_KEY_BYTES + 1 - len(raw)))
+            if not chunk:
+                break
+            raw.extend(chunk)
+        after = os.fstat(fd)
+    finally:
+        os.close(fd)
+    if len(raw) > _MAX_JWT_KEY_BYTES:
+        raise ValueError(f"JWT key path {path} exceeds {_MAX_JWT_KEY_BYTES} bytes")
+    if (
+        len(raw) != before.st_size
+        or (before.st_dev, before.st_ino, before.st_size)
+        != (after.st_dev, after.st_ino, after.st_size)
+        or (before.st_mtime_ns, before.st_ctime_ns) != (after.st_mtime_ns, after.st_ctime_ns)
+    ):
+        raise ValueError(f"JWT key path {path} changed while it was read")
+    try:
+        return bytes(raw).decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"JWT key path {path} is not valid UTF-8") from exc
 
 
 def _write_atomic(path: Path, data: bytes, mode: int | None = None) -> None:
@@ -370,10 +431,33 @@ def _ensure_keypair() -> None:
     # processes with an exclusive flock on a sibling lock file, and re-check
     # under it so the loser adopts the winner's pair instead of regenerating.
     lock_path = priv.parent / ".jwt_keygen.lock"
-    with lock_path.open("w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
+    lock_flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        lock_fd = os.open(lock_path, lock_flags, 0o600)
+    except OSError as exc:
+        raise RuntimeError(f"Cannot safely open JWT key-generation lock: {exc}") from exc
+    try:
+        opened = os.fstat(lock_fd)
+        if not stat.S_ISREG(opened.st_mode):
+            raise RuntimeError("JWT key-generation lock is not a regular file")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        named = os.lstat(lock_path)
+        if not stat.S_ISREG(named.st_mode) or (opened.st_dev, opened.st_ino) != (
+            named.st_dev,
+            named.st_ino,
+        ):
+            raise RuntimeError("JWT key-generation lock path changed during acquisition")
+        os.fchmod(lock_fd, 0o600)
         if not (priv.exists() and pub.exists()):
             _generate_keypair(priv, pub)
+        named_after = os.lstat(lock_path)
+        if not stat.S_ISREG(named_after.st_mode) or (opened.st_dev, opened.st_ino) != (
+            named_after.st_dev,
+            named_after.st_ino,
+        ):
+            raise RuntimeError("JWT key-generation lock path changed during generation")
+    finally:
+        os.close(lock_fd)
 
 
 def _public_key_der(key: rsa.RSAPublicKey) -> bytes:
@@ -409,8 +493,8 @@ def _load_jwt_keyring_locked() -> _JwtKeyring:
     s = get_settings()
     _ensure_keypair()
     try:
-        private_text = s.jwt_private_key_path.read_text()
-        active_public_text = s.jwt_public_key_path.read_text()
+        private_text = _read_pinned_key_text(s.jwt_private_key_path)
+        active_public_text = _read_pinned_key_text(s.jwt_public_key_path)
         private_key = serialization.load_pem_private_key(private_text.encode(), password=None)
         active_public_key = serialization.load_pem_public_key(active_public_text.encode())
         if not isinstance(private_key, rsa.RSAPrivateKey) or not isinstance(
@@ -430,7 +514,7 @@ def _load_jwt_keyring_locked() -> _JwtKeyring:
             (s.jwt_public_key_path, active_public_text, active_public_key)
         ]
         for path in s.jwt_previous_public_key_paths:
-            public_text = path.read_text()
+            public_text = _read_pinned_key_text(path)
             public_key = serialization.load_pem_public_key(public_text.encode())
             if not isinstance(public_key, rsa.RSAPublicKey):
                 raise ValueError(f"previous verification key {path} is not an RSA public key")

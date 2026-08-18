@@ -7,13 +7,20 @@ from datetime import timedelta
 
 import httpx
 import pytest
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy import event as sa_event
-from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.db import get_engine, get_sessionmaker
 from app.main import create_app
-from app.models import HealthEvent, MovementRestrictionAction, Task, Transaction, VaccineTemplate
+from app.models import (
+    Animal,
+    HealthEvent,
+    MovementRestrictionAction,
+    Task,
+    Transaction,
+    VaccineTemplate,
+)
 from app.services.health import (
     _legacy_event_matches,
     protocol_phrase_of,
@@ -24,6 +31,24 @@ from app.utils import today, utcnow
 
 from .conftest import create_farm, owner_with_farm
 from .test_health_extended import iso, make_animal, make_batch, record_event
+
+
+async def wait_for_lock_waiter(minimum: int = 1, timeout_seconds: float = 10.0) -> None:
+    for _ in range(int(timeout_seconds / 0.01)):
+        async with get_sessionmaker()() as db:
+            blocked = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() "
+                        "AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'"
+                    )
+                )
+            ).scalar_one()
+        if blocked >= minimum:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"expected {minimum} lock-waiting requests")
 
 
 async def preview(
@@ -195,6 +220,262 @@ async def test_bucket_bulk_stays_at_250_while_valid_purchase_batch_remains_treat
     )
     assert treated.status_code == 201, treated.text
     assert len(treated.json()) == 251
+
+
+async def test_linked_batch_health_prelocks_active_animals_outside_quarantine(
+    client: httpx.AsyncClient,
+) -> None:
+    """An outsider cannot enter the linked task's cohort behind its snapshot."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(client, owner, count=2, create_animals=True)
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animals = sorted(detail.json()["animals"], key=lambda animal: animal["id"])
+    task = next(row for row in detail.json()["tasks"] if row["category"] == "VACCINE")
+
+    outsider = animals[0]
+    moved = await client.post(
+        f"/api/animals/{outsider['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+    reviewed = await preview(
+        client,
+        owner,
+        scope="batch",
+        purchase_batch_id=batch["id"],
+        task_id=task["id"],
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    expected_ids = reviewed.json()["target_animal_ids"]
+    assert expected_ids == [animals[1]["id"]]
+
+    holder = get_sessionmaker()()
+    await holder.execute(select(Task.id).where(Task.id == task["id"]).with_for_update())
+    request = asyncio.create_task(
+        client.post(
+            "/api/health/events",
+            json={
+                "scope": "batch",
+                "purchase_batch_id": batch["id"],
+                "expected_animal_ids": expected_ids,
+                "type": task["category"],
+                "task_id": task["id"],
+            },
+            headers=owner,
+        )
+    )
+    try:
+        await wait_for_lock_waiter()
+        async with get_sessionmaker()() as probe:
+            with pytest.raises(DBAPIError) as locked:
+                await probe.execute(
+                    select(Animal.id)
+                    .where(Animal.id == outsider["id"])
+                    .with_for_update(nowait=True)
+                )
+            assert getattr(locked.value.orig, "sqlstate", None) == "55P03"
+            await probe.rollback()
+        await holder.rollback()
+        response = await asyncio.wait_for(request, timeout=10)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not request.done():
+            request.cancel()
+
+    # The protocol item is future-dated; the point of this request is the
+    # pre-lock snapshot, which happens before the due-date guard.
+    assert response.status_code == 409, response.text
+
+
+async def test_batch_animal_can_reenter_only_before_protocol_work_starts(
+    client: httpx.AsyncClient,
+) -> None:
+    """History correction stays possible only while the full protocol is pristine."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(client, owner, count=1, create_animals=True)
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal = detail.json()["animals"][0]
+
+    move_out = {
+        "to_bucket": "FOUNDATION",
+        "history_override": True,
+        "reason": "Correct imported quarantine history",
+    }
+    moved = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json=move_out,
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+    pristine_reentry = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "QUARANTINE",
+            "history_override": True,
+            "reason": "Restore the corrected purchase classification",
+        },
+        headers=owner,
+    )
+    assert pristine_reentry.status_code == 200, pristine_reentry.text
+
+    moved_again = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json=move_out,
+        headers=owner,
+    )
+    assert moved_again.status_code == 200, moved_again.text
+    first_protocol_task = detail.json()["tasks"][0]
+    completed = await client.post(
+        f"/api/tasks/{first_protocol_task['id']}/complete",
+        headers=owner,
+    )
+    assert completed.status_code == 200, completed.text
+
+    refused = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "QUARANTINE",
+            "history_override": True,
+            "reason": "Late correction must not evade completed protocol work",
+        },
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "protocol has started, ended, or is incomplete" in refused.json()["detail"]
+
+
+async def test_batch_animal_cannot_reenter_an_incomplete_protocol(
+    client: httpx.AsyncClient,
+) -> None:
+    """Missing legacy protocol rows fail closed instead of bypassing the gate."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(client, owner, count=1, create_animals=True)
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal = detail.json()["animals"][0]
+    moved = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+
+    async with get_sessionmaker()() as db:
+        await db.execute(delete(Task).where(Task.id == detail.json()["tasks"][0]["id"]))
+        await db.commit()
+
+    refused = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "QUARANTINE",
+            "history_override": True,
+            "reason": "Incomplete legacy schedule",
+        },
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "protocol has started, ended, or is incomplete" in refused.json()["detail"]
+
+
+async def test_linked_health_winner_prevents_waiting_animal_quarantine_reentry(
+    client: httpx.AsyncClient,
+) -> None:
+    """If the protocol fact wins, a blocked outsider cannot enter behind it."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(
+        client,
+        owner,
+        count=2,
+        create_animals=True,
+        date=iso(today() - timedelta(days=9)),
+    )
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animals = sorted(detail.json()["animals"], key=lambda animal: animal["id"])
+    task = next(row for row in detail.json()["tasks"] if row["category"] == "VACCINE")
+    outsider = animals[0]
+    moved = await client.post(
+        f"/api/animals/{outsider['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+    reviewed = await preview(
+        client,
+        owner,
+        scope="batch",
+        purchase_batch_id=batch["id"],
+        task_id=task["id"],
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    expected_ids = reviewed.json()["target_animal_ids"]
+    assert expected_ids == [animals[1]["id"]]
+
+    holder = get_sessionmaker()()
+    await holder.execute(select(Task.id).where(Task.id == task["id"]).with_for_update())
+    health_request = asyncio.create_task(
+        client.post(
+            "/api/health/events",
+            json={
+                "scope": "batch",
+                "purchase_batch_id": batch["id"],
+                "expected_animal_ids": expected_ids,
+                "type": task["category"],
+                "task_id": task["id"],
+            },
+            headers=owner,
+        )
+    )
+    reentry_request: asyncio.Task[httpx.Response] | None = None
+    try:
+        await wait_for_lock_waiter()
+        reentry_request = asyncio.create_task(
+            client.post(
+                f"/api/animals/{outsider['id']}/move",
+                json={
+                    "to_bucket": "QUARANTINE",
+                    "history_override": True,
+                    "reason": "Concurrent late quarantine correction",
+                },
+                headers=owner,
+            )
+        )
+        await wait_for_lock_waiter(2)
+        await holder.rollback()
+        async with asyncio.timeout(10):
+            health_response, reentry_response = await asyncio.gather(
+                health_request,
+                reentry_request,
+            )
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not health_request.done():
+            health_request.cancel()
+        if reentry_request is not None and not reentry_request.done():
+            reentry_request.cancel()
+
+    assert health_response.status_code == 201, health_response.text
+    assert reentry_response.status_code == 409, reentry_response.text
+    stored = await client.get(f"/api/animals/{outsider['id']}", headers=owner)
+    assert stored.status_code == 200, stored.text
+    assert stored.json()["animal"]["current_bucket"] == "FOUNDATION"
 
 
 async def test_restriction_versions_history_and_explicit_supersession(

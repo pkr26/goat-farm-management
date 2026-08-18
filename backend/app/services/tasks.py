@@ -6,11 +6,12 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from ..core.config import get_settings
 from ..models import (
     HISTORY_OVERRIDE_REASON_PREFIX,
     MAX_RECUR_DAYS,
@@ -37,6 +38,55 @@ from ..models import (
 from ..utils import today, utcnow
 from ._common import _clear_task_rejection
 from .animals import bucket_transition_error, move_animal
+
+# Namespace for the per-farm manual-duty-queue mutex. Advisory lock keys are
+# global to the database, so every acquisition of this counter must pass it.
+MANUAL_TASK_QUEUE_LOCK_NAMESPACE = 4711
+
+
+class ManualTaskCapacityError(ValueError):
+    """The farm has no free slot in its bounded manual-duty queue."""
+
+
+async def lock_manual_task_queue(db: AsyncSession, farm: Farm) -> None:
+    """Take the transaction-scoped per-farm manual-duty queue mutex.
+
+    This is deliberately an advisory lock rather than a lock on ``farms``.
+    Task inserts take an FK KEY SHARE lock on that row, while animal-first
+    domain writes may insert tasks after locking an Animal. A Farm row lock
+    would therefore add the inverse Farm -> Animal edge and permit deadlocks.
+    Keeping the primitive in the service layer also lets form-linked recurring
+    duties use exactly the same mutex as the generic task routes.
+    """
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                literal(MANUAL_TASK_QUEUE_LOCK_NAMESPACE),
+                literal(farm.id),
+            )
+        )
+    )
+
+
+async def guard_manual_task_capacity_locked(db: AsyncSession, farm: Farm) -> None:
+    """Require a free manual PENDING slot while ``lock_manual_task_queue`` is held."""
+    limit = get_settings().max_pending_manual_tasks_per_farm
+    bounded = (
+        select(Task.id)
+        .where(
+            Task.farm_id == farm.id,
+            Task.auto_generated.is_(False),
+            Task.status == TaskStatus.PENDING.value,
+        )
+        .limit(limit)
+        .subquery()
+    )
+    count = (await db.execute(select(func.count()).select_from(bounded))).scalar_one()
+    if count >= limit:
+        raise ManualTaskCapacityError(
+            "This farm has reached its pending manual-duty limit; "
+            "complete or skip existing duties first"
+        )
 
 
 def actionable_pending_task_predicate() -> ColumnElement[bool]:
@@ -116,7 +166,16 @@ async def _guard_quarantine_release(
     ]
     if incomplete:
         raise ValueError("All recorded quarantine prerequisite tasks must be completed first")
-    animals = locked_animals
+    # The router locks every ACTIVE animal in the batch, including animals an
+    # owner historically reclassified out of QUARANTINE. That wider lock set
+    # closes the gap where such an animal could race back into QUARANTINE after
+    # the target snapshot but before the release committed, leaving it stranded
+    # behind an already-DONE release duty. Only the animals actually awaiting
+    # release are validated/moved here; a prior historical classification is
+    # otherwise left untouched.
+    animals = [
+        animal for animal in locked_animals if animal.current_bucket == Bucket.QUARANTINE.value
+    ]
     if any(animal.movement_restricted or animal.suspected_scheduled_disease for animal in animals):
         raise ValueError(
             "Quarantine release is blocked by a recorded movement restriction or disease hold"
@@ -540,20 +599,51 @@ async def resolve_personal_task_role_fallback(db: AsyncSession, task: Task) -> i
     return role.id
 
 
+async def find_live_recurring_successor(db: AsyncSession, task: Task) -> Task | None:
+    """Return another PENDING occurrence in this task's recurrence series."""
+    if task.recurring_series_id is None:
+        return None
+    return (
+        await db.execute(
+            select(Task)
+            .where(
+                Task.farm_id == task.farm_id,
+                Task.recurring_series_id == task.recurring_series_id,
+                Task.id != task.id,
+                Task.status == TaskStatus.PENDING.value,
+            )
+            .order_by(Task.due_date, Task.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 async def spawn_next_occurrence(db: AsyncSession, task: Task) -> Task:
     """Create the next occurrence of a recurring duty: same assignment and
     category, due recur_days after max(the current due_date, the farm's
-    business date), fresh PENDING state. Dedupes on
+    business date), fresh PENDING state. Callers serialize recurring
+    transitions with ``lock_manual_task_queue`` before taking Animal/Task row
+    locks. Reuse any already-live successor for the series, then also dedupe on
     (farm_id, recurring_series_id, due_date) via uq_task_recurring_series_due,
     so two occurrences of one series acted on concurrently (both anchoring on
-    the same date) don't pile up duplicates while two same-titled parallel
-    series stay independent."""
-    if not task.recur_days or task.recur_days > MAX_RECUR_DAYS:
+    the same date) don't pile up duplicates, and two serialized actions that
+    straddle a farm-local midnight do not mint successors on two different
+    dates. Two same-titled parallel series stay independent."""
+    if task.recur_days is None or not 1 <= task.recur_days <= MAX_RECUR_DAYS:
         return task  # absurd recurrence (legacy data): don't explode date math
     if task.recurring_series_id is None:
         # Backfill legacy recurring rows lazily as well as in the migration so
         # imports/tests built directly from metadata remain safe.
         task.recurring_series_id = str(uuid4())
+    # Sessions disable autoflush. Persist the caller's terminal transition
+    # before looking for another PENDING occurrence in the series; otherwise a
+    # caller closing multiple retained occurrences in one transaction can see
+    # its own just-closed row through the database predicate and mistakenly
+    # treat that stale version as the live successor.
+    await db.flush()
+    live_successor = await find_live_recurring_successor(db, task)
+    if live_successor is not None:
+        return live_successor
     # Anchor the next occurrence on max(due, today): otherwise a worker who
     # catches up 10 daily-cleaning tasks after leave spawns 10 already-overdue
     # rows in a cascade, one per completion.

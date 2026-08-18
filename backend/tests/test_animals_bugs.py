@@ -147,6 +147,89 @@ async def test_auto_tag_retry_after_collision_succeeds(
     assert resp.json()["tag_number"] == "G-NEW01"
 
 
+async def test_auto_tag_retry_after_stillborn_namespace_collision_succeeds(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The trigger-backed cross-table tag constraint uses the normal retry path."""
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner, tag="TAG-NS-DAM")
+    buck = await make_buck(client, owner, tag="TAG-NS-SIRE")
+    breeding = await make_breeding(
+        client,
+        owner,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=150)),
+    )
+    breeding = await confirm(client, owner, breeding["id"], kid_count=1)
+    kidding = await client.post(
+        "/api/kidding",
+        json={
+            "breeding_record_id": breeding["id"],
+            "date": iso(today()),
+            "ease": "NORMAL",
+            "kids": [{"tag": "G-STILL", "sex": "F", "status": "STILLBORN"}],
+        },
+        headers=owner,
+    )
+    assert kidding.status_code == 201, kidding.text
+
+    tags = iter(["G-STILL", "G-LIVE1"])
+
+    async def fake_generate_unique_tag(db: object, farm_id: int, attempts: int = 10) -> str:
+        return next(tags)
+
+    monkeypatch.setattr("app.api.animals.generate_unique_tag", fake_generate_unique_tag)
+    created = await client.post(
+        "/api/animals",
+        json={"sex": "F", "source": "PURCHASED", "current_bucket": "FOUNDATION"},
+        headers=owner,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["tag_number"] == "G-LIVE1"
+
+
+async def test_explicit_animal_tag_conflicting_with_stillborn_is_a_400(
+    client: httpx.AsyncClient,
+) -> None:
+    """A cross-table tag conflict is a client conflict, never an internal error."""
+    owner = await owner_with_farm(client)
+    doe = await make_doe(client, owner, tag="TAG-EXPLICIT-DAM")
+    buck = await make_buck(client, owner, tag="TAG-EXPLICIT-SIRE")
+    breeding = await make_breeding(
+        client,
+        owner,
+        doe["id"],
+        buck["id"],
+        breeding_date=iso(today() - timedelta(days=150)),
+    )
+    breeding = await confirm(client, owner, breeding["id"], kid_count=1)
+    kidding = await client.post(
+        "/api/kidding",
+        json={
+            "breeding_record_id": breeding["id"],
+            "date": iso(today()),
+            "ease": "NORMAL",
+            "kids": [{"tag": "STILL-TAKEN", "sex": "M", "status": "STILLBORN"}],
+        },
+        headers=owner,
+    )
+    assert kidding.status_code == 201, kidding.text
+
+    conflict = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "STILL-TAKEN",
+            "sex": "M",
+            "source": "PURCHASED",
+            "current_bucket": "FOUNDATION",
+        },
+        headers=owner,
+    )
+    assert conflict.status_code == 400, conflict.text
+    assert conflict.json()["detail"] == "Tag 'STILL-TAKEN' already exists on this farm."
+
+
 async def _complete_weaning_task(client: httpx.AsyncClient, headers: dict, dam_id: int) -> None:
     weaning = next(
         t

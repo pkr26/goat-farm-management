@@ -13,11 +13,10 @@ not the bare complete endpoint.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import Select, and_, case, func, literal, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import (
     VERIFICATION_REQUIRED_CATEGORIES,
@@ -37,10 +36,14 @@ from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskSkipIn, TaskTabsOut
 from ..services import (
     IdempotencyKey,
+    ManualTaskCapacityError,
     actionable_pending_task_predicate,
     complete_task,
     create_manual_task,
     execute_idempotent,
+    find_live_recurring_successor,
+    guard_manual_task_capacity_locked,
+    lock_manual_task_queue,
     reject_task,
     resolve_personal_task_role_fallback,
     skip_task,
@@ -62,31 +65,6 @@ VERIFY = Annotated[set[str], Depends(require_perm("tasks.verify"))]
 # with the dashboard/breeding/kidding/health routers.
 
 
-# Namespace for the per-farm manual-duty-queue mutex. Advisory lock keys are
-# global to the database, so every acquisition of this counter must pass it.
-MANUAL_TASK_QUEUE_LOCK_NAMESPACE = 4711
-
-
-async def _lock_manual_task_queue(db: AsyncSession, farm: Farm) -> None:
-    """Take the per-farm serialization lock for manual pending-count changes.
-
-    Deliberately an ADVISORY lock, not `SELECT farms.id ... FOR UPDATE`.
-    Inserting any farm-scoped child row (a sale Transaction, a movement
-    restriction action, a breeding record, a spawned occurrence) takes FOR KEY
-    SHARE on that same Farm row, while every animal-first write locks the
-    ANIMAL before it inserts. A Farm row lock held across the Animal lock
-    therefore inverts against those writes and PostgreSQL deadlocks. A
-    transaction-scoped advisory lock serializes the same counter, self-conflicts
-    exactly like the row lock did, and never conflicts with an FK key-share
-    lock — so the canonical Farm -> Animal -> Task order stays deadlock-free.
-    """
-    await db.execute(
-        select(
-            func.pg_advisory_xact_lock(literal(MANUAL_TASK_QUEUE_LOCK_NAMESPACE), literal(farm.id))
-        )
-    )
-
-
 async def _guard_manual_task_capacity_locked(db: AsyncSession, farm: Farm) -> None:
     """Bound outstanding manual duties while the caller holds the Farm lock.
 
@@ -96,26 +74,13 @@ async def _guard_manual_task_capacity_locked(db: AsyncSession, farm: Farm) -> No
     invariant concurrency-safe and keeps recurring completion's successor
     insert on the same canonical Farm -> Animal -> Task lock path.
     """
-    limit = get_settings().max_pending_manual_tasks_per_farm
-    bounded = (
-        select(Task.id)
-        .where(
-            Task.farm_id == farm.id,
-            Task.auto_generated.is_(False),
-            Task.status == TaskStatus.PENDING.value,
-        )
-        .limit(limit)
-        .subquery()
-    )
-    count = (await db.execute(select(func.count()).select_from(bounded))).scalar_one()
-    if count >= limit:
+    try:
+        await guard_manual_task_capacity_locked(db, farm)
+    except ManualTaskCapacityError as exc:
         raise HTTPException(
             status_code=409,
-            detail=(
-                "This farm has reached its pending manual-duty limit; "
-                "complete or skip existing duties first"
-            ),
-        )
+            detail=str(exc),
+        ) from None
 
 
 async def _lock_farm_for_recurring_transition(
@@ -135,7 +100,7 @@ async def _lock_farm_for_recurring_transition(
         await db.execute(select(Task.recur_days).where(Task.id == task_id, Task.farm_id == farm.id))
     ).one_or_none()
     if recurrence is not None and recurrence.recur_days is not None:
-        await _lock_manual_task_queue(db, farm)
+        await lock_manual_task_queue(db, farm)
 
 
 async def _get_task(
@@ -164,7 +129,7 @@ async def _lock_completion_animals(
     farm: Farm,
     task_id: int,
 ) -> list[Animal]:
-    """Pre-lock every animal a generic completion can mutate.
+    """Pre-lock every animal a completion can mutate or whose cohort must stay stable.
 
     The scalar task read intentionally takes no row lock; it only discovers
     the immutable target columns needed to acquire the canonical first locks.
@@ -191,7 +156,6 @@ async def _lock_completion_animals(
         batch_lock_id = int(target.purchase_batch_id)
         animal_filter = and_(
             Animal.purchase_batch_id == target.purchase_batch_id,
-            Animal.current_bucket == Bucket.QUARANTINE.value,
             Animal.status == AnimalStatus.ACTIVE.value,
         )
     elif target.category == TaskCategory.WEANING.value and target.animal_id is not None:
@@ -223,13 +187,10 @@ async def _lock_completion_animals(
     # animal -> batch -> tasks (ascending id). This path then locks the
     # release duty — always the HIGHEST id in the protocol series — before
     # _guard_quarantine_release locks its siblings ascending, i.e. the exact
-    # inverse. That was only safe while the two sides serialized on animals
-    # first, and they do not: this filter takes only QUARANTINE animals, while
-    # the sweep fires when the batch has no ACTIVE animal in ANY bucket. Once
-    # the batch's last active animal sits outside QUARANTINE (reachable via the
-    # owner-only history override), this locks zero animals and nothing orders
-    # the pair — a genuine PostgreSQL deadlock, surfaced as a 500. Taking the
-    # batch row here restores the shared animal -> batch -> task order.
+    # inverse. The paths normally serialize on the batch's ACTIVE animals
+    # first, but the empty-batch sweep exists precisely when that set is empty,
+    # so no animal row can order the pair. Taking the batch row here supplies
+    # the stable shared animal -> batch -> task order even at zero occupancy.
     if batch_lock_id is not None:
         await db.execute(
             select(PurchaseBatch.id)
@@ -575,7 +536,7 @@ async def create_task(
     # Take the queue mutex before the idempotency claim inserts its FK to Farm,
     # so the count/create invariant inside mutate() is serialized farm-wide.
     # Replays still bypass the count/mutation after this constant lock.
-    await _lock_manual_task_queue(db, farm)
+    await lock_manual_task_queue(db, farm)
     return await execute_idempotent(
         db,
         http_response=response,
@@ -750,11 +711,15 @@ async def verify(
             for animal in locked_animals
         )
     )
-    if spawn_successor and not task.auto_generated:
+    live_successor = await find_live_recurring_successor(db, task) if spawn_successor else None
+    if spawn_successor and not task.auto_generated and live_successor is None:
         # Unlike completion/skip, verification does not close a PENDING row to
         # pay for the successor it spawns — the occurrence being verified is
-        # already DONE — so the net-new manual PENDING row is bounded exactly
-        # like creation and rejection, under the same held Farm lock.
+        # already DONE — so a genuinely net-new manual PENDING row is bounded
+        # exactly like creation and rejection, under the same held Farm lock.
+        # A retained occurrence may already have produced the series' one live
+        # successor; reusing that row consumes no slot and must remain possible
+        # even when the queue is currently full.
         await _guard_manual_task_capacity_locked(db, farm)
     try:
         await verify_task(db, task, user, spawn_successor=spawn_successor)
@@ -777,7 +742,7 @@ async def reject(
     # Reject is the other transition that can add a PENDING manual duty. Take
     # Farm before Task so it serializes with create and recurring successor
     # insertion without forming a Farm/Task lock cycle.
-    await _lock_manual_task_queue(db, farm)
+    await lock_manual_task_queue(db, farm)
     # Match complete/skip's canonical FARM -> ANIMAL -> TASK order: reject also
     # sends the duty back to PENDING, so it needs the same re-check that the
     # linked animal is still ACTIVE or the row becomes a stranded PENDING duty

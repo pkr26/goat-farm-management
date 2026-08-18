@@ -5,13 +5,13 @@ import asyncio
 import httpx
 import pytest
 from fastapi import HTTPException, Response
-from sqlalchemy import event, func, select
+from sqlalchemy import event, func, select, text
 
 import app.api.auth as auth_api
 from app.api.auth import create_farm
 from app.db import get_engine, get_sessionmaker
 from app.main import create_app
-from app.models import Farm, RefreshSession, User
+from app.models import Farm, FarmMembership, RefreshSession, User
 from app.schemas.auth import FarmCreateIn
 from app.security import verify_password_async as real_verify_password_async
 from app.security import verify_password_with_work_async as real_verify_password_with_work_async
@@ -19,6 +19,25 @@ from app.security import verify_password_with_work_async as real_verify_password
 from .conftest import owner_with_farm
 
 WORKER_PASSWORD = "workerpass123"
+
+
+async def _wait_for_lock_waiters(minimum: int, timeout_seconds: float = 10.0) -> None:
+    for _ in range(int(timeout_seconds / 0.01)):
+        async with get_sessionmaker()() as db:
+            blocked = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() "
+                        "AND pid <> pg_backend_pid() "
+                        "AND wait_event_type = 'Lock'"
+                    )
+                )
+            ).scalar_one()
+        if blocked >= minimum:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"expected {minimum} lock waiters, saw fewer")
 
 
 async def _provision_worker(
@@ -289,3 +308,96 @@ async def test_reset_winning_during_argon_rejects_exact_stale_snapshot(
         ).scalar_one()
     assert worker is not None and worker.deleted_at is None
     assert sessions == 0
+
+
+@pytest.mark.parametrize("lifecycle", ["status", "role"])
+async def test_account_tombstone_serializes_before_roster_mutation(
+    client: httpx.AsyncClient,
+    lifecycle: str,
+) -> None:
+    """Roster edits pin Membership -> target User and reject a tombstone."""
+    owner = await owner_with_farm(
+        client,
+        email=f"{lifecycle}-tombstone-owner@farm.in",
+        farm_name="Roster Tombstone Race Farm",
+    )
+    email = f"{lifecycle}-tombstone-worker@farm.in"
+    membership = await _provision_worker(client, owner, email)
+    worker_id = membership["user_id"]
+    logged_in = await client.post(
+        "/api/auth/login",
+        json={"email": email, "password": WORKER_PASSWORD},
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    worker_headers = {"Authorization": f"Bearer {logged_in.json()['access_token']}"}
+
+    if lifecycle == "status":
+        deactivated = await client.put(
+            f"/api/team/workers/{membership['id']}/status",
+            json={"is_active": False},
+            headers=owner,
+        )
+        assert deactivated.status_code == 200, deactivated.text
+        path = f"/api/team/workers/{membership['id']}/status"
+        payload = {"is_active": True}
+        expected_role_id = membership["role_id"]
+    else:
+        team = await client.get("/api/team", headers=owner)
+        assert team.status_code == 200, team.text
+        replacement_role_id = next(
+            role["id"] for role in team.json()["roles"] if role["code"] == "VET"
+        )
+        path = f"/api/team/workers/{membership['id']}/role"
+        payload = {"role_id": replacement_role_id}
+        expected_role_id = membership["role_id"]
+
+    holder = get_sessionmaker()()
+    await holder.execute(select(User.id).where(User.id == worker_id).with_for_update())
+    async with (
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+        ) as delete_client,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app()), base_url="http://test"
+        ) as roster_client,
+    ):
+        deletion = asyncio.create_task(
+            delete_client.request(
+                "DELETE",
+                "/api/auth/account",
+                json={"current_password": WORKER_PASSWORD},
+                headers=worker_headers,
+            )
+        )
+        roster = None
+        try:
+            await _wait_for_lock_waiters(1)
+            roster = asyncio.create_task(
+                roster_client.request(
+                    "PUT" if lifecycle == "status" else "POST",
+                    path,
+                    json=payload,
+                    headers=owner,
+                )
+            )
+            await _wait_for_lock_waiters(2)
+            await holder.rollback()
+            async with asyncio.timeout(10):
+                deletion_response, roster_response = await asyncio.gather(deletion, roster)
+        finally:
+            await holder.rollback()
+            await holder.close()
+            if not deletion.done():
+                deletion.cancel()
+            if roster is not None and not roster.done():
+                roster.cancel()
+
+    assert deletion_response.status_code == 204, deletion_response.text
+    assert roster_response.status_code == 404, roster_response.text
+    assert roster_response.json()["detail"] == "Membership not found"
+    async with get_sessionmaker()() as db:
+        stored = await db.get(FarmMembership, membership["id"])
+    assert stored is not None
+    assert stored.role_id == expected_role_id
+    expected_active = lifecycle != "status"
+    assert stored.is_active is expected_active
