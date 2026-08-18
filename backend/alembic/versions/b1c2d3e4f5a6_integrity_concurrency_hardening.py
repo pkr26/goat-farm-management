@@ -195,8 +195,7 @@ def upgrade() -> None:
         postgresql_not_valid=True,
     )
     op.execute(
-        "ALTER TABLE breeding_records VALIDATE CONSTRAINT "
-        "ck_breeding_loss_within_max_gestation"
+        "ALTER TABLE breeding_records VALIDATE CONSTRAINT ck_breeding_loss_within_max_gestation"
     )
 
     op.add_column(
@@ -238,8 +237,7 @@ def downgrade() -> None:
     )
     op.execute(
         sa.text(
-            "DROP FUNCTION IF EXISTS "
-            "enforce_movement_restriction_action_health_event_provenance()"
+            "DROP FUNCTION IF EXISTS enforce_movement_restriction_action_health_event_provenance()"
         )
     )
 

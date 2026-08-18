@@ -78,9 +78,14 @@ describe("RegisterPage", () => {
     );
   }
 
+  async function renderPage() {
+    const page = renderWithProviders(<RegisterPage />);
+    await page.waitForAuthIdle();
+  }
+
   describe("rendering", () => {
-    it("renders the create-account card with all fields and the submit button", () => {
-      renderWithProviders(<RegisterPage />);
+    it("renders the create-account card with all fields and the submit button", async () => {
+      await renderPage();
 
       expect(screen.getByText("Create your account")).toBeInTheDocument();
       expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
@@ -89,8 +94,8 @@ describe("RegisterPage", () => {
       expect(screen.getByRole("button", { name: /create account/i })).toBeEnabled();
     });
 
-    it("password field asks for a new password via autocomplete", () => {
-      renderWithProviders(<RegisterPage />);
+    it("password field asks for a new password via autocomplete", async () => {
+      await renderPage();
 
       expect(screen.getByLabelText(/password/i)).toHaveAttribute(
         "autocomplete",
@@ -99,8 +104,8 @@ describe("RegisterPage", () => {
       expect(screen.getByLabelText(/email/i)).toHaveAttribute("autocomplete", "email");
     });
 
-    it("links back to the sign-in page", () => {
-      renderWithProviders(<RegisterPage />);
+    it("links back to the sign-in page", async () => {
+      await renderPage();
 
       expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute(
         "href",
@@ -108,8 +113,8 @@ describe("RegisterPage", () => {
       );
     });
 
-    it("has no confirm-password field (single password input only)", () => {
-      renderWithProviders(<RegisterPage />);
+    it("has no confirm-password field (single password input only)", async () => {
+      await renderPage();
 
       expect(screen.getAllByLabelText(/password/i)).toHaveLength(1);
     });

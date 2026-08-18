@@ -154,6 +154,11 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
           completed_offset: 0,
         }),
       ),
+      http.get("/api/tasks/:taskId", ({ params }) =>
+        params.taskId === String(DUTY.id)
+          ? HttpResponse.json(DUTY)
+          : new HttpResponse(null, { status: 404 }),
+      ),
     );
   });
 

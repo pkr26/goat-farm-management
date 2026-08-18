@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 /** Baseline hardening headers on every response. CSP and HSTS are enforced in
  *  production builds only: Next dev HMR needs 'unsafe-eval' and a policy lax
  *  enough for it would be security theatre. */
@@ -37,9 +39,11 @@ const PROD_ONLY_HEADERS = [
 ];
 
 const isProd = process.env.NODE_ENV === "production";
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig = {
   poweredByHeader: false,
+  turbopack: { root: projectRoot },
   // Produce the minimal Node server required by dynamic routes, rewrites and
   // response headers. This application is not a static export.
   output: "standalone",

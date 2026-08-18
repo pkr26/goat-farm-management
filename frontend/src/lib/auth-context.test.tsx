@@ -282,6 +282,7 @@ describe("AuthProvider actions", () => {
 
   it("rolls back the staged token and user when farm discovery fails", async () => {
     rejectRefresh();
+    const logouts = countLogouts();
     let farmCalls = 0;
     let laterAuthorization: string | null = "unset";
     server.use(
@@ -300,6 +301,7 @@ describe("AuthProvider actions", () => {
     await expectLoaded();
     await user.click(screen.getByRole("button", { name: "sign-in" }));
     await waitFor(() => expect(farmCalls).toBe(1));
+    await waitFor(() => expect(logouts()).toBe(1));
 
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");

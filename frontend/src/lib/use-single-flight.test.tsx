@@ -71,6 +71,9 @@ describe("useSingleFlight", () => {
     });
 
     expect(result.current.pending).toBe(false);
-    await expect(result.current.run(async () => "retried")).resolves.toBe("retried");
+    await act(async () => {
+      await expect(result.current.run(async () => "retried")).resolves.toBe("retried");
+    });
+    expect(result.current.pending).toBe(false);
   });
 });

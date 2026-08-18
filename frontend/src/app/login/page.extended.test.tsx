@@ -37,6 +37,11 @@ function trackLoginRequests(status = 401) {
   return state;
 }
 
+async function renderPage() {
+  const page = renderWithProviders(<LoginPage />);
+  await page.waitForAuthIdle();
+}
+
 describe("LoginPage — rendering", () => {
   beforeEach(() => {
     pushMock.mockClear();
@@ -45,8 +50,8 @@ describe("LoginPage — rendering", () => {
     );
   });
 
-  it("renders the sign-in card with email, password and submit button", () => {
-    renderWithProviders(<LoginPage />);
+  it("renders the sign-in card with email, password and submit button", async () => {
+    await renderPage();
 
     // Brand wordmark (Logo) appears in the desktop panel and the mobile header.
     expect(screen.getAllByText("GoatFarm").length).toBeGreaterThan(0);
@@ -56,8 +61,8 @@ describe("LoginPage — rendering", () => {
     expect(screen.getByRole("button", { name: /sign in/i })).toBeEnabled();
   });
 
-  it("email and password inputs carry the expected type/autocomplete attributes", () => {
-    renderWithProviders(<LoginPage />);
+  it("email and password inputs carry the expected type/autocomplete attributes", async () => {
+    await renderPage();
 
     const email = screen.getByLabelText(/email/i);
     expect(email).toHaveAttribute("type", "email");
@@ -68,8 +73,8 @@ describe("LoginPage — rendering", () => {
     expect(password).toHaveAttribute("autocomplete", "current-password");
   });
 
-  it("links to the registration page", () => {
-    renderWithProviders(<LoginPage />);
+  it("links to the registration page", async () => {
+    await renderPage();
 
     expect(screen.getByRole("link", { name: /register/i })).toHaveAttribute(
       "href",
@@ -77,8 +82,8 @@ describe("LoginPage — rendering", () => {
     );
   });
 
-  it("shows no validation errors before the first submit attempt", () => {
-    renderWithProviders(<LoginPage />);
+  it("shows no validation errors before the first submit attempt", async () => {
+    await renderPage();
 
     expect(screen.queryByText(/enter a valid email/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/password is required/i)).not.toBeInTheDocument();
