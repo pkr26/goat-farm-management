@@ -332,7 +332,7 @@ describe("protected mutation idempotency transport", () => {
     expect(keys[0]).toBe(keys[1]);
   });
 
-  it("persists one worker-create key without storing its password", async () => {
+  it("keeps worker-create retries in memory without persisting a password verifier", async () => {
     setAccessToken(ACTOR_ONE_TOKEN);
     const keys: string[] = [];
     fetchMock.mockImplementation(async (_input, init) => {
@@ -352,17 +352,22 @@ describe("protected mutation idempotency transport", () => {
     expect(await catchError(apiFetch("/api/team/workers", init))).toBeInstanceOf(
       TypeError,
     );
-    const persisted = window.sessionStorage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY)!;
-    expect(persisted).not.toContain("private-worker-password");
-    expect(persisted).not.toContain("new-worker@farm.in");
+    // The first TypeError is automatically retried in this realm with the
+    // same key, but reload recovery must not persist a fast digest of the
+    // password-bearing JSON body.
+    expect(keys).toHaveLength(2);
+    expect(keys[1]).toBe(keys[0]);
+    expect(window.sessionStorage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY)).toBeNull();
 
+    // Simulate a reload: memory is gone, and the fresh submission gets a new
+    // key rather than recovering password-derived state from sessionStorage.
     clearIdempotencyRequestState();
     setAccessToken(null);
     setAccessToken(ACTOR_ONE_TOKEN);
     await apiFetch("/api/team/workers", init);
 
     expect(keys).toHaveLength(3);
-    expect(new Set(keys).size).toBe(1);
+    expect(keys[2]).not.toBe(keys[0]);
   });
 
   it("refuses to replay a protected mutation after the authenticated session changes", async () => {

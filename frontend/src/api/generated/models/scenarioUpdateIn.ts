@@ -7,6 +7,8 @@
 import type { SimulationAssumptions } from './simulationAssumptions';
 
 export interface ScenarioUpdateIn {
+  /** @minimum 1 */
+  expected_revision?: number;
   name?: string | null;
   notes?: string | null;
   assumptions?: SimulationAssumptions | null;

@@ -672,7 +672,10 @@ function RoleDialog({
       };
       try {
         if (role) {
-          await updateMutation.mutateAsync({ roleId: role.id, data });
+          await updateMutation.mutateAsync({
+            roleId: role.id,
+            data: { ...data, expected_revision: role.revision },
+          });
           toast.success("Role saved.");
         } else {
           await createMutation.mutateAsync({ data });

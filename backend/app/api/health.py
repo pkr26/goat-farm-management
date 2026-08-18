@@ -12,6 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import (
+    MAX_WITHDRAWAL_DAYS,
     Animal,
     AnimalStatus,
     Bucket,
@@ -699,6 +700,20 @@ async def _record_event_mutation(
         raise HTTPException(
             status_code=422,
             detail="withdrawal_until cannot be before the health event date",
+        )
+    if (
+        payload.withdrawal_until is not None
+        and (payload.withdrawal_until - event_date).days > MAX_WITHDRAWAL_DAYS
+    ):
+        # HealthEventIn can only compare this pair when the client supplied an
+        # explicit event date.  The operational default is the farm's business
+        # date, so enforce the same ceiling again after resolving it here.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"withdrawal_until cannot be more than {MAX_WITHDRAWAL_DAYS} days "
+                "after the health event date"
+            ),
         )
 
     disease_target = (payload.disease_target or "").strip()

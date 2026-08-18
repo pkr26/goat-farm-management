@@ -40,6 +40,7 @@ from ..schemas.team import (
     RoleChangeIn,
     RoleIn,
     RoleOut,
+    RoleUpdateIn,
     TeamOut,
     WorkerCreateIn,
     WorkerStatusIn,
@@ -428,6 +429,7 @@ def _role_out(role: Role, member_count: int) -> RoleOut:
         permissions=[
             code for _group, codes in PERMISSION_GROUPS for code in codes if code in selected
         ],
+        revision=role.revision,
         member_count=member_count,
     )
 
@@ -1109,7 +1111,7 @@ async def create_role(
 
 @router.put("/roles/{role_id}")
 async def update_role(
-    payload: RoleIn,
+    payload: RoleUpdateIn,
     role_id: int,
     db: DbSession,
     user: CurrentUser,
@@ -1123,6 +1125,11 @@ async def update_role(
     role = await _get_role(db, farm, role_id, for_update=True)
     _guard_manager_role(role, user, farm)
     _guard_role_scope(role, perms, user, farm)
+    if role.revision != payload.expected_revision:
+        raise HTTPException(
+            status_code=409,
+            detail="This role changed since you opened it; refresh before saving.",
+        )
     _guard_manager_permission(payload.permissions, user, farm)
     name = payload.name.strip()
     clash = (
@@ -1145,6 +1152,7 @@ async def update_role(
     role.permissions = json.dumps(
         _clean_permissions(payload.permissions, perms, preserve=role.permission_set())
     )
+    role.revision += 1
     try:
         await db.commit()
     except IntegrityError:  # concurrent rename collided with another role

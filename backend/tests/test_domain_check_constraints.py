@@ -232,6 +232,7 @@ async def _valid_domain_graph(client: httpx.AsyncClient) -> dict[str, int]:
         db.add_all([kid_entry, task, finished, feeding, transaction])
         await db.commit()
         return {
+            "farm": farm_id,
             "animal": kid_animal.id,
             "doe": doe.id,
             "buck": buck.id,
@@ -486,6 +487,11 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             ("ck_health_events_withdrawal_after_event",),
         ),
         InvalidMutation(
+            "UPDATE health_events SET withdrawal_until = date + 731 WHERE id = :id",
+            {"id": ids["health"]},
+            ("ck_health_events_withdrawal_within_max",),
+        ),
+        InvalidMutation(
             "UPDATE health_events SET suspected_scheduled_disease = true WHERE id = :id",
             {"id": ids["health"]},
             ("ck_health_events_suspected_disease",),
@@ -657,6 +663,12 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             ),
         ),
         InvalidMutation(
+            "UPDATE breeding_records SET ultrasound_result_date = breeding_date + 201 "
+            "WHERE id = :id",
+            {"id": ids["breeding"]},
+            ("ck_breeding_records_result_within_max_gestation",),
+        ),
+        InvalidMutation(
             "UPDATE breeding_records SET expected_kidding_date = breeding_date WHERE id = :id",
             {"id": ids["breeding"]},
             ("ck_breeding_records_expected_date",),
@@ -706,3 +718,30 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             case.sql,
             str(caught),
         )
+
+
+async def test_restriction_action_health_event_must_belong_to_same_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """A same-farm event is insufficient evidence for a different animal's hold."""
+    ids = await _valid_domain_graph(client)
+    async with get_sessionmaker()() as db:
+        with pytest.raises(DBAPIError) as caught:
+            await db.execute(
+                text(
+                    "INSERT INTO movement_restriction_actions "
+                    "(farm_id, animal_id, restriction_version, action, acted_at, "
+                    "action_reference, disease_target, health_event_id) "
+                    "VALUES (:farm_id, :animal_id, 99, 'PLACED', now(), "
+                    "'Mismatched evidence probe', 'Probe disease', :health_event_id)"
+                ),
+                {
+                    "farm_id": ids["farm"],
+                    # The health event belongs to ids['doe'], while this is a
+                    # distinct same-farm kid animal.
+                    "animal_id": ids["animal"],
+                    "health_event_id": ids["health"],
+                },
+            )
+        await db.rollback()
+    assert "health event must belong to the same animal and farm" in str(caught.value)

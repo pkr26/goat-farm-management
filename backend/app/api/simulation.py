@@ -122,6 +122,7 @@ def _scenario_out(scenario: SimulationScenario, *, allow_invalid: bool = False) 
             assumptions=None,
             valid=False,
             validation_error=str(exc.detail),
+            revision=scenario.revision,
             created_at=scenario.created_at,
             updated_at=scenario.updated_at,
         )
@@ -133,16 +134,26 @@ def _scenario_out(scenario: SimulationScenario, *, allow_invalid: bool = False) 
         assumptions=assumptions,
         valid=True,
         validation_error=None,
+        revision=scenario.revision,
         created_at=scenario.created_at,
         updated_at=scenario.updated_at,
     )
 
 
-async def _get_scenario(db: DbSession, farm_id: int, scenario_id: int) -> SimulationScenario:
+async def _get_scenario(
+    db: DbSession, farm_id: int, scenario_id: int, *, for_update: bool = False
+) -> SimulationScenario:
     """Farm-scoped fetch: unknown or foreign ids both 404."""
-    scenario = (
-        await db.get(SimulationScenario, scenario_id) if 1 <= scenario_id <= MAX_INT32_ID else None
-    )
+    if not 1 <= scenario_id <= MAX_INT32_ID:
+        scenario = None
+    else:
+        stmt = select(SimulationScenario).where(
+            SimulationScenario.id == scenario_id,
+            SimulationScenario.farm_id == farm_id,
+        )
+        if for_update:
+            stmt = stmt.execution_options(populate_existing=True).with_for_update()
+        scenario = (await db.execute(stmt)).scalar_one_or_none()
     if scenario is None or scenario.farm_id != farm_id:
         raise HTTPException(status_code=404, detail="Scenario not found")
     return scenario
@@ -801,17 +812,28 @@ async def update_scenario(
     perms: SimManage,
     scenario_id: int,
 ) -> ScenarioOut:
-    scenario = await _get_scenario(db, farm.id, scenario_id)
+    scenario = await _get_scenario(db, farm.id, scenario_id, for_update=True)
+    if scenario.revision != payload.expected_revision:
+        raise HTTPException(
+            status_code=409,
+            detail="This scenario changed since you opened it; refresh before saving.",
+        )
+    changed = False
     if payload.name is not None:
         name = payload.name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Name is required.")
         await _check_name_free(db, farm.id, name, exclude_id=scenario.id)
         scenario.name = name
+        changed = True
     if payload.notes is not None:
         scenario.notes = payload.notes
+        changed = True
     if payload.assumptions is not None:
         scenario.assumptions = payload.assumptions.model_dump_json()
+        changed = True
+    if changed:
+        scenario.revision += 1
     try:
         await db.commit()
     except IntegrityError:  # concurrent rename collided with another scenario

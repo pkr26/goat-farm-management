@@ -1,6 +1,7 @@
 # Optional local/self-hosted stack: Postgres + migration job + API + frontend,
-# published through one edge proxy so the SPA and the API share a public origin
-# (the topology README documents for production).
+# published through one edge proxy so the SPA and the API share an origin. The
+# edge binds loopback by default: a production deployment must place a TLS
+# terminator in front of it rather than publishing its HTTP listener directly.
 # Single backend replica on purpose — the auth rate limiter is in-memory and
 # the container CMD hard-codes --workers 1.
 # Credentials come from .env (copy .env.example to .env for local defaults).
@@ -118,6 +119,22 @@ services:
     configs:
       - source: edge_proxy
         target: /etc/nginx/conf.d/default.conf
+    environment:
+      # The edge is deliberately HTTP-only.  In production it must be behind
+      # a TLS terminator, whose fixed scheme is propagated below.  Fail before
+      # serving if an operator selects production but leaves that assertion at
+      # HTTP; a Secure refresh cookie alone cannot protect bearer responses.
+      GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
+      GOATFARM_EDGE_PUBLIC_SCHEME: ${GOATFARM_EDGE_PUBLIC_SCHEME:-http}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ "$$GOATFARM_ENVIRONMENT" = "production" ] && [ "$$GOATFARM_EDGE_PUBLIC_SCHEME" != "https" ]; then
+          echo "Refusing production edge without an asserted HTTPS terminator (set GOATFARM_EDGE_PUBLIC_SCHEME=https)." >&2
+          exit 2
+        fi
+        exec nginx -g 'daemon off;'
     networks:
       default:
         # Fixed within an operator-selectable subnet so the backend can trust
@@ -125,7 +142,10 @@ services:
         # Docker/AWS range.
         ipv4_address: ${GOATFARM_EDGE_PROXY_IP:-198.18.243.10}
     ports:
-      - "3000:3000"
+      # Local development remains http://localhost:3000. A production TLS
+      # terminator on this host can proxy to the same loopback listener; a
+      # containerized terminator can use edge:3000 on the Compose network.
+      - "${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}:3000:3000"
 
 configs:
   edge_proxy:

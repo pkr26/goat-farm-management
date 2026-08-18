@@ -27,6 +27,7 @@ import {
   setCurrentFarmId,
   setOnAuthFailure,
 } from "@/lib/api-client";
+import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
 import { setActiveFarmTimezone } from "@/lib/format";
 
 // Derived from the generated contract models so backend schema drift breaks
@@ -135,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *  both behave identically. */
   const clearSession = useCallback(() => {
     queryClient.clear();
+    clearPersistedIdempotencyRequestState();
     setAccessToken(null);
     setCurrentFarmId(null);
     setActiveFarmTimezone(null);

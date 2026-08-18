@@ -44,6 +44,7 @@ import { AccountDialog } from "@/components/account-dialog";
 import { apiFetch, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
+import { IDEMPOTENCY_SESSION_STORAGE_KEY } from "@/lib/idempotent-request";
 import { TEST_USER, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -211,6 +212,37 @@ describe("AuthProvider — query cache cleared on farm switch / sign-out", () =>
       expect(screen.getByTestId("user")).toHaveTextContent("none"),
     );
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+
+  it("signOut clears persisted idempotency recovery material", async () => {
+    server.use(
+      http.post("/api/auth/logout", () => HttpResponse.json({ ok: true })),
+    );
+    renderWithProviders(<Probe />);
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent(
+        "owner@goatfarm.test",
+      ),
+    );
+    window.sessionStorage.setItem(
+      IDEMPOTENCY_SESSION_STORAGE_KEY,
+      JSON.stringify([
+        {
+          version: 1,
+          digest: "a".repeat(64),
+          key: "f0b5319e-997c-43ae-b43f-03e4064984bf",
+          expiresAt: Date.now() + 60_000,
+        },
+      ]),
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("none"),
+    );
+    expect(window.sessionStorage.getItem(IDEMPOTENCY_SESSION_STORAGE_KEY)).toBeNull();
   });
 
   it("clears the previous farm cache and persisted selection when all memberships disappear", async () => {

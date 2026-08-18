@@ -4481,7 +4481,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RoleIn"
+                "$ref": "#/components/schemas/RoleUpdateIn"
               }
             }
           }
@@ -11654,7 +11654,6 @@
               "INJURY",
               "NUTRITIONAL",
               "TRAUMA",
-              "ANIMAL_STATUS_CHANGE",
               "OTHER"
             ],
             "title": "Cause"
@@ -12554,6 +12553,10 @@
             "type": "array",
             "title": "Permissions"
           },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
           "member_count": {
             "type": "integer",
             "title": "Member Count",
@@ -12566,9 +12569,53 @@
           "code",
           "name",
           "description",
-          "permissions"
+          "permissions",
+          "revision"
         ],
         "title": "RoleOut"
+      },
+      "RoleUpdateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Permissions"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "default": 1
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "RoleUpdateIn",
+        "description": "Full replacement guarded against stale role-editor submissions."
       },
       "RunIn": {
         "properties": {
@@ -12826,6 +12873,10 @@
             ],
             "title": "Validation Error"
           },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -12844,6 +12895,7 @@
           "name",
           "notes",
           "assumptions",
+          "revision",
           "created_at",
           "updated_at"
         ],
@@ -12852,6 +12904,12 @@
       },
       "ScenarioUpdateIn": {
         "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "default": 1
+          },
           "name": {
             "anyOf": [
               {

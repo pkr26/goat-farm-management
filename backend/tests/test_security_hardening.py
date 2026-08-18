@@ -20,6 +20,8 @@ farm cap serializes concurrent creations on the user row.
 
 import asyncio
 import hashlib
+import os
+import stat
 import threading
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -1052,8 +1054,9 @@ def tmp_jwt_keys(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[tu
     settings cache and the in-memory key cache afterwards."""
     from app import security
 
-    priv = tmp_path / "jwt_private.pem"
-    pub = tmp_path / "jwt_public.pem"
+    key_dir = tmp_path / "keys"
+    priv = key_dir / "jwt_private.pem"
+    pub = key_dir / "jwt_public.pem"
     monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", str(priv))
     monkeypatch.setenv("GOATFARM_JWT_PUBLIC_KEY_PATH", str(pub))
     get_settings.cache_clear()
@@ -1110,6 +1113,59 @@ def test_concurrent_first_boot_yields_one_consistent_keypair(
     for token in tokens:
         assert decode_token(token, "access") == 1  # mismatched pair would fail here
     assert priv.stat().st_mode & 0o777 == 0o600  # private key never world-readable
+    assert priv.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_private_key_temp_is_private_before_atomic_replace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A normal umask must not expose PEM bytes before chmod/replace.
+
+    Inspect the source file at the last possible instant before ``os.replace``;
+    checking only the final pathname misses the old predictable-.tmp race.
+    """
+    from app import security
+
+    target = tmp_path / "jwt_private.pem"
+    observed_modes: list[int] = []
+    real_replace = security.os.replace
+
+    def inspect_replace(source: object, destination: object) -> None:
+        observed_modes.append(stat.S_IMODE(Path(source).stat().st_mode))
+        real_replace(source, destination)
+
+    monkeypatch.setattr(security.os, "replace", inspect_replace)
+    previous_umask = os.umask(0o022)
+    try:
+        security._write_atomic(target, b"private-key-material", mode=0o600)
+    finally:
+        os.umask(previous_umask)
+
+    assert observed_modes == [0o600]
+    assert target.read_bytes() == b"private-key-material"
+    assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_default_development_key_directory_is_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Tighten the app-owned legacy default, but not arbitrary configured parents."""
+    from app import security
+
+    key_dir = tmp_path / "keys"
+    key_dir.mkdir(mode=0o755)
+    key_dir.chmod(0o755)
+    monkeypatch.setattr(security, "BACKEND_DIR", tmp_path)
+    monkeypatch.setenv("GOATFARM_JWT_PRIVATE_KEY_PATH", str(key_dir / "jwt_private.pem"))
+    monkeypatch.setenv("GOATFARM_JWT_PUBLIC_KEY_PATH", str(key_dir / "jwt_public.pem"))
+    get_settings.cache_clear()
+    security._key_cache.clear()
+    try:
+        issue_access_token(1)
+        assert key_dir.stat().st_mode & 0o777 == 0o700
+    finally:
+        security._key_cache.clear()
+        get_settings.cache_clear()
 
 
 def test_first_boot_generation_takes_a_process_lock(

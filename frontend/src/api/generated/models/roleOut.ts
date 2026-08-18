@@ -11,5 +11,6 @@ export interface RoleOut {
   name: string;
   description: string | null;
   permissions: string[];
+  revision: number;
   member_count?: number;
 }

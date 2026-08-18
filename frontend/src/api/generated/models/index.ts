@@ -181,6 +181,7 @@ export * from './riskVariable';
 export * from './roleChangeIn';
 export * from './roleIn';
 export * from './roleOut';
+export * from './roleUpdateIn';
 export * from './runIn';
 export * from './runScenarioApiSimulationScenariosScenarioIdRunPostParams';
 export * from './salesAssumptions';

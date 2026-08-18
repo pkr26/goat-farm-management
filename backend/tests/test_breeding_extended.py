@@ -1867,6 +1867,62 @@ async def test_abort_rejects_future_and_pre_confirmation_dates(client: httpx.Asy
     assert (await get_breeding(client, headers, br["id"]))["outcome"] == "CONFIRMED_PREGNANT"
 
 
+async def test_abort_rejects_loss_after_maximum_gestation(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=201)
+    _doe, _buck, breeding = await bred_doe(client, headers, breeding_date=breeding_date)
+    confirmed = await ultrasound(
+        client,
+        headers,
+        breeding["id"],
+        pregnant=True,
+        kid_count=1,
+        date=iso(breeding_date + timedelta(days=32)),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    late = await post_abort(client, headers, breeding["id"], loss_date=iso(today()))
+    assert late.status_code == 422, late.text
+    assert "200-day gestation window" in late.json()["detail"]
+    assert (await get_breeding(client, headers, breeding["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+
+
+async def test_public_abort_cannot_forge_status_change_cause(client: httpx.AsyncClient) -> None:
+    headers = await owner_with_farm(client)
+    _doe, _buck, breeding = await pregnant_doe(client, headers)
+    forged = await post_abort(client, headers, breeding["id"], cause="ANIMAL_STATUS_CHANGE")
+    assert forged.status_code == 422, forged.text
+    assert (await get_breeding(client, headers, breeding["id"]))["outcome"] == "CONFIRMED_PREGNANT"
+
+
+async def test_late_status_change_retains_internal_administrative_close(
+    client: httpx.AsyncClient,
+) -> None:
+    """A legacy over-window confirmed record must not make sale/death impossible."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=201)
+    doe, _buck, breeding = await bred_doe(client, headers, breeding_date=breeding_date)
+    confirmed = await ultrasound(
+        client,
+        headers,
+        breeding["id"],
+        pregnant=True,
+        kid_count=1,
+        date=iso(breeding_date + timedelta(days=32)),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    sold = await client.post(
+        f"/api/animals/{doe['id']}/status",
+        json={"new_status": "SOLD", "date": iso(today())},
+        headers=headers,
+    )
+    assert sold.status_code == 200, sold.text
+    closed = await get_breeding(client, headers, breeding["id"])
+    assert closed["outcome"] == "ABORTED"
+    assert closed["loss_cause"] == "ANIMAL_STATUS_CHANGE"
+
+
 async def test_abort_payload_cause_and_notes_are_bounded(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers)

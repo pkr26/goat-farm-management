@@ -14,6 +14,5 @@ export const PregnancyLossInCause = {
   INJURY: 'INJURY',
   NUTRITIONAL: 'NUTRITIONAL',
   TRAUMA: 'TRAUMA',
-  ANIMAL_STATUS_CHANGE: 'ANIMAL_STATUS_CHANGE',
   OTHER: 'OTHER',
 } as const;

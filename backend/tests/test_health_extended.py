@@ -866,6 +866,42 @@ async def test_omitted_event_date_validates_followup_against_farm_today(
     assert response.json()["detail"] == "next_due_date must be after the health event date"
 
 
+async def test_omitted_event_date_enforces_withdrawal_ceiling(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The farm-local default date must not bypass the immutable withdrawal cap."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers)
+    farm_today = date(2099, 1, 2)
+
+    def current_business_date(timezone_name: str) -> date:
+        assert timezone_name == "Asia/Kolkata"
+        return farm_today
+
+    monkeypatch.setattr("app.api.health.today", current_business_date)
+    monkeypatch.setattr("app.services.chronology.today", current_business_date)
+
+    rejected = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        withdrawal_until=iso(farm_today + timedelta(days=731)),
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert "730 days" in rejected.json()["detail"]
+
+    accepted = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        withdrawal_until=iso(farm_today + timedelta(days=730)),
+    )
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()[0]["withdrawal_until"] == iso(farm_today + timedelta(days=730))
+
+
 async def test_selected_schedule_template_must_match_recorded_disease_target(
     client: httpx.AsyncClient,
 ) -> None:

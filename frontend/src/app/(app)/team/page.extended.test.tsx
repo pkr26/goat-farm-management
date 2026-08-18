@@ -44,6 +44,7 @@ const ROLE_NIGHT_WATCH = {
   name: "Night Watch",
   description: null,
   permissions: ["animals.view", "animals.create"],
+  revision: 4,
   member_count: 1,
 };
 
@@ -53,6 +54,7 @@ const ROLE_HELPER = {
   name: "Helper",
   description: "general farm help",
   permissions: [],
+  revision: 1,
   member_count: 1,
 };
 
@@ -62,6 +64,7 @@ const ROLE_UNUSED = {
   name: "Unused",
   description: null,
   permissions: ["animals.view"],
+  revision: 2,
   member_count: 0,
 };
 
@@ -71,6 +74,7 @@ const ROLE_PRESET = {
   name: "Manager",
   description: "preset manager role",
   permissions: ["team.manage"],
+  revision: 3,
   member_count: 0,
 };
 
@@ -816,7 +820,11 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
 
     await waitFor(() => expect(putBody).not.toBeNull());
     expect(putRoleId).toBe("10");
-    expect(putBody).toMatchObject({ name: "Night Watch", permissions: ["animals.view"] });
+    expect(putBody).toMatchObject({
+      name: "Night Watch",
+      permissions: ["animals.view"],
+      expected_revision: ROLE_NIGHT_WATCH.revision,
+    });
   });
 });
 

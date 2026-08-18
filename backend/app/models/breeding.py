@@ -50,6 +50,17 @@ class BreedingRecord(Base):
             "OR loss_date >= ultrasound_result_date",
             name="ck_breeding_loss_after_ultrasound",
         ),
+        # A direct operator-recorded loss must still fit the same generous
+        # 200-day biological window that bounds ultrasound confirmation and
+        # kidding.  ANIMAL_STATUS_CHANGE is the internal administrative close
+        # emitted when a doe leaves the herd after a stale pregnancy; it is
+        # deliberately retained as a narrow exception so that herd retirement
+        # itself never becomes impossible.
+        CheckConstraint(
+            "loss_date IS NULL OR loss_cause = 'ANIMAL_STATUS_CHANGE' "
+            "OR loss_date <= breeding_date + 200",
+            name="ck_breeding_loss_within_max_gestation",
+        ),
         CheckConstraint(
             "(outcome = 'ABORTED' AND pregnant IS FALSE "
             "AND loss_date IS NOT NULL AND loss_cause IS NOT NULL "
@@ -87,6 +98,10 @@ class BreedingRecord(Base):
             "ultrasound_result_date IS NULL OR ultrasound_date IS NULL OR "
             "ultrasound_result_date >= ultrasound_date",
             name="ck_breeding_records_result_after_plan",
+        ),
+        CheckConstraint(
+            "ultrasound_result_date IS NULL OR ultrasound_result_date <= breeding_date + 200",
+            name="ck_breeding_records_result_within_max_gestation",
         ),
         CheckConstraint(
             "expected_kidding_date IS NULL OR expected_kidding_date > breeding_date",

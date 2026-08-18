@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -23,7 +23,10 @@ class SimulationScenario(Base):
     """
 
     __tablename__ = "simulation_scenarios"
-    __table_args__ = (UniqueConstraint("farm_id", "name", name="uq_simulation_scenario_per_farm"),)
+    __table_args__ = (
+        UniqueConstraint("farm_id", "name", name="uq_simulation_scenario_per_farm"),
+        CheckConstraint("revision >= 1", name="ck_simulation_scenarios_revision_positive"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
@@ -31,6 +34,10 @@ class SimulationScenario(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     assumptions: Mapped[str] = mapped_column(Text)  # JSON: SimulationAssumptions dump
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    # A saved scenario is a full JSON assumption set.  Require callers to
+    # prove which version they edited so one browser tab cannot silently erase
+    # another tab's accepted changes.
+    revision: Mapped[int] = mapped_column(default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

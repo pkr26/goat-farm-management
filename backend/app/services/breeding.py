@@ -470,13 +470,21 @@ async def record_ultrasound_result(
         )
     if result_date < br.breeding_date:
         raise ValueError("Pregnancy check result cannot predate the breeding date")
-    if pregnant and result_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS):
-        # Kidding is deliberately bounded to the same maximum gestation and
-        # cannot predate its confirmation. Accepting a positive scan after that
-        # boundary creates no possible kidding date and permanently strands the
-        # doe in an unresolved pregnancy.
+    if result_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS):
+        # A result recorded after the last possible gestation day is not a
+        # factual ultrasound outcome in either direction.  The positive case
+        # would strand the doe with no legal kidding date; the negative case
+        # would fabricate a FAILED service, distort the cull streak, and reopen
+        # the doe for breeding based on an observation that cannot describe the
+        # original service.  Operators can still enter a delayed record using
+        # its true historical observation date inside this window.
+        if pregnant:
+            raise ValueError(
+                "A positive pregnancy check cannot be recorded after the maximum "
+                f"{MAX_GESTATION_DAYS}-day gestation window"
+            )
         raise ValueError(
-            "A positive pregnancy check cannot be recorded after the maximum "
+            "A not-pregnant result cannot be recorded after the maximum "
             f"{MAX_GESTATION_DAYS}-day gestation window"
         )
     if not pregnant:
@@ -655,6 +663,7 @@ async def mark_aborted(
     loss_cause: str,
     loss_notes: str | None,
     recorded_by_id: int,
+    allow_late_administrative_close: bool = False,
 ) -> BreedingRecord:
     """Record an attributed pregnancy loss and close its operational work.
 
@@ -674,6 +683,14 @@ async def mark_aborted(
         raise ValueError("Pregnancy loss date cannot be before the breeding date")
     if br.ultrasound_result_date is not None and loss_date < br.ultrasound_result_date:
         raise ValueError("Pregnancy loss date cannot be before pregnancy confirmation")
+    if (
+        loss_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS)
+        and not allow_late_administrative_close
+    ):
+        raise ValueError(
+            "Pregnancy loss date cannot be after the maximum "
+            f"{MAX_GESTATION_DAYS}-day gestation window"
+        )
     clean_notes = (loss_notes or "").strip() or None
     if clean_notes is not None and len(clean_notes) > 4_000:
         raise ValueError("Pregnancy loss notes cannot exceed 4000 characters")

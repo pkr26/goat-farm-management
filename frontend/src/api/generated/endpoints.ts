@@ -101,6 +101,7 @@ import type {
   RoleChangeIn,
   RoleIn,
   RoleOut,
+  RoleUpdateIn,
   RunIn,
   RunScenarioApiSimulationScenariosScenarioIdRunPostParams,
   ScenarioCompareOut,
@@ -7380,14 +7381,14 @@ export const getUpdateRoleApiTeamRolesRoleIdPutUrl = (roleId: number,) => {
  * @summary Update Role
  */
 export const updateRoleApiTeamRolesRoleIdPut = async (roleId: number,
-    roleIn: RoleIn, options?: Parameters<typeof customInstance>[1]): Promise<updateRoleApiTeamRolesRoleIdPutResponse> => {
+    roleUpdateIn: RoleUpdateIn, options?: Parameters<typeof customInstance>[1]): Promise<updateRoleApiTeamRolesRoleIdPutResponse> => {
 
   return customInstance<updateRoleApiTeamRolesRoleIdPutResponse>(getUpdateRoleApiTeamRolesRoleIdPutUrl(roleId),
   {
     ...options,
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(roleIn)
+    body: JSON.stringify(roleUpdateIn)
   }
 );}
 
@@ -7396,8 +7397,8 @@ export const updateRoleApiTeamRolesRoleIdPut = async (roleId: number,
 
 
 export const getUpdateRoleApiTeamRolesRoleIdPutMutationOptions = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, TError,{roleId: number;data: RoleIn}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, TError,{roleId: number;data: RoleIn}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, TError,{roleId: number;data: RoleUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, TError,{roleId: number;data: RoleUpdateIn}, TContext> => {
 
 const mutationKey = ['updateRoleApiTeamRolesRoleIdPut'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -7409,7 +7410,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, {roleId: number;data: RoleIn}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, {roleId: number;data: RoleUpdateIn}> = (props) => {
           const {roleId,data} = props ?? {};
 
           return  updateRoleApiTeamRolesRoleIdPut(roleId,data,requestOptions)
@@ -7423,18 +7424,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateRoleApiTeamRolesRoleIdPutMutationResult = NonNullable<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>>
-    export type UpdateRoleApiTeamRolesRoleIdPutMutationBody = RoleIn
+    export type UpdateRoleApiTeamRolesRoleIdPutMutationBody = RoleUpdateIn
     export type UpdateRoleApiTeamRolesRoleIdPutMutationError = ErrorType<HTTPValidationError>
 
     /**
  * @summary Update Role
  */
 export const useUpdateRoleApiTeamRolesRoleIdPut = <TError = ErrorType<HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, TError,{roleId: number;data: RoleIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>, TError,{roleId: number;data: RoleUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateRoleApiTeamRolesRoleIdPut>>,
         TError,
-        {roleId: number;data: RoleIn},
+        {roleId: number;data: RoleUpdateIn},
         TContext
       > => {
       return useMutation(getUpdateRoleApiTeamRolesRoleIdPutMutationOptions(options), queryClient);

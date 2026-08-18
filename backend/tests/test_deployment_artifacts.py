@@ -1019,6 +1019,57 @@ def test_offsite_backup_refuses_remote_key_collision_without_deleting(
     assert "rm" not in aws_calls[0]["argv"]
 
 
+def test_offsite_backups_use_distinct_remote_keys_for_same_second_producers(
+    tmp_path: Path,
+) -> None:
+    """Independent destination locks must not make the same S3 object name.
+
+    Both producers see an empty remote listing and deliberately receive the
+    same UTC second.  The run suffix must still make their archive/checksum
+    destinations distinct; otherwise two hosts would race the unconditional
+    S3 PUTs and could leave a mismatched archive/sidecar pair.
+    """
+    mock_bin = _install_mock_tools(tmp_path)
+    _write_executable(
+        mock_bin / "date",
+        """#!/usr/bin/env bash
+if [[ "$1" == "-u" ]]; then
+    echo "2026-08-17T12-00-00Z"
+else
+    echo "2026-08-17T12:00:00+00:00"
+fi
+""",
+    )
+    env = _base_env(tmp_path, mock_bin)
+    env.update(
+        {
+            "GOATFARM_BACKUP_GPG_RECIPIENT": SIGNER_B,
+            "GOATFARM_BACKUP_GPG_SIGNER_FINGERPRINT": SIGNER_A,
+            "GOATFARM_BACKUP_S3_URI": "s3://example/goatfarm",
+        }
+    )
+
+    first = _run_backup(tmp_path / "producer-one", env)
+    second = _run_backup(tmp_path / "producer-two", env)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    aws_calls = [
+        json.loads(line)
+        for line in _log_text(env).splitlines()
+        if json.loads(line)["tool"] == "aws" and "cp" in json.loads(line)["argv"]
+    ]
+    remote_archives = {
+        call["argv"][-1] for call in aws_calls if not call["argv"][-1].endswith(".sha256")
+    }
+    remote_checksums = {
+        call["argv"][-1] for call in aws_calls if call["argv"][-1].endswith(".sha256")
+    }
+    assert len(remote_archives) == 2
+    assert {f"{archive}.sha256" for archive in remote_archives} == remote_checksums
+    assert all("goatfarm-2026-08-17T12-00-00Z-" in archive for archive in remote_archives)
+
+
 @pytest.mark.parametrize(
     ("recorded_name", "extra_record"),
     [
@@ -1341,6 +1392,30 @@ def test_container_readiness_uses_an_allowed_virtual_host(
     assert closed == [True]
 
 
+def test_backend_docker_context_excludes_operator_secrets_and_backup_artifacts() -> None:
+    """Docker sends its whole nonignored context to the builder before COPY.
+
+    The backend image's narrow COPY instructions do not protect a root .env or
+    the backup.sh default ./backups directory from a remote BuildKit context
+    upload. Keep these exclusions explicit instead of relying on .gitignore.
+    """
+    patterns = {
+        line.strip()
+        for line in (REPO_ROOT / ".dockerignore").read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert {
+        ".env",
+        ".env.*",
+        "backups/",
+        "*.dump",
+        "*.dump.gpg",
+        "*.dump.sha256",
+        "*.dump.gpg.sha256",
+    } <= patterns
+
+
 def test_frontend_is_a_standalone_node_container() -> None:
     config = (REPO_ROOT / "frontend" / "next.config.ts").read_text()
     dockerfile = (REPO_ROOT / "frontend" / "Dockerfile").read_text()
@@ -1494,6 +1569,7 @@ def _render_compose_network(
     subnet: str = "198.18.243.0/24",
     edge_address: str = "198.18.243.10",
     public_scheme: str = "http",
+    edge_bind_host: str = "127.0.0.1",
     trusted_proxy_hosts: str | None = None,
 ) -> dict:
     """Emulate Compose interpolation for the network variables.
@@ -1516,6 +1592,7 @@ def _render_compose_network(
         trusted_proxy_hosts if trusted_proxy_hosts is not None else edge_address,
     )
     compose = compose.replace("${GOATFARM_EDGE_PUBLIC_SCHEME:-http}", public_scheme)
+    compose = compose.replace("${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}", edge_bind_host)
     return yaml.safe_load(compose)
 
 
@@ -1532,7 +1609,7 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
     assert "ports" not in services["backend"]
     assert "8000" in services["backend"]["expose"]
     edge = services["edge"]
-    assert "3000:3000" in edge["ports"]
+    assert "127.0.0.1:3000:3000" in edge["ports"]
 
     # `$$` is Compose's escape; nginx receives single-dollar variables.
     proxy_conf = compose["configs"]["edge_proxy"]["content"].replace("$$", "$")
@@ -1554,6 +1631,30 @@ def test_compose_publishes_only_one_edge_that_forwards_the_real_client_address()
     assert ipaddress.ip_address(edge_address) in ipaddress.ip_network(subnet)
     # And the value the compose file ships must satisfy the settings contract.
     assert Settings(trusted_proxy_hosts=edge_address).trusted_proxy_hosts == edge_address
+
+
+def test_compose_production_edge_requires_an_asserted_https_terminator() -> None:
+    """Avoid silently serving production bearer responses over raw HTTP.
+
+    Compose cannot prove what an outer load balancer does, but it can make the
+    required assertion explicit and refuse the dangerous production+HTTP
+    default before nginx starts.  The loopback binding keeps the raw listener
+    inaccessible from the network unless an operator deliberately overrides
+    it for a documented TLS topology.
+    """
+    compose = _render_compose_network(public_scheme="https")
+    edge = compose["services"]["edge"]
+    command = "\n".join(edge["command"])
+
+    assert edge["ports"] == ["127.0.0.1:3000:3000"]
+    assert edge["environment"]["GOATFARM_ENVIRONMENT"] == "${GOATFARM_ENVIRONMENT:-development}"
+    assert edge["environment"]["GOATFARM_EDGE_PUBLIC_SCHEME"] == "https"
+    assert '"$$GOATFARM_ENVIRONMENT" = "production"' in command
+    assert '"$$GOATFARM_EDGE_PUBLIC_SCHEME" != "https"' in command
+    assert "Refusing production edge without an asserted HTTPS terminator" in command
+
+    public = _render_compose_network(edge_bind_host="0.0.0.0", public_scheme="https")
+    assert public["services"]["edge"]["ports"] == ["0.0.0.0:3000:3000"]
 
 
 def test_compose_network_override_avoids_collision_without_weakening_proxy_trust() -> None:

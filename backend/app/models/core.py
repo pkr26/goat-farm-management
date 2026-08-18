@@ -97,6 +97,7 @@ class Role(Base):
     __tablename__ = "roles"
     __table_args__ = (
         UniqueConstraint("farm_id", "id", name="uq_roles_farm_id_id"),
+        CheckConstraint("revision >= 1", name="ck_roles_revision_positive"),
         Index(
             "uq_roles_farm_active_name",
             "farm_id",
@@ -112,6 +113,10 @@ class Role(Base):
     name: Mapped[str] = mapped_column(String(80))
     description: Mapped[str | None] = mapped_column(String(255))
     permissions: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of codes
+    # Optimistic-concurrency token for full-role edits.  A row lock only
+    # serializes writers; it cannot tell that a second editor built its full
+    # permissions payload from stale state.
+    revision: Mapped[int] = mapped_column(default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     # Custom-role deletion is a tombstone, not an unbounded rewrite of every
     # historical Task that referenced the role. Active role queries exclude

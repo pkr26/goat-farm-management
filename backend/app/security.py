@@ -27,6 +27,7 @@ import hashlib
 import hmac
 import logging
 import os
+import tempfile
 import threading
 import uuid
 from collections.abc import Callable
@@ -47,7 +48,7 @@ from argon2.exceptions import (
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from .core.config import get_settings
+from .core.config import BACKEND_DIR, get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -275,13 +276,42 @@ _jwt_keyring: _JwtKeyring | None = None
 
 def _write_atomic(path: Path, data: bytes, mode: int | None = None) -> None:
     """Temp file + os.replace: readers only ever see the old or the new file,
-    never a half-written one. Permissions are set before the rename so the
-    private key never exists at its final path with a looser mode."""
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data)
-    if mode is not None:
-        tmp.chmod(mode)
-    os.replace(tmp, path)
+    never a half-written one.
+
+    ``NamedTemporaryFile`` creates its inode mode 0600 before any byte is
+    written.  That ordering matters for private PEM material: ``Path.write_bytes``
+    would otherwise create the predictable ``.tmp`` file subject to the
+    process umask (commonly 0644), leaving a short local-read window before a
+    later chmod.  A caller can deliberately widen the final mode for public
+    material, but private bytes are never written to such a file.
+    """
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            tmp = Path(stream.name)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+            if mode is not None:
+                # Apply the requested final mode only after the complete
+                # payload has been written; a private PEM stays 0600 here.
+                os.fchmod(stream.fileno(), mode)
+        os.replace(tmp, path)
+    except BaseException:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                # Preserve the original write/replace failure. The temporary
+                # file remains 0600, so failed cleanup cannot disclose keys.
+                pass
+        raise
 
 
 def _generate_keypair(priv: Path, pub: Path) -> None:
@@ -300,6 +330,7 @@ def _generate_keypair(priv: Path, pub: Path) -> None:
         key.public_key().public_bytes(
             serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
         ),
+        mode=0o644,
     )
 
 
@@ -309,14 +340,30 @@ def _ensure_keypair() -> None:
     ephemeral identity. Caller must hold _key_lock."""
     s = get_settings()
     priv, pub = s.jwt_private_key_path, s.jwt_public_key_path
-    if priv.exists() and pub.exists():
-        return
     if s.environment == "production":
+        if priv.exists() and pub.exists():
+            return
         raise RuntimeError(
             "Production JWT keypair is missing. Mount stable private/public PEM files and set "
             "GOATFARM_JWT_PRIVATE_KEY_PATH / GOATFARM_JWT_PUBLIC_KEY_PATH."
         )
-    priv.parent.mkdir(parents=True, exist_ok=True)
+    # ``mode`` applies when this application-owned leaf is first created. Do
+    # not chmod an existing configured parent: it may be a deliberately shared
+    # or externally managed directory. Individual private files are still
+    # created 0600 by _write_atomic.
+    key_dir = priv.parent
+    key_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
+    # The default development directory belongs to this application, so repair
+    # an older world-searchable instance as well. Configured existing parents
+    # are deliberately left alone: they may be shared or externally managed,
+    # and private files themselves remain 0600.
+    if key_dir == BACKEND_DIR / "keys":
+        existing_mode = key_dir.stat().st_mode & 0o7777
+        private_mode = (existing_mode | 0o700) & ~0o077
+        if private_mode != existing_mode:
+            key_dir.chmod(private_mode)
+    if priv.exists() and pub.exists():
+        return
     # _key_lock is per-process: two first-booting PROCESSES could still
     # interleave the atomic writes and leave a mismatched pair on disk (every
     # token would then fail verification). Serialize generation across

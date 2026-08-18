@@ -3,7 +3,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import MAX_EMAIL_LENGTH, EmailMixin
-from .common import BoundedId, PostgresText, StrictBool, StrictInputModel
+from .common import BoundedId, PostgresText, StrictBool, StrictInputModel, StrictInt
 
 
 class WorkerCreateIn(EmailMixin):
@@ -46,6 +46,15 @@ class RoleIn(StrictInputModel):
     permissions: list[str] = Field(default_factory=list, max_length=100)
 
 
+class RoleUpdateIn(RoleIn):
+    """Full replacement guarded against stale role-editor submissions."""
+
+    # Compatibility bridge: all rows introduced by the migration start at 1,
+    # so an older SPA can make one safe update. Its next stale/no-token save
+    # then conflicts after the server increments the row to 2.
+    expected_revision: StrictInt = Field(default=1, ge=1)
+
+
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -54,6 +63,7 @@ class RoleOut(BaseModel):
     name: str
     description: str | None
     permissions: list[str]
+    revision: int
     member_count: int = 0
 
 

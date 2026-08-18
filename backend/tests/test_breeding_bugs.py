@@ -84,6 +84,26 @@ async def test_positive_ultrasound_after_maximum_gestation_is_rejected(
     assert boundary.json()["outcome"] == "CONFIRMED_PREGNANT"
 
 
+async def test_negative_ultrasound_after_maximum_gestation_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """A late negative is no more factual than a late positive scan."""
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=201)
+    _doe, _buck, breeding = await bred_doe(client, headers, breeding_date=breeding_date)
+
+    late = await client.post(
+        f"/api/breeding/{breeding['id']}/ultrasound",
+        json={"pregnant": False, "date": iso(today())},
+        headers=headers,
+    )
+    assert late.status_code == 409, late.text
+    assert "200-day gestation window" in late.json()["detail"]
+    unchanged = await get_breeding(client, headers, breeding["id"])
+    assert unchanged["outcome"] == "PENDING"
+    assert unchanged["ultrasound_done"] is False
+
+
 async def test_backdated_breeding_recordable_after_a_same_day_bucket_move(
     client: httpx.AsyncClient,
 ) -> None:

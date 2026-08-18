@@ -940,6 +940,11 @@ async def change_status(
                     loss_cause="ANIMAL_STATUS_CHANGE",
                     loss_notes=f"Pregnancy auto-resolved when doe was marked {payload.new_status}",
                     recorded_by_id=user.id,
+                    # A terminal herd-status event must remain recordable even
+                    # when a legacy confirmed pregnancy has already exceeded
+                    # the biological gestation window. This narrowly scoped
+                    # administrative close is never exposed by /abort.
+                    allow_late_administrative_close=True,
                 )
             except ValueError as exc:
                 # The status request and its pregnancy resolution are one

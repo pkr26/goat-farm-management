@@ -87,8 +87,12 @@ an IP fills the invalid-only budget, every refresh from that IP—including a
 valid cookie behind the same NAT—is rejected until the window expires; this is
 the unavoidable fail-closed tradeoff when validity itself requires signature
 verification.
-Production must also apply a shared login/register rate limit at the edge/WAF
-before requests reach the process, especially if it is ever horizontally scaled.
+Production must also apply a shared edge/WAF rate limit before requests reach
+the process: cover login/register/refresh **and every bearer-protected API
+path**. Fresh malformed bearer JWTs must be signature-checked before the app
+can classify them, so an in-process per-token limiter cannot safely stop a
+distributed unique-token flood without also denying valid users behind a shared
+NAT. Especially enforce this when the service is horizontally scaled.
 Production also requires a stable, independently generated (at least 32
 characters) `GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET` on every replica. It
 keys fingerprints for idempotent operations whose request contains password
@@ -213,7 +217,8 @@ passes. Resume API replicas only after that succeeds.
   is capped per user. Behind a reverse proxy, set
   `GOATFARM_TRUSTED_PROXY_HOSTS` so real client IPs key the limiter, and enforce
   a shared edge/WAF ceiling on every auth path—including successful login and
-  refresh traffic—before CPU-hard password work or session-row mutation.
+  refresh traffic—and every bearer-protected endpoint before CPU-hard password
+  work, JWT verification, or session-row mutation.
 - Rejected refresh attempts are IP-throttled; successful page-load refreshes
   do not consume the abuse budget. The SPA coordinates refresh across tabs
   with the browser Web Locks API when available.
@@ -278,7 +283,8 @@ pytest against a Postgres service, `ruff format --check`, `ruff check`,
 `pnpm test`, `pnpm build`, `pnpm audit`; Playwright against the real frontend,
 API, and PostgreSQL; and builds both application containers. A separate
 pinned-action security workflow runs CodeQL, full-history secret scanning,
-produces SPDX SBOMs for both containers, and fails on fixable high/critical
+produces SPDX SBOMs for the backend, frontend, and deployed Compose
+infrastructure images, and fails on error/high CodeQL or fixable high/critical
 image vulnerabilities.
 Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
 
@@ -317,7 +323,9 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   `GOATFARM_MIGRATION_DATABASE_URL` values rather than concatenating raw
   credentials. Percent-encode reserved characters in URL usernames/passwords;
   production should use a DDL-free API role and a distinct DDL-capable
-  migration role. Only the edge port is host-published.
+  migration role. The edge is the only host-published service, and it binds
+  loopback by default; a production TLS terminator proxies to it rather than
+  exposing its HTTP listener.
   Supported Alembic and restore jobs share a database advisory lock, so two
   release/restore writers fail closed instead of racing. This protocol cannot
   stop manually issued DDL that ignores the application tooling: quiesce all
@@ -358,9 +366,9 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   `X-Forwarded-For` (it sets only `x-forwarded-host`), so the API would see the
   Next container's address for every client: the eleventh signup in five
   minutes — from anyone — 429s, and 100 bad logins lock the deployment out.
-  `docker-compose.yml` therefore publishes a single `edge` (nginx) container on
-  port 3000; the API's `8000` and the frontend's `3000` remain internal-only. It
-  proxies `/api/` straight to `backend:8000` and everything else to
+  `docker-compose.yml` therefore exposes a single `edge` (nginx) container on
+  loopback port 3000 by default; the API's `8000` and the frontend's `3000`
+  remain internal-only. It proxies `/api/` straight to `backend:8000` and everything else to
   `frontend:3000`, preserves the browser's `Host`, appends
   `X-Forwarded-For`, sets `X-Forwarded-Proto` from the static
   `GOATFARM_EDGE_PUBLIC_SCHEME` deployment value (never from a client header),
@@ -376,7 +384,10 @@ Dependabot monitors the Python, pnpm, Docker, and GitHub Actions ecosystems.
   required when an additional outer proxy or load balancer fronts the edge,
   whose address must also be trusted or every client keys the per-IP auth
   ceilings as one IP. Set `GOATFARM_EDGE_PUBLIC_SCHEME=https` when that outer
-  hop terminates public TLS. If the documented default conflicts with a host, VPN,
+  hop terminates public TLS: Compose refuses to serve when `production` is
+  configured with its HTTP default. Keep `GOATFARM_EDGE_BIND_HOST=127.0.0.1`
+  unless a deliberate TLS topology requires another binding; never expose this
+  raw HTTP listener directly. If the documented default conflicts with a host, VPN,
   or cloud route, override the subnet and an address inside it in `.env`; no
   Compose-file edit is required — but note that changing the subnet or edge
   IP of an **already-created** stack (including upgrading across a release
@@ -447,9 +458,14 @@ its deletion is intentionally not reversed by downgrade.
 Run `backend/scripts/backup.sh` nightly against production and store the dump
 off-host. The script writes `pg_dump` into a private same-filesystem temporary
 directory, proves that `pg_restore --list` can parse it, then publishes the
-archive and its exact-name SHA-256 sidecar. A destination-wide lock prevents
-overlapping jobs, and failure traps remove plaintext, unpublished files, and
-the owned lock. It retains the newest 30 dumps by default.
+archive and its exact-name SHA-256 sidecar. Each archive name includes an
+unpredictable run suffix, so independently locked hosts cannot race on one S3
+object key. A destination-wide lock prevents overlapping jobs, and failure
+traps remove plaintext, unpublished files, and the owned lock. `GOATFARM_BACKUP_KEEP`
+retains the newest 30 **local** dumps by default. Configure an S3 lifecycle
+rule (including noncurrent-version expiry if bucket versioning is enabled) for
+the same approved retention period; the backup job never deletes remote copies
+because a writer cannot safely infer ownership of objects from another host.
 
 Production and S3 backups must be both signed and encrypted with GPG. Pin the
 signing key by its complete 40- or 64-hex fingerprint; do not use a mutable

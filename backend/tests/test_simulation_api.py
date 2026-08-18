@@ -307,6 +307,7 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
     assert created["name"] == "Base plan"
     assert created["assumptions"]["meta"]["horizon_months"] == 12
     assert created["created_at"] and created["updated_at"]
+    assert created["revision"] == 1
 
     listing = await client.get("/api/simulation/scenarios", headers=headers)
     assert listing.status_code == 200, listing.text
@@ -337,11 +338,52 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
     assert patched.status_code == 200, patched.text
     assert patched.json()["name"] == "Base plan v2"
     assert patched.json()["notes"] == "updated"
+    assert patched.json()["revision"] == 2
+
+    # Compatibility bridge: a v1 client omitting expected_revision can make
+    # this first revision-1 update, but cannot silently overwrite it again.
+    legacy_retry = await client.patch(
+        f"/api/simulation/scenarios/{created['id']}",
+        json={"notes": "stale legacy retry"},
+        headers=headers,
+    )
+    assert legacy_retry.status_code == 409, legacy_retry.text
 
     deleted = await client.delete(f"/api/simulation/scenarios/{created['id']}", headers=headers)
     assert deleted.status_code == 204
     gone = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
     assert gone.status_code == 404
+
+
+async def test_scenario_update_rejects_a_stale_full_assumption_document(
+    client: httpx.AsyncClient,
+) -> None:
+    headers = await owner_with_farm(client)
+    assumptions = await default_assumptions(client, headers)
+    created = await create_scenario(client, headers, "Versioned plan", assumptions)
+
+    first_document = {**assumptions, "herd": {**assumptions["herd"], "does": 51}}
+    first = await client.patch(
+        f"/api/simulation/scenarios/{created['id']}",
+        json={"expected_revision": created["revision"], "assumptions": first_document},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["revision"] == created["revision"] + 1
+
+    stale_document = {**assumptions, "herd": {**assumptions["herd"], "bucks": 99}}
+    stale = await client.patch(
+        f"/api/simulation/scenarios/{created['id']}",
+        json={"expected_revision": created["revision"], "assumptions": stale_document},
+        headers=headers,
+    )
+    assert stale.status_code == 409, stale.text
+    assert "changed since" in stale.json()["detail"]
+
+    current = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
+    assert current.status_code == 200
+    assert current.json()["assumptions"]["herd"]["does"] == 51
+    assert current.json()["assumptions"]["herd"]["bucks"] == assumptions["herd"]["bucks"]
 
 
 async def test_scenario_text_rejects_postgres_control_characters(

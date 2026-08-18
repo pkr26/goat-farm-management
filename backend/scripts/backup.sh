@@ -316,8 +316,14 @@ if [[ -n "${legacy_stale_dir}" ]]; then
     legacy_stale_snapshot=""
 fi
 
-WORK_DIR="$(mktemp -d "${DEST_DIR}/.goatfarm-backup.XXXXXX")"
+WORK_DIR="$(mktemp -d "${DEST_DIR}/.goatfarm-backup.XXXXXXXXXXXX")"
 chmod 0700 "${WORK_DIR}"
+WORK_NAME="${WORK_DIR##*/}"
+RUN_SUFFIX="${WORK_NAME#.goatfarm-backup.}"
+if [[ ! "${RUN_SUFFIX}" =~ ^[A-Za-z0-9]{12,}$ ]]; then
+    echo "mktemp returned an unsafe backup run suffix" >&2
+    exit 1
+fi
 PGPASSFILE="${WORK_DIR}/pgpass"
 DB_METADATA="$(printf '%s' "${RAW_DB_URL}" | "${PYTHON_BIN}" "${SCRIPT_DIR}/libpq_url.py" "${PGPASSFILE}")"
 unset RAW_DB_URL
@@ -335,14 +341,20 @@ if [[ ! "${TIMESTAMP}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}
     echo "date returned an unsafe backup timestamp" >&2
     exit 1
 fi
-BASE_NAME="goatfarm-${TIMESTAMP}.dump"
+# A local flock serializes producers sharing one DEST_DIR, but independent
+# hosts/volumes can legitimately publish to the same S3 prefix.  Timestamp
+# only (second precision) let those independent runs choose one remote object
+# key, so a list-then-upload race could overwrite either archive or checksum.
+# ``mktemp`` already gave this run a private, unpredictable suffix; retain it
+# in the published name so every producer has a distinct archive/sidecar pair.
+BASE_NAME="goatfarm-${TIMESTAMP}-${RUN_SUFFIX}.dump"
 if [[ -n "${GPG_RECIPIENT}" ]]; then
     BASE_NAME="${BASE_NAME}.gpg"
 fi
 FINAL_ARCHIVE="${DEST_DIR}/${BASE_NAME}"
 FINAL_CHECKSUM="${FINAL_ARCHIVE}.sha256"
 if [[ -e "${FINAL_ARCHIVE}" || -e "${FINAL_CHECKSUM}" ]]; then
-    echo "Refusing to overwrite existing backup for timestamp ${TIMESTAMP}" >&2
+    echo "Refusing to overwrite existing backup artifact: ${BASE_NAME}" >&2
     exit 2
 fi
 

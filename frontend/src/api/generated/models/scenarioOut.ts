@@ -17,6 +17,7 @@ export interface ScenarioOut {
   assumptions: SimulationAssumptions | null;
   valid?: boolean;
   validation_error?: string | null;
+  revision: number;
   created_at: string;
   updated_at: string;
 }

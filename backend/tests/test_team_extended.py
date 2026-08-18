@@ -2190,6 +2190,43 @@ async def test_update_role_happy_path(client: httpx.AsyncClient) -> None:
     assert body["code"] is None
 
 
+async def test_update_role_rejects_stale_permission_snapshot(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    role = await create_custom_role(
+        client,
+        owner,
+        "Versioned Helper",
+        ["dashboard.view", "finance.view", "finance.manage"],
+    )
+    revoked = await client.put(
+        f"/api/team/roles/{role['id']}",
+        json={
+            "expected_revision": role["revision"],
+            "name": role["name"],
+            "description": "Finance access revoked",
+            "permissions": ["dashboard.view"],
+        },
+        headers=owner,
+    )
+    assert revoked.status_code == 200, revoked.text
+    assert revoked.json()["revision"] == role["revision"] + 1
+
+    stale = await client.put(
+        f"/api/team/roles/{role['id']}",
+        json={
+            "expected_revision": role["revision"],
+            "name": role["name"],
+            "description": "Stale editor save",
+            "permissions": role["permissions"],
+        },
+        headers=owner,
+    )
+    assert stale.status_code == 409, stale.text
+    page = await team_page(client, owner)
+    current = next(item for item in page["roles"] if item["id"] == role["id"])
+    assert current["permissions"] == ["dashboard.view"]
+
+
 async def test_update_preset_role_keeps_code(client: httpx.AsyncClient) -> None:
     """Preset name/description/permissions are editable; the stable code is not."""
     owner = await owner_with_farm(client)

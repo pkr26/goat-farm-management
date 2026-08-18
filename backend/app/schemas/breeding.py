@@ -50,7 +50,6 @@ PregnancyLossCause = Literal[
     "INJURY",
     "NUTRITIONAL",
     "TRAUMA",
-    "ANIMAL_STATUS_CHANGE",
     "OTHER",
 ]
 
@@ -60,6 +59,9 @@ class PregnancyLossIn(StrictInputModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    # ANIMAL_STATUS_CHANGE is intentionally absent: it is a server-owned
+    # audit cause emitted only when the animal-status workflow closes a live
+    # pregnancy. A user-entered loss must describe an actual observed cause.
     loss_date: PastOrTodayDate
     cause: PregnancyLossCause
     notes: PostgresText | None = Field(default=None, max_length=MAX_FREE_TEXT_LENGTH)

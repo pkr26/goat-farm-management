@@ -100,6 +100,14 @@ class HealthEvent(Base):
             "withdrawal_until IS NULL OR withdrawal_until >= date",
             name="ck_health_events_withdrawal_after_event",
         ),
+        # Health events are immutable through the application and an active
+        # withdrawal blocks every sale/cull path.  Keep a mistyped future year
+        # from permanently stranding an otherwise marketable animal even when
+        # an out-of-process writer bypasses Pydantic validation.
+        CheckConstraint(
+            "withdrawal_until IS NULL OR withdrawal_until <= date + 730",
+            name="ck_health_events_withdrawal_within_max",
+        ),
         CheckConstraint(
             "suspected_scheduled_disease IS FALSE OR "
             "(disease_target IS NOT NULL AND btrim(disease_target) <> '')",

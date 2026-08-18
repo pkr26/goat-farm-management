@@ -187,6 +187,18 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
   );
 }
 
+/**
+ * Cross-reload recovery stores a digest of the full request body in
+ * sessionStorage so it can locate the original random idempotency key. That
+ * is not acceptable for a password-bearing request: even a one-way, unsalted
+ * body digest is an offline verifier for a guessed password. The worker
+ * create endpoint still gets normal in-memory coalescing and its one automatic
+ * network retry; only recovery after a page reload is deliberately disabled.
+ */
+function allowsPersistedRecovery(url: string): boolean {
+  return requestPath(url) !== "/api/team/workers";
+}
+
 function randomIdempotencyKey(): string {
   const cryptography = globalThis.crypto;
   if (!cryptography) {
@@ -352,7 +364,7 @@ export async function runIdempotencyProtectedRequest<T>({
     // An opaque/non-JWT token has no stable actor identity. In that case we
     // fail safely back to memory-only behavior instead of persisting a key
     // that a later login could claim.
-    !callerProvidedKey && actorScope
+    !callerProvidedKey && actorScope && allowsPersistedRecovery(url)
       ? await sha256(persistentSignature(url, init, farmScope, actorScope))
       : null;
   const now = Date.now();
@@ -428,4 +440,17 @@ export async function runIdempotencyProtectedRequest<T>({
 /** Clears realm memory only; session storage intentionally survives reloads. */
 export function clearIdempotencyRequestState(): void {
   logicalRequests.clear();
+}
+
+/** Remove persisted recovery keys when an authenticated session ends.
+ *
+ * A successful reload intentionally keeps non-sensitive recovery keys, but a
+ * logout/session-replacement boundary must not leave a prior account's retry
+ * material in the browser profile. Clearing realm state at the same time
+ * prevents an in-flight old-session request from writing it back on settle.
+ */
+export function clearPersistedIdempotencyRequestState(): void {
+  logicalRequests.clear();
+  const storage = availableSessionStorage();
+  if (storage) writePersistedRecords(storage, []);
 }

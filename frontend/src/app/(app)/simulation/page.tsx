@@ -1466,10 +1466,11 @@ export default function SimulationPage() {
     if (!payload || !loadedScenario) return;
     if (hasEditorErrors || !scenarioUsable(loadedScenario)) return;
     try {
-      await updateMutation.mutateAsync({
+      const updated = await updateMutation.mutateAsync({
         scenarioId: loadedScenario.id,
-        data: { assumptions: payload },
+        data: { assumptions: payload, expected_revision: loadedScenario.revision },
       });
+      if (updated.status === 200) setLoadedScenario(updated.data);
       toast.success("Scenario updated.");
       invalidateScenarios();
     } catch (err) {

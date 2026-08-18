@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.results import MonteCarloResult, SensitivityItem, SimulationResult
-from .common import PostgresText, StrictBool, StrictInputModel
+from .common import PostgresText, StrictBool, StrictInputModel, StrictInt
 
 __all__ = [
     "BreedsOut",
@@ -41,6 +41,12 @@ class ScenarioCreateIn(StrictInputModel):
 
 
 class ScenarioUpdateIn(StrictInputModel):
+    # Saved assumptions are a complete JSON document. The revision token is
+    # the only way to distinguish an intentional replacement from a stale tab
+    # re-sending its old document.
+    # Legacy clients omit this field. Every migrated row starts at revision 1,
+    # allowing one safe bridge update; subsequent no-token writes conflict.
+    expected_revision: StrictInt = Field(default=1, ge=1)
     name: PostgresText | None = Field(default=None, min_length=1, max_length=120)
     notes: PostgresText | None = Field(default=None, max_length=2000)
     assumptions: SimulationAssumptions | None = None
@@ -56,6 +62,7 @@ class ScenarioOut(BaseModel):
     assumptions: SimulationAssumptions | None
     valid: bool = True
     validation_error: str | None = None
+    revision: int
     created_at: datetime
     updated_at: datetime
 

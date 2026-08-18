@@ -352,6 +352,7 @@ describe("SimulationPage herd events", () => {
           },
         ],
       },
+      revision: 7,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-02T00:00:00Z",
     };
@@ -364,6 +365,46 @@ describe("SimulationPage herd events", () => {
     expect(screen.getByLabelText("Month")).toHaveValue(24);
     expect(screen.getByLabelText("Count")).toHaveValue(5);
     expect(screen.getByLabelText("Price per head")).toHaveValue(2500);
+  });
+
+  it("sends and advances the loaded scenario revision on every update", async () => {
+    const scenario = {
+      id: 8,
+      farm_id: 1,
+      name: "Versioned plan",
+      notes: "",
+      assumptions: DEFAULTS,
+      revision: 7,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const updates: Array<{ expected_revision?: number; assumptions: unknown }> = [];
+    server.use(
+      http.patch("/api/simulation/scenarios/:scenarioId", async ({ request }) => {
+        const body = (await request.json()) as {
+          expected_revision?: number;
+          assumptions: unknown;
+        };
+        updates.push(body);
+        return HttpResponse.json({
+          ...scenario,
+          assumptions: body.assumptions,
+          revision: (body.expected_revision ?? 0) + 1,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    const update = screen.getByRole("button", { name: "Update Versioned plan" });
+    await user.click(update);
+    await waitFor(() => expect(updates).toHaveLength(1));
+    expect(updates[0].expected_revision).toBe(7);
+
+    await user.click(update);
+    await waitFor(() => expect(updates).toHaveLength(2));
+    expect(updates[1].expected_revision).toBe(8);
   });
 
   // REGRESSION — clicking "Add event" during the initial defaults fetch
