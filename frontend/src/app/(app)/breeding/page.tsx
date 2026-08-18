@@ -437,6 +437,7 @@ function UltrasoundDialog({
               min={earliestResultDate}
               max={localToday()}
               required
+              disabled={saving}
               value={resultDate}
               aria-invalid={Boolean(resultDateError) || undefined}
               aria-describedby={resultDateError ? `ultrasound-result-date-${record.id}-error` : undefined}
@@ -460,8 +461,13 @@ function UltrasoundDialog({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* onSubmit reads pregnant/resultDate/kidCount from the closure it
+                was created in, so a change made after the click is not in the
+                in-flight body — yet the dialog closes showing it, and the doe
+                is recorded with the value the operator no longer sees. */}
             <Checkbox
               id="pregnant"
+              disabled={saving}
               checked={pregnant}
               onCheckedChange={(checked) => {
                 const selected = checked === true;
@@ -474,7 +480,11 @@ function UltrasoundDialog({
           {pregnant && (
             <div className="space-y-1.5">
               <Label htmlFor={`ultrasound-kid-count-${record.id}`}>Kid count detected</Label>
-              <Select value={kidCount} onValueChange={(v) => setKidCount(String(v))}>
+              <Select
+                value={kidCount}
+                disabled={saving}
+                onValueChange={(v) => setKidCount(String(v))}
+              >
                 <SelectTrigger id={`ultrasound-kid-count-${record.id}`}>
                   <SelectValue />
                 </SelectTrigger>
@@ -703,8 +713,18 @@ function BreedingPageContent() {
   const requestedRecord = pagedPrefillRecord ?? fetchedPrefillRecord;
   // PENDING is the whole gate, exactly like the per-row action: the dialog
   // itself decides which results the planned scan date still constrains.
+  // Wait for the screen to be free. The deep-linked record can resolve long
+  // after arrival (it needs its own fetch whenever it is off the current list
+  // page), and mounting it then would drop a second modal on top of a
+  // half-filled loss or new-breeding form and move the focus trap into it
+  // mid-typing. Once the other dialog closes this re-evaluates and the deep
+  // link opens — then latches on its own id.
   const deepLinkedUltrasound =
-    canManage && !prefillDismissed && requestedRecord?.outcome === "PENDING"
+    canManage &&
+    !prefillDismissed &&
+    !lossFor &&
+    !newOpen &&
+    requestedRecord?.outcome === "PENDING"
       ? requestedRecord
       : null;
   const activeUltrasound = ultrasoundFor ?? deepLinkedUltrasound;
@@ -917,8 +937,14 @@ function BreedingPageContent() {
           key={activeUltrasound.id}
           record={activeUltrasound}
           onClose={() => {
+            // Only the deep-linked record's OWN dismissal may retire the deep
+            // link. This handler also serves rows the operator opened by hand
+            // while the deep-linked record was still being fetched; latching
+            // there silently dropped the task they arrived from, leaving
+            // ?ultrasound_id= in the address bar with no UI trace and no way
+            // back short of a reload.
+            if (activeUltrasound.id === requestedUltrasoundId) setPrefillDismissed(true);
             setUltrasoundFor(null);
-            setPrefillDismissed(true);
           }}
           onSaved={refresh}
         />

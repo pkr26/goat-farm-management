@@ -1385,25 +1385,49 @@ function AnimalProfilePageContent() {
       </div>
     );
   }
-  if (query.isLoading) {
+  // "The animal is gone / access was revoked" — continuing to render the
+  // profile would let the operator submit weight, move and status writes
+  // against it.
+  const fatalProfileError =
+    query.error instanceof ApiError &&
+    (query.error.status === 404 || query.error.status === 403 || query.error.status === 401);
+  const profileErrorBox = (
+    <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
+      <p className="text-sm text-destructive">
+        {query.error instanceof ApiError ? query.error.detail : "Could not load this animal."}
+      </p>
+      <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+        Retry animal profile
+      </Button>
+      <Link href={backHref} className="block text-sm text-primary underline">
+        {backLabel}
+      </Link>
+    </div>
+  );
+  // Gate on data presence, not on isError: a background refetch that fails
+  // transiently keeps the last good payload, and tearing the body down would
+  // destroy open dialogs and typed input while claiming the animal does not
+  // exist. Gate on `!profile` rather than `isLoading || !profile` so a non-200
+  // envelope (profile undefined, not loading, not an error) still reaches an
+  // actionable branch instead of an unrecoverable spinner.
+  if (!profile) {
+    if (query.isError) return profileErrorBox;
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
-  if (query.isError || !profile) {
-    return (
-      <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 p-4">
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Animal not found."}
-        </p>
-        <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-          Retry animal profile
-        </Button>
-        <Link href={backHref} className="block text-sm text-primary underline">
-          {backLabel}
-        </Link>
-      </div>
-    );
-  }
+  if (query.isError && fatalProfileError) return profileErrorBox;
   return (
+    <>
+      {query.isError && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/50 p-3 text-sm"
+        >
+          <span>Could not refresh this profile — showing the last loaded data.</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
     <ProfileBody
       profile={profile}
       refresh={refresh}
@@ -1414,7 +1438,8 @@ function AnimalProfilePageContent() {
       onMovesOffsetChange={setMovesOffset}
       onHealthEventsOffsetChange={setHealthEventsOffset}
       onBreedingsOffsetChange={setBreedingsOffset}
-    />
+      />
+    </>
   );
 }
 

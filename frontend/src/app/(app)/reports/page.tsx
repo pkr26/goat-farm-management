@@ -87,6 +87,14 @@ export default function ReportsPage() {
   }
 
   const { breeding, mortality } = payload;
+  // `can(...)` reads /api/auth/permissions, a different query that
+  // invalidateFarmData deliberately excludes, so it can disagree with the
+  // report payload for as long as staleTime allows. Trust either source
+  // saying "withheld": the sentinel alone would show stale privileged rows
+  // after a revocation, and the permission alone lets a withheld payload
+  // render as the factual "No deaths recorded."
+  const healthWithheld = mortality.total_deaths === null || !canViewHealth;
+  const breedingWithheld = breeding.cull_candidates_total === null || !canViewBreeding;
 
   return (
     <div className="space-y-6">
@@ -137,7 +145,7 @@ export default function ReportsPage() {
             ))}
             {/* Keep the withheld clinical rows visible as withheld instead of
                 letting them vanish silently from the table. */}
-            {!canViewHealth &&
+            {healthWithheld &&
               CLINICAL_OUTCOME_STATUSES.filter(
                 (status) => !(status in payload.status_counts),
               ).map((status) => (
@@ -167,13 +175,13 @@ export default function ReportsPage() {
             <SummaryRow
               label="Conception rate (ultrasound-confirmed / completed)"
               value={
-                canViewBreeding ? pct(breeding.conception_rate) : <Withheld permission="breeding" />
+                !breedingWithheld ? pct(breeding.conception_rate) : <Withheld permission="breeding" />
               }
             />
             <SummaryRow
               label="First-cycle success"
               value={
-                canViewBreeding ? pct(breeding.first_cycle_rate) : <Withheld permission="breeding" />
+                !breedingWithheld ? pct(breeding.first_cycle_rate) : <Withheld permission="breeding" />
               }
             />
             <SummaryRow label="Kiddings recorded" value={breeding.kiddings} />
@@ -187,7 +195,7 @@ export default function ReportsPage() {
             />
             <SummaryRow
               label="Twin rate (≥2 kids)"
-              value={canViewBreeding ? pct(breeding.twin_rate) : <Withheld permission="breeding" />}
+              value={!breedingWithheld ? pct(breeding.twin_rate) : <Withheld permission="breeding" />}
             />
             <TableRow>
               <TableCell>Cull candidates</TableCell>
@@ -259,7 +267,7 @@ export default function ReportsPage() {
             <SummaryRow
               label="Stillborn rate"
               value={
-                canViewHealth ? pct(mortality.stillborn_rate) : <Withheld permission="health" />
+                !healthWithheld ? pct(mortality.stillborn_rate) : <Withheld permission="health" />
               }
             />
           </TableBody>
@@ -277,7 +285,7 @@ export default function ReportsPage() {
                 <TableCell colSpan={2} className="text-muted-foreground">
                   {/* The API sends an empty list when it withholds the monthly
                       breakdown — don't claim there were no deaths. */}
-                  {canViewHealth ? "No deaths recorded." : <Withheld permission="health" />}
+                  {!healthWithheld ? "No deaths recorded." : <Withheld permission="health" />}
                 </TableCell>
               </TableRow>
             ) : (

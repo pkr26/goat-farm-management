@@ -306,7 +306,17 @@ function RecordKiddingDialog({
             )}
           </div>
 
-          <fieldset className="space-y-2" aria-labelledby="kidding-kids-label">
+          {/* handleSubmit freezes `values` at click time, so a kid row added
+              or removed while the POST is in flight is silently dropped from
+              the request — and the dialog then closes showing the edited list
+              as though it had been saved. Alive kids auto-create animals, so
+              that divergence is durable. Bounded by the api-client request
+              timeout, this can never stay disabled. */}
+          <fieldset
+            className="space-y-2"
+            aria-labelledby="kidding-kids-label"
+            disabled={isSubmitting || createFlight.pending}
+          >
             <div className="flex items-center justify-between">
               <span id="kidding-kids-label" className="text-sm font-medium">
                 Kids
@@ -866,8 +876,12 @@ function KiddingPageContent() {
           key={activeRecord.id}
           breeding={activeRecord}
           onClose={() => {
+            // Only the deep-linked record's OWN dismissal retires the deep
+            // link — this handler also serves rows opened by hand while the
+            // deep-linked record was still loading, and latching there
+            // silently dropped the task the operator arrived from.
+            if (activeRecord.id === requestedBreedingId) setPrefillDismissed(true);
             setRecordFor(null);
-            setPrefillDismissed(true);
           }}
           onSaved={refresh}
         />

@@ -188,6 +188,14 @@ export function RemotePicker({
   const checkedCount = lastPage?.nextOffset ?? 0;
   const total = lastPage?.total ?? 0;
   const hasMore = Boolean(results.hasNextPage);
+  // `placeholderData: keepPreviousData` rewrites `results.data` to the PREVIOUS
+  // term's pages, but hasNextPage/counts are derived from the new key's still
+  // empty state. Reading them together announces the old term's totals plus a
+  // false "All matching records checked." for a term the server has never been
+  // asked about. Gate the wording — never `hasMore` itself, which also gates
+  // the Load more button (fetching a next page against an empty state would
+  // re-request offset 0).
+  const awaitingCurrentTerm = results.isPlaceholderData;
   const statusId = `${id}-picker-status`;
   const searchId = `${id}-picker-search`;
   const dialogId = `${id}-picker-dialog`;
@@ -342,18 +350,24 @@ export function RemotePicker({
               // claiming "no matching options" beside one would contradict
               // what the user sees.
               <p className="p-3 text-sm text-muted-foreground">
-                {hasMore ? noEligibleYetMessage : emptyMessage}
+                {awaitingCurrentTerm
+                  ? "Searching…"
+                  : hasMore
+                    ? noEligibleYetMessage
+                    : emptyMessage}
               </p>
             ) : null}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p id={statusId} aria-live="polite" className="text-xs text-muted-foreground">
-              {results.data
-                ? // Count what is actually selectable (static options included);
-                  // "Checked X of Y" still describes the server records only.
-                  `${displayedOptions.length} option${displayedOptions.length === 1 ? "" : "s"} available. Checked ${checkedCount} of ${total} matching record${total === 1 ? "" : "s"}.${hasMore ? " More records are available." : " All matching records checked."}`
-                : "Results load when this picker opens."}
+              {awaitingCurrentTerm
+                ? "Searching…"
+                : results.data
+                  ? // Count what is actually selectable (static options included);
+                    // "Checked X of Y" still describes the server records only.
+                    `${displayedOptions.length} option${displayedOptions.length === 1 ? "" : "s"} available. Checked ${checkedCount} of ${total} matching record${total === 1 ? "" : "s"}.${hasMore ? " More records are available." : " All matching records checked."}`
+                  : "Results load when this picker opens."}
             </p>
             {hasMore && (
               <Button

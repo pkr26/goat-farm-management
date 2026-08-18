@@ -150,6 +150,12 @@ function WorkerRow({
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
   const statusMutation = useSetWorkerStatusApiTeamWorkersMembershipIdStatusPut();
+  // One lock covers BOTH row actions, but each control used to disable only on
+  // its OWN mutation. The role Select therefore stayed interactive during a
+  // status change, and the lock refused the pick as its very first statement —
+  // no request, no error, and (being a fully controlled Select) no visible
+  // movement at all. Union the busy state so the lock can never refuse an
+  // action the UI still presents as available.
   const actionLock = useRef<"role" | "status" | null>(null);
   const [actionError, setActionError] = useState<{
     action: "role" | "status";
@@ -159,6 +165,7 @@ function WorkerRow({
   } | null>(null);
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
+  const rowBusy = roleMutation.isPending || statusMutation.isPending;
   const assignableRoles = roles.filter((role) => roleWithinCeiling(role, can, isOwner));
   const roleItems: Record<string, string> = {
     [NONE]: "No role",
@@ -228,7 +235,7 @@ function WorkerRow({
             if (v === NONE) return;
             void changeRole(Number(v));
           }}
-          disabled={roleMutation.isPending || isSelf || protectedTarget}
+          disabled={rowBusy || isSelf || protectedTarget}
           items={roleItems}
         >
           <SelectTrigger
@@ -260,7 +267,7 @@ function WorkerRow({
               type="button"
               size="sm"
               variant="outline"
-              disabled={roleMutation.isPending}
+              disabled={rowBusy}
               onClick={() => {
                 if (actionError.roleId !== undefined) void changeRole(actionError.roleId);
               }}
@@ -287,7 +294,7 @@ function WorkerRow({
             <Button
               size="sm"
               variant="outline"
-              disabled={statusMutation.isPending}
+              disabled={rowBusy}
               onClick={() => void setWorkerActive(!m.is_active)}
             >
               {m.is_active ? "Deactivate" : "Activate"}
@@ -326,7 +333,7 @@ function WorkerRow({
               type="button"
               size="sm"
               variant="outline"
-              disabled={statusMutation.isPending}
+              disabled={rowBusy}
               onClick={() =>
                 void setWorkerActive(actionError.desiredActive ?? !m.is_active, false)
               }
@@ -684,6 +691,12 @@ function RoleDialog({
         invalidate();
         onClose();
       } catch (err) {
+        // A 409 means another admin already changed this role, so the
+        // `expected_revision` closed over here is stale. Without refreshing
+        // the cache the offered "Retry save role" replays the same stale
+        // revision and is guaranteed to 409 again, forever. `invalidate()`
+        // sits inside the success path above, which a 409 never reaches.
+        if (err instanceof ApiError && err.status === 409) invalidate();
         const message = mutationError(err);
         setFormError(message);
         toast.error(message);

@@ -86,11 +86,18 @@ function FarmSelectPageContent() {
         permissions.permissions,
       );
       router.push(requestedPath ?? firstPermittedPathFromList(permissions.permissions));
+      // Deliberately leave `selectingFarmId` set on the success path. router.push
+      // is asynchronous, and useSingleFlight releases its guard as soon as this
+      // function returns — i.e. while the navigation is still committing.
+      // Re-enabling the list there let a second farm be picked mid-transition,
+      // whose selectFarm() swaps the API client's X-Farm-Id, so the operator
+      // landed on farm A's route with farm B's header. This page unmounts on a
+      // successful navigation, so the flag has no later life.
     } catch (error) {
       setServerError(
         error instanceof ApiError ? error.detail : "Could not load permissions for this farm.",
       );
-    } finally {
+      // The operator stays here and must be able to retry.
       setSelectingFarmId(null);
     }
   }
@@ -160,7 +167,7 @@ function FarmSelectPageContent() {
             <button
               key={farm.id}
               type="button"
-              disabled={farmTransition.pending}
+              disabled={farmTransition.pending || selectingFarmId !== null}
               onClick={() => void pick(farm)}
               className="rounded-xl border bg-card p-4 text-left shadow-sm transition hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >

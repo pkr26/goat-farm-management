@@ -937,6 +937,13 @@ export default function SimulationPage() {
   // Defaults requests run independently from the scenario list/editor. Only
   // apply a response while defaults are still the user's latest load intent.
   const acceptDefaultsRef = useRef(true);
+  /** Bumped by every loader that REPLACES the whole assumption set (defaults,
+   *  scenario load, calibration, herd snapshot). An awaited loader compares it
+   *  on resolve so it can never write its payload into an editor that a
+   *  different loader has since replaced. Deliberately NOT bumped by field
+   *  edits: NumberInput commits on each valid keystroke, so doing that would
+   *  discard a herd import the moment the operator nudged a number. */
+  const editorEpochRef = useRef(0);
   const [invalidFields, setInvalidFields] = useState<Set<string>>(() => new Set());
   const [editorVersion, setEditorVersion] = useState(0);
   const [horizonInputVersion, setHorizonInputVersion] = useState(0);
@@ -980,6 +987,7 @@ export default function SimulationPage() {
   useEffect(() => {
     if (defaultsQuery.data?.status === 200 && acceptDefaultsRef.current) {
       acceptDefaultsRef.current = false;
+      editorEpochRef.current += 1;
       // react-query v5 has no onSuccess: mirror the explicitly requested
       // defaults payload into editable state.
       setAssumptions(defaultsQuery.data.data);
@@ -1308,13 +1316,28 @@ export default function SimulationPage() {
   }
 
   async function onUseCurrentHerd() {
-    acceptDefaultsRef.current = false;
+    // Do NOT clear the latch up front. Clearing it here made a "Load defaults"
+    // that was already in flight land on a `false` latch and be dropped
+    // silently — while its button flipped back as though it had applied — so
+    // the new breed's head counts got merged into the OLD breed's economics.
+    const epoch = ++editorEpochRef.current;
     try {
       const res = await snapshotQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
         toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
         return;
       }
+      if (editorEpochRef.current !== epoch) {
+        // A different loader replaced the editor while this snapshot was in
+        // flight; applying it now would overwrite that scenario's saved head
+        // counts and silently detach the scenario binding. Never fail
+        // silently — say so, so the operator can click again.
+        toast.error(
+          "The editor was reloaded while the herd snapshot was loading. Click “Use current herd” again to apply it.",
+        );
+        return;
+      }
+      acceptDefaultsRef.current = false;
       const snap = res.data.data;
       setAssumptions((prev) =>
         prev
@@ -1355,11 +1378,18 @@ export default function SimulationPage() {
     try {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
-        acceptDefaultsRef.current = wasAcceptingDefaults;
+        // Only restore a `false`. A `true` here can only have been written by
+        // a "Load defaults" clicked DURING this calibration, and blindly
+        // writing back the pre-click value would swallow that click's
+        // response at the defaults effect above.
+        if (acceptDefaultsRef.current === false) {
+          acceptDefaultsRef.current = wasAcceptingDefaults;
+        }
         toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
         return;
       }
       const calibrated = res.data.data;
+      editorEpochRef.current += 1;
       setAssumptions(calibrated.assumptions);
       const nextEvents = calibrated.assumptions.events ?? [];
       setEvents(nextEvents);
@@ -1373,7 +1403,9 @@ export default function SimulationPage() {
         `Calibrated ${calibrated.evidence.length} assumptions from farm records.`,
       );
     } catch (err) {
-      acceptDefaultsRef.current = wasAcceptingDefaults;
+      if (acceptDefaultsRef.current === false) {
+        acceptDefaultsRef.current = wasAcceptingDefaults;
+      }
       toast.error(errorMessage(err, "Could not calibrate from farm records."));
     }
   }
@@ -2487,7 +2519,7 @@ export default function SimulationPage() {
             <Button
               variant="outline"
               onClick={() => void onUseCurrentHerd()}
-              disabled={!assumptions || snapshotQuery.isFetching}
+              disabled={!assumptions || snapshotQuery.isFetching || defaultsQuery.isFetching}
             >
               <Building2 />
               {snapshotQuery.isFetching ? "Loading…" : "Use current herd"}
@@ -2988,6 +3020,7 @@ export default function SimulationPage() {
                           onClick={() => {
                             if (!scenarioUsable(scenario)) return;
                             acceptDefaultsRef.current = false;
+                            editorEpochRef.current += 1;
                             setAssumptions(scenario.assumptions);
                             const scenarioEvents = scenario.assumptions.events ?? [];
                             setEvents(scenarioEvents);

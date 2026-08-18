@@ -115,6 +115,15 @@ export default function DashboardPage() {
   const canViewBreeding = can("breeding.view");
   const query = useDashboardApiDashboardGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  // `can(...)` comes from /api/auth/permissions — a DIFFERENT query, which
+  // invalidateFarmData deliberately excludes, so the two caches drift by
+  // design. Gating a data cell on permissions alone lets a withheld payload
+  // (kiddings_due: [], total: 0) render as the factual "None."/"(0)" the
+  // section's own comment forbids. Combine with the payload's own withheld
+  // sentinel; OR keeps BOTH directions fail-closed, since trusting the
+  // sentinel alone would render stale privileged rows after a revocation.
+  const breedingWithheld = payload?.cull_candidates_total === null || !canViewBreeding;
+  const animalsWithheld = payload?.recent_weights_total === null || !canViewAnimals;
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -296,7 +305,7 @@ export default function DashboardPage() {
             which must not render as a factual count or an empty state. */}
         <DataTableCard
           title={
-            canViewBreeding
+            !breedingWithheld
               ? `Kiddings due or overdue (${payload.kiddings_due_total})`
               : "Kiddings due or overdue"
           }
@@ -309,7 +318,7 @@ export default function DashboardPage() {
             </Link>
           ) : undefined}
         >
-          {!canViewBreeding ? (
+          {breedingWithheld ? (
             <EmptyState
               icon={Baby}
               title="Kiddings require breeding access."
@@ -421,7 +430,7 @@ export default function DashboardPage() {
             claiming the herd has nothing ready to move. */}
         <DataTableCard
           title={
-            canViewAnimals ? `Ready to move (${payload.suggestions_total})` : "Ready to move"
+            !animalsWithheld ? `Ready to move (${payload.suggestions_total})` : "Ready to move"
           }
           actions={canViewAnimals ? (
             <Link
@@ -433,7 +442,7 @@ export default function DashboardPage() {
           ) : undefined}
           contentClassName="space-y-3"
         >
-          {!canViewAnimals ? (
+          {animalsWithheld ? (
             <EmptyState
               icon={MoveRight}
               title="Move suggestions require animal access."
@@ -467,7 +476,7 @@ export default function DashboardPage() {
               </TableBody>
             </Table>
           )}
-          {payload.suggestions.length < payload.suggestions_total && (
+          {!animalsWithheld && payload.suggestions.length < payload.suggestions_total && (
             <p className="text-sm text-muted-foreground">
               Showing {payload.suggestions.length} of {payload.suggestions_total} move suggestions.
             </p>

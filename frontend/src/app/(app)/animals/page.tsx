@@ -670,21 +670,36 @@ function AnimalsPageContent() {
   const [q, setQ] = useState(clampSearch(searchParams.get("q") ?? ""));
   const [debouncedQ, setDebouncedQ] = useState(q.trim());
   const [searchNavigationPending, setSearchNavigationPending] = useState(false);
-  const searchEditRevision = useRef(0);
-  const pendingComponentNavigations = useRef<Map<string, number>>(new Map());
+  const navigationSeq = useRef(0);
+  /** Dispatched-but-uncommitted list navigations, keyed by a per-dispatch
+   *  sequence number so two dispatches to the SAME destination stay two
+   *  entries. Each records the `q` its URL actually carries. */
+  const pendingComponentNavigations = useRef<Map<number, { key: string; urlQ: string }>>(
+    new Map(),
+  );
   const [page, setPage] = useState(() => pageFromSearchParams(searchParams));
   const pageNavigationPending = useRef(false);
   const recordComponentNavigation = useCallback((url: string) => {
     // Next 16 gives a newly dispatched navigation priority over the currently
     // pending one — but on a slow device the older navigation's commit can
-    // still land first. Keep EVERY dispatched destination in insertion order:
-    // retaining only the newest one made an early commit of the older
-    // navigation look like a browser/history navigation, which reset the
-    // search input mid-typing. Stale entries are pruned when any recorded
-    // destination commits (see the params-sync effect below).
+    // still land first. Keep EVERY dispatch, in dispatch order, so an early
+    // commit of an older navigation is not mistaken for a browser/history
+    // navigation (which would reset the search input mid-typing).
+    //
+    // Keying by sequence rather than by destination is load-bearing: keying by
+    // destination forced a re-dispatch of an already-pending URL to be deleted
+    // and re-inserted, which moved it to the end and broke the very insertion
+    // order the consume loop below relies on — so committing an older
+    // duplicate destination deleted entries for navigations still in flight.
+    //
+    // Recording the URL's own `q` (rather than a live edit counter) is the
+    // other half: the counter folded in keystrokes the URL does not describe,
+    // so an edit made BEFORE the dispatch looked already-represented.
     const key = paramsKeyFromUrl(url);
-    pendingComponentNavigations.current.delete(key);
-    pendingComponentNavigations.current.set(key, searchEditRevision.current);
+    pendingComponentNavigations.current.set(++navigationSeq.current, {
+      key,
+      urlQ: (new URLSearchParams(key).get("q") ?? "").trim(),
+    });
   }, []);
   const replaceListUrl = useCallback(
     (url: string) => {
@@ -707,18 +722,29 @@ function AnimalsPageContent() {
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
     const pending = pendingComponentNavigations.current;
-    const committedSearchRevision = pending.get(paramsKey);
-    const hasNewerSearchEdit =
-      committedSearchRevision !== undefined &&
-      searchEditRevision.current > committedSearchRevision;
-    if (committedSearchRevision !== undefined) {
-      // Consume the matched destination plus everything dispatched before it:
-      // once this commit landed, Next has discarded those older pending
-      // navigations, and a lingering entry would make a later browser/history
-      // navigation to the same params look component-owned.
-      for (const key of [...pending.keys()]) {
-        pending.delete(key);
-        if (key === paramsKey) break;
+    // Map preserves insertion order, so the first match is the OLDEST dispatch
+    // to this destination — the one that just committed.
+    let matchedSeq: number | undefined;
+    for (const [seq, entry] of pending) {
+      if (entry.key === paramsKey) {
+        matchedSeq = seq;
+        break;
+      }
+    }
+    const matched = matchedSeq === undefined ? undefined : pending.get(matchedSeq);
+    // The input holds text this committing URL does not describe, so the
+    // operator has typed since it was dispatched. Preserve their edit and let
+    // its debounce issue the next URL; external/history navigations (no match)
+    // still rehydrate the input normally.
+    const hasNewerSearchEdit = matched !== undefined && q.trim() !== matched.urlQ;
+    if (matchedSeq !== undefined) {
+      // Consume the matched dispatch plus everything dispatched before it:
+      // Next has discarded those, and a lingering entry would make a later
+      // browser/history navigation to the same params look component-owned.
+      // Genuinely later dispatches survive — they may still commit.
+      for (const seq of [...pending.keys()]) {
+        if (seq > matchedSeq) break;
+        pending.delete(seq);
       }
     } else if (pending.size > 0) {
       // A URL that was not initiated by this list is browser/app
@@ -730,15 +756,17 @@ function AnimalsPageContent() {
     setSex(params.get("sex") ?? ALL);
     setStatus(params.get("status") ?? ALL);
     const nextQ = clampSearch(params.get("q") ?? "");
-    // A slow q=A replacement can commit after the operator has already typed
-    // q=AB. Preserve the newer edit and let its debounce issue the next URL;
-    // external/history navigations still rehydrate the input normally.
     if (!hasNewerSearchEdit) {
       setQ(nextQ);
       setDebouncedQ(nextQ.trim());
     }
     setSearchNavigationPending(hasNewerSearchEdit);
     setPage(pageFromSearchParams(params));
+    // `q` is read but deliberately NOT a dependency: this effect must run only
+    // when the URL commits. Adding it would re-run the whole filter re-sync on
+    // every keystroke, fighting the debounce. The closure here belongs to the
+    // render in which `paramsKey` changed, so the `q` it reads is current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paramsKey]);
   // ?new=1 opens the create dialog once; strip it so a reload doesn't reopen
   // the dialog. Latch the flag on the first render (like /breeding and
@@ -971,10 +999,7 @@ function AnimalsPageContent() {
           <Input
             type="search"
             value={q}
-            onChange={(e) => {
-              searchEditRevision.current += 1;
-              setQ(e.target.value);
-            }}
+            onChange={(e) => setQ(e.target.value)}
             placeholder="Search by tag…"
             aria-label="Search animals by tag"
             maxLength={60}

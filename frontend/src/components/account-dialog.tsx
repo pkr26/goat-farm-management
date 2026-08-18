@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError, apiFetch, refreshSession } from "@/lib/api-client";
+import { ApiError, apiFetch, refreshSessionDetailed } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
 
@@ -149,11 +149,24 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         // retry uses: it swaps the token in place without invalidating
         // requests already on the wire (and any request that races the swap
         // self-heals through the ordinary 401 → refresh retry).
-        const refreshed = await refreshSession().catch(() => null);
-        if (!refreshed) {
+        const outcome = await refreshSessionDetailed().catch(
+          () => ({ kind: "unavailable" }) as const,
+        );
+        if (outcome.kind === "rejected") {
+          // The server answered: the rotated cookie will not produce a token.
           toast.success("Password changed. Sign in again to continue.");
           close();
           await signOut();
+          return;
+        }
+        if (outcome.kind === "unavailable") {
+          // We never reached the server, so this is NOT evidence the session
+          // ended. Signing out here would revoke a refresh cookie the backend
+          // still honours, over one transient 5xx or dropped request — and
+          // that is unrecoverable. Keep the installed token; the ordinary
+          // 401 → refresh retry self-heals once the network is back.
+          toast.success("Password changed. Reconnecting to your session…");
+          close();
           return;
         }
       }

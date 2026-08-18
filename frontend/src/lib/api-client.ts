@@ -253,11 +253,28 @@ function refreshSessionOutcome(): Promise<RefreshOutcome> {
 }
 
 /** Public bootstrap/reauth entry point: the session, or null if there is none.
- *  Callers that must distinguish "no session" from "server unreachable" use
- *  refreshSessionOutcome instead. */
+ *  This collapses "rejected" and "unavailable" together, so a caller that
+ *  destroys session state on null would do so on one dropped request. Callers
+ *  that act destructively must use refreshSessionDetailed instead. */
 export async function refreshSession(): Promise<RefreshSessionResult | null> {
   const outcome = await refreshSessionOutcome();
   return outcome.kind === "session" ? outcome.body : null;
+}
+
+export type { RefreshOutcome };
+
+/** Same single-flight refresh, but preserving WHY it produced no session.
+ *  Only "rejected" is the server's authoritative "this session is over"; a
+ *  caller must never sign the operator out on "unavailable". */
+export function refreshSessionDetailed(): Promise<RefreshOutcome> {
+  return refreshSessionOutcome();
+}
+
+/** The current authenticated-session epoch. Callers that stage a token and
+ *  then await a follow-up request compare this before reacting to a failure:
+ *  a newer sign-in owns the teardown, so the loser must not run one. */
+export function authSessionEpochValue(): number {
+  return authSessionEpoch;
 }
 
 export class ApiError extends Error {
@@ -303,6 +320,26 @@ function assertAuthSession(expectedEpoch: number): void {
   throw error;
 }
 
+/** The epoch asserts guard the RESOLVED path, but a transport-layer rejection
+ *  (dropped connection, DNS failure, timeout abort) escapes the await before
+ *  the next assert ever runs. A superseded caller then sees a bare TypeError
+ *  and cannot tell "my request failed" from "a newer session replaced mine" —
+ *  and callers such as AuthProvider.establishSession react to the former by
+ *  tearing down the session, which by then belongs to somebody else. Re-check
+ *  the epoch on the failure path too: a session change outranks the transport
+ *  error, because the request is no longer this caller's to report on. */
+async function runScopedToAuthSession<T>(
+  operation: () => Promise<T>,
+  expectedEpoch: number,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    assertAuthSession(expectedEpoch);
+    throw error;
+  }
+}
+
 /** FastAPI error bodies are {detail: string} or {detail: [{loc, msg}, ...]}. */
 function extractDetail(body: unknown, fallback: string): string {
   if (body && typeof body === "object" && "detail" in body) {
@@ -322,6 +359,15 @@ function extractDetail(body: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Mutations carry no caller signal (TanStack Query supplies one to queries
+ *  only), so before this bound they could stay pending forever behind a wedged
+ *  proxy or captive portal. Any dialog that disables its own dismissal while a
+ *  write is pending then became genuinely unclosable. Deliberately far longer
+ *  than the refresh budget: a herd-wide health event or dispense legitimately
+ *  takes seconds, and abandoning a write that may already have committed is
+ *  worse than waiting. */
+const REQUEST_TIMEOUT_MS = 60_000;
+
 async function rawFetch(
   path: string,
   init: RequestInit = {},
@@ -333,7 +379,14 @@ async function rawFetch(
   if (typeof init.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  return fetch(path, { ...init, headers, credentials: "include" });
+  // Never override a caller's signal: the idempotency registry treats it as
+  // cancellation-ownership identity, and TanStack Query already aborts its own
+  // queries on unmount and farm switch. A timeout here aborts, which
+  // idempotent-request classifies as non-retryable while RETAINING the logical
+  // key, so an explicit retry replays the same Idempotency-Key rather than
+  // committing twice.
+  const signal = init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  return fetch(path, { ...init, headers, credentials: "include", signal });
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -341,9 +394,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const resp = await apiResponse(path, init);
   assertAuthSession(sessionScope);
   if (resp.status === 204) return undefined as T;
-  const data = (await resp.json()) as T;
   // Response bodies are asynchronous streams. The actor can change after
-  // headers arrive but before JSON parsing finishes, so guard both edges.
+  // headers arrive but before JSON parsing finishes, so guard both edges —
+  // including the edge where the stream itself fails.
+  const data = await runScopedToAuthSession(
+    () => resp.json() as Promise<T>,
+    sessionScope,
+  );
   assertAuthSession(sessionScope);
   return data;
 }
@@ -369,7 +426,10 @@ async function apiResponseOnce(
   bufferSuccess: boolean,
 ): Promise<Response> {
   assertAuthSession(sessionScope);
-  let resp = await rawFetch(path, init, farmScope);
+  let resp = await runScopedToAuthSession(
+    () => rawFetch(path, init, farmScope),
+    sessionScope,
+  );
   assertAuthSession(sessionScope);
   let clearedSession = false;
   const requestPath = path.split("?", 1)[0];
@@ -381,7 +441,10 @@ async function apiResponseOnce(
     const outcome = await refreshSessionOutcome();
     assertAuthSession(sessionScope);
     if (outcome.kind === "session") {
-      resp = await rawFetch(path, init, farmScope);
+      resp = await runScopedToAuthSession(
+        () => rawFetch(path, init, farmScope),
+        sessionScope,
+      );
       assertAuthSession(sessionScope);
     } else if (outcome.kind === "rejected") {
       // The server answered: this session is over.
@@ -452,7 +515,10 @@ export async function apiFetchEnvelope<T>(
   const sessionScope = authSessionEpoch;
   const resp = await apiResponse(path, init);
   assertAuthSession(sessionScope);
-  const data = resp.status === 204 ? undefined : await resp.json();
+  const data =
+    resp.status === 204
+      ? undefined
+      : await runScopedToAuthSession(() => resp.json(), sessionScope);
   assertAuthSession(sessionScope);
   return { data: data as T, status: resp.status, headers: resp.headers };
 }

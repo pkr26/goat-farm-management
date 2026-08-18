@@ -487,6 +487,17 @@ function HealthPageContent() {
     name: "suspected_scheduled_disease",
   });
 
+  /** The URL deep link is hydrated into the dialog exactly once per page
+   *  visit, however often `canManage` settles. */
+  const deepLinkHydratedRef = useRef(false);
+
+  /** Identifies one dialog session's submission. The record dialog stays
+   *  dismissible while its write is in flight — deliberately, because the
+   *  request has no cancel and blocking dismissal would strand the operator
+   *  behind a modal backdrop. So the continuation must instead check that the
+   *  session it is about to close and reset is still its own. */
+  const submissionEpoch = useRef(0);
+
   /** Values the last linked duty prefilled — used to revert them when the
    *  user switches back to "— none —" without clobbering manual edits
    *. */
@@ -502,7 +513,13 @@ function HealthPageContent() {
     // previous duty metadata behind can make a later, manually entered value
     // look like an unchanged prefill and be cleared incorrectly.
     appliedPrefillRef.current = null;
+    // Any submission still in flight belongs to the session ending here.
+    submissionEpoch.current += 1;
     setAdvancedOpen(false);
+    // A duty lookup still in flight belongs to the dialog session being torn
+    // down. Left armed, it resolves into the NEXT, unrelated session and
+    // silently rewrites scope/target/type over what the operator just entered.
+    setPrefillTaskId(null);
     // The unresolved-duty warning belongs to the deep link that opened the
     // previous dialog. Left standing it re-appears on every later event and
     // claims that one is failing to close a duty it never referenced.
@@ -623,12 +640,17 @@ function HealthPageContent() {
   // /health/new?... redirects here: auto-open the dialog and preserve any
   // animal/batch/task context supplied by the originating workflow.
   useEffect(() => {
-    if (!canManage || prefillTaskId !== null) return;
+    // Latch on a dedicated ref, not on `prefillTaskId`: that flag is cleared
+    // both when the resolution is consumed and (now) when the dialog is reset,
+    // so a later `canManage` flip would re-open a dialog the operator closed
+    // and re-apply a deep link they already discarded.
+    if (!canManage || deepLinkHydratedRef.current) return;
     const params = new URLSearchParams(searchParams.toString());
     const taskId = positiveIdString(params.get("task_id"));
     const animalId = positiveIdString(params.get("animal_id"));
     const batchId = positiveIdString(params.get("purchase_batch_id"));
     if (!taskId && !animalId && !batchId) return;
+    deepLinkHydratedRef.current = true;
     // One-time mount initialization from URL params — cascading-render risk
     // doesn't apply here (runs once, not reactive to props/state).
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -664,8 +686,19 @@ function HealthPageContent() {
       return;
     }
     if (!known && canViewTasks && !tasksQuery.isError && !tabs) return;
+    // The operator retargeted this event while the duty lookup was in flight
+    // (changeScope -> clearLinkedTaskPrefill always writes task_id = NONE).
+    // Consume the prefill without applying it, mirroring the `stillCurrent`
+    // check the bulk-preview path below already makes. `unresolvedPrefillTask`
+    // is deliberately left alone: the operator discarded this link themselves,
+    // so warning that it could not be closed would be wrong.
+    if (getValues("task_id") !== prefillTaskId) {
+      // Intentional one-shot cleanup: consumes the resolution, nothing else.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPrefillTaskId(null);
+      return;
+    }
     // Intentional one-shot URL hydration after the exact task lookup settles.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     applyTask(known ? prefillTaskId : NONE);
     // Intentional one-shot cleanup after applying the prefill (see above).
     setPrefillTaskId(null);
@@ -778,21 +811,30 @@ function HealthPageContent() {
       expected_animal_ids: reviewedAnimalIds,
     };
     setRecordError(null);
+    const epoch = ++submissionEpoch.current;
     try {
       const response = await recordMutation.mutateAsync({ data: payload });
       const recordedCount = response.status === 201 ? response.data.length : 0;
+      // The write happened, so confirm it and refresh the farm views
+      // unconditionally — even if this dialog session is already over.
       toast.success(
         values.scope === "animal"
           ? "Health event recorded."
           : `Health event recorded for ${recordedCount} animal${recordedCount === 1 ? "" : "s"}.`,
       );
       invalidateFarmData(queryClient);
+      // Beyond this point everything mutates dialog state. If the operator
+      // dismissed this dialog and opened a new one, closing and resetting now
+      // would wipe what they have since typed, and the navigation below would
+      // be a second one on top of the dismissal's own.
+      if (submissionEpoch.current !== epoch) return;
       setOpen(false);
       setBulkPreview(null);
       resetEventForm();
       if (returnTo) router.push(returnTo);
       else if (hasDeepLink) router.replace("/health");
     } catch (err) {
+      if (submissionEpoch.current !== epoch) return;
       const message = err instanceof ApiError ? err.detail : "Could not save the health event.";
       if (values.scope !== "animal") setBulkPreview(null);
       setRecordError(message);

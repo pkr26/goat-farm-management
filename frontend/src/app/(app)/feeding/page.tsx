@@ -63,6 +63,7 @@ import {
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 /** Explicit virtual recipe used by quarantine animals on days 1–3. */
 const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
@@ -307,6 +308,12 @@ export default function FeedingPage() {
   const recipeItems: Record<string, string> = Object.fromEntries(recipeOptions);
 
   const dispenseMutation = useDispenseApiFeedingDispensePost();
+  // The submit button's only guard was react-hook-form's `isSubmitting`, which
+  // the header trigger's reset() clears mid-flight — and that reset also
+  // re-seeds bucket/recipe, changing the request body enough to mint a NEW
+  // Idempotency-Key. This ref-backed guard is outside react-hook-form, so a
+  // reset cannot destroy it.
+  const dispenseFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -323,22 +330,24 @@ export default function FeedingPage() {
   const wShift = useWatch({ control, name: "shift" });
 
   async function onDispense(values: DispenseValues) {
-    try {
-      await dispenseMutation.mutateAsync({
-        data: {
-          bucket: values.bucket,
-          shift: values.shift,
-          recipe_code: values.recipe_code,
-          qty_kg: values.qty_kg,
-          date: values.date || null,
-        },
-      });
-      toast.success("Dispensing recorded.");
-      invalidateFarmData(queryClient);
-      setDispenseOpen(false);
-    } catch (err) {
-      toast.error(mutationError(err));
-    }
+    await dispenseFlight.run(async () => {
+      try {
+        await dispenseMutation.mutateAsync({
+          data: {
+            bucket: values.bucket,
+            shift: values.shift,
+            recipe_code: values.recipe_code,
+            qty_kg: values.qty_kg,
+            date: values.date || null,
+          },
+        });
+        toast.success("Dispensing recorded.");
+        invalidateFarmData(queryClient);
+        setDispenseOpen(false);
+      } catch (err) {
+        toast.error(mutationError(err));
+      }
+    });
   }
 
   if (permsLoading) {
@@ -412,7 +421,7 @@ export default function FeedingPage() {
         actions={
           canManage && (
             <Button
-              disabled={recipeOptions.size === 0}
+              disabled={dispenseFlight.pending}
               onClick={() => {
                 const firstLine = payload.lines[0];
                 const firstRecipe = firstLine?.recipe_code ?? recipeOptions.keys().next().value ?? "";
@@ -846,8 +855,8 @@ export default function FeedingPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Recording…" : "Record"}
+              <Button type="submit" disabled={isSubmitting || dispenseFlight.pending}>
+                {isSubmitting || dispenseFlight.pending ? "Recording…" : "Record"}
               </Button>
             </DialogFooter>
           </form>

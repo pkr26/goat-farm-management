@@ -9,7 +9,7 @@ import { AccountDialog } from "./account-dialog";
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   mutateAsync: vi.fn(),
-  refreshSession: vi.fn(),
+  refreshSessionDetailed: vi.fn(),
   signOut: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -35,7 +35,7 @@ vi.mock("@/lib/api-client", () => {
   return {
     ApiError: MockApiError,
     apiFetch: mocks.apiFetch,
-    refreshSession: mocks.refreshSession,
+    refreshSessionDetailed: mocks.refreshSessionDetailed,
   };
 });
 
@@ -70,13 +70,16 @@ describe("AccountDialog", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
     mocks.mutateAsync.mockReset();
-    mocks.refreshSession.mockReset();
+    mocks.refreshSessionDetailed.mockReset();
     mocks.signOut.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.mutateAsync.mockResolvedValue({ status: 200 });
-    mocks.refreshSession.mockResolvedValue({
-      access_token: "rotated",
-      user: { id: 1, email: "owner@example.test", name: "Owner" },
+    mocks.refreshSessionDetailed.mockResolvedValue({
+      kind: "session",
+      body: {
+        access_token: "rotated",
+        user: { id: 1, email: "owner@example.test", name: "Owner" },
+      },
     });
     mocks.signOut.mockResolvedValue(undefined);
   });
@@ -116,7 +119,7 @@ describe("AccountDialog", () => {
         data: { current_password: "old-password", new_password: "new-password-123" },
       }),
     );
-    expect(mocks.refreshSession).toHaveBeenCalledOnce();
+    expect(mocks.refreshSessionDetailed).toHaveBeenCalledOnce();
     expect(mocks.signOut).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "Password changed. Other signed-in sessions were revoked.",
@@ -124,11 +127,36 @@ describe("AccountDialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it.each(["returns no session", "throws while refreshing"])(
-    "signs out safely when the post-change refresh %s",
+  it("signs out when the server rejects the post-change refresh", async () => {
+    mocks.refreshSessionDetailed.mockResolvedValue({ kind: "rejected" });
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalledOnce());
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Password changed. Sign in again to continue.",
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
+      "Password changed. Other signed-in sessions were revoked.",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  // A refresh that never reached the server says nothing about the session.
+  // Signing out here would revoke a refresh cookie the backend still honours,
+  // on one transient 5xx — and that teardown cannot be undone.
+  it.each(["reports unavailable", "throws while refreshing"])(
+    "keeps the session when the post-change refresh %s",
     async (failure) => {
-      if (failure === "returns no session") mocks.refreshSession.mockResolvedValue(null);
-      else mocks.refreshSession.mockRejectedValue(new Error("refresh failed"));
+      if (failure === "reports unavailable") {
+        mocks.refreshSessionDetailed.mockResolvedValue({ kind: "unavailable" });
+      } else {
+        mocks.refreshSessionDetailed.mockRejectedValue(new Error("refresh failed"));
+      }
       const user = userEvent.setup();
       render(<AccountDialog name="Owner" email="owner@example.test" />);
       const dialog = await openAccount(user);
@@ -136,14 +164,16 @@ describe("AccountDialog", () => {
 
       await user.click(within(dialog).getByRole("button", { name: "Change password" }));
 
-      await waitFor(() => expect(mocks.signOut).toHaveBeenCalledOnce());
-      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      await waitFor(() =>
+        expect(mocks.toastSuccess).toHaveBeenCalledWith(
+          "Password changed. Reconnecting to your session…",
+        ),
+      );
+      expect(mocks.signOut).not.toHaveBeenCalled();
+      expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
         "Password changed. Sign in again to continue.",
       );
-      expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
-        "Password changed. Other signed-in sessions were revoked.",
-      );
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     },
   );
 
@@ -159,7 +189,7 @@ describe("AccountDialog", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "The current password is incorrect.",
     );
-    expect(mocks.refreshSession).not.toHaveBeenCalled();
+    expect(mocks.refreshSessionDetailed).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
 
@@ -175,7 +205,7 @@ describe("AccountDialog", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Could not change the password.",
     );
-    expect(mocks.refreshSession).not.toHaveBeenCalled();
+    expect(mocks.refreshSessionDetailed).not.toHaveBeenCalled();
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
 

@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ReceiptText, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm, useWatch, type DefaultValues } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -264,12 +264,12 @@ function CorrectionDialog({
   }
 
   return (
-    <Dialog
-      open
-      onOpenChange={(nextOpen) =>
-        !nextOpen && !isSubmitting && !correctionFlight.pending && onClose()
-      }
-    >
+    // Closing does NOT cancel the correction: the request completes, toasts and
+    // refreshes the ledger on its own. Blocking dismissal while it is pending
+    // made this modal — which is `modal`, so its backdrop also blocks the
+    // ledger, filters and pagination — unclosable for as long as the request
+    // took, with only a reload to escape.
+    <Dialog open onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Correct transaction #{transaction.id}</DialogTitle>
@@ -458,7 +458,6 @@ function CorrectionDialog({
               type="button"
               variant="outline"
               onClick={onClose}
-              disabled={isSubmitting || correctionFlight.pending}
             >
               Cancel
             </Button>
@@ -516,6 +515,11 @@ export default function FinancePage() {
 
   const addMutation = useAddTransactionApiFinanceNewPost();
   const addFlight = useSingleFlight();
+  /** Identifies one open/submit cycle of the add dialog. This page-level
+   *  dialog never unmounts, so without it a submission that resolves after the
+   *  operator dismissed and reopened it would close the new dialog and reset
+   *  the entry they had just typed. */
+  const addAttempt = useRef(0);
   const {
     register,
     handleSubmit,
@@ -534,6 +538,7 @@ export default function FinancePage() {
   async function onSubmit(values: TxnValues) {
     await addFlight.run(async () => {
       setFormError(null);
+      const attempt = ++addAttempt.current;
       try {
         await addMutation.mutateAsync({
           data: {
@@ -548,11 +553,15 @@ export default function FinancePage() {
                 : null,
           },
         });
+        // The write landed: confirm it and refresh the ledger whatever the
+        // dialog has since done.
         toast.success("Transaction saved.");
         invalidateFarmData(queryClient);
+        if (addAttempt.current !== attempt) return;
         setOpen(false);
         reset(txnDefaults());
       } catch (err) {
+        if (addAttempt.current !== attempt) return;
         const message = mutationError(err);
         setFormError(message);
         toast.error(message);
@@ -870,8 +879,14 @@ export default function FinancePage() {
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
-          if (!nextOpen && (isSubmitting || addFlight.pending)) return;
-          if (!nextOpen) setFormError(null);
+          // Never block dismissal on an in-flight write (see CorrectionDialog).
+          // The submission's continuation is guarded by `addAttempt` instead,
+          // so a late resolve cannot close or reset a dialog the operator has
+          // since reopened and started typing into.
+          if (!nextOpen) {
+            setFormError(null);
+            addAttempt.current += 1;
+          }
           setOpen(nextOpen);
         }}
       >
@@ -879,7 +894,14 @@ export default function FinancePage() {
           <DialogHeader>
             <DialogTitle>New transaction</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+          {/* Build the submit handler at event time, not during render:
+              onSubmit reads the addAttempt ref, and refs must not be read
+              while rendering. */}
+          <form
+            onSubmit={(event) => void handleSubmit(onSubmit)(event)}
+            className="space-y-4"
+            noValidate
+          >
             {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">

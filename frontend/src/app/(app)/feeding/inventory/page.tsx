@@ -58,6 +58,7 @@ import {
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
+import { useSingleFlight } from "@/lib/use-single-flight";
 
 function FeedingNav({ active }: { active: string }) {
   const tabs = [
@@ -261,23 +262,31 @@ function MixBatchDialog() {
     defaultValues: { recipe_code: "", batches: 1 },
   });
   const wRecipeCode = useWatch({ control, name: "recipe_code" });
+  // The "Mix batch" trigger resets the form, which clears react-hook-form's
+  // `isSubmitting` — the submit button's only in-flight guard — and blanks
+  // recipe_code so the retyped request body no longer matches the in-flight
+  // one's Idempotency-Key. Guard outside react-hook-form so reset cannot
+  // reach it.
+  const mixFlight = useSingleFlight();
 
   async function onSubmit(values: MixValues) {
-    setShortage(null);
-    try {
-      await mut.mutateAsync({ data: { recipe_code: values.recipe_code, batch_kg: values.batches * 100 } });
-      toast.success(`Mixed ${values.batches * 100} kg — inventory decremented.`);
-      invalidateFarmData(queryClient);
-      reset();
-      setOpen(false);
-    } catch (err) {
-      // Insufficient stock comes back as a 400 with the shortage detail — show it in the dialog.
-      if (err instanceof ApiError && err.status === 400) {
-        setShortage(err.detail);
-      } else {
-        toast.error(mutationError(err));
+    await mixFlight.run(async () => {
+      setShortage(null);
+      try {
+        await mut.mutateAsync({ data: { recipe_code: values.recipe_code, batch_kg: values.batches * 100 } });
+        toast.success(`Mixed ${values.batches * 100} kg — inventory decremented.`);
+        invalidateFarmData(queryClient);
+        reset();
+        setOpen(false);
+      } catch (err) {
+        // Insufficient stock comes back as a 400 with the shortage detail — show it in the dialog.
+        if (err instanceof ApiError && err.status === 400) {
+          setShortage(err.detail);
+        } else {
+          toast.error(mutationError(err));
+        }
       }
-    }
+    });
   }
 
   return (
@@ -290,6 +299,7 @@ function MixBatchDialog() {
     >
       <Button
         variant="outline"
+        disabled={mixFlight.pending}
         onClick={() => {
           reset({ recipe_code: "", batches: 1 });
           setShortage(null);
@@ -363,9 +373,14 @@ function MixBatchDialog() {
           <DialogFooter>
             <Button
               type="submit"
-              disabled={isSubmitting || recipesQuery.isLoading || recipesQuery.isError}
+              disabled={
+                isSubmitting ||
+                mixFlight.pending ||
+                recipesQuery.isLoading ||
+                recipesQuery.isError
+              }
             >
-              {isSubmitting ? "Mixing…" : "Mix batch"}
+              {isSubmitting || mixFlight.pending ? "Mixing…" : "Mix batch"}
             </Button>
           </DialogFooter>
         </form>

@@ -22,6 +22,7 @@ import {
 import type { FarmOut, UserOut } from "@/api/generated/models";
 import {
   apiFetch,
+  authSessionEpochValue,
   refreshSession,
   setAccessToken,
   setCurrentFarmId,
@@ -194,15 +195,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const establishSession = useCallback(
     async (accessToken: string, u: SessionUser, revokeOnFailure: boolean) => {
       setAccessToken(accessToken, u.id);
+      // Read AFTER installing the token: setAccessToken is what bumps the
+      // epoch, so capturing it earlier would make every call supersede itself
+      // and permanently skip the teardown below.
+      const ownedEpoch = authSessionEpochValue();
       try {
         const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
         setUser(u);
         applyFarmList(list);
       } catch (error) {
-        if (isAuthSessionChangedError(error)) {
+        if (isAuthSessionChangedError(error) || authSessionEpochValue() !== ownedEpoch) {
           // A newer session already superseded this call's epoch (e.g. a
           // second sign-in raced this one's farms fetch); that newer session
           // owns clearSession/revoke, so tearing down here would destroy it.
+          // The error name alone is not enough: a transport failure or a
+          // broken body stream rejects before any epoch assert can run, so
+          // compare the epoch directly as well.
           throw error;
         }
         if (revokeOnFailure) {
@@ -228,6 +236,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (accessToken: string, u: SessionUser) => {
       forcedLogout.current = false;
       await establishSession(accessToken, u, true);
+      // `loading` was otherwise written only by the one-shot bootstrap IIFE's
+      // finally. If that bootstrap is still parked on an unanswered
+      // /api/auth/farms, a completed sign-in would render the app shell's
+      // "Loading…" gate forever. A committed session outranks a pending
+      // bootstrap, so release the gate here too; the bootstrap's own later
+      // write is then a no-op.
+      setLoading(false);
     },
     [establishSession],
   );
