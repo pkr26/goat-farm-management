@@ -9,7 +9,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import type { PermissionsOut } from "@/api/generated/models";
+import type { FarmCreateIn, PermissionsOut } from "@/api/generated/models";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -125,9 +125,13 @@ function FarmSelectPageContent() {
       setServerError(null);
       let farm: FarmEntry;
       try {
+        const payload = {
+          ...values,
+          location: values.location || null,
+        } satisfies FarmCreateIn;
         farm = await apiFetch<FarmEntry>("/api/auth/farms", {
           method: "POST",
-          body: JSON.stringify({ ...values, location: values.location || null }),
+          body: JSON.stringify(payload),
         });
       } catch (err) {
         if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;

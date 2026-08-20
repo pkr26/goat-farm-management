@@ -30,6 +30,7 @@ from ..permissions import (
     PERMISSION_DEPENDENCIES,
     PERMISSION_GROUPS,
     PERMISSIONS,
+    ROLE_PRESET_CODES,
 )
 from ..ratelimit import auth_limiter
 from ..schemas.common import MAX_INT32_ID
@@ -1220,7 +1221,7 @@ async def delete_role(
     role = await _get_role(db, farm, role_id, for_update=True)
     _guard_manager_role(role, user, farm)
     _guard_role_scope(role, perms, user, farm)
-    if role.code is not None:
+    if role.code in ROLE_PRESET_CODES:
         # Startup seeding re-creates presets, so deleting one would not stick.
         raise HTTPException(status_code=400, detail="Preset roles can't be deleted.")
     if await _member_count(db, role.id) > 0:

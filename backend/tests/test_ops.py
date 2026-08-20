@@ -60,7 +60,10 @@ from app.seed import (
     seed_reference_data,
     seed_startup,
 )
+from app.services._common import _default_role_id_for_category
 from app.utils import utcnow
+
+from .conftest import owner_with_farm
 
 VALID_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET = "previous-production-idempotency-hmac-secret-0001"
@@ -91,6 +94,63 @@ async def test_readyz_checks_the_pool(client: httpx.AsyncClient) -> None:
     resp = await client.get("/readyz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ready"}
+
+
+async def test_generated_task_role_lookup_ignores_tombstoned_preset(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client, email="tombstoned-preset-owner@example.test")
+    farm_id = int(owner["X-Farm-Id"])
+    async with get_sessionmaker()() as db:
+        role = (
+            await db.execute(select(Role).where(Role.farm_id == farm_id, Role.code == "VET"))
+        ).scalar_one()
+        role.deleted_at = utcnow()
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        assert await _default_role_id_for_category(db, farm_id, "VACCINE") is None
+
+
+async def test_readyz_returns_documented_unavailable_body_when_pool_fails(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UnavailableSession:
+        async def __aenter__(self) -> None:
+            raise RuntimeError("database unavailable")
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(main_module, "get_sessionmaker", lambda: UnavailableSession)
+
+    resp = await client.get("/readyz")
+
+    assert resp.status_code == 503
+    assert resp.json() == {"status": "unavailable"}
+
+
+def test_probe_openapi_documents_success_and_readiness_failure_models() -> None:
+    schema = create_app().openapi()
+    health_responses = schema["paths"]["/healthz"]["get"]["responses"]
+    ready_responses = schema["paths"]["/readyz"]["get"]["responses"]
+
+    assert health_responses["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/HealthStatusOut"
+    }
+    assert ready_responses["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ReadinessStatusOut"
+    }
+    assert ready_responses["503"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ReadinessUnavailableOut"
+    }
+    for model_name in (
+        "HealthStatusOut",
+        "ReadinessStatusOut",
+        "ReadinessUnavailableOut",
+    ):
+        assert schema["components"]["schemas"][model_name]["required"] == ["status"]
 
 
 async def test_request_id_round_trip(client: httpx.AsyncClient) -> None:

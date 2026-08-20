@@ -68,7 +68,7 @@ import type {
   HealthEventMutationOut,
   HealthPurchaseBatchOptionListOut,
   HealthPurchaseBatchOptionsApiHealthPurchaseBatchesGetParams,
-  HealthzHealthzGet200,
+  HealthStatusOut,
   HerdSnapshotApiSimulationHerdSnapshotGetParams,
   HerdSnapshotOut,
   KiddingCreateIn,
@@ -95,6 +95,8 @@ import type {
   PurchaseBatchIn,
   PurchaseBatchListOut,
   PurchaseBatchOut,
+  ReadinessStatusOut,
+  ReadinessUnavailableOut,
   RecipeListOut,
   RegisterIn,
   ReportsOut,
@@ -157,7 +159,7 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
 };
 
 export type healthzHealthzGetResponse200 = {
-  data: HealthzHealthzGet200
+  data: HealthStatusOut
   status: 200
 }
 
@@ -271,16 +273,23 @@ export function useHealthzHealthzGet<TData = Awaited<ReturnType<typeof healthzHe
 
 
 export type readyzReadyzGetResponse200 = {
-  data: unknown
+  data: ReadinessStatusOut
   status: 200
+}
+
+export type readyzReadyzGetResponse503 = {
+  data: ReadinessUnavailableOut
+  status: 503
 }
 
 export type readyzReadyzGetResponseSuccess = (readyzReadyzGetResponse200) & {
   headers: Headers;
 };
-;
+export type readyzReadyzGetResponseError = (readyzReadyzGetResponse503) & {
+  headers: Headers;
+};
 
-export type readyzReadyzGetResponse = (readyzReadyzGetResponseSuccess)
+export type readyzReadyzGetResponse = (readyzReadyzGetResponseSuccess | readyzReadyzGetResponseError)
 
 export const getReadyzReadyzGetUrl = () => {
 
@@ -316,7 +325,7 @@ export const getReadyzReadyzGetQueryKey = () => {
     }
 
 
-export const getReadyzReadyzGetQueryOptions = <TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+export const getReadyzReadyzGetQueryOptions = <TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<ReadinessUnavailableOut>>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -335,10 +344,10 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type ReadyzReadyzGetQueryResult = NonNullable<Awaited<ReturnType<typeof readyzReadyzGet>>>
-export type ReadyzReadyzGetQueryError = ErrorType<unknown>
+export type ReadyzReadyzGetQueryError = ErrorType<ReadinessUnavailableOut>
 
 
-export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<ReadinessUnavailableOut>>(
   options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
           Awaited<ReturnType<typeof readyzReadyzGet>>,
@@ -348,7 +357,7 @@ export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReady
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<ReadinessUnavailableOut>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
           Awaited<ReturnType<typeof readyzReadyzGet>>,
@@ -358,7 +367,7 @@ export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReady
       >, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<ReadinessUnavailableOut>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
@@ -366,7 +375,7 @@ export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReady
  * @summary Readyz
  */
 
-export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<unknown>>(
+export function useReadyzReadyzGet<TData = Awaited<ReturnType<typeof readyzReadyzGet>>, TError = ErrorType<ReadinessUnavailableOut>>(
   options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readyzReadyzGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {

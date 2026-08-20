@@ -9,9 +9,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
+import { ApiError, setAccessToken, setCurrentFarmId } from "@/lib/api-client";
 
-import { customInstance } from "./custom-instance";
+import { customInstance, type ErrorType } from "./custom-instance";
+import { healthzHealthzGet, readyzReadyzGet } from "./generated/endpoints";
 
 interface Envelope {
   data: unknown;
@@ -24,6 +25,11 @@ function jsonResponse(status: number, body: unknown, headers: Record<string, str
     status,
     headers: { "Content-Type": "application/json", ...headers },
   });
+}
+
+/** Compile-time assertion for every Orval hook's resolved error generic. */
+function generatedErrorStatus(error: ErrorType<unknown>): number {
+  return error.status;
 }
 
 describe("customInstance", () => {
@@ -71,5 +77,41 @@ describe("customInstance", () => {
 
     expect(result.status).toBe(204);
     expect(result.data).toBeUndefined();
+  });
+
+  it.each([
+    ["healthz", healthzHealthzGet, "/healthz", { status: "ok" }],
+    ["readyz", readyzReadyzGet, "/readyz", { status: "ready" }],
+  ] as const)(
+    "allows the generated %s probe through the same-origin transport",
+    async (_name, request, path, payload) => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, payload));
+
+      const result = await request();
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        path,
+        expect.objectContaining({ method: "GET", credentials: "include" }),
+      );
+      expect(result).toMatchObject({ status: 200, data: payload });
+    },
+  );
+
+  it("types and throws non-2xx generated calls as ApiError", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, { detail: [{ loc: ["body", "name"], msg: "Field required" }] }),
+    );
+
+    let caught: unknown;
+    try {
+      await customInstance("/api/auth/farms", { method: "POST", body: "{}" });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ApiError);
+    if (!(caught instanceof ApiError)) throw new Error("Expected ApiError");
+    expect(generatedErrorStatus(caught)).toBe(422);
+    expect(caught.detail).toBe("Field required");
   });
 });

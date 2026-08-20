@@ -19,12 +19,15 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
+from ..permissions import ROLE_PRESET_CODES
 from ..utils import utcnow
 
 if TYPE_CHECKING:
     from .animals import Animal
 
 logger = logging.getLogger("goatfarm.models")
+
+_ROLE_PRESET_CODES_SQL = ", ".join(f"'{code}'" for code in sorted(ROLE_PRESET_CODES))
 
 
 class User(Base):
@@ -98,12 +101,27 @@ class Role(Base):
     __table_args__ = (
         UniqueConstraint("farm_id", "id", name="uq_roles_farm_id_id"),
         CheckConstraint("revision >= 1", name="ck_roles_revision_positive"),
+        CheckConstraint(
+            f"code IS NULL OR code IN ({_ROLE_PRESET_CODES_SQL})",
+            name="ck_roles_preset_code",
+        ),
         Index(
             "uq_roles_farm_active_name",
             "farm_id",
             "name",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
+        ),
+        # ``code`` is the stable identity used to route generated duties to a
+        # farm's preset role. Names and permissions are editable, so neither
+        # can disambiguate duplicate preset rows. Tombstones stay covered: a
+        # retired preset identity must not be silently reused by another row.
+        Index(
+            "uq_roles_farm_preset_code",
+            "farm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("code IS NOT NULL"),
         ),
     )
 

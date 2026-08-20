@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { PermissionsOut, TokenOut } from "@/api/generated/models";
+import type { LoginIn, PermissionsOut, TokenOut } from "@/api/generated/models";
 import { firstPermittedPathFromList } from "@/lib/permission-navigation";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -79,9 +79,10 @@ export default function LoginPage() {
     await submission.run(async () => {
       setServerError(null);
       try {
+        const payload: LoginIn = values;
         const body = await apiFetch<TokenOut>(
           "/api/auth/login",
-          { method: "POST", body: JSON.stringify(values) },
+          { method: "POST", body: JSON.stringify(payload) },
         );
         if (!mounted.current) return;
         await signIn(body.access_token, body.user);

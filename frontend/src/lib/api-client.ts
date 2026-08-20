@@ -1,12 +1,12 @@
 /**
- * Central fetch wrapper: same-origin /api calls (proxied to FastAPI by
- * next.config rewrites), bearer-token auth, X-Farm-Id injection, and a
- * single 401 → /api/auth/refresh retry.
+ * Central fetch wrapper: approved same-origin backend calls (proxied to
+ * FastAPI by next.config rewrites), bearer-token auth, X-Farm-Id injection,
+ * and a single 401 → /api/auth/refresh retry.
  *
  * The access token lives in memory only (module store) — never localStorage.
  */
 
-import type { UserOut } from "@/api/generated/models";
+import type { TokenOut, UserOut } from "@/api/generated/models";
 import {
   isIdempotencyProtectedMutation,
   runIdempotencyProtectedRequest,
@@ -17,10 +17,7 @@ let accessTokenActorScope: string | null = null;
 let authSessionEpoch = 0;
 let currentFarmId: string | null = null;
 let onAuthFailure: (() => void) | null = null;
-export interface RefreshSessionResult {
-  access_token: string;
-  user: UserOut;
-}
+export type RefreshSessionResult = Pick<TokenOut, "access_token" | "user">;
 
 function parseRefreshSessionResult(body: unknown): RefreshSessionResult | null {
   if (typeof body !== "object" || body === null) return null;
@@ -305,15 +302,22 @@ function assertSafeApiPath(path: string): void {
     parsed = new URL("/invalid", validationOrigin);
   }
   const rawPathname = path.split(/[?#]/, 1)[0];
+  // The OpenAPI document exposes the two unauthenticated service probes at
+  // the origin root; every application endpoint remains under /api/. Keep
+  // this allowlist exact so the generated probe clients work without
+  // weakening the same-origin credential boundary for arbitrary root paths.
+  const isAllowedPath =
+    (path.startsWith("/api/") && parsed.pathname.startsWith("/api/")) ||
+    rawPathname === "/healthz" ||
+    rawPathname === "/readyz";
   if (
-    !path.startsWith("/api/") ||
+    !isAllowedPath ||
     parsed.origin !== validationOrigin ||
-    !parsed.pathname.startsWith("/api/") ||
     parsed.pathname !== rawPathname ||
     parsed.hash !== "" ||
     rawPathname.includes("%")
   ) {
-    const error = new Error("API requests must use a same-origin /api/... path.");
+    const error = new Error("API requests must use an approved same-origin backend path.");
     error.name = "UnsafeApiPathError";
     throw error;
   }

@@ -16,11 +16,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Healthz Healthz Get"
+                  "$ref": "#/components/schemas/HealthStatusOut"
                 }
               }
             }
@@ -38,7 +34,19 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessStatusOut"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database connection unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessUnavailableOut"
+                }
               }
             }
           }
@@ -7875,8 +7883,7 @@
           },
           "timezone": {
             "type": "string",
-            "title": "Timezone",
-            "default": "Asia/Kolkata"
+            "title": "Timezone"
           },
           "role": {
             "anyOf": [
@@ -7894,7 +7901,9 @@
         "required": [
           "id",
           "name",
-          "location"
+          "location",
+          "timezone",
+          "role"
         ],
         "title": "FarmOut"
       },
@@ -9736,6 +9745,20 @@
         ],
         "title": "HealthPurchaseBatchOptionOut",
         "description": "Opaque health-workflow selector; purchase-ledger facts stay private."
+      },
+      "HealthStatusOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthStatusOut"
       },
       "HerdAssumptions": {
         "properties": {
@@ -12134,6 +12157,34 @@
         ],
         "title": "QuarantineScheduleTaskOut",
         "description": "Non-attributed quarantine schedule row for purchase workflows."
+      },
+      "ReadinessStatusOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ready",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ReadinessStatusOut"
+      },
+      "ReadinessUnavailableOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "unavailable",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "ReadinessUnavailableOut"
       },
       "RecipeListOut": {
         "properties": {

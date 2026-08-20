@@ -41,6 +41,7 @@ from .api import (
 from .core.config import get_settings
 from .db import get_engine, get_sessionmaker
 from .deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
+from .schemas.ops import HealthStatusOut, ReadinessStatusOut, ReadinessUnavailableOut
 from .security import PasswordWorkCapacityError, prime_dummy_password_hash, validate_jwt_keypair
 from .seed import repair_legacy_data_batch, seed_startup
 from .services.animals import skip_inactive_animal_tasks_batch
@@ -497,20 +498,23 @@ async def password_capacity_handler(request: Request, exc: Exception) -> JSONRes
     )
 
 
-async def healthz() -> dict[str, str]:
+async def healthz() -> HealthStatusOut:
     """Liveness: the process is up. Unauthenticated, no dependencies."""
-    return {"status": "ok"}
+    return HealthStatusOut(status="ok")
 
 
-async def readyz() -> JSONResponse:
+async def readyz() -> ReadinessStatusOut | JSONResponse:
     """Readiness: the DB pool can serve a query (SELECT 1)."""
     try:
         async with get_sessionmaker()() as db:
             await db.execute(text("SELECT 1"))
     except Exception:
         logger.exception("readiness probe failed")
-        return JSONResponse(status_code=503, content={"status": "unavailable"})
-    return JSONResponse(content={"status": "ready"})
+        return JSONResponse(
+            status_code=503,
+            content=ReadinessUnavailableOut(status="unavailable").model_dump(mode="json"),
+        )
+    return ReadinessStatusOut(status="ready")
 
 
 def create_app() -> FastAPI:
@@ -584,8 +588,22 @@ def create_app() -> FastAPI:
             )
             _request_id_var.reset(token)
 
-    app.get("/healthz", include_in_schema=True)(healthz)
-    app.get("/readyz", include_in_schema=True)(readyz)
+    app.get(
+        "/healthz",
+        response_model=HealthStatusOut,
+        include_in_schema=True,
+    )(healthz)
+    app.get(
+        "/readyz",
+        response_model=ReadinessStatusOut,
+        responses={
+            503: {
+                "model": ReadinessUnavailableOut,
+                "description": "Database connection unavailable",
+            }
+        },
+        include_in_schema=True,
+    )(readyz)
     app.include_router(auth.router)
     app.include_router(animals.router)
     app.include_router(buckets.router)

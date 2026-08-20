@@ -2902,6 +2902,7 @@ async def test_clear_restriction_version_mismatch_and_no_active_hold_are_distinc
         headers=headers,
     )
     assert first.status_code == 204, first.text
+    assert first.content == b""
 
     again = await client.post(
         f"/api/health/restrictions/{animal['id']}/clear",

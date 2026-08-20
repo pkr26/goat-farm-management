@@ -1543,6 +1543,7 @@ async def test_logout_clears_cookie(client: httpx.AsyncClient) -> None:
     assert client.cookies.get(COOKIE)
     resp = await client.post("/api/auth/logout")
     assert resp.status_code == 204
+    assert resp.content == b""
     set_cookie = resp.headers["set-cookie"]
     assert f"{COOKIE}=" in set_cookie
     assert f'{COOKIE}=""' in set_cookie or f"{COOKIE}=;" in set_cookie
@@ -2032,6 +2033,7 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
         headers=worker,
     )
     assert deleted.status_code == 204, deleted.text
+    assert deleted.content == b""
     assert not client.cookies.get(COOKIE)
     assert (await client.get("/api/auth/me", headers=worker)).status_code == 401
     assert (

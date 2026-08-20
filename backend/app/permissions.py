@@ -169,6 +169,10 @@ ROLE_PRESETS: list[RolePreset] = [
     },
 ]
 
+# The finite database vocabulary for Role.code. Custom roles always use NULL;
+# this identity is server-owned and never accepted from an API payload.
+ROLE_PRESET_CODES: frozenset[str] = frozenset(preset["code"] for preset in ROLE_PRESETS)
+
 # Auto-generated tasks default to the farm role with this code (if seeded).
 TASK_CATEGORY_ROLE_MAP: dict[str, str] = {
     "ULTRASOUND": "VET",

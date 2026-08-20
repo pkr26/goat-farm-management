@@ -1,5 +1,7 @@
 import { fileURLToPath } from "node:url";
 
+import { backendRewrites } from "./src/lib/backend-rewrites";
+
 /** Baseline hardening headers on every response. CSP and HSTS are enforced in
  *  production builds only: Next dev HMR needs 'unsafe-eval' and a policy lax
  *  enough for it would be security theatre. */
@@ -47,16 +49,12 @@ const nextConfig = {
   // Produce the minimal Node server required by dynamic routes, rewrites and
   // response headers. This application is not a static export.
   output: "standalone",
-  // Dev proxy: the SPA calls same-origin /api/* and Next forwards to the
-  // FastAPI backend — no CORS friction, and the refresh cookie stays
-  // first-party.
+  // Same-origin backend proxy: application routes live under /api/*, while
+  // the OpenAPI service probes intentionally live at /healthz and /readyz.
+  // Proxy all three surfaces so every generated client works in both dev and
+  // the standalone production server without CORS or cookie differences.
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${process.env.BACKEND_URL ?? "http://localhost:8000"}/api/:path*`,
-      },
-    ];
+    return backendRewrites(process.env.BACKEND_URL ?? "http://localhost:8000");
   },
   async headers() {
     return [

@@ -359,6 +359,7 @@ async def test_scenario_crud(client: httpx.AsyncClient) -> None:
 
     deleted = await client.delete(f"/api/simulation/scenarios/{created['id']}", headers=headers)
     assert deleted.status_code == 204
+    assert deleted.content == b""
     gone = await client.get(f"/api/simulation/scenarios/{created['id']}", headers=headers)
     assert gone.status_code == 404
 

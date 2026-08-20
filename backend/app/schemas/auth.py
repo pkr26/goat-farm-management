@@ -115,8 +115,11 @@ class FarmOut(BaseModel):
     id: int
     name: str
     location: str | None
-    timezone: str = "Asia/Kolkata"
-    role: str | None = None  # None = owner, else the membership's role name
+    # Both fields are always emitted by list/create. A nullable value is not an
+    # optional wire key: role=None identifies ownership, while a missing role
+    # would make the tenant selector ambiguous to generated clients.
+    timezone: str
+    role: str | None  # None = owner, else the membership's role name
 
 
 class FarmCreateIn(StrictInputModel):

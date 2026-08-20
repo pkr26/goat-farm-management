@@ -10,6 +10,7 @@ mirrored here fails these tests instead of silently rejecting API input.
 from typing import get_args
 
 from app import models
+from app.permissions import ROLE_PRESET_CODES, ROLE_PRESETS
 from app.schemas import animals, finance, health, kidding, purchases, tasks
 
 
@@ -50,3 +51,7 @@ def test_sanity_caps_are_shared_from_models() -> None:
     assert services.MAX_BATCH_COUNT is models.MAX_BATCH_COUNT
     assert services.MAX_AGE_MONTHS is models.MAX_AGE_MONTHS
     assert services.MAX_RECUR_DAYS is models.MAX_RECUR_DAYS
+
+
+def test_preset_role_code_catalog_matches_seed_definitions() -> None:
+    assert ROLE_PRESET_CODES == {preset["code"] for preset in ROLE_PRESETS}

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import { useChangePasswordApiAuthChangePasswordPost } from "@/api/generated/endpoints";
+import type { AccountDeleteIn, AccountExportOut } from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -105,7 +106,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     const operationEpoch = dialogEpoch.current;
     setExportError(null);
     try {
-      const payload = await apiFetch<unknown>("/api/auth/account/export");
+      const payload = await apiFetch<AccountExportOut>("/api/auth/account/export");
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
         type: "application/json",
       });
@@ -137,9 +138,12 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
     const operationEpoch = dialogEpoch.current;
     setDeleteError(null);
     try {
+      const payload = {
+        current_password: deletePassword,
+      } satisfies AccountDeleteIn;
       await apiFetch<void>("/api/auth/account", {
         method: "DELETE",
-        body: JSON.stringify({ current_password: deletePassword }),
+        body: JSON.stringify(payload),
       });
       toast.success(
         "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",

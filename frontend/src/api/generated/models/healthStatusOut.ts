@@ -5,4 +5,7 @@
  * OpenAPI spec version: 2.0.0
  */
 
-export type HealthzHealthzGet200 = {[key: string]: string};
+export const HealthStatusOutValue = {
+  status: 'ok',
+} as const;
+export type HealthStatusOut = typeof HealthStatusOutValue;

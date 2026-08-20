@@ -30,8 +30,9 @@ pnpm install --frozen-lockfile
 pnpm dev                               # http://localhost:3000
 ```
 
-The Next dev server proxies `/api/*` to `localhost:8000` (see
-`frontend/next.config.ts`), so the refresh cookie stays first-party.
+The Next dev server proxies `/api/*`, `/healthz`, and `/readyz` to
+`localhost:8000` (see `frontend/next.config.ts`), so the refresh cookie stays
+first-party and every operation in the generated client remains same-origin.
 Register → create a farm → start adding animals. Fixed-size global
 reference data (bucket definitions, TMR recipes, vaccine templates) is seeded
 automatically at startup; every new farm receives its role presets and feed
@@ -247,7 +248,7 @@ passes. Resume API replicas only after that succeeds.
 ```bash
 # Backend
 cd backend
-./.venv/bin/python -m pytest            # 3,200+ tests, real PostgreSQL (goatfarm_test)
+./.venv/bin/python -m pytest            # 3,400+ tests, real PostgreSQL (goatfarm_test)
 ./.venv/bin/ruff format --check . && ./.venv/bin/ruff check .
 ./.venv/bin/python -m mypy --strict app
 ./.venv/bin/mutmut run --max-children 4 # deterministic, DB-free simulation profile
@@ -257,8 +258,8 @@ cd backend
 # Frontend
 cd frontend
 pnpm orval           # regenerate the typed client from shared/openapi.json
-pnpm test            # 955 Vitest + MSW tests
-pnpm exec playwright test   # 22 browser e2e tests across 14 specs (fresh user+farm
+pnpm test            # 1,300+ Vitest + MSW tests
+pnpm exec playwright test   # 34 browser/proxy e2e tests across 16 specs (fresh user+farm
                      # provisioned per run by e2e/global-setup.ts; serial workers)
 pnpm build           # strict typecheck + production build
 ```
@@ -701,7 +702,7 @@ backend/
                      movement-clearance hardening)
   scripts/           export_openapi.py, healthcheck.py, backup.sh, restore.sh,
                      libpq_url.py (URL → credential-safe libpq inputs)
-  tests/             3,200+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
+  tests/             3,400+ tests (logic, RBAC, adversarial, concurrency) on real PostgreSQL
 ```
 
 ## Frontend layout

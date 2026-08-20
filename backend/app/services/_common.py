@@ -46,8 +46,17 @@ async def _default_role_id_for_category(
     role_code = TASK_CATEGORY_ROLE_MAP.get(category)
     if not role_code:
         return None
-    result = await db.execute(select(Role).where(Role.farm_id == farm_id, Role.code == role_code))
-    role = result.scalars().first()
+    result = await db.execute(
+        select(Role).where(
+            Role.farm_id == farm_id,
+            Role.code == role_code,
+            Role.deleted_at.is_(None),
+        )
+    )
+    # uq_roles_farm_preset_code makes the stable preset identity cardinality
+    # exactly zero-or-one. Do not hide schema damage behind an arbitrary
+    # ``first()`` selection.
+    role = result.scalar_one_or_none()
     return role.id if role else None
 
 

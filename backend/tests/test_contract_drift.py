@@ -95,3 +95,11 @@ def test_openapi_declares_bearer_security_on_protected_operations() -> None:
         )
 
     assert "security" not in schema["paths"]["/api/auth/login"]["post"]
+
+
+def test_farm_response_contract_requires_every_emitted_key() -> None:
+    farm_schema = create_app().openapi()["components"]["schemas"]["FarmOut"]
+
+    # ``role`` remains nullable (None means owner), but neither it nor the
+    # resolved farm timezone is ever omitted from a backend response.
+    assert set(farm_schema["required"]) == {"id", "name", "location", "timezone", "role"}

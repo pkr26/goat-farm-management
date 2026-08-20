@@ -21,6 +21,8 @@ CORRECTION_PARENT = "e3f4a5b6c7d9"
 CORRECTION = "a6c9e2f4b7d1"
 REFRESH_BOUNDS_PARENT = "e5f6a7b8c9d0"
 REFRESH_BOUNDS = "f6a7b8c9d0e1"
+PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
+PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -517,5 +519,195 @@ async def test_corrective_migration_clears_fabricated_actor_and_serializes_dates
             await connection.close()
 
         await _alembic(database, "upgrade", CORRECTION)
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+async def test_preset_role_code_migration_repairs_duplicates_and_preserves_references() -> None:
+    database = _throwaway_name("preset_role_codes")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    try:
+        await _alembic(database, "upgrade", PRESET_ROLE_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            owner_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('preset-owner@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            worker_id = await connection.fetchval(
+                """
+                INSERT INTO users (email, password_hash, created_at)
+                VALUES ('preset-worker@example.test', 'not-used', timezone('UTC', now()))
+                RETURNING id
+                """
+            )
+            farm_id = await connection.fetchval(
+                """
+                INSERT INTO farms (name, owner_id, created_at)
+                VALUES ('Preset Integrity Farm', $1, timezone('UTC', now()))
+                RETURNING id
+                """,
+                owner_id,
+            )
+
+            deleted_role_id = await connection.fetchval(
+                """
+                INSERT INTO roles (
+                  farm_id, code, name, permissions, created_at, deleted_at
+                ) VALUES (
+                  $1, 'VET', 'Old deleted vet', '[]',
+                  timezone('UTC', now()), timezone('UTC', now())
+                ) RETURNING id
+                """,
+                farm_id,
+            )
+            canonical_role_id = await connection.fetchval(
+                """
+                INSERT INTO roles (farm_id, code, name, permissions, created_at)
+                VALUES ($1, 'VET', 'Canonical active vet', '[]', timezone('UTC', now()))
+                RETURNING id
+                """,
+                farm_id,
+            )
+            duplicate_role_id = await connection.fetchval(
+                """
+                INSERT INTO roles (farm_id, code, name, permissions, created_at)
+                VALUES ($1, 'VET', 'Duplicate active vet', '[]', timezone('UTC', now()))
+                RETURNING id
+                """,
+                farm_id,
+            )
+            unknown_role_id = await connection.fetchval(
+                """
+                INSERT INTO roles (farm_id, code, name, permissions, created_at)
+                VALUES ($1, 'IMPORTED', 'Imported pseudo-preset', '[]', timezone('UTC', now()))
+                RETURNING id
+                """,
+                farm_id,
+            )
+            membership_id = await connection.fetchval(
+                """
+                INSERT INTO farm_memberships (
+                  user_id, farm_id, role_id, is_active,
+                  account_provisioned_by_farm, created_at
+                ) VALUES ($1, $2, $3, true, true, timezone('UTC', now()))
+                RETURNING id
+                """,
+                worker_id,
+                farm_id,
+                duplicate_role_id,
+            )
+            task_id = await connection.fetchval(
+                """
+                INSERT INTO tasks (
+                  farm_id, title, due_date, status, category,
+                  auto_generated, assigned_role_id
+                ) VALUES (
+                  $1, 'Retained duplicate-role duty', CURRENT_DATE,
+                  'PENDING', 'OTHER', true, $2
+                ) RETURNING id
+                """,
+                farm_id,
+                duplicate_role_id,
+            )
+        finally:
+            await connection.close()
+
+        await _alembic(database, "upgrade", PRESET_ROLE_INTEGRITY)
+        connection = await asyncpg.connect(database_url)
+        try:
+            codes = {
+                row["id"]: row["code"]
+                for row in await connection.fetch(
+                    "SELECT id, code FROM roles WHERE farm_id = $1 ORDER BY id",
+                    farm_id,
+                )
+            }
+            # A live row wins over an older tombstone; among live rows, the
+            # immutable lowest id is canonical. Unknown pseudo-codes become
+            # ordinary custom roles.
+            assert codes[deleted_role_id] is None
+            assert codes[canonical_role_id] == "VET"
+            assert codes[duplicate_role_id] is None
+            assert codes[unknown_role_id] is None
+            assert (
+                await connection.fetchval(
+                    "SELECT role_id FROM farm_memberships WHERE id = $1", membership_id
+                )
+                == duplicate_role_id
+            )
+            assert (
+                await connection.fetchval(
+                    "SELECT assigned_role_id FROM tasks WHERE id = $1", task_id
+                )
+                == duplicate_role_id
+            )
+
+            index_state = await connection.fetchrow(
+                """
+                SELECT i.indisvalid, i.indisready, i.indislive
+                FROM pg_class AS c
+                JOIN pg_index AS i ON i.indexrelid = c.oid
+                WHERE c.relname = 'uq_roles_farm_preset_code'
+                """
+            )
+            assert index_state is not None
+            assert tuple(index_state) == (True, True, True)
+
+            with pytest.raises(asyncpg.UniqueViolationError) as duplicate_error:
+                await connection.execute(
+                    """
+                    INSERT INTO roles (farm_id, code, name, permissions, created_at)
+                    VALUES ($1, 'VET', 'Forbidden duplicate', '[]', timezone('UTC', now()))
+                    """,
+                    farm_id,
+                )
+            assert duplicate_error.value.constraint_name == "uq_roles_farm_preset_code"
+
+            with pytest.raises(asyncpg.CheckViolationError) as unknown_error:
+                await connection.execute(
+                    """
+                    INSERT INTO roles (farm_id, code, name, permissions, created_at)
+                    VALUES ($1, 'UNKNOWN', 'Forbidden pseudo-preset', '[]', timezone('UTC', now()))
+                    """,
+                    farm_id,
+                )
+            assert unknown_error.value.constraint_name == "ck_roles_preset_code"
+        finally:
+            await connection.close()
+
+        # ORM metadata mirrors both the partial unique index and the CHECK;
+        # deployment-time autogenerate drift detection must stay clean.
+        await _alembic(database, "check")
+        await _alembic(database, "downgrade", PRESET_ROLE_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            assert (
+                await connection.fetchval("SELECT to_regclass('uq_roles_farm_preset_code') IS NULL")
+                is True
+            )
+            assert (
+                await connection.fetchval(
+                    """
+                    SELECT count(*) = 0
+                    FROM pg_constraint
+                    WHERE conname = 'ck_roles_preset_code'
+                    """
+                )
+                is True
+            )
+            # Downgrade cannot truthfully reconstruct duplicate routing
+            # identities, so the safe normalization remains in place.
+            assert (
+                await connection.fetchval("SELECT code FROM roles WHERE id = $1", duplicate_role_id)
+                is None
+            )
+        finally:
+            await connection.close()
     finally:
         await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')

@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { TokenOut } from "@/api/generated/models";
+import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 const registerSchema = z.object({
@@ -79,11 +79,15 @@ export default function RegisterPage() {
     await submission.run(async () => {
       setServerError(null);
       try {
+        const payload = {
+          ...values,
+          name: values.name?.trim() || null,
+        } satisfies RegisterIn;
         const body = await apiFetch<TokenOut>(
           "/api/auth/register",
           {
             method: "POST",
-            body: JSON.stringify({ ...values, name: values.name?.trim() || null }),
+            body: JSON.stringify(payload),
           },
         );
         if (!mounted.current) return;

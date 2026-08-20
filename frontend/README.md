@@ -20,9 +20,9 @@ pnpm install --frozen-lockfile
 pnpm dev            # http://localhost:3000
 ```
 
-`next.config.ts` rewrites `/api/*` to `BACKEND_URL` (default
-`http://localhost:8000`), so start the backend first — the refresh cookie
-stays first-party that way.
+`next.config.ts` rewrites `/api/*` plus the OpenAPI service probes `/healthz`
+and `/readyz` to `BACKEND_URL` (default `http://localhost:8000`), so start the
+backend first — the refresh cookie stays first-party that way.
 
 ## Scripts
 

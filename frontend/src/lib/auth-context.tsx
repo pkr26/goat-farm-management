@@ -31,11 +31,10 @@ import {
 import { clearPersistedIdempotencyRequestState } from "@/lib/idempotent-request";
 import { setActiveFarmTimezone } from "@/lib/format";
 
-// Derived from the generated contract models so backend schema drift breaks
-// tsc here instead of silently diverging.
+// Raw auth responses stay anchored to generated contract models so backend
+// schema drift breaks tsc here instead of silently diverging.
 export type SessionUser = UserOut;
-/** /api/auth/farms entries always carry `role` (null = owner). */
-export type FarmEntry = FarmOut & { role: string | null };
+export type FarmEntry = FarmOut;
 
 interface AuthState {
   user: SessionUser | null;

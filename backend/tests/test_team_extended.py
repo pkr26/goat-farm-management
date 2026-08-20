@@ -1400,6 +1400,9 @@ async def test_legacy_toggle_is_refused_instead_of_inverting_on_retry(
     for _retry in range(2):
         response = await client.post(f"/api/team/workers/{mid}/toggle", headers=owner)
         assert response.status_code == 405, response.text
+        assert response.json() == {
+            "detail": "Worker toggle was retired; send the desired state to the status endpoint."
+        }
         assert response.headers["allow"] == "PUT"
     member = next(
         row for row in (await team_page(client, owner))["memberships"] if row["id"] == mid
@@ -2053,8 +2056,18 @@ async def test_role_capacity_recounts_after_legacy_farm_repair(
     """Farm UPDATE repair and advisory provisioning share a count boundary."""
     owner = await owner_with_farm(client)
     farm_id = int(owner["X-Farm-Id"])
+    # Reproduce a genuinely legacy farm with one missing preset. The repair
+    # below restores this server-owned code while the API writer waits on the
+    # same Farm lock; invented non-null codes are correctly rejected by
+    # ck_roles_preset_code.
+    async with get_sessionmaker()() as db:
+        missing = (
+            await db.execute(select(Role).where(Role.farm_id == farm_id, Role.code == "FEEDER"))
+        ).scalar_one()
+        await db.delete(missing)
+        await db.commit()
     existing = len((await team_page(client, owner))["roles"])
-    assert existing == 5
+    assert existing == 4
     monkeypatch.setattr(get_settings(), "max_roles_per_farm", existing + 1)
 
     holder = get_sessionmaker()()
@@ -2088,8 +2101,8 @@ async def test_role_capacity_recounts_after_legacy_farm_repair(
         holder.add(
             Role(
                 farm_id=farm_id,
-                code="REPAIRED_PRESET",
-                name="Repair-added preset",
+                code="FEEDER",
+                name="Feeder",
                 description=None,
                 permissions="[]",
             )
