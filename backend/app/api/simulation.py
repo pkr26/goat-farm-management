@@ -33,10 +33,12 @@ deployment path for multi-replica scale.
 import asyncio
 import json
 import math
+import threading
 import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Annotated
+from contextvars import ContextVar
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import ValidationError
@@ -218,8 +220,71 @@ async def _run_offloaded(
     """Runs are synchronous CPU work — push them off the event loop so the
     request handler itself does not block. The engine is pure Python and holds
     the GIL, so this alone does not protect other requests; the concurrency
-    caps and the CPU budget above are what bound the damage."""
-    return await run_in_threadpool(_run, assumptions, monte_carlo, sensitivity, optimization)
+    caps and the CPU budget above are what bound the damage.
+
+    ``asyncio.Task.cancel()`` can abandon Starlette/AnyIO's await even though
+    the native worker thread cannot be stopped. Register native completion with
+    ``_with_run_limits`` so its farm, user, and process slots transfer to a
+    completion callback when the HTTP task is canceled. The request can unwind
+    promptly without making still-running CPU invisible to admission control.
+    """
+    completions = _native_run_completions.get()
+    if completions is None:
+        return await run_in_threadpool(
+            _run,
+            assumptions,
+            monte_carlo,
+            sensitivity,
+            optimization,
+        )
+
+    loop = asyncio.get_running_loop()
+    completed: asyncio.Future[None] = loop.create_future()
+    completions.append(completed)
+    state_lock = threading.Lock()
+    started = False
+    abandoned = False
+
+    def mark_completed() -> None:
+        if not completed.done():
+            completed.set_result(None)
+
+    def run_and_signal() -> SimulationResult:
+        nonlocal started
+        with state_lock:
+            if abandoned:
+                # Cancellation won while this call was still queued on AnyIO's
+                # thread limiter. The lease was already released and this late
+                # wrapper must not start untracked engine work.
+                return cast(SimulationResult, None)
+            started = True
+        try:
+            return _run(assumptions, monte_carlo, sensitivity, optimization)
+        finally:
+            try:
+                loop.call_soon_threadsafe(mark_completed)
+            except RuntimeError:
+                # During forced interpreter shutdown there is no live process
+                # admission state left to release.
+                pass
+
+    def abandon_if_queued() -> None:
+        nonlocal abandoned
+        with state_lock:
+            if started:
+                return
+            abandoned = True
+        # This runs on the event-loop thread from the await's exception path.
+        # A late queued wrapper sees ``abandoned`` and skips engine work.
+        mark_completed()
+
+    try:
+        return await run_in_threadpool(run_and_signal)
+    except BaseException:
+        # Covers raw task cancellation and infrastructure/submission failures.
+        # If native work already started, its finally block remains lease owner.
+        abandon_if_queued()
+        raise
 
 
 # One run per farm and per user, plus a process-wide ceiling. This prevents a
@@ -228,6 +293,13 @@ async def _run_offloaded(
 _farm_run_locks: dict[int, asyncio.Lock] = {}
 _user_run_locks: dict[int, asyncio.Lock] = {}
 _global_run_slots = asyncio.BoundedSemaphore(2)
+# Populated only while _with_run_limits owns the corresponding lease. Native
+# workers resolve these futures from their finally blocks even if raw asyncio
+# cancellation abandons the AnyIO await.
+_native_run_completions: ContextVar[list[asyncio.Future[None]] | None] = ContextVar(
+    "simulation_native_run_completions",
+    default=None,
+)
 
 # Concurrency caps bound parallelism, not request *rate*: without a budget a
 # caller can loop maximum-cost runs forever and hold both process-wide slots,
@@ -474,17 +546,58 @@ async def _with_run_limits[RunResult](
     # unseen farm/user keys (the global semaphore is full for everyone), and
     # leaking one entry per key is the cardinality growth _release_run_lock
     # exists to prevent.
+    acquired_user = False
+    acquired_farm = False
+    acquired_global = False
+    released = False
+    completions: list[asyncio.Future[None]] = []
+    tracker_token = None
+
+    def release_capacity() -> None:
+        nonlocal released
+        if released:
+            return
+        released = True
+        if acquired_global:
+            _global_run_slots.release()
+        if acquired_farm:
+            lock.release()
+        if acquired_user:
+            user_lock.release()
+        _release_run_lock(_farm_run_locks, farm_id)
+        _release_run_lock(_user_run_locks, user_id)
+
     try:
         if lock.locked() or user_lock.locked() or _global_run_slots.locked():
             raise HTTPException(
                 status_code=429,
                 detail="Simulation capacity is busy; wait for the current run to finish.",
             )
-        async with user_lock, lock, _global_run_slots:
-            return await operation()
+        await user_lock.acquire()
+        acquired_user = True
+        await lock.acquire()
+        acquired_farm = True
+        await _global_run_slots.acquire()
+        acquired_global = True
+        tracker_token = _native_run_completions.set(completions)
+        return await operation()
     finally:
-        _release_run_lock(_farm_run_locks, farm_id)
-        _release_run_lock(_user_run_locks, user_id)
+        if tracker_token is not None:
+            _native_run_completions.reset(tracker_token)
+        pending = [completion for completion in completions if not completion.done()]
+        if not pending:
+            release_capacity()
+        else:
+            remaining = len(pending)
+
+            def native_finished(_completion: asyncio.Future[None]) -> None:
+                nonlocal remaining
+                remaining -= 1
+                if remaining == 0:
+                    release_capacity()
+
+            for completion in pending:
+                completion.add_done_callback(native_finished)
 
 
 async def _run_for_farm(

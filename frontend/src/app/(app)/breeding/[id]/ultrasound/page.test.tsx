@@ -2,6 +2,7 @@
  *  /breeding?ultrasound_id={id}, which auto-opens the ultrasound dialog. */
 
 import { render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import BreedingUltrasoundRedirect from "./page";
@@ -24,12 +25,17 @@ describe("/breeding/[id]/ultrasound redirect shim", () => {
     navState.id = "7";
   });
 
-  it("redirects to /breeding?ultrasound_id=<id>", async () => {
-    render(<BreedingUltrasoundRedirect />);
+  it("redirects once to /breeding?ultrasound_id=<id> under Strict Mode", async () => {
+    render(
+      <StrictMode>
+        <BreedingUltrasoundRedirect />
+      </StrictMode>,
+    );
 
     await waitFor(() =>
       expect(replaceMock).toHaveBeenCalledWith("/breeding?ultrasound_id=7"),
     );
+    expect(replaceMock).toHaveBeenCalledTimes(1);
   });
 
   it("encodes a decoded route segment instead of letting it add query parameters", async () => {

@@ -12,11 +12,12 @@ import hashlib
 import json
 from datetime import timedelta
 from decimal import Decimal
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 import httpx
 import pytest
+from fastapi import Response
 from pydantic import SecretStr
 from sqlalchemy import func, select, update
 
@@ -29,6 +30,7 @@ import app.api.purchases as purchases_api
 import app.api.simulation as simulation_api
 import app.api.tasks as tasks_api
 import app.api.team as team_api
+import app.services.idempotency as idempotency_service
 from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.main import create_app
@@ -52,7 +54,11 @@ from app.models import (
 )
 from app.schemas.finance import TransactionIn
 from app.schemas.team import WorkerCreateIn
-from app.services.idempotency import _request_hashes, purge_expired_idempotency_records
+from app.services.idempotency import (
+    _request_hashes,
+    purge_expired_idempotency_records,
+    replay_idempotent_if_committed,
+)
 from app.utils import money as actual_money
 from app.utils import today, utcnow
 
@@ -91,6 +97,54 @@ def test_ordinary_request_fingerprint_remains_legacy_sha256_compatible() -> None
 
     assert persisted_hash == legacy_hash
     assert accepted_hashes == (legacy_hash,)
+
+
+async def test_replay_probe_checks_expiry_after_awaited_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection/query wait cannot extend a committed replay's lifetime."""
+    operation = "POST /api/finance/new"
+    payload = TransactionIn.model_validate(finance_payload())
+    request_hash, _candidates = _request_hashes(operation, payload, {})
+    before_query = utcnow()
+    after_query = before_query + timedelta(seconds=2)
+    boundary = before_query + timedelta(seconds=1)
+    query_finished = False
+    record = SimpleNamespace(
+        expires_at=boundary,
+        request_hash=request_hash,
+        response_body=None,
+        response_status=None,
+        completed_at=None,
+    )
+
+    class FakeResult:
+        def scalar_one_or_none(self):  # type: ignore[no-untyped-def]
+            return record
+
+    class DelayedDb:
+        async def execute(self, _statement):  # type: ignore[no-untyped-def]
+            nonlocal query_finished
+            query_finished = True
+            return FakeResult()
+
+    monkeypatch.setattr(
+        idempotency_service,
+        "utcnow",
+        lambda: after_query if query_finished else before_query,
+    )
+    replay = await replay_idempotent_if_committed(
+        DelayedDb(),  # type: ignore[arg-type]
+        http_response=Response(),
+        key="expires-during-replay-query",
+        farm_id=1,
+        actor_id=1,
+        operation=operation,
+        payload=payload,
+        path_identity={},
+        response_type=TransactionIn,
+    )
+    assert replay is None
 
 
 def hold_winning_claim(monkeypatch: pytest.MonkeyPatch, route_module: ModuleType) -> None:
@@ -939,6 +993,57 @@ async def test_key_bounds_server_errors_and_expiry_cleanup(
     assert after_expiry.status_code == 201
     assert after_expiry.json()["id"] != first_id
     assert await idempotency_count() == 1
+
+
+async def test_contender_rechecks_expiry_after_waiting_on_conflicting_claim(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A key expiring during unique-index contention starts a fresh mutation."""
+    owner = await owner_with_farm(client, email="expiry-wait-owner@farm.in")
+    payload = finance_payload(amount=29)
+    keyed = owner | {"Idempotency-Key": "expires-during-conflict-wait"}
+    first = await client.post("/api/finance/new", json=payload, headers=keyed)
+    assert first.status_code == 201, first.text
+
+    before_wait = utcnow()
+    after_wait = before_wait + timedelta(seconds=2)
+    boundary = before_wait + timedelta(seconds=1)
+    holder = get_sessionmaker()()
+    await holder.execute(
+        update(IdempotencyRecord)
+        .where(IdempotencyRecord.operation == "POST /api/finance/new")
+        .values(expires_at=boundary)
+    )
+
+    clock_reads = 0
+    initial_clock_read = asyncio.Event()
+
+    def advancing_clock():  # type: ignore[no-untyped-def]
+        nonlocal clock_reads
+        clock_reads += 1
+        if clock_reads == 1:
+            initial_clock_read.set()
+            return before_wait
+        return after_wait
+
+    monkeypatch.setattr(idempotency_service, "utcnow", advancing_clock)
+    contender = asyncio.create_task(client.post("/api/finance/new", json=payload, headers=keyed))
+    try:
+        await asyncio.wait_for(initial_clock_read.wait(), timeout=2)
+        await asyncio.sleep(0.05)
+        assert not contender.done()
+        await holder.commit()
+        response = await asyncio.wait_for(contender, timeout=10)
+    finally:
+        await holder.rollback()
+        await holder.close()
+        if not contender.done():
+            contender.cancel()
+
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] != first.json()["id"]
+    assert "Idempotency-Replayed" not in response.headers
 
 
 async def test_expiry_cleanup_is_scheduled_and_strictly_batch_bounded(

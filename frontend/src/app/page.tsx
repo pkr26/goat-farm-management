@@ -4,7 +4,7 @@
 
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
@@ -15,13 +15,25 @@ export default function RootPage() {
   const permissions = usePermissions();
   const router = useRouter();
   const landingPath = firstPermittedPath(permissions.can);
+  const dispatchedRedirect = useRef<string | null>(null);
 
   useEffect(() => {
-    if (loading) return;
-    if (!user) router.replace("/login");
-    else if (!farmId) router.replace("/farm-select");
-    else if (permissions.isError) router.replace("/farm-select");
-    else if (!permissions.loading) router.replace(landingPath);
+    const destination = loading
+      ? null
+      : !user
+        ? "/login"
+        : !farmId || permissions.isError
+          ? "/farm-select"
+          : !permissions.loading
+            ? landingPath
+            : null;
+    if (destination === null) {
+      dispatchedRedirect.current = null;
+      return;
+    }
+    if (dispatchedRedirect.current === destination) return;
+    dispatchedRedirect.current = destination;
+    router.replace(destination);
   }, [loading, user, farmId, permissions.loading, permissions.isError, landingPath, router]);
 
   return (

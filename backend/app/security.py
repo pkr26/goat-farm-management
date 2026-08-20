@@ -395,6 +395,35 @@ def _generate_keypair(priv: Path, pub: Path) -> None:
     )
 
 
+def _development_keypair_is_valid(priv: Path, pub: Path) -> bool:
+    """Whether an application-managed development pair is complete/matching.
+
+    A generator crash can leave both names present when one side predated the
+    attempted repair. The persistent sibling lock identifies pairs managed by
+    this generator, so a later boot may safely repair that torn publication;
+    fully pre-provisioned pairs without the marker still fail closed in the
+    ordinary keyring validator instead of being overwritten.
+    """
+    try:
+        private_key = serialization.load_pem_private_key(
+            _read_pinned_key_text(priv).encode(),
+            password=None,
+        )
+        public_key = serialization.load_pem_public_key(_read_pinned_key_text(pub).encode())
+    except (OSError, TypeError, ValueError):
+        return False
+    return (
+        isinstance(private_key, rsa.RSAPrivateKey)
+        and isinstance(public_key, rsa.RSAPublicKey)
+        and private_key.key_size >= 2048
+        and public_key.key_size >= 2048
+        and hmac.compare_digest(
+            _public_key_der(private_key.public_key()),
+            _public_key_der(public_key),
+        )
+    )
+
+
 def _ensure_keypair() -> None:
     """Generate the development keypair on first use. Production must mount
     stable key material and therefore fails closed instead of generating an
@@ -423,14 +452,23 @@ def _ensure_keypair() -> None:
         private_mode = (existing_mode | 0o700) & ~0o077
         if private_mode != existing_mode:
             key_dir.chmod(private_mode)
-    if priv.exists() and pub.exists():
-        return
     # _key_lock is per-process: two first-booting PROCESSES could still
     # interleave the atomic writes and leave a mismatched pair on disk (every
     # token would then fail verification). Serialize generation across
     # processes with an exclusive flock on a sibling lock file, and re-check
     # under it so the loser adopts the winner's pair instead of regenerating.
+    #
+    # A completed first boot leaves the lock file in place intentionally. If a
+    # process starts while another generator has published the private key but
+    # not yet the matching public key (or vice versa), both target names can be
+    # present briefly when one side was pre-existing. Checking only the two PEM
+    # names would let that reader bypass flock and validate a torn pair. Once a
+    # generation lock exists, every later development reader crosses it before
+    # loading either file. A fully pre-provisioned pair with no application lock
+    # remains read-only friendly and needs no generation coordination.
     lock_path = priv.parent / ".jwt_keygen.lock"
+    if priv.exists() and pub.exists() and not lock_path.exists():
+        return
     lock_flags = os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
     try:
         lock_fd = os.open(lock_path, lock_flags, 0o600)
@@ -448,7 +486,11 @@ def _ensure_keypair() -> None:
         ):
             raise RuntimeError("JWT key-generation lock path changed during acquisition")
         os.fchmod(lock_fd, 0o600)
-        if not (priv.exists() and pub.exists()):
+        pair_complete = priv.exists() and pub.exists()
+        pair_valid = pair_complete and _development_keypair_is_valid(priv, pub)
+        if pair_complete and not pair_valid:
+            _logger.warning("Repairing torn application-managed development JWT keypair")
+        if not pair_valid:
             _generate_keypair(priv, pub)
         named_after = os.lstat(lock_path)
         if not stat.S_ISREG(named_after.st_mode) or (opened.st_dev, opened.st_ino) != (

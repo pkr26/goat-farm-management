@@ -647,7 +647,11 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
         InvalidMutation(
             "UPDATE breeding_records SET buck_id = doe_id WHERE id = :id",
             {"id": ids["breeding"]},
-            ("ck_breeding_records_distinct_parents",),
+            (
+                "ck_breeding_relationship_immutable",
+                "breeding farm, doe and buck relationship are immutable",
+                "ck_breeding_records_distinct_parents",
+            ),
         ),
         InvalidMutation(
             "UPDATE breeding_records SET ultrasound_date = breeding_date - 1 WHERE id = :id",

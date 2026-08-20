@@ -112,6 +112,233 @@ describe("request timeout (CC-1)", () => {
   });
 });
 
+describe("refresh-cookie mutation ordering", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    setAccessToken("token-1", 1);
+    setCurrentFarmId("1");
+  });
+
+  afterEach(() => {
+    setAccessToken(null);
+    setCurrentFarmId(null);
+    setOnAuthFailure(null);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("keeps a new login behind an older logout until its cookie deletion arrives", async () => {
+    // Minimal FIFO Web Locks implementation: callback B cannot start until
+    // callback A (and therefore A's fetch response headers) has settled.
+    let lockTail = Promise.resolve<unknown>(undefined);
+    const lockRequest = vi.fn(
+      (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) => {
+        const result = lockTail.then(callback);
+        lockTail = result.then(
+          () => undefined,
+          () => undefined,
+        );
+        return result;
+      },
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+
+    let releaseLogout!: () => void;
+    let markLogoutStarted!: () => void;
+    const logoutStarted = new Promise<void>((resolve) => {
+      markLogoutStarted = resolve;
+    });
+    const logoutGate = new Promise<void>((resolve) => {
+      releaseLogout = resolve;
+    });
+    const fetchOrder: string[] = [];
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      fetchOrder.push(path);
+      if (path === "/api/auth/logout") {
+        markLogoutStarted();
+        await logoutGate;
+        return new Response(null, { status: 204 });
+      }
+      return jsonResponse(200, { ok: true });
+    });
+
+    const logout = apiFetch<void>("/api/auth/logout", { method: "POST" });
+    await logoutStarted;
+    const login = apiFetch<{ ok: boolean }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "worker@example.test", password: "secret" }),
+    });
+    await Promise.resolve();
+
+    expect(fetchOrder).toEqual(["/api/auth/logout"]);
+    releaseLogout();
+    await expect(logout).resolves.toBeUndefined();
+    await expect(login).resolves.toEqual({ ok: true });
+    expect(fetchOrder).toEqual(["/api/auth/logout", "/api/auth/login"]);
+    expect(lockRequest).toHaveBeenCalledTimes(2);
+    expect(lockRequest.mock.calls.map((call) => call[0])).toEqual([
+      "goatfarm-auth-refresh",
+      "goatfarm-auth-refresh",
+    ]);
+  });
+
+  it("keeps local FIFO ordering after an intermediate waiter times out", async () => {
+    vi.stubGlobal("navigator", undefined);
+    const callerSignal = new AbortController().signal;
+    let releaseLogout!: () => void;
+    let markLogoutStarted!: () => void;
+    const logoutStarted = new Promise<void>((resolve) => {
+      markLogoutStarted = resolve;
+    });
+    const logoutGate = new Promise<void>((resolve) => {
+      releaseLogout = resolve;
+    });
+    const fetchOrder: string[] = [];
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      fetchOrder.push(path);
+      if (path === "/api/auth/logout") {
+        markLogoutStarted();
+        await logoutGate;
+      }
+      return new Response(null, { status: 204 });
+    });
+
+    vi.useFakeTimers();
+    try {
+      // The caller-owned signal prevents the first network request's ordinary
+      // 60s timeout from ending the lock before the 62s queue bound under test.
+      const logout = apiFetch<void>("/api/auth/logout", {
+        method: "POST",
+        signal: callerSignal,
+      });
+      await logoutStarted;
+      const timedOutLogin = apiFetch<void>("/api/auth/login", { method: "POST" })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+
+      await vi.advanceTimersByTimeAsync(62_000);
+      await expect(timedOutLogin).resolves.toMatchObject({
+        status: 429,
+        detail: "Another authentication change is still finishing. Try again shortly.",
+      });
+      expect(fetchOrder).toEqual(["/api/auth/logout"]);
+
+      // Its already-released ticket must not let this later request skip the
+      // actual holder. Once the holder resolves, the third request proceeds;
+      // the timed-out middle request is never sent.
+      const registration = apiFetch<void>("/api/auth/register", { method: "POST" });
+      await Promise.resolve();
+      expect(fetchOrder).toEqual(["/api/auth/logout"]);
+      releaseLogout();
+      await expect(logout).resolves.toBeUndefined();
+      await expect(registration).resolves.toBeUndefined();
+      expect(fetchOrder).toEqual(["/api/auth/logout", "/api/auth/register"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a queued cookie mutation when its authenticated session is superseded", async () => {
+    let lockTail = Promise.resolve<unknown>(undefined);
+    const lockRequest = vi.fn(
+      (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) => {
+        const result = lockTail.then(callback);
+        lockTail = result.then(
+          () => undefined,
+          () => undefined,
+        );
+        return result;
+      },
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    let releaseLogin!: () => void;
+    let markLoginStarted!: () => void;
+    const loginStarted = new Promise<void>((resolve) => {
+      markLoginStarted = resolve;
+    });
+    const loginGate = new Promise<void>((resolve) => {
+      releaseLogin = resolve;
+    });
+    const fetchOrder: string[] = [];
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      fetchOrder.push(path);
+      if (path === "/api/auth/login") {
+        markLoginStarted();
+        await loginGate;
+      }
+      return new Response(null, { status: 204 });
+    });
+
+    const blocker = apiFetch<void>("/api/auth/login", { method: "POST" });
+    await loginStarted;
+    const staleChange = apiFetch<void>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current_password: "old", new_password: "new" }),
+    });
+    setAccessToken("replacement-session", 2);
+    releaseLogin();
+
+    await expect(blocker).rejects.toMatchObject({ name: "AuthSessionChangedError" });
+    await expect(staleChange).rejects.toMatchObject({ name: "AuthSessionChangedError" });
+    expect(fetchOrder).toEqual(["/api/auth/login"]);
+  });
+
+  it("surfaces a pre-grant Web Lock failure without sending an uncoordinated login", async () => {
+    const lockRequest = vi
+      .fn()
+      .mockRejectedValue(new DOMException("locks unavailable", "NotSupportedError"));
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+
+    await expect(
+      apiFetch<void>("/api/auth/login", { method: "POST" }),
+    ).rejects.toMatchObject({
+      status: 429,
+      detail: "Secure authentication coordination is temporarily unavailable. Try again shortly.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["register", "/api/auth/register", "POST"],
+    ["login", "/api/auth/login", "POST"],
+    ["refresh", "/api/auth/refresh", "POST"],
+    ["logout", "/api/auth/logout", "POST"],
+    ["password change", "/api/auth/change-password", "POST"],
+    ["account deletion", "/api/auth/account", "DELETE"],
+  ])("serializes %s through the shared cookie lock", async (_label, path, method) => {
+    const lockRequest = vi.fn(
+      async (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) => callback(),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await apiFetch<void>(path, { method });
+
+    expect(lockRequest).toHaveBeenCalledTimes(1);
+    expect(lockRequest.mock.calls[0][0]).toBe("goatfarm-auth-refresh");
+  });
+});
+
 describe("transport failures and the session epoch (F5)", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -233,5 +460,24 @@ describe("transport failures and the session epoch (F5)", () => {
 
     expect(olderHandler).not.toHaveBeenCalled();
     expect(newerHandler).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores an older mounted provider when the overlapping newer provider unmounts", async () => {
+    const olderHandler = vi.fn();
+    const newerHandler = vi.fn();
+    const cleanupOlder = setOnAuthFailure(olderHandler);
+    const cleanupNewer = setOnAuthFailure(newerHandler);
+    cleanupNewer();
+    fetchMock.mockImplementation(async (input) =>
+      String(input) === "/api/auth/refresh"
+        ? jsonResponse(401, { detail: "No session" })
+        : jsonResponse(401, { detail: "Expired" }),
+    );
+
+    await apiFetch("/api/animals").catch(() => undefined);
+
+    expect(newerHandler).not.toHaveBeenCalled();
+    expect(olderHandler).toHaveBeenCalledTimes(1);
+    cleanupOlder();
   });
 });

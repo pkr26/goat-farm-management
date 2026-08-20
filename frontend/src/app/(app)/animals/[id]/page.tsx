@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useRef, useState, type ReactNode } from "react";
+import { Suspense, useState, type ReactNode } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -128,11 +128,19 @@ const weightSchema = z.object({
 });
 type WeightInput = z.input<typeof weightSchema>;
 type WeightValues = z.output<typeof weightSchema>;
+type ProfileActionFlight = ReturnType<typeof useSingleFlight>;
 
-function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () => void }) {
+function AddWeightDialog({
+  animalId,
+  onDone,
+  actionFlight,
+}: {
+  animalId: number;
+  onDone: () => void;
+  actionFlight: ProfileActionFlight;
+}) {
   const [open, setOpen] = useState(false);
   const mut = useRecordWeightApiAnimalsAnimalIdWeightPost();
-  const weightFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -141,7 +149,7 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
   } = useForm<WeightInput, unknown, WeightValues>({ resolver: zodResolver(weightSchema) });
 
   async function onSubmit(values: WeightValues) {
-    await weightFlight.run(async () => {
+    await actionFlight.run(async () => {
       try {
         await mut.mutateAsync({
           animalId,
@@ -167,7 +175,7 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
       <Button
         size="sm"
         variant="outline"
-        disabled={weightFlight.pending}
+        disabled={actionFlight.pending}
         onClick={() => setOpen(true)}
       >
         Record weight
@@ -177,7 +185,7 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
           <DialogTitle>Record weight</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-          <fieldset disabled={isSubmitting || weightFlight.pending} className="contents">
+          <fieldset disabled={isSubmitting || actionFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="w_date">Date (defaults to today)</Label>
             <Input
@@ -235,8 +243,8 @@ function AddWeightDialog({ animalId, onDone }: { animalId: number; onDone: () =>
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || weightFlight.pending}>
-              {isSubmitting || weightFlight.pending ? "Saving…" : "Save"}
+            <Button type="submit" disabled={isSubmitting || actionFlight.pending}>
+              {isSubmitting || actionFlight.pending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -257,15 +265,16 @@ function MoveBucketDialog({
   currentBucket,
   sex,
   onDone,
+  actionFlight,
 }: {
   animalId: number;
   currentBucket: string;
   sex: string;
   onDone: () => void;
+  actionFlight: ProfileActionFlight;
 }) {
   const [open, setOpen] = useState(false);
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
-  const moveFlight = useSingleFlight();
   const {
     handleSubmit,
     control,
@@ -275,7 +284,7 @@ function MoveBucketDialog({
   } = useForm<MoveValues>({ resolver: zodResolver(moveSchema) });
 
   async function onSubmit(values: MoveValues) {
-    await moveFlight.run(async () => {
+    await actionFlight.run(async () => {
       try {
         await mut.mutateAsync({
           animalId,
@@ -299,7 +308,7 @@ function MoveBucketDialog({
       <Button
         size="sm"
         variant="outline"
-        disabled={moveFlight.pending}
+        disabled={actionFlight.pending}
         onClick={() => setOpen(true)}
       >
         Move bucket
@@ -309,7 +318,7 @@ function MoveBucketDialog({
           <DialogTitle>Move bucket</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-          <fieldset disabled={isSubmitting || moveFlight.pending} className="contents">
+          <fieldset disabled={isSubmitting || actionFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="move-to-bucket">To bucket *</Label>
             <Controller
@@ -360,8 +369,8 @@ function MoveBucketDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || moveFlight.pending}>
-              {isSubmitting || moveFlight.pending ? "Moving…" : "Move"}
+            <Button type="submit" disabled={isSubmitting || actionFlight.pending}>
+              {isSubmitting || actionFlight.pending ? "Moving…" : "Move"}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -447,13 +456,14 @@ function statusCanRecordSale(status: StatusValues["new_status"]): boolean {
 function StatusDialog({
   animalId,
   onDone,
+  actionFlight,
 }: {
   animalId: number;
   onDone: () => void;
+  actionFlight: ProfileActionFlight;
 }) {
   const [open, setOpen] = useState(false);
   const mut = useChangeStatusApiAnimalsAnimalIdStatusPost();
-  const statusFlight = useSingleFlight();
   const {
     register,
     handleSubmit,
@@ -476,7 +486,7 @@ function StatusDialog({
   });
 
   async function onSubmit(values: StatusValues) {
-    await statusFlight.run(async () => {
+    await actionFlight.run(async () => {
       try {
         await mut.mutateAsync({
           animalId,
@@ -528,7 +538,7 @@ function StatusDialog({
       <Button
         size="sm"
         variant="destructive"
-        disabled={statusFlight.pending}
+        disabled={actionFlight.pending}
         onClick={() => setOpen(true)}
       >
         Change status
@@ -538,7 +548,7 @@ function StatusDialog({
           <DialogTitle>Change status</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-          <fieldset disabled={isSubmitting || statusFlight.pending} className="contents">
+          <fieldset disabled={isSubmitting || actionFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="animal-new-status">New status *</Label>
             <Controller
@@ -742,9 +752,9 @@ function StatusDialog({
             <Button
               type="submit"
               variant="destructive"
-              disabled={isSubmitting || statusFlight.pending}
+              disabled={isSubmitting || actionFlight.pending}
             >
-              {isSubmitting || statusFlight.pending ? "Saving…" : "Confirm"}
+              {isSubmitting || actionFlight.pending ? "Saving…" : "Confirm"}
             </Button>
           </DialogFooter>
           </fieldset>
@@ -758,63 +768,69 @@ function ClearRestrictionDialog({
   animalId,
   restrictionVersion,
   onDone,
+  actionFlight,
 }: {
   animalId: number;
   restrictionVersion: number;
   onDone: () => void;
+  actionFlight: ProfileActionFlight;
 }) {
   const [open, setOpen] = useState(false);
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [conflictedVersion, setConflictedVersion] = useState<number | null>(null);
-  const requestInFlight = useRef(false);
   const mutation = useClearMovementRestrictionApiHealthRestrictionsAnimalIdClearPost();
   const awaitingEpisodeRefresh = conflictedVersion === restrictionVersion;
 
   async function clearRestriction() {
-    if (requestInFlight.current || awaitingEpisodeRefresh) return;
+    if (actionFlight.pending || awaitingEpisodeRefresh) return;
     const clearanceReference = reference.trim();
     if (!clearanceReference) {
       setError("A veterinary or authority clearance reference is required.");
       return;
     }
     setError(null);
-    requestInFlight.current = true;
-    try {
-      await mutation.mutateAsync({
-        animalId,
-        data: {
-          clearance_reference: clearanceReference,
-          expected_restriction_version: restrictionVersion,
-        },
-      });
-      toast.success("Movement restriction cleared with an audit reference.");
-      setReference("");
-      setConflictedVersion(null);
-      setOpen(false);
-      onDone();
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 409) {
-        setConflictedVersion(restrictionVersion);
-        setError(`${caught.detail} Refreshing the current restriction episode before retrying.`);
+    await actionFlight.run(async () => {
+      try {
+        await mutation.mutateAsync({
+          animalId,
+          data: {
+            clearance_reference: clearanceReference,
+            expected_restriction_version: restrictionVersion,
+          },
+        });
+        toast.success("Movement restriction cleared with an audit reference.");
+        setReference("");
+        setConflictedVersion(null);
+        setOpen(false);
         onDone();
-      } else {
-        setError(caught instanceof ApiError ? caught.detail : "Could not clear the restriction.");
+      } catch (caught) {
+        if (caught instanceof ApiError && caught.status === 409) {
+          setConflictedVersion(restrictionVersion);
+          setError(`${caught.detail} Refreshing the current restriction episode before retrying.`);
+          onDone();
+        } else {
+          setError(caught instanceof ApiError ? caught.detail : "Could not clear the restriction.");
+        }
       }
-    } finally {
-      requestInFlight.current = false;
-    }
+    });
   }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (!nextOpen && mutation.isPending) return;
+        if (!nextOpen && actionFlight.pending) return;
         setOpen(nextOpen);
       }}
     >
-      <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={actionFlight.pending}
+        onClick={() => setOpen(true)}
+      >
         Record clearance
       </Button>
       <DialogContent className="sm:max-w-md">
@@ -830,7 +846,7 @@ function ClearRestrictionDialog({
           <Input
             id={`clearance-reference-${animalId}`}
             value={reference}
-            disabled={mutation.isPending || awaitingEpisodeRefresh}
+            disabled={actionFlight.pending || awaitingEpisodeRefresh}
             maxLength={255}
             placeholder="certificate/order number and issuing authority"
             aria-invalid={Boolean(error) || undefined}
@@ -851,7 +867,7 @@ function ClearRestrictionDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={mutation.isPending}
+            disabled={actionFlight.pending}
             onClick={() => setOpen(false)}
           >
             Cancel
@@ -863,7 +879,7 @@ function ClearRestrictionDialog({
           )}
           <Button
             type="button"
-            disabled={!reference.trim() || mutation.isPending || awaitingEpisodeRefresh}
+            disabled={!reference.trim() || actionFlight.pending || awaitingEpisodeRefresh}
             onClick={() => void clearRestriction()}
           >
             {mutation.isPending
@@ -906,6 +922,10 @@ function ProfileBody({
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
   const canViewBreeding = can("breeding.view");
+  // Weight, move, status and restriction clearance all mutate the same animal
+  // lifecycle. One synchronous lock prevents a dismissed slow dialog from
+  // overlapping a second action whose validity depends on the first.
+  const actionFlight = useSingleFlight();
   const [restrictionOffset, setRestrictionOffset] = useState(0);
   const restrictionHistoryQuery = useMovementRestrictionHistoryApiHealthRestrictionsAnimalIdGet(
     a.id,
@@ -944,16 +964,29 @@ function ProfileBody({
           actions={
             active && (
               <>
-                {can("animals.weight") && <AddWeightDialog animalId={a.id} onDone={refresh} />}
+                {can("animals.weight") && (
+                  <AddWeightDialog
+                    animalId={a.id}
+                    onDone={refresh}
+                    actionFlight={actionFlight}
+                  />
+                )}
                 {can("animals.move") && !a.movement_restricted && (
                   <MoveBucketDialog
                     animalId={a.id}
                     currentBucket={a.current_bucket}
                     sex={a.sex}
                     onDone={refresh}
+                    actionFlight={actionFlight}
                   />
                 )}
-                {can("animals.status") && <StatusDialog animalId={a.id} onDone={refresh} />}
+                {can("animals.status") && (
+                  <StatusDialog
+                    animalId={a.id}
+                    onDone={refresh}
+                    actionFlight={actionFlight}
+                  />
+                )}
               </>
             )
           }
@@ -988,6 +1021,7 @@ function ProfileBody({
                 animalId={a.id}
                 restrictionVersion={a.restriction_version}
                 onDone={refresh}
+                actionFlight={actionFlight}
               />
             )}
           </CardContent>

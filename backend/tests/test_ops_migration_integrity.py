@@ -23,6 +23,8 @@ REFRESH_BOUNDS_PARENT = "e5f6a7b8c9d0"
 REFRESH_BOUNDS = "f6a7b8c9d0e1"
 PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
+KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
+KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -683,6 +685,7 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
 
         # ORM metadata mirrors both the partial unique index and the CHECK;
         # deployment-time autogenerate drift detection must stay clean.
+        await _alembic(database, "upgrade", KIDDING_LOCK_ORDER)
         await _alembic(database, "check")
         await _alembic(database, "downgrade", PRESET_ROLE_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -706,6 +709,125 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
             assert (
                 await connection.fetchval("SELECT code FROM roles WHERE id = $1", duplicate_role_id)
                 is None
+            )
+        finally:
+            await connection.close()
+    finally:
+        await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+
+
+async def test_kidding_trigger_migration_splits_insert_and_update_lock_paths() -> None:
+    database = _throwaway_name("kidding_lock_order")
+    await _admin(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+    await _admin(f'CREATE DATABASE "{database}"')
+    database_url = f"postgresql://localhost:5432/{database}"
+    try:
+        await _alembic(database, "upgrade", KIDDING_LOCK_ORDER_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            previous = await connection.fetchval(
+                """
+                SELECT pg_get_triggerdef(oid)
+                FROM pg_trigger
+                WHERE tgname = 'trg_kidding_reproductive_outcome'
+                """
+            )
+            assert "BEFORE INSERT OR UPDATE" in previous
+            assert "breeding_record_id, date, doe_id, farm_id" in previous
+        finally:
+            await connection.close()
+
+        await _alembic(database, "upgrade", KIDDING_LOCK_ORDER)
+        connection = await asyncpg.connect(database_url)
+        try:
+            trigger_rows = await connection.fetch(
+                """
+                SELECT tgname, pg_get_triggerdef(oid) AS definition
+                FROM pg_trigger
+                WHERE tgrelid = 'kidding_records'::regclass
+                  AND NOT tgisinternal
+                ORDER BY tgname
+                """
+            )
+            triggers = {row["tgname"]: row["definition"] for row in trigger_rows}
+            assert (
+                "BEFORE INSERT ON public.kidding_records"
+                in triggers["trg_00_kidding_insert_lock_order"]
+            )
+            assert (
+                "BEFORE INSERT ON public.kidding_records"
+                in triggers["trg_kidding_reproductive_outcome"]
+            )
+            assert "UPDATE" not in triggers["trg_kidding_reproductive_outcome"]
+            assert (
+                "UPDATE OF farm_id, doe_id, breeding_record_id"
+                in triggers["trg_00_kidding_relationship_immutable"]
+            )
+            assert "UPDATE OF date" in triggers["trg_kidding_date_mortality_guard"]
+
+            breeding_relationship_guard = await connection.fetchval(
+                """
+                SELECT pg_get_triggerdef(oid)
+                FROM pg_trigger
+                WHERE tgname = 'trg_00_breeding_relationship_immutable'
+                """
+            )
+            assert "BEFORE UPDATE OF farm_id, doe_id, buck_id" in breeding_relationship_guard
+
+            lock_function = await connection.fetchval(
+                """
+                SELECT pg_get_functiondef(
+                  'lock_kidding_parents_in_lifecycle_order()'::regprocedure
+                )
+                """
+            )
+            # Two explicit statements make the row order reviewable and
+            # deterministic: the doe lock precedes the breeding-parent lock.
+            assert lock_function.index("FROM animals") < lock_function.index(
+                "FROM breeding_records"
+            )
+            assert lock_function.count("FOR UPDATE") == 2
+        finally:
+            await connection.close()
+
+        # The trigger-only revision must not introduce ORM/table metadata
+        # drift while changing the database's procedural lock contract.
+        await _alembic(database, "check")
+        await _alembic(database, "downgrade", KIDDING_LOCK_ORDER_PARENT)
+        connection = await asyncpg.connect(database_url)
+        try:
+            restored = await connection.fetchval(
+                """
+                SELECT pg_get_triggerdef(oid)
+                FROM pg_trigger
+                WHERE tgname = 'trg_kidding_reproductive_outcome'
+                """
+            )
+            assert "BEFORE INSERT OR UPDATE" in restored
+            assert "breeding_record_id, date, doe_id, farm_id" in restored
+            assert (
+                await connection.fetchval(
+                    """
+                    SELECT count(*)
+                    FROM pg_trigger
+                    WHERE tgname IN (
+                      'trg_00_kidding_insert_lock_order',
+                      'trg_00_kidding_relationship_immutable',
+                      'trg_kidding_date_mortality_guard'
+                    )
+                    """
+                )
+                == 0
+            )
+            assert (
+                await connection.fetchval(
+                    """
+                    SELECT count(*)
+                    FROM pg_trigger
+                    WHERE tgname = 'trg_00_breeding_relationship_immutable'
+                    """
+                )
+                == 0
             )
         finally:
             await connection.close()

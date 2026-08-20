@@ -504,6 +504,54 @@ async def test_login_failures_trip_the_limiter(client: httpx.AsyncClient) -> Non
     assert "Too many" in resp.json()["detail"]
 
 
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_cancelled_invalid_login_still_enters_failure_budget(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canceling after Argon admission must not bypass failure accounting."""
+    email = "cancelled-invalid-login@farm.in"
+    await register(client, email, "realpass123")
+    auth_limiter.clear()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stalled_rejection(_password: str, _stored: str) -> tuple[bool, bool, bool]:
+        started.set()
+        await release.wait()
+        return False, False, True
+
+    monkeypatch.setattr(auth_api, "verify_password_with_work_async", stalled_rejection)
+    request = asyncio.create_task(
+        client.post(
+            "/api/auth/login",
+            json={"email": email, "password": "wrongpass123"},
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        assert len(auth_limiter._hits[("login", f"127.0.0.1|{email}")]) == 1
+    finally:
+        release.set()
+
+    for _ in range(500):
+        if not auth_limiter._reservations:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("canceled login reservation did not become idle")
+
+    blocked = await client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "wrongpass123"},
+    )
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"].startswith("Too many attempts")
+
+
 @pytest.mark.usefixtures("rate_limit_on")
 async def test_login_success_resets_the_failure_count(client: httpx.AsyncClient) -> None:
     await register(client, "resettable@farm.in", "realpass123")
@@ -1373,6 +1421,103 @@ def test_first_boot_generation_takes_a_process_lock(
     assert (priv.parent / ".jwt_keygen.lock").exists()
 
 
+def test_app_managed_development_pair_recovers_after_torn_publish(
+    tmp_jwt_keys: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """A crash after replacing one side must not brick every later dev boot."""
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    old_private = tmp_path / "old-private.pem"
+    security._generate_keypair(old_private, pub)
+    new_public = tmp_path / "new-public.pem"
+    security._generate_keypair(priv, new_public)
+    # The application-owned marker survives a crashed first-boot attempt. Both
+    # configured names exist, but they belong to different generated pairs.
+    (priv.parent / ".jwt_keygen.lock").touch(mode=0o600)
+
+    security._ensure_keypair()
+
+    private_key = security.serialization.load_pem_private_key(priv.read_bytes(), password=None)
+    public_key = security.serialization.load_pem_public_key(pub.read_bytes())
+    assert isinstance(private_key, rsa.RSAPrivateKey)
+    assert isinstance(public_key, rsa.RSAPublicKey)
+    assert private_key.public_key().public_numbers() == public_key.public_numbers()
+
+
+def test_partial_keypair_reader_crosses_in_progress_generation_lock(
+    tmp_jwt_keys: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One pre-existing PEM makes both names visible halfway through publish.
+
+    A second process must cross the already-created flock instead of treating
+    that transient pair as complete and loading mismatched signing material.
+    Threads call the lock-requiring helper directly here, while a fake flock
+    models the distinct per-process file locks deterministically.
+    """
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    pub.write_bytes(b"old-public")
+    private_published = threading.Event()
+    finish_publication = threading.Event()
+    generation_finished = threading.Event()
+    second_crossed_flock = threading.Event()
+    errors: list[BaseException] = []
+
+    def staged_generation(private_path: Path, public_path: Path) -> None:
+        security._write_atomic(private_path, b"new-private", mode=0o600)
+        private_published.set()
+        assert finish_publication.wait(timeout=5)
+        security._write_atomic(public_path, b"new-public", mode=0o644)
+        generation_finished.set()
+
+    def coordinated_flock(_fd: int, operation: int) -> None:
+        if operation != fcntl.LOCK_EX:
+            return
+        if threading.current_thread() is first:
+            return
+        second_crossed_flock.set()
+        assert generation_finished.wait(timeout=5)
+
+    def ensure() -> None:
+        try:
+            security._ensure_keypair()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(security, "_generate_keypair", staged_generation)
+    monkeypatch.setattr(security.fcntl, "flock", coordinated_flock)
+    first = threading.Thread(target=ensure)
+    first.start()
+    try:
+        assert private_published.wait(timeout=5)
+        assert priv.exists() and pub.exists()  # the torn-name visibility window
+        second = threading.Thread(target=ensure)
+        second.start()
+        assert second_crossed_flock.wait(timeout=5)
+        second.join(timeout=0.05)
+        assert second.is_alive()
+        finish_publication.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+    finally:
+        finish_publication.set()
+        first.join(timeout=5)
+        if "second" in locals() and second.is_alive():
+            second.join(timeout=5)
+
+    assert not errors
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert priv.read_bytes() == b"new-private"
+    assert pub.read_bytes() == b"new-public"
+
+
 def test_first_boot_lock_rejects_symlink_without_truncating_target(
     tmp_jwt_keys: tuple[Path, Path],
 ) -> None:
@@ -1647,6 +1792,87 @@ async def test_rejected_replacement_still_charges_the_change_password_budget(
     assert first.json()["detail"].startswith("New password must be different")
     second = await client.post("/api/auth/change-password", json=payload, headers=headers)
     assert second.status_code == 429
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_cancelled_account_password_work_stays_charged(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Disconnecting during confirmation cannot loop unmetered Argon work."""
+    headers = await register(client, "cancelled-confirmation@farm.in")
+    auth_limiter.clear()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stalled_confirmation(_password: str, _stored: str) -> tuple[bool, bool]:
+        started.set()
+        await release.wait()
+        return True, False
+
+    monkeypatch.setattr(auth_api, "verify_password_async", stalled_confirmation)
+    request = asyncio.create_task(
+        client.post(
+            "/api/auth/change-password",
+            json={"current_password": "ownerpass123", "new_password": "newpass1234"},
+            headers=headers,
+        )
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+    finally:
+        release.set()
+
+    for _ in range(500):
+        if not auth_limiter._reservations:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("canceled confirmation reservation did not become idle")
+
+    blocked = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": "ownerpass123", "new_password": "newpass1234"},
+        headers=headers,
+    )
+    assert blocked.status_code == 429
+    assert blocked.json()["detail"].startswith("Too many attempts")
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_unadmitted_account_password_work_does_not_charge_budget(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A full global pool is capacity pressure, not a password failure."""
+    headers = await register(client, "busy-confirmation@farm.in")
+    auth_limiter.clear()
+
+    async def reject_before_work(_password: str, _stored: str) -> tuple[bool, bool]:
+        raise security_api.PasswordWorkCapacityError("native pool is full")
+
+    monkeypatch.setattr(auth_api, "verify_password_async", reject_before_work)
+    first = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": "ownerpass123", "new_password": "newpass1234"},
+        headers=headers,
+    )
+    second = await client.post(
+        "/api/auth/change-password",
+        json={"current_password": "ownerpass123", "new_password": "newpass1234"},
+        headers=headers,
+    )
+
+    assert first.status_code == second.status_code == 429
+    assert first.json()["detail"].startswith("Password service is busy")
+    assert second.json()["detail"].startswith("Password service is busy")
+    assert not any(
+        scope in {auth_api.CHANGE_PASSWORD_SCOPE, auth_api.ACCOUNT_PASSWORD_CONFIRM_ACCOUNT_SCOPE}
+        for scope, _key in auth_limiter._hits
+    )
 
 
 async def test_account_password_workflows_share_one_argon_reservation(

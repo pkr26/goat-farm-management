@@ -9,10 +9,12 @@
 
 import { screen, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server, TEST_FARMS, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { useAuth } from "@/lib/auth-context";
 
 import RootPage from "./page";
 
@@ -24,6 +26,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
 }));
+
+function RootMountedAfterBootstrap() {
+  const { loading } = useAuth();
+  return loading ? null : (
+    <StrictMode>
+      <RootPage />
+    </StrictMode>
+  );
+}
 
 describe("RootPage redirect hub", () => {
   beforeEach(() => replaceMock.mockClear());
@@ -73,9 +84,12 @@ describe("RootPage redirect hub", () => {
   it("redirects to /farm-select when logged in but the user has no farms", async () => {
     server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
 
-    renderWithProviders(<RootPage />);
+    // Mount the redirect hub only after auth is already settled so its true
+    // redirect branch is exercised during Strict Mode's effect replay.
+    renderWithProviders(<RootMountedAfterBootstrap />);
 
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
+    expect(replaceMock).toHaveBeenCalledTimes(1);
   });
 
   it("redirects to /dashboard when logged in with a farm (auto-selected)", async () => {

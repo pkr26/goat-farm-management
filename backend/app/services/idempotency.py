@@ -202,7 +202,6 @@ async def replay_idempotent_if_committed[ResponseT: BaseModel](
             detail="Idempotency-Key must be 1-128 printable non-whitespace ASCII characters",
         )
 
-    now = utcnow()
     _current_hash, accepted_request_hashes = _request_hashes(
         operation,
         payload,
@@ -219,7 +218,10 @@ async def replay_idempotent_if_committed[ResponseT: BaseModel](
             )
         )
     ).scalar_one_or_none()
-    if existing is None or existing.expires_at <= now:
+    # A pool checkout/query can wait behind unrelated work. Retention is
+    # evaluated after that await so a record that expires while this replay
+    # probe is queued is not returned past its documented boundary.
+    if existing is None or existing.expires_at <= utcnow():
         return None
     if not _request_hash_matches(operation, existing.request_hash, accepted_request_hashes):
         raise HTTPException(
@@ -330,7 +332,12 @@ async def execute_idempotent[ResponseT: BaseModel](
             ).scalar_one_or_none()
             if existing is None:
                 continue
-            if existing.expires_at <= now:
+            # The conflicting INSERT may have waited behind the claimant,
+            # cleanup, or another expiry-boundary takeover. Decide retention
+            # against the time the row was actually observed, not the timestamp
+            # captured before that wait; otherwise a response that expired while
+            # this request was blocked is replayed past its documented boundary.
+            if existing.expires_at <= utcnow():
                 await db.delete(existing)
                 await db.flush()
                 existing = None

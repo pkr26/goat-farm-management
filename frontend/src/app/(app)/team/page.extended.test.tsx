@@ -7,7 +7,7 @@
  * the role dialog lives in page.test.tsx.
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -279,6 +279,76 @@ describe("TeamPage workers table", () => {
     );
 
     expect(calls).toBe(0);
+  });
+
+  it("does not open password reset while a row status change is in flight", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let releaseStatus!: () => void;
+    let markStatusStarted!: () => void;
+    const statusStarted = new Promise<void>((resolve) => {
+      markStatusStarted = resolve;
+    });
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    server.use(
+      http.put("/api/team/workers/:membershipId/status", async () => {
+        markStatusStarted();
+        await statusGate;
+        return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = workerRow(MEMBER_RAVI.email);
+
+    await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    await statusStarted;
+    const reset = within(row).getByRole("button", { name: "Reset password" });
+    expect(reset).toBeDisabled();
+    await user.click(reset);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseStatus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(reset).toBeEnabled());
+  });
+
+  it("claims the row synchronously when password reset opens", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    let statusCalls = 0;
+    server.use(
+      http.put("/api/team/workers/:membershipId/status", () => {
+        statusCalls += 1;
+        return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+      }),
+    );
+    await renderLoaded();
+    const row = workerRow(MEMBER_RAVI.email);
+    const reset = within(row).getByRole("button", { name: "Reset password" });
+    const deactivate = within(row).getByRole("button", { name: "Deactivate" });
+
+    // Deliver both events in one React task, before disabled props can render.
+    // The ref claim made by Reset must stop the status request synchronously.
+    await act(async () => {
+      reset.click();
+      deactivate.click();
+    });
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(statusCalls).toBe(0);
+    const role = within(row).getByRole("combobox", { hidden: true });
+    expect(role).toBeDisabled();
+    expect(deactivate).toBeDisabled();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(role).toBeEnabled();
+    expect(deactivate).toBeEnabled();
   });
 
   it("retries the same desired worker state instead of inverting it", async () => {

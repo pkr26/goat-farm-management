@@ -10,7 +10,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuth } from "@/lib/auth-context";
@@ -85,6 +85,15 @@ function FarmScopedDraft() {
         refresh memberships
       </button>
     </div>
+  );
+}
+
+function LayoutMountedAfterBootstrap() {
+  const { loading } = useAuth();
+  return loading ? null : (
+    <StrictMode>
+      <AppLayout>{null}</AppLayout>
+    </StrictMode>
   );
 }
 
@@ -570,10 +579,19 @@ describe("AppLayout — loading and no-farm states", () => {
   it("redirects to /farm-select when logged in without any farm", async () => {
     server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    const rendered = renderWithProviders(<LayoutMountedAfterBootstrap />);
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/farm-select"));
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+
+    // If another client navigation wins before the replacement commits, that
+    // new source route owns a distinct redirect intent and must not inherit
+    // the old route's Strict Mode de-duplication latch.
+    navState.pathname = "/animals";
+    rendered.rerender(<LayoutMountedAfterBootstrap />);
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledTimes(2));
+    expect(replaceMock).toHaveBeenLastCalledWith("/farm-select");
   });
   it("closes the mobile nav drawer after following a nav link", async () => {
     // Below the breakpoint the sidebar is a modal Sheet with a backdrop and a

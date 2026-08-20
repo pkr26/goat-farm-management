@@ -2,6 +2,7 @@
  * query string that hydrates the add-event dialog. */
 
 import { render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import HealthNewRedirect from "./page";
@@ -24,13 +25,18 @@ describe("/health/new redirect shim", () => {
     searchParams.current = new URLSearchParams();
   });
 
-  it("redirects to /health preserving the query string", async () => {
+  it("redirects once to /health preserving the query string under Strict Mode", async () => {
     searchParams.current = new URLSearchParams("task_id=12&animal_id=3");
-    render(<HealthNewRedirect />);
+    render(
+      <StrictMode>
+        <HealthNewRedirect />
+      </StrictMode>,
+    );
 
     await waitFor(() =>
       expect(replaceMock).toHaveBeenCalledWith("/health?task_id=12&animal_id=3"),
     );
+    expect(replaceMock).toHaveBeenCalledTimes(1);
   });
 
   it("redirects to plain /health without a query string", async () => {

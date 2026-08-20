@@ -9,6 +9,7 @@ keys, so this doubles as a contract check on the defaults endpoint.
 
 import asyncio
 import math
+import threading
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -1203,6 +1204,122 @@ async def test_busy_fast_path_does_not_leak_keyed_run_locks() -> None:
             assert exc_info.value.status_code == 429
     assert not any(key in _farm_run_locks for key in keys)
     assert not any(key in _user_run_locks for key in keys)
+
+
+async def test_cancelled_run_retains_capacity_until_native_worker_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Raw asyncio cancellation abandons AnyIO's await, not its OS thread.
+
+    Releasing the keyed/global guards at that point lets cancel/retry stack
+    untracked pure-Python simulations beyond the advertised process ceiling.
+    The request unwinds promptly, while native completion retains and later
+    releases the admission lease independently.
+    """
+    farm_id = 910_001
+    user_id = 920_001
+    started = threading.Event()
+    release = threading.Event()
+
+    def parked_run(*_args: object) -> object:
+        started.set()
+        assert release.wait(timeout=10)
+        return object()
+
+    monkeypatch.setattr(simulation_api, "_run", parked_run)
+    assumptions = SimulationAssumptions()
+
+    async def operation() -> object:
+        return await simulation_api._run_offloaded(
+            assumptions,
+            False,
+            False,
+            False,
+        )
+
+    request = asyncio.create_task(_with_run_limits(farm_id, user_id, operation))
+    try:
+        for _ in range(500):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        else:
+            raise AssertionError("simulation worker did not start")
+
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        assert _farm_run_locks[farm_id].locked()
+        assert _user_run_locks[user_id].locked()
+        assert _global_run_slots._value == 1
+
+        async def must_not_run() -> None:  # pragma: no cover - busy guard fires
+            raise AssertionError("same principal ran while canceled native work was live")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _with_run_limits(farm_id, user_id, must_not_run)
+        assert exc_info.value.status_code == 429
+    finally:
+        release.set()
+
+    # Completion releases and retires both keyed guards; cancellation must not
+    # leave a permanent busy entry after the native worker really stops.
+    for _ in range(500):
+        if farm_id not in _farm_run_locks and user_id not in _user_run_locks:
+            break
+        await asyncio.sleep(0.01)
+    else:
+        raise AssertionError("native completion did not release simulation capacity")
+    assert _global_run_slots._value == 2
+
+
+async def test_cancelled_queued_run_releases_lease_and_never_starts_late(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancellation may win before AnyIO assigns a worker-thread token."""
+    farm_id = 910_002
+    user_id = 920_002
+    queued = asyncio.Event()
+    never_started = asyncio.Event()
+    captured: list[tuple[object, tuple[object, ...]]] = []
+    engine_calls = 0
+
+    async def parked_thread_submission(function, *args):  # type: ignore[no-untyped-def]
+        captured.append((function, args))
+        queued.set()
+        await never_started.wait()
+        return function(*args)
+
+    def counted_run(*_args: object) -> object:
+        nonlocal engine_calls
+        engine_calls += 1
+        return object()
+
+    monkeypatch.setattr(simulation_api, "run_in_threadpool", parked_thread_submission)
+    monkeypatch.setattr(simulation_api, "_run", counted_run)
+    assumptions = SimulationAssumptions()
+
+    async def operation() -> object:
+        return await simulation_api._run_offloaded(assumptions, False, False, False)
+
+    request = asyncio.create_task(_with_run_limits(farm_id, user_id, operation))
+    await asyncio.wait_for(queued.wait(), timeout=2)
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+
+    # The queued job did no native work, so cancellation itself returns every
+    # capacity lease instead of waiting forever for a wrapper that may never run.
+    assert farm_id not in _farm_run_locks
+    assert user_id not in _user_run_locks
+    assert _global_run_slots._value == 2
+
+    # Model a thread-limiter callback that was already queued and runs late.
+    # Its abandoned-state check must skip _run after the lease is gone.
+    assert len(captured) == 1
+    function, args = captured[0]
+    await asyncio.to_thread(function, *args)  # type: ignore[arg-type]
+    assert engine_calls == 0
 
 
 # ---------------------------------------------------------------------------

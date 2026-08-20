@@ -5,7 +5,7 @@
  *  preserving the query string — the kidding page auto-opens the dialog. */
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 
 function KiddingNewRedirectContent() {
   const router = useRouter();
@@ -18,9 +18,13 @@ function KiddingNewRedirectContent() {
   // kidding dialog. The sibling /breeding/[id]/ultrasound shim already keys on
   // its changing value for the same reason.
   const search = searchParams.toString();
+  const dispatchedUrl = useRef<string | null>(null);
 
   useEffect(() => {
-    router.replace(`/kidding${search ? `?${search}` : ""}`);
+    const url = `/kidding${search ? `?${search}` : ""}`;
+    if (dispatchedUrl.current === url) return;
+    dispatchedUrl.current = url;
+    router.replace(url);
   }, [router, search]);
 
   return <p className="py-10 text-center text-muted-foreground">Loading…</p>;

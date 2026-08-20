@@ -8,7 +8,7 @@
 
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, delay, http } from "msw";
+import { HttpResponse, http } from "msw";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -207,12 +207,29 @@ describe("AuthProvider bootstrap — no session", () => {
   });
 
   it("stays signed out and redirects to /login on a protected path", async () => {
-    renderWithProviders(<Probe />);
+    const rendered = renderWithProviders(<Probe />);
 
     await expectLoaded();
     expect(screen.getByTestId("user")).toHaveTextContent("none");
     expect(screen.getByTestId("farmId")).toHaveTextContent("none");
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    // A parent rerender can change useRouter's wrapper identity without
+    // changing the auth decision. Do not dispatch the same transition again.
+    rendered.rerender(<Probe />);
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-dispatches login when a different protected path supersedes the first redirect", async () => {
+    const rendered = renderWithProviders(<Probe />);
+    await expectLoaded();
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+
+    navState.pathname = "/animals";
+    rendered.rerender(<Probe />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledTimes(2));
+    expect(replaceMock).toHaveBeenLastCalledWith("/login");
   });
 
   it("does not redirect away from the public /login path", async () => {
@@ -384,9 +401,13 @@ describe("AuthProvider actions", () => {
     // A black-holed connection (server accepts the TCP connection, never
     // answers) used to leave a shared terminal fully signed in: the token,
     // farm and whole query cache stayed live behind the await.
+    let releaseLogout!: () => void;
+    const parkedLogout = new Promise<void>((resolve) => {
+      releaseLogout = resolve;
+    });
     server.use(
       http.post("/api/auth/logout", async () => {
-        await delay("infinite");
+        await parkedLogout;
         return new HttpResponse(null, { status: 204 });
       }),
     );
@@ -405,6 +426,13 @@ describe("AuthProvider actions", () => {
     expect(localStorage.getItem(FARM_STORAGE_KEY)).toBeNull();
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
     expect(replaceMock).toHaveBeenCalledWith("/login");
+    // Release test infrastructure after proving teardown did not wait. In
+    // production the request timeout releases the shared cookie lock; leaving
+    // this synthetic never-response parked would poison later tests instead.
+    await act(async () => {
+      releaseLogout();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   });
 
   it("refreshFarms re-fetches the list and applies membership changes", async () => {

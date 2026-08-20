@@ -407,10 +407,10 @@ describe("apiFetch refresh-retry edge cases", () => {
     expect(lockRequest.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("falls back to an uncoordinated refresh when the lock wait times out", async () => {
+  it("fails transiently instead of bypassing a timed-out auth-cookie lock", async () => {
     // A tab holding the lock behind a black-holed connection never releases
-    // it; the waiter's abort must downgrade to its own refresh rather than
-    // leaving the caller's promise pending forever.
+    // it; the waiter must settle, but an uncoordinated refresh could race a
+    // login/logout Set-Cookie response and overwrite the newer cookie.
     const lockRequest = vi.fn(
       (_name: string, options: LockOptions) =>
         // Never grants: the callback is deliberately ignored.
@@ -421,41 +421,29 @@ describe("apiFetch refresh-retry edge cases", () => {
         }),
     );
     vi.stubGlobal("navigator", { locks: { request: lockRequest } });
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, {
-        access_token: "uncoordinated-token",
-        user: { id: 1, email: "user@farm.in", name: null },
-      }),
-    );
-
     vi.useFakeTimers();
     try {
       const pending = refreshSession();
-      await vi.advanceTimersByTimeAsync(12_000);
+      await vi.advanceTimersByTimeAsync(62_000);
       const result = await pending;
 
-      expect(result?.access_token).toBe("uncoordinated-token");
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect(String(fetchMock.mock.calls[0][0])).toBe("/api/auth/refresh");
+      expect(result).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("falls back when Web Locks rejects before granting the lock", async () => {
+  it("does not bypass Web Locks when the request rejects before grant", async () => {
     const lockError = new DOMException("locks unavailable", "NotSupportedError");
     const lockRequest = vi.fn().mockRejectedValue(lockError);
     vi.stubGlobal("navigator", { locks: { request: lockRequest } });
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, refreshPayload("fallback-token")),
-    );
 
     const result = await refreshSession();
 
-    expect(result).toEqual(refreshPayload("fallback-token"));
+    expect(result).toBeNull();
     expect(lockRequest).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/auth/refresh");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("does not consume the refresh cookie after a queued caller changes session", async () => {
@@ -516,6 +504,7 @@ describe("apiFetch refresh-retry edge cases", () => {
     vi.useFakeTimers();
     try {
       const pending = refreshSession();
+      await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const requestSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
       expect(requestSignal.aborted).toBe(false);

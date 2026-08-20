@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, type ReactNode } from "react";
 
 import { Logo } from "@/components/logo";
 import { AccountDialog } from "@/components/account-dialog";
@@ -198,10 +198,19 @@ function AppLayoutContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const farmRedirectIntent = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!loading && user && !farmId) router.replace("/farm-select");
-  }, [loading, user, farmId, router]);
+    const shouldRedirect = !loading && Boolean(user) && !farmId;
+    if (!shouldRedirect) {
+      farmRedirectIntent.current = null;
+      return;
+    }
+    const intent = `${pathname}->/farm-select`;
+    if (farmRedirectIntent.current === intent) return;
+    farmRedirectIntent.current = intent;
+    router.replace("/farm-select");
+  }, [loading, user, farmId, pathname, router]);
 
   if (loading || !user || !farmId) {
     return (

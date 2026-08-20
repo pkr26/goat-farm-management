@@ -145,7 +145,7 @@ function WorkerRow({
   isSelf: boolean;
   protectedTarget: boolean;
   isOwner: boolean;
-  onReset: (m: MembershipOut) => void;
+  onReset: (m: MembershipOut, release: () => void) => void;
 }) {
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
@@ -156,7 +156,8 @@ function WorkerRow({
   // no request, no error, and (being a fully controlled Select) no visible
   // movement at all. Union the busy state so the lock can never refuse an
   // action the UI still presents as available.
-  const actionLock = useRef<"role" | "status" | null>(null);
+  const actionLock = useRef<"role" | "status" | "reset" | null>(null);
+  const [resetOwned, setResetOwned] = useState(false);
   const [actionError, setActionError] = useState<{
     action: "role" | "status";
     message: string;
@@ -165,7 +166,7 @@ function WorkerRow({
   } | null>(null);
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
-  const rowBusy = roleMutation.isPending || statusMutation.isPending;
+  const rowBusy = roleMutation.isPending || statusMutation.isPending || resetOwned;
   const assignableRoles = roles.filter((role) => roleWithinCeiling(role, can, isOwner));
   const roleItems: Record<string, string> = {
     [NONE]: "No role",
@@ -305,11 +306,20 @@ function WorkerRow({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!m.can_reset_password}
+                disabled={!m.can_reset_password || rowBusy}
                 aria-describedby={
                   !m.can_reset_password ? `reset-password-reason-${m.id}` : undefined
                 }
-                onClick={() => m.can_reset_password && onReset(m)}
+                onClick={() => {
+                  if (!m.can_reset_password || actionLock.current !== null) return;
+                  actionLock.current = "reset";
+                  setResetOwned(true);
+                  onReset(m, () => {
+                    if (actionLock.current !== "reset") return;
+                    actionLock.current = null;
+                    setResetOwned(false);
+                  });
+                }}
               >
                 Reset password
               </Button>
@@ -983,7 +993,12 @@ export default function TeamPage() {
   const allowed = can("team.manage");
 
   const [workerOpen, setWorkerOpen] = useState(false);
-  const [resetTarget, setResetTarget] = useState<MembershipOut | null>(null);
+  type ResetTarget = {
+    membership: MembershipOut;
+    release: () => void;
+  };
+  const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
+  const resetTargetRef = useRef<ResetTarget | null>(null);
   const [roleDialog, setRoleDialog] = useState<{ role: RoleOut | null } | null>(null);
 
   const query = useTeamPageApiTeamGet({ query: { enabled: allowed } });
@@ -1089,7 +1104,12 @@ export default function TeamPage() {
                   isSelf={m.email === user?.email}
                   isOwner={isOwner}
                   protectedTarget={isProtectedTarget(m)}
-                  onReset={setResetTarget}
+                  onReset={(membership, release) => {
+                    resetTargetRef.current?.release();
+                    const target = { membership, release };
+                    resetTargetRef.current = target;
+                    setResetTarget(target);
+                  }}
                 />
               ))}
             </TableBody>
@@ -1132,9 +1152,18 @@ export default function TeamPage() {
       )}
       {resetTarget && (
         <ResetPasswordDialog
-          key={resetTarget.id}
-          membership={resetTarget}
-          onClose={() => setResetTarget(null)}
+          key={resetTarget.membership.id}
+          membership={resetTarget.membership}
+          onClose={() => {
+            const closingTarget = resetTarget;
+            if (resetTargetRef.current === closingTarget) {
+              closingTarget.release();
+              resetTargetRef.current = null;
+            }
+            setResetTarget((current) =>
+              current === closingTarget ? null : current,
+            );
+          }}
         />
       )}
       {roleDialog && (roleDialog.role === null || currentDialogRole) && (

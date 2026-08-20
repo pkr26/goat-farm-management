@@ -2,6 +2,7 @@
  *  string (the kidding page auto-opens the record dialog from breeding_id). */
 
 import { render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import KiddingNewRedirect from "./page";
@@ -24,14 +25,19 @@ describe("/kidding/new redirect shim", () => {
     searchParams.current = new URLSearchParams();
   });
 
-  it("redirects to /kidding preserving the query string", async () => {
+  it("redirects once to /kidding preserving the query string under Strict Mode", async () => {
     searchParams.current = new URLSearchParams("breeding_id=12");
 
-    render(<KiddingNewRedirect />);
+    render(
+      <StrictMode>
+        <KiddingNewRedirect />
+      </StrictMode>,
+    );
 
     await waitFor(() =>
       expect(replaceMock).toHaveBeenCalledWith("/kidding?breeding_id=12"),
     );
+    expect(replaceMock).toHaveBeenCalledTimes(1);
   });
 
   it("redirects to plain /kidding without a query string", async () => {

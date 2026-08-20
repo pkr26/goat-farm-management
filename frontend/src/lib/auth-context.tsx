@@ -121,7 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Latest-wins fence for explicit membership refreshes. Two reads can
   // observe different server snapshots and arrive in reverse order.
   const farmRefreshGeneration = useRef(0);
-  const signOutFlight = useRef<Promise<void> | null>(null);
+  const signedOutRedirectIntent = useRef<string | null>(null);
+  const signOutFlight = useRef<{
+    /** Epoch immediately after this flight cleared its owning session. */
+    teardownEpoch: number;
+    task: Promise<void>;
+  } | null>(null);
 
   useEffect(() => {
     // React Strict Mode rehearses cleanup/setup without discarding refs.
@@ -172,24 +177,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback((): Promise<void> => {
     if (!mounted.current) return Promise.resolve();
-    if (signOutFlight.current) return signOutFlight.current;
+    const existingFlight = signOutFlight.current;
+    // Coalesce duplicate requests only while the locally signed-out session
+    // created by that flight is still current. A new sign-in advances the
+    // auth epoch; its later sign-out must not be swallowed by an older,
+    // slow /logout request that is still waiting on the network.
+    if (
+      existingFlight &&
+      existingFlight.teardownEpoch === authSessionEpochValue()
+    ) {
+      return existingFlight.task;
+    }
     // Suppress the generic signed-out redirect effect for this explicit
     // transition; signOut owns the one navigation below.
     forcedLogout.current = true;
+    // Fire the revocation while the bearer token is still installed, but
+    // never block local teardown on it. A request that neither resolves nor
+    // rejects would otherwise leave a shared terminal signed in.
+    const revoked = apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {
+      /* cookie may already be gone */
+    });
+    clearSession();
+    router.replace("/login");
     const task = (async () => {
-      // Fire the revocation while the bearer token is still installed, but
-      // never block local teardown on it. A request that neither resolves nor
-      // rejects would otherwise leave a shared terminal signed in.
-      const revoked = apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {
-        /* cookie may already be gone */
-      });
-      clearSession();
-      router.replace("/login");
       await revoked;
     })();
-    signOutFlight.current = task;
+    const flight = { teardownEpoch: authSessionEpochValue(), task };
+    signOutFlight.current = flight;
     const release = () => {
-      if (signOutFlight.current === task) signOutFlight.current = null;
+      if (signOutFlight.current === flight) signOutFlight.current = null;
     };
     void task.then(release, release);
     return task;
@@ -340,14 +356,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (
+    const shouldRedirect =
       !loading &&
       !user &&
       !forcedLogout.current &&
-      !PUBLIC_PATHS.includes(pathname)
-    ) {
-      router.replace("/login");
+      !PUBLIC_PATHS.includes(pathname);
+    if (!shouldRedirect) {
+      signedOutRedirectIntent.current = null;
+      return;
     }
+    const intent = `${pathname}->/login`;
+    if (signedOutRedirectIntent.current === intent) return;
+    signedOutRedirectIntent.current = intent;
+    router.replace("/login");
   }, [loading, user, pathname, router]);
 
   const value = useMemo(

@@ -350,6 +350,45 @@ async def test_reproductive_trigger_requires_confirmed_same_doe(
                 .values(doe_id=wrong_doe["id"])
             )
             await db.commit()
+
+    # Even a different internally-valid pregnancy pair cannot receive an
+    # existing delivery after the fact. Besides rewriting an immutable audit
+    # relationship, allowing that move lets a concurrent status transition
+    # observe the old link and leave its sold doe with a live pregnancy once
+    # the update commits.
+    other_breeding = await make_breeding(
+        client,
+        owner,
+        wrong_doe["id"],
+        buck["id"],
+        breeding_date=(today() - timedelta(days=150)).isoformat(),
+    )
+    other_confirmed = await confirm(client, owner, other_breeding["id"], kid_count=1)
+    async with get_sessionmaker()() as db:
+        with pytest.raises(IntegrityError, match="relationship are immutable"):
+            await db.execute(
+                update(KiddingRecord)
+                .where(KiddingRecord.id == kidding.json()["id"])
+                .values(
+                    doe_id=wrong_doe["id"],
+                    breeding_record_id=other_confirmed["id"],
+                )
+            )
+            await db.commit()
+
+    # A breeding service's recorded parents are equally immutable. This pair
+    # is same-farm and the row has no kidding link, so the earlier integrity
+    # trigger would otherwise have accepted the rewrite and exposed the
+    # Breeding -> new Animal FK lock inversion covered by the concurrency test.
+    async with get_sessionmaker()() as db:
+        with pytest.raises(IntegrityError, match="doe and buck relationship are immutable"):
+            await db.execute(
+                update(BreedingRecord)
+                .where(BreedingRecord.id == other_confirmed["id"])
+                .values(doe_id=doe["id"])
+            )
+            await db.commit()
+
     async with get_sessionmaker()() as db:
         with pytest.raises(IntegrityError):
             await db.execute(

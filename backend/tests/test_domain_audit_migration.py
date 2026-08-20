@@ -141,20 +141,33 @@ async def test_migration_unlinks_unsafe_inference_but_retains_word_match(
                 """,
                 born["id"],
             )
-            upgraded_trigger = await connection.fetchval(
+            upgraded_trigger_rows = await connection.fetch(
                 """
-                SELECT pg_get_triggerdef(oid)
+                SELECT tgname, pg_get_triggerdef(oid) AS definition
                 FROM pg_trigger
-                WHERE tgname = 'trg_kidding_reproductive_outcome'
+                WHERE tgname IN (
+                  'trg_00_kidding_insert_lock_order',
+                  'trg_00_kidding_relationship_immutable',
+                  'trg_kidding_date_mortality_guard',
+                  'trg_kidding_reproductive_outcome'
+                )
                 """
             )
+            upgraded_triggers = {row["tgname"]: row["definition"] for row in upgraded_trigger_rows}
         finally:
             await connection.close()
         assert rows[unsafe_id] is None
         assert rows[safe_id] == ppr_id
         assert effective_date == acquired_on
         assert born_effective_date == born_on
-        assert "UPDATE OF breeding_record_id, date, doe_id, farm_id ON" in upgraded_trigger
+        assert "BEFORE INSERT ON" in upgraded_triggers["trg_00_kidding_insert_lock_order"]
+        assert "BEFORE INSERT ON" in upgraded_triggers["trg_kidding_reproductive_outcome"]
+        assert "UPDATE" not in upgraded_triggers["trg_kidding_reproductive_outcome"]
+        assert (
+            "UPDATE OF farm_id, doe_id, breeding_record_id"
+            in upgraded_triggers["trg_00_kidding_relationship_immutable"]
+        )
+        assert "UPDATE OF date" in upgraded_triggers["trg_kidding_date_mortality_guard"]
     finally:
         await get_engine().dispose()
         await _alembic("upgrade", "head")

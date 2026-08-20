@@ -10,7 +10,7 @@ interleavings that used to deadlock instead of relying on timing or repeated
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import date, timedelta
 
 import httpx
 import pytest
@@ -1828,3 +1828,161 @@ async def test_stillborn_kidding_takes_the_exclusive_tag_lock_before_any_animal(
         "the exclusive lock must precede every animals INSERT, otherwise the "
         "transaction upgrades SHARE -> EXCLUSIVE and can deadlock"
     )
+
+
+async def test_direct_kidding_trigger_locks_doe_before_breeding_parent(
+    client: httpx.AsyncClient,
+) -> None:
+    """The DB integrity trigger must use the API's Animal -> Breeding order.
+
+    Direct/import writes still pass through ``trg_kidding_reproductive_outcome``.
+    Historically that trigger locked Breeding first and relied on the later doe
+    FK check for Animal. An API status transition takes the inverse order. Queue
+    the trigger first behind a held breeding row, then let the API own the doe:
+    releasing the holder used to form Breeding -> Animal / Animal -> Breeding
+    and PostgreSQL aborted one valid transaction as a deadlock.
+    """
+    owner = await owner_with_farm(client, email="direct-kidding-lock-order@farm.in")
+    doe, _buck, breeding = await pregnant_doe(
+        client,
+        owner,
+        tag="DIRECT-LOCK",
+        gestation_days=160,
+    )
+    doe_id = int(doe["id"])
+    farm_id = int(owner["X-Farm-Id"])
+    breeding_id = int(breeding["id"])
+
+    holder = get_sessionmaker()()
+    direct_insert: asyncio.Task[None] | None = None
+    status_change: asyncio.Task[httpx.Response] | None = None
+    await holder.execute(
+        select(BreedingRecord.id).where(BreedingRecord.id == breeding_id).with_for_update()
+    )
+
+    async def insert_kidding_directly() -> None:
+        async with get_sessionmaker()() as db:
+            db.add(
+                KiddingRecord(
+                    farm_id=farm_id,
+                    doe_id=doe_id,
+                    date=date.fromisoformat(breeding["expected_kidding_date"]),
+                    breeding_record_id=breeding_id,
+                    ease="NORMAL",
+                )
+            )
+            await db.commit()
+
+    async with second_client() as status_client:
+        try:
+            direct_insert = asyncio.create_task(insert_kidding_directly())
+            try:
+                await wait_for_lock_waiters(1)
+            except AssertionError:
+                if direct_insert.done():
+                    await direct_insert
+                raise
+            status_change = asyncio.create_task(
+                status_client.post(
+                    f"/api/animals/{doe_id}/status",
+                    json={"new_status": "SOLD"},
+                    headers=owner,
+                )
+            )
+            await wait_for_lock_waiters(2)
+            await holder.rollback()
+            async with asyncio.timeout(10):
+                direct_result, status_response = await asyncio.gather(
+                    direct_insert,
+                    status_change,
+                    return_exceptions=True,
+                )
+        finally:
+            await holder.rollback()
+            await holder.close()
+            for operation in (direct_insert, status_change):
+                if operation is not None and not operation.done():
+                    operation.cancel()
+
+    assert direct_result is None, repr(direct_result)
+    assert not isinstance(status_response, BaseException), repr(status_response)
+    assert status_response.status_code == 200, status_response.text
+
+
+async def test_direct_breeding_parent_rewrite_cannot_invert_kidding_locks(
+    client: httpx.AsyncClient,
+) -> None:
+    """A Breeding parent rewrite must fail before its new-animal FK lock.
+
+    Queue the rewrite first behind a held breeding row. The kidding insert then
+    owns the proposed new doe and queues behind the rewrite on Breeding. Before
+    the immutable guard, releasing the holder let the rewrite own Breeding and
+    wait for FK key-share on the doe, while the insert owned the doe and waited
+    for Breeding: a deterministic B -> D2 / D2 -> B deadlock.
+    """
+    owner = await owner_with_farm(client, email="direct-breeding-rewrite-lock@farm.in")
+    _doe, _buck, breeding = await pregnant_doe(
+        client,
+        owner,
+        tag="DIRECT-REWRITE",
+        gestation_days=160,
+    )
+    replacement_doe_id = await make_animal(client, owner, "DIRECT-REWRITE-D2")
+    farm_id = int(owner["X-Farm-Id"])
+    breeding_id = int(breeding["id"])
+
+    holder = get_sessionmaker()()
+    rewrite: asyncio.Task[None] | None = None
+    direct_insert: asyncio.Task[None] | None = None
+    await holder.execute(
+        select(BreedingRecord.id).where(BreedingRecord.id == breeding_id).with_for_update()
+    )
+
+    async def rewrite_breeding_parent() -> None:
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                update(BreedingRecord)
+                .where(BreedingRecord.id == breeding_id)
+                .values(doe_id=replacement_doe_id)
+            )
+            await db.commit()
+
+    async def insert_kidding_for_proposed_parent() -> None:
+        async with get_sessionmaker()() as db:
+            db.add(
+                KiddingRecord(
+                    farm_id=farm_id,
+                    doe_id=replacement_doe_id,
+                    date=date.fromisoformat(breeding["expected_kidding_date"]),
+                    breeding_record_id=breeding_id,
+                    ease="NORMAL",
+                )
+            )
+            await db.commit()
+
+    try:
+        rewrite = asyncio.create_task(rewrite_breeding_parent())
+        await wait_for_lock_waiters(1)
+        direct_insert = asyncio.create_task(insert_kidding_for_proposed_parent())
+        await wait_for_lock_waiters(2)
+        await assert_animal_row_locked(replacement_doe_id)
+        await holder.rollback()
+        async with asyncio.timeout(10):
+            rewrite_result, insert_result = await asyncio.gather(
+                rewrite,
+                direct_insert,
+                return_exceptions=True,
+            )
+    finally:
+        await holder.rollback()
+        await holder.close()
+        for operation in (rewrite, direct_insert):
+            if operation is not None and not operation.done():
+                operation.cancel()
+
+    assert isinstance(rewrite_result, DBAPIError), repr(rewrite_result)
+    assert getattr(rewrite_result.orig, "sqlstate", None) == "23514"
+    assert "breeding farm, doe and buck relationship are immutable" in str(rewrite_result)
+    assert isinstance(insert_result, DBAPIError), repr(insert_result)
+    assert getattr(insert_result.orig, "sqlstate", None) == "23514"
+    assert "kidding requires a confirmed pregnancy for the same doe and farm" in str(insert_result)

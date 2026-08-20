@@ -38,6 +38,7 @@ class Mutation:
     same_farm_value: int
     other_farm_value: int
     constraint: str
+    accepted_early_denials: tuple[str, ...] = ()
 
 
 async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
@@ -354,6 +355,10 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
                 doe_one.id,
                 doe_two.id,
                 "fk_breeding_records_farm_doe",
+                (
+                    "ck_breeding_relationship_immutable",
+                    "breeding farm, doe and buck relationship are immutable",
+                ),
             ),
             Mutation(
                 "breeding_records",
@@ -362,6 +367,10 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
                 buck_one.id,
                 buck_two.id,
                 "fk_breeding_records_farm_buck",
+                (
+                    "ck_breeding_relationship_immutable",
+                    "breeding farm, doe and buck relationship are immutable",
+                ),
             ),
             Mutation(
                 "kidding_records",
@@ -370,6 +379,10 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
                 doe_one.id,
                 doe_two.id,
                 "fk_kidding_records_farm_doe",
+                (
+                    "ck_kidding_relationship_immutable",
+                    "kidding farm, doe and breeding relationship are immutable",
+                ),
             ),
             Mutation(
                 "kidding_records",
@@ -378,6 +391,10 @@ async def _build_two_farm_graphs(client: httpx.AsyncClient) -> list[Mutation]:
                 breeding_one.id,
                 breeding_two_unlinked.id,
                 "fk_kidding_records_farm_breeding_record",
+                (
+                    "ck_kidding_relationship_immutable",
+                    "kidding farm, doe and breeding relationship are immutable",
+                ),
             ),
             Mutation(
                 "tasks",
@@ -483,7 +500,8 @@ async def test_direct_sql_accepts_same_farm_and_rejects_every_cross_farm_link(
                     {"value": mutation.other_farm_value, "row_id": mutation.row_id},
                 )
             await db.rollback()
-        assert mutation.constraint in str(caught.value)
+        accepted_denials = (mutation.constraint, *mutation.accepted_early_denials)
+        assert any(denial in str(caught.value) for denial in accepted_denials)
 
 
 async def test_task_assignment_requires_a_membership_even_for_existing_user(

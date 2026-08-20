@@ -1109,11 +1109,19 @@ describe("AnimalProfilePage", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       const trigger = screen.getByRole("button", { name: "Record weight" });
       expect(trigger).toBeDisabled();
+      // All lifecycle writes for this animal share one flight. A move or
+      // status transition could invalidate the parked weight request (and a
+      // move/status pair can directly contradict each other), so none may
+      // start until it settles.
+      expect(screen.getByRole("button", { name: "Move bucket" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Change status" })).toBeDisabled();
       await user.click(trigger);
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
       releaseWeight?.();
       await waitFor(() => expect(trigger).toBeEnabled());
+      expect(screen.getByRole("button", { name: "Move bucket" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Change status" })).toBeEnabled();
     });
   });
 

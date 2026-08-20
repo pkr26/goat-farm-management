@@ -10,7 +10,7 @@
 // shell gates on it ((app)/layout.tsx), and nothing in signIn touched it — so
 // a user who signed in successfully sat behind a permanent "Loading…". The
 // bounded variant needs no wedged socket at all: another tab holding the
-// refresh Web Lock parks this one for up to 12s.
+// refresh-cookie Web Lock parks this one behind the current bounded mutation.
 //
 // Bug B — superseded teardown. establishSession's catch only re-threw
 // AuthSessionChangedError, which api-client mints in its post-await epoch
@@ -160,6 +160,55 @@ describe("AuthProvider bootstrap racing a sign-in", () => {
 
     expect(screen.getByTestId("user")).toHaveTextContent("worker@goatfarm.test");
     expect(screen.getByTestId("loading")).toHaveTextContent("false");
+  });
+
+  it("waits beyond 12 seconds for a legitimate auth-cookie lock holder", async () => {
+    let grantLock: (() => void) | undefined;
+    const lockRequest = vi.fn(
+      (
+        _name: string,
+        options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) =>
+        new Promise<unknown>((resolve, reject) => {
+          options.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+          grantLock = () => {
+            grantLock = undefined;
+            void callback().then(resolve, reject);
+          };
+        }),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    vi.useFakeTimers();
+    try {
+      renderWithProviders(<Probe />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(lockRequest).toHaveBeenCalledTimes(1);
+
+      // This was the old lock-wait deadline. A normal cookie mutation can own
+      // the same lock for up to 60 seconds, so bootstrap must remain pending
+      // here instead of concluding that the user has no session.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(13_000);
+      });
+      expect(screen.getByTestId("loading")).toHaveTextContent("true");
+      expect(replaceMock).not.toHaveBeenCalled();
+
+      act(() => grantLock?.());
+      vi.useRealTimers();
+      await waitFor(() =>
+        expect(screen.getByTestId("loading")).toHaveTextContent("false"),
+      );
+      expect(screen.getByTestId("user")).toHaveTextContent("owner@goatfarm.test");
+    } finally {
+      grantLock?.();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -316,6 +365,56 @@ describe("AuthProvider stale async completions", () => {
 
     await waitFor(() => expect(logoutCalls).toBe(1));
     expect(replaceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a prior session's slow logout suppress the new session's logout", async () => {
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let logoutCalls = 0;
+    server.use(
+      http.post("/api/auth/logout", async () => {
+        logoutCalls += 1;
+        if (logoutCalls === 1) {
+          markFirstStarted();
+          await firstGate;
+        }
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Probe />);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    fireEvent.click(screen.getByRole("button", { name: "sign-out" }));
+    await firstStarted;
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
+
+    // Establish a distinct session while the old session's revocation is
+    // still parked. Its sign-out owns a new epoch and must dispatch its own
+    // revocation plus local teardown immediately.
+    await user.click(screen.getByRole("button", { name: "sign-in" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("user")).toHaveTextContent("worker@goatfarm.test"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "sign-out" }));
+
+    await waitFor(() => expect(screen.getByTestId("user")).toHaveTextContent("none"));
+    expect(replaceMock).toHaveBeenCalledTimes(2);
+    // Cookie-mutating responses are FIFO: the new session's revocation is
+    // queued, not suppressed, until the old response has deleted its cookie.
+    expect(logoutCalls).toBe(1);
+
+    await act(async () => {
+      releaseFirst();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(logoutCalls).toBe(2));
   });
 
   it("ignores stale auth actions invoked after their provider unmounted", async () => {

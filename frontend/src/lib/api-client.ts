@@ -16,7 +16,9 @@ let accessToken: string | null = null;
 let accessTokenActorScope: string | null = null;
 let authSessionEpoch = 0;
 let currentFarmId: string | null = null;
+let farmScopeEpoch = 0;
 let onAuthFailure: (() => void) | null = null;
+const authFailureRegistrations: Array<{ handler: () => void }> = [];
 export type RefreshSessionResult = Pick<TokenOut, "access_token" | "user">;
 
 function parseRefreshSessionResult(body: unknown): RefreshSessionResult | null {
@@ -88,26 +90,136 @@ export function setAccessToken(
 }
 
 export function setCurrentFarmId(farmId: string | null): void {
+  if (farmId !== currentFarmId) farmScopeEpoch += 1;
   currentFarmId = farmId;
 }
 
+/** Monotonic ownership boundary for async UI continuations. Requests already
+ * on the wire retain their captured X-Farm-Id, but a success callback must not
+ * navigate or rewrite UI after the operator has moved to another farm (even
+ * if they switch back before the response arrives). */
+export function farmScopeEpochValue(): number {
+  return farmScopeEpoch;
+}
+
 export function setOnAuthFailure(handler: (() => void) | null): () => void {
+  if (handler === null) {
+    authFailureRegistrations.length = 0;
+    onAuthFailure = null;
+    return () => {};
+  }
+  const registration = { handler };
+  authFailureRegistrations.push(registration);
   onAuthFailure = handler;
-  // Providers can briefly overlap during a root replacement. The older
-  // provider's cleanup must not erase the newer provider's handler.
+  // Providers can briefly overlap during a root replacement. Removing either
+  // registration must leave the newest still-mounted provider active; if the
+  // newer tree goes away first, restore the older tree's handler.
   return () => {
-    if (onAuthFailure === handler) onAuthFailure = null;
+    const index = authFailureRegistrations.indexOf(registration);
+    if (index === -1) return;
+    authFailureRegistrations.splice(index, 1);
+    onAuthFailure = authFailureRegistrations.at(-1)?.handler ?? null;
   };
 }
 
 /** A /api/auth/refresh that never settles (black-holed network, captive-portal
  *  re-auth, wedged proxy) must not stall this tab forever — nor, through the
  *  cross-tab lock below, every other tab's queued 401 retry. Both waits are
- *  bounded. The lock wait is the longer of the two so one legitimately slow
- *  but still-bounded holder is always waited out; only a wedged holder (an
- *  older tab, or one whose timer the browser throttled) is bypassed. */
+ *  bounded. A timed-out waiter fails transiently; it must never bypass a
+ *  holder and race a login/logout response for the shared cookie jar. */
 const REFRESH_REQUEST_TIMEOUT_MS = 10_000;
-const REFRESH_LOCK_WAIT_TIMEOUT_MS = 12_000;
+const AUTH_COOKIE_LOCK_NAME = "goatfarm-auth-refresh";
+const AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS = 62_000;
+const REFRESH_LOCK_WAIT_TIMEOUT_MS = AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS;
+
+class AuthCookieCoordinationError extends Error {
+  constructor(
+    message = "Another authentication change is still finishing. Try again shortly.",
+  ) {
+    super(message);
+    this.name = "AuthCookieCoordinationError";
+  }
+}
+
+// Browsers without Web Locks still need same-realm ordering. Each ticket's
+// gate is chained behind its predecessor, while a timed-out ticket releases
+// only its own gate; later callers therefore continue waiting for the actual
+// holder instead of accidentally entering the critical section beside it.
+let localAuthCookieLockTail: Promise<void> = Promise.resolve();
+
+async function waitForAuthCookieTurn(
+  turn: Promise<void>,
+  timeoutMs: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      turn,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new AuthCookieCoordinationError()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function withLocalAuthCookieLock<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const predecessor = localAuthCookieLockTail.catch(() => undefined);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  localAuthCookieLockTail = predecessor.then(() => gate);
+  try {
+    await waitForAuthCookieTurn(predecessor, timeoutMs);
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+/** Serialize every response that can set/delete the origin-wide refresh
+ * cookie. Holding the lock until fetch resolves is sufficient: response
+ * headers (including Set-Cookie) have been processed at that point; body
+ * parsing can proceed without owning the cookie critical section. */
+async function withAuthCookieLock<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks) return withLocalAuthCookieLock(operation, timeoutMs);
+
+  const waitTimeout = new AbortController();
+  const waitTimer = setTimeout(() => waitTimeout.abort(), timeoutMs);
+  let granted = false;
+  try {
+    return await locks.request(
+      AUTH_COOKIE_LOCK_NAME,
+      { signal: waitTimeout.signal },
+      () => {
+        granted = true;
+        clearTimeout(waitTimer);
+        return operation();
+      },
+    );
+  } catch (error) {
+    if (granted) throw error;
+    if (waitTimeout.signal.aborted) throw new AuthCookieCoordinationError();
+    // If the API exists, another tab may already hold this Web Lock. Falling
+    // back to an unrelated realm-only mutex after a pre-grant rejection would
+    // bypass that exclusion and recreate the response-order cookie race. Fail
+    // closed; the caller gets a bounded, actionable retry error.
+    throw new AuthCookieCoordinationError(
+      "Secure authentication coordination is temporarily unavailable. Try again shortly.",
+    );
+  } finally {
+    clearTimeout(waitTimer);
+  }
+}
 
 /** Why a refresh did not produce a session.
  *
@@ -198,38 +310,16 @@ async function performCoordinatedRefresh(
   // httpOnly cookie, so they present the current token rather than replaying
   // the old one. The backend's short replay grace remains the fallback for
   // browsers without Web Locks and network-level races.
-  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-  if (!locks) return performRefresh(expectedEpoch, expectedActorScope);
-  // Bound the queue wait as well: without a signal a tab stuck behind a wedged
-  // holder never runs its callback, so its apiFetch promise never settles and
-  // its queries spin forever. Giving up downgrades to an uncoordinated refresh
-  // — the backend's replay grace covers that — rather than dropping it.
-  const waitTimeout = new AbortController();
-  const waitTimer = setTimeout(
-    () => waitTimeout.abort(),
-    REFRESH_LOCK_WAIT_TIMEOUT_MS,
-  );
-  let granted = false;
   try {
-    return await locks.request(
-      "goatfarm-auth-refresh",
-      { signal: waitTimeout.signal },
-      () => {
-        // The wait is over; performRefresh's own timeout bounds the rest, so
-        // the pending abort must never reach an already-granted lock.
-        granted = true;
-        clearTimeout(waitTimer);
-        return performRefresh(expectedEpoch, expectedActorScope);
-      },
+    return await withAuthCookieLock(
+      () => performRefresh(expectedEpoch, expectedActorScope),
+      REFRESH_LOCK_WAIT_TIMEOUT_MS,
     );
-  } catch (err) {
-    if (granted) throw err;
-    // Web Locks is an optimization, not an authentication dependency. A
-    // browser can expose the API yet reject a request (for example in a
-    // restricted document); fall back just as we do after a bounded wait.
-    return performRefresh(expectedEpoch, expectedActorScope);
-  } finally {
-    clearTimeout(waitTimer);
+  } catch (error) {
+    if (error instanceof AuthCookieCoordinationError) {
+      return { kind: "unavailable" };
+    }
+    throw error;
   }
 }
 
@@ -379,14 +469,45 @@ function extractDetail(body: unknown, fallback: string): string {
  *  takes seconds, and abandoning a write that may already have committed is
  *  worse than waiting. */
 const REQUEST_TIMEOUT_MS = 60_000;
+const REFRESH_COOKIE_POST_ROUTES = new Set([
+  "/api/auth/register",
+  "/api/auth/login",
+  "/api/auth/refresh",
+  "/api/auth/logout",
+  "/api/auth/change-password",
+]);
+
+function isRefreshCookieMutation(path: string, method?: string): boolean {
+  const requestPath = path.split(/[?#]/, 1)[0];
+  const route =
+    requestPath.length > 1 && requestPath.endsWith("/")
+      ? requestPath.slice(0, -1)
+      : requestPath;
+  const verb = (method ?? "GET").toUpperCase();
+  return (
+    (verb === "POST" && REFRESH_COOKIE_POST_ROUTES.has(route)) ||
+    (verb === "DELETE" && route === "/api/auth/account")
+  );
+}
+
+function isLogoutRoute(path: string, method?: string): boolean {
+  const requestPath = path.split(/[?#]/, 1)[0];
+  const route =
+    requestPath.length > 1 && requestPath.endsWith("/")
+      ? requestPath.slice(0, -1)
+      : requestPath;
+  return (method ?? "GET").toUpperCase() === "POST" && route === "/api/auth/logout";
+}
 
 async function rawFetch(
   path: string,
   init: RequestInit = {},
   farmScope: string | null = currentFarmId,
+  sessionScope: number = authSessionEpoch,
 ): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const requestAccessToken = accessToken;
+  if (requestAccessToken) headers.set("Authorization", `Bearer ${requestAccessToken}`);
   if (farmScope) headers.set("X-Farm-Id", farmScope);
   if (typeof init.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -397,8 +518,42 @@ async function rawFetch(
   // idempotent-request classifies as non-retryable while RETAINING the logical
   // key, so an explicit retry replays the same Idempotency-Key rather than
   // committing twice.
-  const signal = init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  return fetch(path, { ...init, headers, credentials: "include", signal });
+  const cookieMutation = isRefreshCookieMutation(path, init.method);
+  const execute = () => {
+    if (cookieMutation && authSessionEpoch !== sessionScope) {
+      // AuthProvider intentionally starts logout with the old bearer, then
+      // clears local state before a queued fetch gets the lock. Permit exactly
+      // that one-token teardown transition. Any installed replacement token,
+      // or any additional epoch transition, means this queued request belongs
+      // to a superseded session and must never touch the shared cookie jar.
+      const intentionalLogoutTeardown =
+        isLogoutRoute(path, init.method) &&
+        requestAccessToken !== null &&
+        accessToken === null &&
+        authSessionEpoch === sessionScope + 1;
+      if (!intentionalLogoutTeardown) assertAuthSession(sessionScope);
+    }
+    // Start an internally owned request timeout only after a queued cookie
+    // mutation acquires its lock. Otherwise most of its budget could expire
+    // while another tab is legitimately finishing the preceding response.
+    const signal = init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    return fetch(path, { ...init, headers, credentials: "include", signal });
+  };
+  if (!cookieMutation) return execute();
+  try {
+    return await withAuthCookieLock(
+      execute,
+      AUTH_COOKIE_MUTATION_LOCK_WAIT_TIMEOUT_MS,
+    );
+  } catch (error) {
+    // Direct auth forms already surface ApiError.detail. Preserve the
+    // actionable coordination message instead of misreporting a busy cookie
+    // critical section as a generic backend/network failure.
+    if (error instanceof AuthCookieCoordinationError) {
+      throw new ApiError(429, error.message);
+    }
+    throw error;
+  }
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -439,7 +594,7 @@ async function apiResponseOnce(
 ): Promise<Response> {
   assertAuthSession(sessionScope);
   let resp = await runScopedToAuthSession(
-    () => rawFetch(path, init, farmScope),
+    () => rawFetch(path, init, farmScope, sessionScope),
     sessionScope,
   );
   assertAuthSession(sessionScope);
@@ -454,7 +609,7 @@ async function apiResponseOnce(
     assertAuthSession(sessionScope);
     if (outcome.kind === "session") {
       resp = await runScopedToAuthSession(
-        () => rawFetch(path, init, farmScope),
+        () => rawFetch(path, init, farmScope, sessionScope),
         sessionScope,
       );
       assertAuthSession(sessionScope);

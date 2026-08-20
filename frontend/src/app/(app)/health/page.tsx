@@ -71,7 +71,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
 import { addDays, farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -502,6 +502,18 @@ function HealthPageContent() {
    *  behind a modal backdrop. So the continuation must instead check that the
    *  session it is about to close and reset is still its own. */
   const submissionEpoch = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      // A late preview/write cannot own state or navigation after this page
+      // has gone away. This also covers ordinary same-farm navigation; the
+      // farm epoch below covers the smaller pre-unmount switch window.
+      submissionEpoch.current += 1;
+    };
+  }, []);
 
   /** Values the last linked duty prefilled — used to revert them when the
    *  user switches back to "— none —" without clobbering manual edits
@@ -751,9 +763,10 @@ function HealthPageContent() {
                 scope: "batch",
                 purchase_batch_id: selectedBatchId,
                 ...(selectedTaskId !== null ? { task_id: selectedTaskId } : {}),
-              };
+        };
         setRecordError(null);
         const epoch = ++submissionEpoch.current;
+        const requestFarmEpoch = farmScopeEpochValue();
         try {
           const response = await previewMutation.mutateAsync({ data: target });
           if (response.status !== 200) return;
@@ -764,6 +777,8 @@ function HealthPageContent() {
               ? Number(currentTaskIdValue)
               : null;
           const stillCurrent =
+            mounted.current &&
+            farmScopeEpochValue() === requestFarmEpoch &&
             submissionEpoch.current === epoch &&
             currentScope === target.scope &&
             currentTaskId === selectedTaskId &&
@@ -773,7 +788,11 @@ function HealthPageContent() {
               : Number(getValues("purchase_batch_id")) === target.purchase_batch_id);
           if (stillCurrent) setBulkPreview(response.data);
         } catch (err) {
-          if (submissionEpoch.current !== epoch) return;
+          if (
+            !mounted.current ||
+            farmScopeEpochValue() !== requestFarmEpoch ||
+            submissionEpoch.current !== epoch
+          ) return;
           const message =
             err instanceof ApiError ? err.detail : "Could not review the bulk target set.";
           setRecordError(message);
@@ -827,11 +846,16 @@ function HealthPageContent() {
     };
     setRecordError(null);
     const epoch = ++submissionEpoch.current;
+    const requestFarmEpoch = farmScopeEpochValue();
     try {
       const response = await recordMutation.mutateAsync({ data: payload });
       const recordedCount = response.status === 201 ? response.data.length : 0;
+      // The request itself retained its original X-Farm-Id. If ownership has
+      // since crossed a farm boundary, none of this old farm's completion may
+      // affect the new farm's UI, cache, toast stream, or route.
+      if (farmScopeEpochValue() !== requestFarmEpoch) return;
       // The write happened, so confirm it and refresh the farm views
-      // unconditionally — even if this dialog session is already over.
+      // even if this dialog session is already over on the SAME farm.
       toast.success(
         values.scope === "animal"
           ? "Health event recorded."
@@ -842,14 +866,18 @@ function HealthPageContent() {
       // dismissed this dialog and opened a new one, closing and resetting now
       // would wipe what they have since typed, and the navigation below would
       // be a second one on top of the dismissal's own.
-      if (submissionEpoch.current !== epoch) return;
+      if (!mounted.current || submissionEpoch.current !== epoch) return;
       setOpen(false);
       setBulkPreview(null);
       resetEventForm();
       if (returnTo) router.push(returnTo);
       else if (hasDeepLink) router.replace("/health");
     } catch (err) {
-      if (submissionEpoch.current !== epoch) return;
+      if (
+        !mounted.current ||
+        farmScopeEpochValue() !== requestFarmEpoch ||
+        submissionEpoch.current !== epoch
+      ) return;
       const message = err instanceof ApiError ? err.detail : "Could not save the health event.";
       if (values.scope !== "animal") setBulkPreview(null);
       setRecordError(message);

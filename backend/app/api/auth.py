@@ -303,9 +303,12 @@ def _account_password_blocked(scope: str, account_scope: str, rate_key: str, use
 def _record_account_password_attempt(
     scope: str, account_scope: str, rate_key: str, user_id: int
 ) -> None:
-    """Charge every request that completed a full Argon2 verify without
-    producing the change it asked for — a wrong current password, a rejected
-    replacement, or an unavailable deletion."""
+    """Charge a password-confirmation workflow that reached verification.
+
+    Successful commits clear the counters. Rejections, cancellation, and
+    post-verification failures retain the charge so none can loop Argon work
+    outside the bounded confirmation budget.
+    """
     _record_attempt(scope, rate_key)
     _record_attempt(account_scope, str(user_id), limit_multiplier=EMAIL_LIMIT_MULTIPLIER)
 
@@ -708,6 +711,8 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         raise _too_many_attempts()
     reservation_scope = "login-password-work"
     reservation = _reserve_password_work(reservation_scope, payload.email)
+    credential_accepted = False
+    password_work_started = False
     try:
         # Re-check after the atomic admission reservation. A preceding request
         # may have recorded the threshold immediately before releasing its
@@ -731,6 +736,7 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
 
         invalid = HTTPException(status_code=401, detail="Invalid email or password.")
         stored_hash = snapshot.password_hash if snapshot is not None else _dummy_password_hash()
+        password_work_started = True
         ok, needs_rehash, did_argon_work = await reservation.run(
             lambda: verify_password_with_work_async(payload.password, stored_hash)
         )
@@ -755,6 +761,13 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
                 pass
             _record_login_failure(request, payload.email)
             raise invalid
+
+        # From this point cancellation is no longer an invalid-credential CPU
+        # bypass: the caller proved the secret. Before this point, a disconnect
+        # is a failed login attempt and must enter the same ledgers as a 401;
+        # otherwise cancel/retry can spend Argon work forever without ever
+        # reaching the post-verification accounting below.
+        credential_accepted = True
 
         replacement_hash = (
             await reservation.run(lambda: hash_password_async(payload.password))
@@ -808,6 +821,10 @@ async def login(payload: LoginIn, request: Request, response: Response, db: DbSe
         await db.commit()
         _reset_login_failures(request, payload.email)
         return out
+    except asyncio.CancelledError:
+        if password_work_started and not credential_accepted:
+            _record_login_failure(request, payload.email)
+        raise
     finally:
         reservation.release_when_idle()
 
@@ -1134,32 +1151,41 @@ async def change_password(
             raise _too_many_attempts()
         # Release CurrentUser's read transaction/connection before Argon2.
         await db.rollback()
-        ok, _needs_rehash = await reservation.run(
-            lambda: verify_password_async(
-                payload.current_password,
-                authenticated_password_hash,
+        try:
+            ok, _needs_rehash = await reservation.run(
+                lambda: verify_password_async(
+                    payload.current_password,
+                    authenticated_password_hash,
+                )
             )
-        )
+        except PasswordWorkCapacityError:
+            # The global native pool rejected this workflow before doing work;
+            # transient shared capacity pressure is not a password failure.
+            raise
+        except BaseException:
+            # A disconnect can abandon the await after native work was
+            # submitted. Charge before unwinding; the reservation callback
+            # independently stays until that native job is truly idle.
+            _record_account_password_attempt(*scopes)
+            raise
+        _record_account_password_attempt(*scopes)
         if not ok:
             if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
                 await reservation.run(
                     lambda: verify_password_async(payload.current_password, _dummy_password_hash())
                 )
-            _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
         # A rejected replacement still cost a full memory-hard verify. Charging
         # it (and clearing the budget only once the change commits) is what
         # stops an authenticated caller from looping this endpoint unthrottled
         # and holding a slot in the deliberately non-queuing Argon pool.
         if payload.new_password == payload.current_password:
-            _record_account_password_attempt(*scopes)
             raise HTTPException(
                 status_code=400,
                 detail="New password must be different from the current password.",
             )
         error = password_policy_error(payload.new_password)
         if error:
-            _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail=error)
         replacement_hash = await reservation.run(lambda: hash_password_async(payload.new_password))
 
@@ -1313,18 +1339,24 @@ async def delete_account(
         # CurrentUser performed only an unlocked read for this exempt auth
         # lifecycle route. End that transaction before password verification.
         await db.rollback()
-        ok, _needs_rehash = await reservation.run(
-            lambda: verify_password_async(
-                payload.current_password,
-                authenticated_password_hash,
+        try:
+            ok, _needs_rehash = await reservation.run(
+                lambda: verify_password_async(
+                    payload.current_password,
+                    authenticated_password_hash,
+                )
             )
-        )
+        except PasswordWorkCapacityError:
+            raise
+        except BaseException:
+            _record_account_password_attempt(*scopes)
+            raise
+        _record_account_password_attempt(*scopes)
         if not ok:
             if authenticated_password_hash.startswith(LEGACY_PBKDF2_PREFIX + "$"):
                 await reservation.run(
                     lambda: verify_password_async(payload.current_password, _dummy_password_hash())
                 )
-            _record_account_password_attempt(*scopes)
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
         # Produce unusable replacement material before acquiring the User
@@ -1355,10 +1387,8 @@ async def delete_account(
             await db.execute(select(Farm.id).where(Farm.owner_id == locked_user.id).limit(1))
         ).scalar_one_or_none()
         if owns_farm is not None:
-            # Two Argon2 runs already happened; an owner could otherwise loop
-            # this rejected path unthrottled. Only a completed deletion clears
-            # the budget (below, after the commit).
-            _record_account_password_attempt(*scopes)
+            # Two Argon2 runs already happened. The admission charge remains in
+            # place; only a completed deletion clears it below.
             raise HTTPException(
                 status_code=409,
                 detail=(

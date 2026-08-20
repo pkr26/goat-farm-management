@@ -8,7 +8,7 @@
  * (NONE sentinel → null, trimmed strings, numeric cost) and server errors.
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +17,7 @@ import type { AnimalOut, HealthEventOut, TaskOut } from "@/api/generated/models"
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday } from "@/lib/format";
+import { setCurrentFarmId } from "@/lib/api-client";
 
 import HealthPage from "./page";
 
@@ -1527,6 +1528,49 @@ describe("HealthPage", () => {
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(pushMock).toHaveBeenCalledWith("/tasks?tab=overdue");
+  });
+
+  it("does not let an old-farm event completion navigate the newly selected farm", async () => {
+    let releaseWrite!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    server.use(
+      http.post("/api/health/events", async ({ request }) => {
+        postBody = (await request.json()) as Record<string, unknown>;
+        markWriteStarted();
+        await writeGate;
+        return HttpResponse.json([makeEvent({ id: 99 })], { status: 201 });
+      }),
+    );
+    window.history.replaceState(
+      {},
+      "",
+      "/health?animal_id=3&returnTo=%2Ftasks%3Ftab%3Doverdue",
+    );
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+    const user = userEvent.setup();
+    const saveButton = within(dialog).getByRole("button", { name: "Save event" });
+
+    await user.click(saveButton);
+    await writeStarted;
+    // AuthProvider performs this synchronously before React commits the
+    // keyed farm subtree's unmount, which is the narrow race being pinned.
+    act(() => setCurrentFarmId("2"));
+    await act(async () => {
+      releaseWrite();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(replaceMock).not.toHaveBeenCalled();
+    setCurrentFarmId(null);
   });
 
   it("does not auto-open the dialog from URL params without health.manage", async () => {
