@@ -738,6 +738,17 @@ function BreedingPageContent() {
       : null;
   const activeUltrasound = ultrasoundFor ?? deepLinkedUltrasound;
 
+  useEffect(() => {
+    // Dismissal belongs to one continuous URL intent, not to this page's
+    // lifetime. Next can keep the page mounted while the query is cleared and
+    // later navigate back to the same task URL. Without releasing the latch in
+    // that gap, the second visit to the same record stayed silently dismissed.
+    if (requestedUltrasoundId === null && dismissedPrefillId !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- URL intent teardown
+      setDismissedPrefillId(null);
+    }
+  }, [dismissedPrefillId, requestedUltrasoundId]);
+
   function refresh() {
     invalidateFarmData(queryClient);
   }

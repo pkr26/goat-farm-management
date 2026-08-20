@@ -15,10 +15,17 @@ import { renderWithProviders } from "@/test/render";
 
 import AnimalsPage from "./page";
 
-const { navState, replaceMock } = vi.hoisted(() => ({
-  navState: { search: "" },
-  replaceMock: vi.fn(),
-}));
+const { navState, replaceMock } = vi.hoisted(() => {
+  const navState = { search: "" };
+  return {
+    navState,
+    // Mirror a committed same-route replacement. The component's pending-URL
+    // guard intentionally stays raised until useSearchParams observes this.
+    replaceMock: vi.fn((url: string) => {
+      navState.search = url.includes("?") ? url.slice(url.indexOf("?") + 1) : "";
+    }),
+  };
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: replaceMock, prefetch: vi.fn() }),

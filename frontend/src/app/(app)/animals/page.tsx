@@ -671,6 +671,9 @@ function AnimalsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  // Key effects and navigation de-duplication by the serialized params; the
+  // useSearchParams object identity itself is not stable.
+  const paramsKey = searchParams.toString();
 
   const [bucket, setBucket] = useState(searchParams.get("bucket") ?? ALL);
   const [sex, setSex] = useState(searchParams.get("sex") ?? ALL);
@@ -711,32 +714,61 @@ function AnimalsPageContent() {
   }, []);
   const replaceListUrl = useCallback(
     (url: string) => {
+      // Next will not commit a same-URL replace. Recording one would leave a
+      // phantom pending entry that keeps the list in "Updating" forever.
+      if (paramsKeyFromUrl(url) === paramsKey) {
+        if (pendingComponentNavigations.current.size === 0) return;
+        // A same-URL navigation is still load-bearing when it supersedes an
+        // older transition away from this URL. Next's navigation queue uses
+        // the newer dispatch to discard the older action, but it produces no
+        // new search-param commit for us to consume. Clear our superseded
+        // entries without recording a phantom, then dispatch the cancellation.
+        pendingComponentNavigations.current.clear();
+        setSearchNavigationPending(false);
+        router.replace(url);
+        return;
+      }
       recordComponentNavigation(url);
+      // The destination query can already be fresh in React Query's cache,
+      // so `isFetching` is not a reliable navigation guard. Keep rows hidden
+      // until Next commits this URL; otherwise a row click can race the
+      // outstanding replace and be pulled back from the profile page.
+      setSearchNavigationPending(true);
       router.replace(url);
     },
-    [recordComponentNavigation, router],
+    [paramsKey, recordComponentNavigation, router],
   );
   const pushListUrl = useCallback(
     (url: string) => {
+      if (paramsKeyFromUrl(url) === paramsKey) {
+        if (pendingComponentNavigations.current.size === 0) return;
+        pendingComponentNavigations.current.clear();
+        setSearchNavigationPending(false);
+        // Cancelling back to the current URL must not create another history
+        // entry even though the transition being superseded was a push.
+        router.replace(url);
+        return;
+      }
       recordComponentNavigation(url);
+      setSearchNavigationPending(true);
       router.push(url);
     },
-    [recordComponentNavigation, router],
+    [paramsKey, recordComponentNavigation, router],
   );
   // Same-route client navigations (e.g. a dashboard bucket link while already
   // on /animals) change the params — re-sync the filters. Keyed
   // off the param STRING: useSearchParams' object identity isn't stable.
-  const paramsKey = searchParams.toString();
   useEffect(() => {
     const params = new URLSearchParams(paramsKey);
     const pending = pendingComponentNavigations.current;
-    // Map preserves insertion order, so the first match is the OLDEST dispatch
-    // to this destination — the one that just committed.
+    // A single commit to a destination satisfies every earlier dispatch up to
+    // the NEWEST matching one. This matters for A -> B -> C -> B: Next applies
+    // only the final B navigation, so consuming the oldest B would strand C
+    // and the final B as phantom pending entries forever.
     let matchedSeq: number | undefined;
     for (const [seq, entry] of pending) {
       if (entry.key === paramsKey) {
         matchedSeq = seq;
-        break;
       }
     }
     const matched = matchedSeq === undefined ? undefined : pending.get(matchedSeq);
@@ -768,7 +800,10 @@ function AnimalsPageContent() {
       setQ(nextQ);
       setDebouncedQ(nextQ.trim());
     }
-    setSearchNavigationPending(hasNewerSearchEdit);
+    // A matching older navigation may commit while a newer filter/page
+    // navigation is still in flight. That newer URL remains authoritative,
+    // so do not briefly expose rows described by the older commit.
+    setSearchNavigationPending(hasNewerSearchEdit || pending.size > 0);
     setPage(pageFromSearchParams(params));
     // `q` is read but deliberately NOT a dependency: this effect must run only
     // when the URL commits. Adding it would re-run the whole filter re-sync on
@@ -806,7 +841,10 @@ function AnimalsPageContent() {
       setDebouncedQ(normalizedQ);
       const urlQ = (new URLSearchParams(paramsKey).get("q") ?? "").trim();
       if (normalizedQ === urlQ) {
-        setSearchNavigationPending(false);
+        // This effect also re-runs after filter changes. An unchanged search
+        // term must not clear the guard owned by an uncommitted filter/page
+        // navigation.
+        setSearchNavigationPending(pendingComponentNavigations.current.size > 0);
         return;
       }
       // Keep stale list rows non-interactive until Next has committed the URL
@@ -853,6 +891,10 @@ function AnimalsPageContent() {
   useEffect(() => {
     if (!pageOutOfRange) return;
     const handle = window.setTimeout(() => setPage(totalPages), 0);
+    // The replacement is the external synchronization performed by this
+    // effect; its helper also raises the interaction guard in the same render
+    // so cached rows cannot flash before the URL commit.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     replaceListUrl(
       animalListUrl({
         pathname,

@@ -435,9 +435,12 @@ function HealthPageContent() {
   const eventSubmission = useSingleFlight();
   const [recordError, setRecordError] = useState<string | null>(null);
   const [bulkPreview, setBulkPreview] = useState<HealthBulkTargetPreviewOut | null>(null);
+  const scheduleAnimalParam = searchParams.get("schedule_animal_id");
+  const requestedScheduleAnimalId = positiveIdString(scheduleAnimalParam) ?? "";
   const [scheduleAnimalId, setScheduleAnimalId] = useState(
-    () => positiveIdString(searchParams.get("schedule_animal_id")) ?? "",
+    () => requestedScheduleAnimalId,
   );
+  const previousScheduleAnimalParam = useRef(scheduleAnimalParam);
   const [prefillTaskId, setPrefillTaskId] = useState<string | null>(null);
   /** A deep-linked duty id we could not resolve — surfaced so the operator
    *  knows the event will be recorded without completing that duty. */
@@ -514,6 +517,16 @@ function HealthPageContent() {
       submissionEpoch.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    // The schedule picker is editable local state, so unrelated query changes
+    // must not fight the user's selection. A real schedule-param navigation,
+    // however (including Back/Forward while Next reuses this page), is a new
+    // URL intent and must replace the old mount-time value.
+    if (previousScheduleAnimalParam.current === scheduleAnimalParam) return;
+    previousScheduleAnimalParam.current = scheduleAnimalParam;
+    setScheduleAnimalId(requestedScheduleAnimalId);
+  }, [requestedScheduleAnimalId, scheduleAnimalParam]);
 
   /** Values the last linked duty prefilled — used to revert them when the
    *  user switches back to "— none —" without clobbering manual edits
@@ -699,6 +712,12 @@ function HealthPageContent() {
   // an absent id is inaccessible or stale.
   useEffect(() => {
     if (!prefillTaskId) return;
+    // URL hydration and task resolution are separate effects. When navigation
+    // changes task 1 -> task 2 while task 1 is unresolved, the hydration effect
+    // writes task 2 first; this older effect must not then consume that newer
+    // state (especially when task 2 is already cached and resolves in the same
+    // effect flush).
+    if (prefillTaskId !== deepLinkedTaskIdValue) return;
     const known = linkableHealthTasks.some((t) => String(t.id) === prefillTaskId);
     if (
       !known &&
@@ -735,6 +754,7 @@ function HealthPageContent() {
     exactTaskQuery.data,
     exactTaskQuery.isError,
     canViewTasks,
+    deepLinkedTaskIdValue,
   ]);
 
   async function submitEvent(values: EventValues) {

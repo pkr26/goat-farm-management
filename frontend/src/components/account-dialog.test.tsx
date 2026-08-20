@@ -8,6 +8,7 @@ import { AccountDialog } from "./account-dialog";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  authSessionEpochValue: vi.fn(),
   mutateAsync: vi.fn(),
   refreshSessionDetailed: vi.fn(),
   signOut: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("@/lib/api-client", () => {
   return {
     ApiError: MockApiError,
     apiFetch: mocks.apiFetch,
+    authSessionEpochValue: mocks.authSessionEpochValue,
     refreshSessionDetailed: mocks.refreshSessionDetailed,
   };
 });
@@ -69,11 +71,13 @@ async function fillValidPasswordChange(
 describe("AccountDialog", () => {
   beforeEach(() => {
     mocks.apiFetch.mockReset();
+    mocks.authSessionEpochValue.mockReset();
     mocks.mutateAsync.mockReset();
     mocks.refreshSessionDetailed.mockReset();
     mocks.signOut.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.mutateAsync.mockResolvedValue({ status: 200 });
+    mocks.authSessionEpochValue.mockReturnValue(1);
     mocks.refreshSessionDetailed.mockResolvedValue({
       kind: "session",
       body: {
@@ -146,6 +150,78 @@ describe("AccountDialog", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("does not let a stale password recovery sign out a replacement session", async () => {
+    let resolveRefresh: ((value: { kind: "rejected" }) => void) | undefined;
+    mocks.refreshSessionDetailed.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRefresh = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    await waitFor(() => expect(mocks.refreshSessionDetailed).toHaveBeenCalledOnce());
+
+    // A different login owns epoch 2 while the old dialog's recovery request
+    // is still pending. Its rejection must not revoke that replacement.
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () => resolveRefresh?.({ kind: "rejected" }));
+
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith(
+      "Password changed. Sign in again to continue.",
+    );
+  });
+
+  it("does not start password recovery after the mutation's session was replaced", async () => {
+    let resolveChange: ((value: { status: number }) => void) | undefined;
+    mocks.mutateAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveChange = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledOnce());
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () => resolveChange?.({ status: 200 }));
+
+    expect(mocks.refreshSessionDetailed).not.toHaveBeenCalled();
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+
+  it("does not report a stale password failure against a replacement session", async () => {
+    let rejectChange: ((reason: unknown) => void) | undefined;
+    mocks.mutateAsync.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectChange = reject;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledOnce());
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () =>
+      rejectChange?.(new ApiError(400, "Failure from the replaced session")),
+    );
+
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   // A refresh that never reached the server says nothing about the session.
   // Signing out here would revoke a refresh cookie the backend still honours,
   // on one transient 5xx — and that teardown cannot be undone.
@@ -209,6 +285,34 @@ describe("AccountDialog", () => {
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
 
+  it("clears the previous password error as a retry begins", async () => {
+    let rejectRetry: ((reason: unknown) => void) | undefined;
+    mocks.mutateAsync
+      .mockRejectedValueOnce(new ApiError(400, "The current password is incorrect."))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectRetry = reject;
+          }),
+      );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    const changePassword = within(dialog).getByRole("button", { name: "Change password" });
+    await user.click(changePassword);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "The current password is incorrect.",
+    );
+
+    await user.click(changePassword);
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(2));
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(async () => rejectRetry?.(new ApiError(400, "Retry failed")));
+  });
+
   it("does not restore a late password error after the dialog was closed", async () => {
     let rejectChange: ((reason: unknown) => void) | undefined;
     mocks.mutateAsync.mockImplementation(
@@ -263,7 +367,10 @@ describe("AccountDialog", () => {
 
   it("always removes the temporary export link and revokes its object URL", async () => {
     mocks.apiFetch.mockResolvedValue({ account: { id: 1 } });
-    const createObjectURL = vi.fn(() => "blob:account-export");
+    const createObjectURL = vi.fn((blob: Blob) => {
+      void blob;
+      return "blob:account-export";
+    });
     const revokeObjectURL = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
     Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
@@ -288,7 +395,10 @@ describe("AccountDialog", () => {
 
   it("downloads the export with the dated filename and reports success", async () => {
     mocks.apiFetch.mockResolvedValue({ account: { id: 1 } });
-    const createObjectURL = vi.fn(() => "blob:account-export");
+    const createObjectURL = vi.fn((blob: Blob) => {
+      void blob;
+      return "blob:account-export";
+    });
     const revokeObjectURL = vi.fn();
     Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
     Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
@@ -308,12 +418,43 @@ describe("AccountDialog", () => {
     );
     expect(mocks.apiFetch).toHaveBeenCalledWith("/api/auth/account/export");
     expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect((createObjectURL.mock.calls[0][0] as Blob).size).toBeGreaterThan(0);
     expect(click).toHaveBeenCalledOnce();
     const clickedAnchor = click.mock.instances[0] as HTMLAnchorElement;
     expect(clickedAnchor.download).toBe("goatfarm-account-export-2026-08-17.json");
     expect(clickedAnchor.href).toBe("blob:account-export");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:account-export");
     expect(document.body).not.toContainElement(clickedAnchor);
+    click.mockRestore();
+  });
+
+  it("does not download a stale export after the session was replaced", async () => {
+    let resolveExport: ((value: { account: { id: number } }) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveExport = resolve;
+        }),
+    );
+    const createObjectURL = vi.fn(() => "blob:stale-account-export");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "Download my data" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce());
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () => resolveExport?.({ account: { id: 1 } }));
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
     click.mockRestore();
   });
 
@@ -329,6 +470,55 @@ describe("AccountDialog", () => {
       "Export service unavailable.",
     );
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("clears the previous export error as a retry begins", async () => {
+    let rejectRetry: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch
+      .mockRejectedValueOnce(new ApiError(503, "Export service unavailable."))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectRetry = reject;
+          }),
+      );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    const download = within(dialog).getByRole("button", { name: "Download my data" });
+
+    await user.click(download);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Export service unavailable.",
+    );
+
+    await user.click(download);
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(async () => rejectRetry?.(new ApiError(503, "Retry unavailable")));
+  });
+
+  it("does not report a stale export failure against a replacement session", async () => {
+    let rejectExport: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectExport = reject;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Download my data" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce());
+
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () =>
+      rejectExport?.(new ApiError(503, "Failure from the replaced session")),
+    );
+
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("does not restore a late export error after the dialog was closed", async () => {
@@ -433,6 +623,32 @@ describe("AccountDialog", () => {
     );
   });
 
+  it("does not let a stale account deletion sign out a replacement session", async () => {
+    let resolveDeletion: (() => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDeletion = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "owner-password",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Delete account and access" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce());
+
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () => resolveDeletion?.());
+
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+  });
+
   it("uses a safe fallback for an unexpected deletion failure", async () => {
     mocks.apiFetch.mockRejectedValue(new Error("network disconnected"));
     const user = userEvent.setup();
@@ -449,6 +665,68 @@ describe("AccountDialog", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Could not delete your account.",
     );
+    expect(mocks.signOut).not.toHaveBeenCalled();
+  });
+
+  it("clears the previous deletion error as a retry begins", async () => {
+    let rejectRetry: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch
+      .mockRejectedValueOnce(new ApiError(409, "Owned farms block account deletion."))
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectRetry = reject;
+          }),
+      );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "owner-password",
+    );
+    const deleteAccount = within(dialog).getByRole("button", {
+      name: "Delete account and access",
+    });
+
+    await user.click(deleteAccount);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Owned farms block account deletion.",
+    );
+
+    await user.click(deleteAccount);
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(2));
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(async () => rejectRetry?.(new ApiError(409, "Retry blocked")));
+  });
+
+  it("does not report a stale deletion failure against a replacement session", async () => {
+    let rejectDeletion: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDeletion = reject;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "owner-password",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Delete account and access" }));
+    await waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledOnce());
+
+    mocks.authSessionEpochValue.mockReturnValue(2);
+    await act(async () =>
+      rejectDeletion?.(new ApiError(409, "Failure from the replaced session")),
+    );
+
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     expect(mocks.signOut).not.toHaveBeenCalled();
   });
 

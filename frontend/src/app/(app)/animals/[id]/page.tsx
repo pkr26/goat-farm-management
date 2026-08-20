@@ -134,10 +134,12 @@ function AddWeightDialog({
   animalId,
   onDone,
   actionFlight,
+  profileSettling,
 }: {
   animalId: number;
   onDone: () => void;
   actionFlight: ProfileActionFlight;
+  profileSettling: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const mut = useRecordWeightApiAnimalsAnimalIdWeightPost();
@@ -149,6 +151,7 @@ function AddWeightDialog({
   } = useForm<WeightInput, unknown, WeightValues>({ resolver: zodResolver(weightSchema) });
 
   async function onSubmit(values: WeightValues) {
+    if (profileSettling) return;
     await actionFlight.run(async () => {
       try {
         await mut.mutateAsync({
@@ -175,7 +178,7 @@ function AddWeightDialog({
       <Button
         size="sm"
         variant="outline"
-        disabled={actionFlight.pending}
+        disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
         Record weight
@@ -185,7 +188,10 @@ function AddWeightDialog({
           <DialogTitle>Record weight</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-          <fieldset disabled={isSubmitting || actionFlight.pending} className="contents">
+          <fieldset
+            disabled={isSubmitting || actionFlight.pending || profileSettling}
+            className="contents"
+          >
           <div className="space-y-1.5">
             <Label htmlFor="w_date">Date (defaults to today)</Label>
             <Input
@@ -243,7 +249,10 @@ function AddWeightDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || actionFlight.pending}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || actionFlight.pending || profileSettling}
+            >
               {isSubmitting || actionFlight.pending ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
@@ -266,12 +275,14 @@ function MoveBucketDialog({
   sex,
   onDone,
   actionFlight,
+  profileSettling,
 }: {
   animalId: number;
   currentBucket: string;
   sex: string;
   onDone: () => void;
   actionFlight: ProfileActionFlight;
+  profileSettling: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
@@ -284,6 +295,7 @@ function MoveBucketDialog({
   } = useForm<MoveValues>({ resolver: zodResolver(moveSchema) });
 
   async function onSubmit(values: MoveValues) {
+    if (profileSettling) return;
     await actionFlight.run(async () => {
       try {
         await mut.mutateAsync({
@@ -308,7 +320,7 @@ function MoveBucketDialog({
       <Button
         size="sm"
         variant="outline"
-        disabled={actionFlight.pending}
+        disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
         Move bucket
@@ -318,7 +330,10 @@ function MoveBucketDialog({
           <DialogTitle>Move bucket</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-          <fieldset disabled={isSubmitting || actionFlight.pending} className="contents">
+          <fieldset
+            disabled={isSubmitting || actionFlight.pending || profileSettling}
+            className="contents"
+          >
           <div className="space-y-1.5">
             <Label htmlFor="move-to-bucket">To bucket *</Label>
             <Controller
@@ -369,7 +384,10 @@ function MoveBucketDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || actionFlight.pending}>
+            <Button
+              type="submit"
+              disabled={isSubmitting || actionFlight.pending || profileSettling}
+            >
               {isSubmitting || actionFlight.pending ? "Moving…" : "Move"}
             </Button>
           </DialogFooter>
@@ -457,10 +475,12 @@ function StatusDialog({
   animalId,
   onDone,
   actionFlight,
+  profileSettling,
 }: {
   animalId: number;
   onDone: () => void;
   actionFlight: ProfileActionFlight;
+  profileSettling: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const mut = useChangeStatusApiAnimalsAnimalIdStatusPost();
@@ -486,6 +506,7 @@ function StatusDialog({
   });
 
   async function onSubmit(values: StatusValues) {
+    if (profileSettling) return;
     await actionFlight.run(async () => {
       try {
         await mut.mutateAsync({
@@ -538,7 +559,7 @@ function StatusDialog({
       <Button
         size="sm"
         variant="destructive"
-        disabled={actionFlight.pending}
+        disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
         Change status
@@ -548,7 +569,10 @@ function StatusDialog({
           <DialogTitle>Change status</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-          <fieldset disabled={isSubmitting || actionFlight.pending} className="contents">
+          <fieldset
+            disabled={isSubmitting || actionFlight.pending || profileSettling}
+            className="contents"
+          >
           <div className="space-y-1.5">
             <Label htmlFor="animal-new-status">New status *</Label>
             <Controller
@@ -752,7 +776,7 @@ function StatusDialog({
             <Button
               type="submit"
               variant="destructive"
-              disabled={isSubmitting || actionFlight.pending}
+              disabled={isSubmitting || actionFlight.pending || profileSettling}
             >
               {isSubmitting || actionFlight.pending ? "Saving…" : "Confirm"}
             </Button>
@@ -769,11 +793,13 @@ function ClearRestrictionDialog({
   restrictionVersion,
   onDone,
   actionFlight,
+  profileSettling,
 }: {
   animalId: number;
   restrictionVersion: number;
   onDone: () => void;
   actionFlight: ProfileActionFlight;
+  profileSettling: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [reference, setReference] = useState("");
@@ -783,7 +809,7 @@ function ClearRestrictionDialog({
   const awaitingEpisodeRefresh = conflictedVersion === restrictionVersion;
 
   async function clearRestriction() {
-    if (actionFlight.pending || awaitingEpisodeRefresh) return;
+    if (actionFlight.pending || profileSettling || awaitingEpisodeRefresh) return;
     const clearanceReference = reference.trim();
     if (!clearanceReference) {
       setError("A veterinary or authority clearance reference is required.");
@@ -828,7 +854,7 @@ function ClearRestrictionDialog({
         type="button"
         size="sm"
         variant="outline"
-        disabled={actionFlight.pending}
+        disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
         Record clearance
@@ -846,7 +872,7 @@ function ClearRestrictionDialog({
           <Input
             id={`clearance-reference-${animalId}`}
             value={reference}
-            disabled={actionFlight.pending || awaitingEpisodeRefresh}
+            disabled={actionFlight.pending || profileSettling || awaitingEpisodeRefresh}
             maxLength={255}
             placeholder="certificate/order number and issuing authority"
             aria-invalid={Boolean(error) || undefined}
@@ -879,7 +905,12 @@ function ClearRestrictionDialog({
           )}
           <Button
             type="button"
-            disabled={!reference.trim() || actionFlight.pending || awaitingEpisodeRefresh}
+            disabled={
+              !reference.trim() ||
+              actionFlight.pending ||
+              profileSettling ||
+              awaitingEpisodeRefresh
+            }
             onClick={() => void clearRestriction()}
           >
             {mutation.isPending
@@ -899,6 +930,8 @@ function ClearRestrictionDialog({
 function ProfileBody({
   profile,
   refresh,
+  profileSettling,
+  historySettling,
   backHref,
   backLabel,
   onKidsOffsetChange,
@@ -909,6 +942,11 @@ function ProfileBody({
 }: {
   profile: AnimalProfileOut;
   refresh: () => void;
+  /** The animal snapshot is being refreshed; lifecycle writes must wait for
+   *  the authoritative status/bucket/restriction version. */
+  profileSettling: boolean;
+  /** The combined bounded-history query is showing its previous offsets. */
+  historySettling: boolean;
   backHref: string;
   backLabel: string;
   onKidsOffsetChange: (offset: number) => void;
@@ -969,6 +1007,7 @@ function ProfileBody({
                     animalId={a.id}
                     onDone={refresh}
                     actionFlight={actionFlight}
+                    profileSettling={profileSettling}
                   />
                 )}
                 {can("animals.move") && !a.movement_restricted && (
@@ -978,6 +1017,7 @@ function ProfileBody({
                     sex={a.sex}
                     onDone={refresh}
                     actionFlight={actionFlight}
+                    profileSettling={profileSettling}
                   />
                 )}
                 {can("animals.status") && (
@@ -985,6 +1025,7 @@ function ProfileBody({
                     animalId={a.id}
                     onDone={refresh}
                     actionFlight={actionFlight}
+                    profileSettling={profileSettling}
                   />
                 )}
               </>
@@ -1022,6 +1063,7 @@ function ProfileBody({
                 restrictionVersion={a.restriction_version}
                 onDone={refresh}
                 actionFlight={actionFlight}
+                profileSettling={profileSettling}
               />
             )}
           </CardContent>
@@ -1088,6 +1130,7 @@ function ProfileBody({
                   offset={restrictionHistory?.offset ?? restrictionOffset}
                   onOffsetChange={setRestrictionOffset}
                   label="movement restriction actions"
+                  disabled={restrictionHistoryQuery.isPlaceholderData}
                 />
               </div>
             )}
@@ -1223,6 +1266,7 @@ function ProfileBody({
             offset={profile.weights_offset}
             onOffsetChange={onWeightsOffsetChange}
             label="weight records"
+            disabled={historySettling}
           />
         </DataTableCard>
 
@@ -1259,6 +1303,7 @@ function ProfileBody({
             offset={profile.moves_offset}
             onOffsetChange={onMovesOffsetChange}
             label="bucket moves"
+            disabled={historySettling}
           />
         </DataTableCard>
 
@@ -1313,6 +1358,7 @@ function ProfileBody({
             offset={profile.health_events_offset}
             onOffsetChange={onHealthEventsOffsetChange}
             label="health events"
+            disabled={historySettling}
           />
         </DataTableCard>
         )}
@@ -1358,6 +1404,7 @@ function ProfileBody({
               offset={profile.kids_offset}
               onOffsetChange={onKidsOffsetChange}
               label="offspring"
+              disabled={historySettling}
             />
           </DataTableCard>
         )}
@@ -1383,6 +1430,7 @@ function ProfileBody({
               offset={profile.breedings_offset}
               onOffsetChange={onBreedingsOffsetChange}
               label="breeding records"
+              disabled={historySettling}
             />
           </DataTableCard>
         )}
@@ -1501,6 +1549,8 @@ function AnimalProfilePageContent() {
     <ProfileBody
       profile={profile}
       refresh={refresh}
+      profileSettling={query.isFetching}
+      historySettling={query.isPlaceholderData}
       backHref={backHref}
       backLabel={backLabel}
       onKidsOffsetChange={setKidsOffset}

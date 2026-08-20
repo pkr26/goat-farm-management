@@ -21,16 +21,17 @@
 // bootstrap is always the epoch loser, because performRefresh installs its
 // token directly without bumping the epoch.
 
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { useEffect } from "react";
+import { useEffect, type ReactElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setAccessToken, setCurrentFarmId } from "@/lib/api-client";
-import { useAuth } from "@/lib/auth-context";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { TEST_FARMS, server } from "@/test/msw-server";
-import { renderWithProviders } from "@/test/render";
+import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 const { pushMock, replaceMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -51,6 +52,11 @@ function Probe() {
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="user">{auth.user ? auth.user.email : "none"}</span>
       <span data-testid="farms">{auth.farms.map((farm) => farm.id).join(",")}</span>
+      <span data-testid="farmCount">{auth.farms.length}</span>
+      <span data-testid="farmId">
+        {auth.farmId === null ? "none" : String(auth.farmId)}
+      </span>
+      <button onClick={() => auth.selectFarm(2)}>select-2</button>
       <button
         onClick={() =>
           void auth
@@ -74,15 +80,48 @@ function ActionCapture({
   capture,
 }: {
   capture: (actions: {
+    signIn: ReturnType<typeof useAuth>["signIn"];
     refreshFarms: () => Promise<void>;
     signOut: () => Promise<void>;
   }) => void;
 }) {
-  const { refreshFarms, signOut } = useAuth();
+  const { signIn, refreshFarms, signOut } = useAuth();
   useEffect(() => {
-    capture({ refreshFarms, signOut });
-  }, [capture, refreshFarms, signOut]);
+    capture({ signIn, refreshFarms, signOut });
+  }, [capture, signIn, refreshFarms, signOut]);
   return null;
+}
+
+function RefreshOnEffect({
+  launch,
+}: {
+  launch: (refreshFarms: () => Promise<void>) => void;
+}) {
+  const { refreshFarms } = useAuth();
+  useEffect(() => launch(refreshFarms), [launch, refreshFarms]);
+  return null;
+}
+
+function SignInOnEffect({
+  launch,
+}: {
+  launch: (signIn: ReturnType<typeof useAuth>["signIn"]) => void;
+}) {
+  const { signIn } = useAuth();
+  useEffect(() => launch(signIn), [launch, signIn]);
+  return null;
+}
+
+function renderStrictWithProviders(ui: ReactElement) {
+  const queryClient = createTestQueryClient();
+  function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
+    );
+  }
+  return { queryClient, ...render(ui, { wrapper: Wrapper, reactStrictMode: true }) };
 }
 
 /** Parks the FIRST /api/auth/farms call (the bootstrap's) until released, and
@@ -212,6 +251,164 @@ describe("AuthProvider bootstrap racing a sign-in", () => {
   });
 });
 
+describe("AuthProvider Strict Mode ownership fences", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    setAccessToken(null);
+    setCurrentFarmId(null);
+  });
+
+  it("keeps a post-rehearsal farm refresh when the pre-cleanup response arrives last", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let farmCalls = 0;
+    server.use(
+      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
+      http.get("/api/auth/farms", async () => {
+        farmCalls += 1;
+        if (farmCalls === 1) {
+          await firstGate;
+          return HttpResponse.json([
+            {
+              id: 2,
+              name: "First rehearsed snapshot",
+              location: null,
+              timezone: "Asia/Kolkata",
+              role: null,
+            },
+          ]);
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "Second rehearsed snapshot",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    let rehearsals = 0;
+    let preCleanupRefresh!: Promise<void>;
+    const launch = (refreshFarms: () => Promise<void>) => {
+      rehearsals += 1;
+      if (rehearsals === 1) preCleanupRefresh = refreshFarms();
+    };
+
+    renderStrictWithProviders(
+      <>
+        <Probe />
+        <RefreshOnEffect launch={launch} />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(farmCalls).toBe(1));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    await act(async () => {
+      await actions!.refreshFarms();
+    });
+    expect(farmCalls).toBe(2);
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+
+    await act(async () => {
+      releaseFirst();
+      await preCleanupRefresh;
+    });
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+
+  it("keeps a post-rehearsal identity when the pre-cleanup establishment arrives last", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let farmCalls = 0;
+    server.use(
+      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
+      http.get("/api/auth/farms", async () => {
+        farmCalls += 1;
+        if (farmCalls === 1) {
+          await firstGate;
+          return HttpResponse.json([
+            {
+              id: 2,
+              name: "First rehearsed membership",
+              location: null,
+              timezone: "Asia/Kolkata",
+              role: null,
+            },
+          ]);
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "Second rehearsed membership",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    let rehearsals = 0;
+    let preCleanupEstablishment!: Promise<void>;
+    const launch = (signIn: ReturnType<typeof useAuth>["signIn"]) => {
+      rehearsals += 1;
+      if (rehearsals === 1) {
+        preCleanupEstablishment = signIn(
+          "strict-shared-token",
+          { id: 8, email: "strict-old@goatfarm.test", name: "Strict old" },
+        );
+      }
+    };
+
+    renderStrictWithProviders(
+      <>
+        <Probe />
+        <SignInOnEffect launch={launch} />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(farmCalls).toBe(1));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    await act(async () => {
+      await actions!.signIn("strict-shared-token", {
+        id: 9,
+        email: "strict-new@goatfarm.test",
+        name: "Strict new",
+      });
+    });
+    expect(farmCalls).toBe(2);
+    expect(screen.getByTestId("user")).toHaveTextContent("strict-new@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+
+    await act(async () => {
+      releaseFirst();
+      await preCleanupEstablishment;
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("strict-new@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+});
+
 describe("AuthProvider stale async completions", () => {
   beforeEach(() => {
     pushMock.mockClear();
@@ -268,6 +465,428 @@ describe("AuthProvider stale async completions", () => {
     expect(screen.getByTestId("farms")).toHaveTextContent("3");
   });
 
+  it("keeps the newest same-session establishment when the older response arrives last", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        calls += 1;
+        if (calls === 1) {
+          markFirstStarted();
+          await firstGate;
+          return HttpResponse.json([
+            {
+              id: 2,
+              name: "Older sign-in snapshot",
+              location: null,
+              timezone: "Asia/Kolkata",
+              role: null,
+            },
+          ]);
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "Newest sign-in snapshot",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+
+    const olderActor = { id: 8, email: "older@goatfarm.test", name: "Older" };
+    const newestActor = { id: 9, email: "newest@goatfarm.test", name: "Newest" };
+    let older!: Promise<void>;
+    await act(async () => {
+      older = actions!.signIn("shared-signin-token", olderActor);
+      await firstStarted;
+      await actions!.signIn("shared-signin-token", newestActor);
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("newest@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+
+    await act(async () => {
+      releaseFirst();
+      await older;
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("newest@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+
+  it("keeps a newer same-token session when the older establishment fails last", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseOlder!: () => void;
+    let markOlderStarted!: () => void;
+    const olderStarted = new Promise<void>((resolve) => {
+      markOlderStarted = resolve;
+    });
+    const olderGate = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        calls += 1;
+        if (calls === 1) {
+          markOlderStarted();
+          await olderGate;
+          return HttpResponse.error();
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "New owner membership",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+
+    let older!: Promise<void>;
+    await act(async () => {
+      older = actions!.signIn("shared-failure-token", {
+        id: 8,
+        email: "older@goatfarm.test",
+        name: "Older",
+      });
+      await olderStarted;
+      await actions!.signIn("shared-failure-token", {
+        id: 9,
+        email: "newest@goatfarm.test",
+        name: "Newest",
+      });
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("newest@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+
+    await act(async () => {
+      releaseOlder();
+      await expect(older).rejects.toThrow();
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("newest@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+
+  it("tears down the currently owned session when establishment fails", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    let logoutCalls = 0;
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.error()),
+      http.post("/api/auth/logout", () => {
+        logoutCalls += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const rendered = renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    rendered.queryClient.setQueryData(["owned-session-data"], { stale: true });
+
+    await act(async () => {
+      await expect(
+        actions!.signIn("failed-current-token", {
+          id: 10,
+          email: "failed@goatfarm.test",
+          name: "Failed",
+        }),
+      ).rejects.toThrow();
+    });
+
+    expect(screen.getByTestId("user")).toHaveTextContent("none");
+    expect(screen.getByTestId("farms")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    expect(rendered.queryClient.getQueryData(["owned-session-data"])).toBeUndefined();
+    await waitFor(() => expect(logoutCalls).toBe(1));
+  });
+
+  it("still commits a staged user when a newer explicit farm refresh owns the list", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseSignIn!: () => void;
+    let markSignInStarted!: () => void;
+    const signInStarted = new Promise<void>((resolve) => {
+      markSignInStarted = resolve;
+    });
+    const signInGate = new Promise<void>((resolve) => {
+      releaseSignIn = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        calls += 1;
+        if (calls === 1) {
+          markSignInStarted();
+          await signInGate;
+          return HttpResponse.json([
+            {
+              id: 2,
+              name: "Sign-in membership snapshot",
+              location: null,
+              timezone: "Asia/Kolkata",
+              role: null,
+            },
+          ]);
+        }
+        return HttpResponse.json([
+          {
+            id: 3,
+            name: "Explicit refresh snapshot",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+    );
+
+    const actor = { id: 9, email: "worker@goatfarm.test", name: "Worker" };
+    let establishing!: Promise<void>;
+    await act(async () => {
+      establishing = actions!.signIn("replacement-token", actor);
+      await signInStarted;
+      await actions!.refreshFarms();
+    });
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+
+    await act(async () => {
+      releaseSignIn();
+      await establishing;
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("worker@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("3");
+  });
+
+  it("uses the establishment list when a newer explicit farm refresh fails", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseSignIn!: () => void;
+    let markSignInStarted!: () => void;
+    const signInStarted = new Promise<void>((resolve) => {
+      markSignInStarted = resolve;
+    });
+    const signInGate = new Promise<void>((resolve) => {
+      releaseSignIn = resolve;
+    });
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        calls += 1;
+        if (calls === 1) {
+          markSignInStarted();
+          await signInGate;
+          return HttpResponse.json([
+            {
+              id: 42,
+              name: "Valid establishment snapshot",
+              location: null,
+              timezone: "Asia/Kolkata",
+              role: null,
+            },
+          ]);
+        }
+        return HttpResponse.error();
+      }),
+    );
+
+    const actor = { id: 9, email: "worker@goatfarm.test", name: "Worker" };
+    let establishing!: Promise<void>;
+    await act(async () => {
+      establishing = actions!.signIn("replacement-token", actor);
+      await signInStarted;
+      await expect(actions!.refreshFarms()).rejects.toThrow();
+    });
+
+    await act(async () => {
+      releaseSignIn();
+      await establishing;
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("worker@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("42");
+  });
+
+  it("preserves a live farm choice across refresh when localStorage is blocked", async () => {
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/farms", () => {
+        calls += 1;
+        return HttpResponse.json([
+          {
+            id: 1,
+            name: "First farm",
+            location: null,
+            timezone: "Asia/Kolkata",
+            role: null,
+          },
+          {
+            id: 2,
+            name: "Chosen farm",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+          ...(calls > 1
+            ? [{
+                id: 3,
+                name: "New membership",
+                location: null,
+                timezone: "Europe/London",
+                role: null,
+              }]
+            : []),
+        ]);
+      }),
+    );
+    const blockedStorage = vi
+      .spyOn(window, "localStorage", "get")
+      .mockImplementation(() => {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      });
+    try {
+      const user = userEvent.setup();
+      renderWithProviders(<Probe />);
+      await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+      await user.click(screen.getByRole("button", { name: "select-2" }));
+      expect(screen.getByTestId("farmId")).toHaveTextContent("2");
+      await user.click(screen.getByRole("button", { name: "refresh-farms" }));
+
+      await waitFor(() => expect(screen.getByTestId("farms")).toHaveTextContent("1,2,3"));
+      expect(screen.getByTestId("farmId")).toHaveTextContent("2");
+    } finally {
+      blockedStorage.mockRestore();
+    }
+  });
+
+  it("clears cached farm data immediately when the operator selects another farm", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          ...TEST_FARMS,
+          {
+            id: 2,
+            name: "Second farm",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]),
+      ),
+    );
+    const user = userEvent.setup();
+    const rendered = renderWithProviders(<Probe />);
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    expect(screen.getByTestId("farmId")).toHaveTextContent("1");
+    rendered.queryClient.setQueryData(["farm-scoped-row"], { farmId: 1 });
+
+    await user.click(screen.getByRole("button", { name: "select-2" }));
+
+    expect(screen.getByTestId("farmId")).toHaveTextContent("2");
+    expect(rendered.queryClient.getQueryData(["farm-scoped-row"])).toBeUndefined();
+  });
+
+  it("fully tears down the active farm when the final membership disappears", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    const rendered = renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    rendered.queryClient.setQueryData(["removed-farm-row"], { farmId: 1 });
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([])));
+
+    await act(async () => {
+      await actions!.refreshFarms();
+    });
+
+    expect(screen.getByTestId("farms")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    expect(rendered.queryClient.getQueryData(["removed-farm-row"])).toBeUndefined();
+  });
+
   it("suppresses an older refresh error after a newer refresh succeeds", async () => {
     let actions:
       | { refreshFarms: () => Promise<void>; signOut: () => Promise<void> }
@@ -317,6 +936,74 @@ describe("AuthProvider stale async completions", () => {
     expect(screen.getByTestId("farms")).toHaveTextContent("3");
   });
 
+  it("suppresses a refresh error owned by the session before logout and replacement", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseOldRefresh!: () => void;
+    let markOldRefreshStarted!: () => void;
+    const oldRefreshStarted = new Promise<void>((resolve) => {
+      markOldRefreshStarted = resolve;
+    });
+    const oldRefreshGate = new Promise<void>((resolve) => {
+      releaseOldRefresh = resolve;
+    });
+    let farmCalls = 0;
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        farmCalls += 1;
+        if (farmCalls === 1) {
+          markOldRefreshStarted();
+          await oldRefreshGate;
+          return HttpResponse.error();
+        }
+        return HttpResponse.json([
+          {
+            id: 4,
+            name: "Replacement farm",
+            location: null,
+            timezone: "America/Phoenix",
+            role: null,
+          },
+        ]);
+      }),
+      http.post("/api/auth/logout", () => new HttpResponse(null, { status: 204 })),
+    );
+
+    let staleRefresh!: Promise<void>;
+    await act(async () => {
+      staleRefresh = actions!.refreshFarms();
+      await oldRefreshStarted;
+      await actions!.signOut();
+      await actions!.signIn("replacement-after-logout", {
+        id: 11,
+        email: "replacement@goatfarm.test",
+        name: "Replacement",
+      });
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("replacement@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("4");
+
+    await act(async () => {
+      releaseOldRefresh();
+      await expect(staleRefresh).resolves.toBeUndefined();
+    });
+    expect(screen.getByTestId("user")).toHaveTextContent("replacement@goatfarm.test");
+    expect(screen.getByTestId("farms")).toHaveTextContent("4");
+  });
+
   it("does not let an unmounted bootstrap clear a later tree's query cache", async () => {
     let releaseFarms!: () => void;
     let farmsStarted!: () => void;
@@ -348,6 +1035,53 @@ describe("AuthProvider stale async completions", () => {
     });
   });
 
+  it("rejects a staged sign-in when its provider unmounts before farms settle", async () => {
+    let actions:
+      | {
+          signIn: ReturnType<typeof useAuth>["signIn"];
+          refreshFarms: () => Promise<void>;
+          signOut: () => Promise<void>;
+        }
+      | undefined;
+    const rendered = renderWithProviders(
+      <>
+        <Probe />
+        <ActionCapture capture={(captured) => { actions = captured; }} />
+      </>,
+    );
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    let releaseFarms!: () => void;
+    let markFarmsStarted!: () => void;
+    const farmsStarted = new Promise<void>((resolve) => {
+      markFarmsStarted = resolve;
+    });
+    const farmsGate = new Promise<void>((resolve) => {
+      releaseFarms = resolve;
+    });
+    server.use(
+      http.get("/api/auth/farms", async () => {
+        markFarmsStarted();
+        await farmsGate;
+        return HttpResponse.json(TEST_FARMS);
+      }),
+    );
+
+    let staged!: Promise<void>;
+    await act(async () => {
+      staged = actions!.signIn("unmounted-token", {
+        id: 12,
+        email: "unmounted@goatfarm.test",
+        name: "Unmounted",
+      });
+      await farmsStarted;
+    });
+    rendered.unmount();
+
+    releaseFarms();
+    await expect(staged).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("coalesces same-tick logout requests into one revocation", async () => {
     let logoutCalls = 0;
     server.use(
@@ -356,8 +1090,9 @@ describe("AuthProvider stale async completions", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    renderWithProviders(<Probe />);
+    const rendered = renderWithProviders(<Probe />);
     await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+    rendered.queryClient.setQueryData(["signed-in-cache"], { farmId: 1 });
 
     const signOut = screen.getByRole("button", { name: "sign-out" });
     fireEvent.click(signOut);
@@ -365,6 +1100,10 @@ describe("AuthProvider stale async completions", () => {
 
     await waitFor(() => expect(logoutCalls).toBe(1));
     expect(replaceMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("farms")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("farmCount")).toHaveTextContent("0");
+    expect(screen.getByTestId("farmId")).toHaveTextContent("none");
+    expect(rendered.queryClient.getQueryData(["signed-in-cache"])).toBeUndefined();
   });
 
   it("does not let a prior session's slow logout suppress the new session's logout", async () => {

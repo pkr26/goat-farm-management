@@ -337,6 +337,193 @@ describe("AnimalsPage finite pagination", () => {
     });
   });
 
+  it("keeps rows non-interactive when an older filter URL commits before a newer one", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    nav.state.deferReplace = true;
+    const view = renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by sex", "Female");
+    expect(nav.state.deferredReplacements).toHaveLength(2);
+
+    // Next can commit the older bucket-only replace before the newer
+    // bucket+sex replace. The older query may already be cached/fresh, but its
+    // rows must stay unavailable because the later URL still owns the UI.
+    nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[0]);
+    view.rerender(<AnimalsPage />);
+    expect(await screen.findByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.queryByText("G-001")).not.toBeInTheDocument();
+
+    nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[1]);
+    view.rerender(<AnimalsPage />);
+    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+  });
+
+  it("keeps a cached filter destination guarded until its URL commits", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    const queryClient = createTestQueryClient();
+    queryClient.setDefaultOptions({
+      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 60_000 },
+      mutations: { retry: false },
+    });
+    renderWithProviders(<AnimalsPage />, queryClient);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    // Warm both filter query keys. The third navigation below can therefore
+    // settle entirely from cache: only the explicit URL-commit fence can keep
+    // its rows unavailable.
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
+    await chooseOption(user, "Filter animals by bucket", "All buckets");
+    await waitFor(() => expect(nav.state.search).toBe(""));
+
+    nav.state.deferReplace = true;
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+
+    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.queryByText("G-001")).not.toBeInTheDocument();
+    // The unchanged-search debounce also runs after a filter edit. It must
+    // preserve the filter navigation's fence instead of clearing it.
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.queryByText("G-001")).not.toBeInTheDocument();
+  });
+
+  it("does not raise a navigation fence for an unchanged idle search", async () => {
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    // On mount q and the URL's q are both empty. Treating that equality as a
+    // real replacement strands the screen in Updating because Next has no
+    // distinct URL commit to deliver.
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+  });
+
+  it("keeps the fence when a cached older filter commit leaves a newer URL pending", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    const queryClient = createTestQueryClient();
+    queryClient.setDefaultOptions({
+      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 60_000 },
+      mutations: { retry: false },
+    });
+    const view = renderWithProviders(<AnimalsPage />, queryClient);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    // Warm A, B, and C before reproducing A -> B -> C with deferred replaces.
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
+    await chooseOption(user, "Filter animals by sex", "Female");
+    await waitFor(() => expect(seenParams.at(-1)?.get("sex")).toBe("F"));
+    await chooseOption(user, "Filter animals by sex", "Both sexes");
+    await chooseOption(user, "Filter animals by bucket", "All buckets");
+    await waitFor(() => expect(nav.state.search).toBe(""));
+
+    nav.state.deferReplace = true;
+    nav.state.deferredReplacements = [];
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by sex", "Female");
+    expect(nav.state.deferredReplacements).toHaveLength(2);
+
+    nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[0]);
+    view.rerender(<AnimalsPage />);
+
+    // B is fresh in cache and is no longer fetching. C is nevertheless still
+    // pending, so exposing B's rows here would make stale navigation clickable.
+    await new Promise((resolve) => window.setTimeout(resolve, 75));
+    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.queryByText("G-001")).not.toBeInTheDocument();
+  });
+
+  it("keeps a cached page destination guarded until its push commits", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    const queryClient = createTestQueryClient();
+    queryClient.setDefaultOptions({
+      queries: { retry: false, refetchOnWindowFocus: false, staleTime: 60_000 },
+      mutations: { retry: false },
+    });
+    renderWithProviders(<AnimalsPage />, queryClient);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Page 2 of 2 · Showing 51–55 of 55");
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    nav.state.deferPush = true;
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.queryByText("G-051")).not.toBeInTheDocument();
+  });
+
+  it("consumes repeated destinations through the newest matching navigation", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    nav.state.deferReplace = true;
+    const view = renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by sex", "Female");
+    await chooseOption(user, "Filter animals by sex", "Both sexes");
+    expect(nav.state.deferredReplacements).toHaveLength(3);
+    expect(nav.state.deferredReplacements[0]).toBe(
+      nav.state.deferredReplacements[2],
+    );
+
+    // Next discards the two older actions and commits only the final B in the
+    // A -> B -> C -> B sequence. That one commit must consume all three
+    // registry entries; otherwise the list remains "Updating" forever.
+    nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[2]);
+    view.rerender(<AnimalsPage />);
+
+    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+  });
+
+  it("dispatches a same-URL replacement to cancel an older pending navigation", async () => {
+    const user = userEvent.setup();
+    usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
+    nav.state.deferReplace = true;
+    const view = renderWithProviders(<AnimalsPage />);
+    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+
+    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "All buckets");
+
+    // Although /animals is still the committed URL, this second dispatch is
+    // required: Next uses it to supersede the still-pending FEMALE_KIDS action.
+    // It is deliberately not recorded as pending because it cannot produce a
+    // distinct search-param commit.
+    expect(nav.state.deferredReplacements).toEqual([
+      "/animals?bucket=FEMALE_KIDS",
+      "/animals",
+    ]);
+
+    // Clearing the superseded registry and lowering the fence are both
+    // synchronous parts of cancellation; there will be no new URL commit to
+    // repair either one later.
+    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+
+    // Model Next applying only the newest action, whose URL is unchanged.
+    nav.state.search = "";
+    view.rerender(<AnimalsPage />);
+    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+  });
+
   it("recovers an empty out-of-range filtered deep link to page one", async () => {
     usePagedAnimals([]);
     nav.state.search = "status=SOLD&page=4";
@@ -351,6 +538,23 @@ describe("AnimalsPage finite pagination", () => {
     const recoveredUrl = hrefParams(nav.replace);
     expect(recoveredUrl.get("status")).toBe("SOLD");
     expect(recoveredUrl.get("page")).toBeNull();
+    // The state correction rerenders before useSearchParams observes the
+    // synchronous mock replacement. Do not dispatch the already-current URL a
+    // second time from that intermediate render.
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers the local query page even while the canonical URL commit is delayed", async () => {
+    usePagedAnimals([]);
+    nav.state.search = "status=SOLD&page=4";
+    nav.state.deferReplace = true;
+    renderWithProviders(<AnimalsPage />);
+
+    await waitFor(() =>
+      expect(seenParams.some((params) => params.get("offset") === "150")).toBe(true),
+    );
+    await waitFor(() => expect(seenParams.at(-1)?.get("offset")).toBe("0"));
+    expect(nav.state.deferredReplacements).toEqual(["/animals?status=SOLD"]);
   });
 
   it("hides stale page rows while an invalidated list is refetching", async () => {

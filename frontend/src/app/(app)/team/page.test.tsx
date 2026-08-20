@@ -121,6 +121,68 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
     });
   });
 
+  it("only offers worker roles inside the delegated editor's permission ceiling", async () => {
+    const safeRole = {
+      id: 10,
+      code: null,
+      name: "Unprivileged helper",
+      description: null,
+      permissions: [],
+      revision: 1,
+      member_count: 1,
+    };
+    const animalRole = {
+      id: 11,
+      code: null,
+      name: "Animal administrator",
+      description: null,
+      permissions: ["animals.view", "animals.create"],
+      revision: 1,
+      member_count: 0,
+    };
+    const managerRole = {
+      id: 12,
+      code: null,
+      name: "Team manager",
+      description: null,
+      permissions: ["team.manage"],
+      revision: 1,
+      member_count: 0,
+    };
+    server.use(
+      http.get("/api/team", () =>
+        HttpResponse.json({
+          ...TEAM_PAYLOAD,
+          memberships: [
+            ...TEAM_PAYLOAD.memberships,
+            {
+              id: 2,
+              user_id: 2,
+              email: "worker@example.com",
+              name: "Worker",
+              role_id: safeRole.id,
+              role_name: safeRole.name,
+              is_active: true,
+              can_reset_password: false,
+              reset_password_block_reason: null,
+            },
+          ],
+          roles: [safeRole, animalRole, managerRole],
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<TeamPage />);
+    const row = (await screen.findByText("worker@example.com")).closest("tr") as HTMLElement;
+    await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
+
+    await user.click(within(row).getByRole("combobox"));
+
+    expect(await screen.findByRole("option", { name: safeRole.name })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: animalRole.name })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: managerRole.name })).not.toBeInTheDocument();
+  });
+
   it("disables editing a role whose permissions exceed the editor's ceiling", async () => {
     const existingRole = {
       id: 12,
@@ -128,6 +190,7 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
       name: "Animal keeper",
       description: null,
       permissions: ["animals.view", "animals.create"],
+      revision: 1,
       member_count: 0,
     };
     server.use(
@@ -137,6 +200,7 @@ describe("TeamPage role dialog clamping (editor holds only team.manage)", () => 
     );
     renderWithProviders(<TeamPage />);
     expect(await screen.findByText("Animal keeper")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "New role" })).toBeEnabled());
     const edit = screen.getByRole("button", { name: "Edit" });
     expect(edit).toBeDisabled();
     expect(edit).toHaveAttribute(

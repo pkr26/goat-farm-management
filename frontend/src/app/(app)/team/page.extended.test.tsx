@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getTeamPageApiTeamGetQueryKey } from "@/api/generated/endpoints";
 import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -139,8 +140,9 @@ function workerRow(email: string): HTMLElement {
 }
 
 async function renderLoaded() {
-  renderWithProviders(<TeamPage />);
+  const rendered = renderWithProviders(<TeamPage />);
   expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
+  return rendered;
 }
 
 describe("TeamPage workers table", () => {
@@ -243,13 +245,23 @@ describe("TeamPage workers table", () => {
 
   it("announces a failed role change and retries the intended role", async () => {
     let calls = 0;
+    let releaseRetry!: () => void;
+    let markRetryStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      markRetryStarted = resolve;
+    });
+    const retryGate = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
     server.use(
-      teamHandler(),
-      http.post("/api/team/workers/:membershipId/role", () => {
+      http.post("/api/team/workers/:membershipId/role", async () => {
         calls += 1;
-        return calls === 1
-          ? HttpResponse.json({ detail: "role assignment conflict" }, { status: 409 })
-          : HttpResponse.json({ ...MEMBER_RAVI, role_id: 11 });
+        if (calls === 1) {
+          return HttpResponse.json({ detail: "role assignment conflict" }, { status: 409 });
+        }
+        markRetryStarted();
+        await retryGate;
+        return HttpResponse.json({ ...MEMBER_RAVI, role_id: 11 });
       }),
     );
     const user = userEvent.setup();
@@ -260,6 +272,12 @@ describe("TeamPage workers table", () => {
 
     expect(await within(row).findByRole("alert")).toHaveTextContent("role assignment conflict");
     await user.click(within(row).getByRole("button", { name: "Retry role change" }));
+    await retryStarted;
+    expect(within(row).queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseRetry();
+    });
     await waitFor(() => expect(calls).toBe(2));
   });
 
@@ -316,6 +334,63 @@ describe("TeamPage workers table", () => {
     await waitFor(() => expect(reset).toBeEnabled());
   });
 
+  it("keeps every row action locked until the status refetch becomes authoritative", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let getCalls = 0;
+    let announceRefresh: (() => void) | undefined;
+    let releaseRefresh: (() => void) | undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      announceRefresh = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls > 1) {
+          announceRefresh?.();
+          await refreshGate;
+          return HttpResponse.json({
+            ...TEAM_PAYLOAD,
+            memberships: TEAM_PAYLOAD.memberships.map((membership) =>
+              membership.id === MEMBER_RAVI.id
+                ? { ...MEMBER_RAVI, is_active: false }
+                : membership,
+            ),
+          });
+        }
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+      http.put("/api/team/workers/:membershipId/status", () =>
+        HttpResponse.json({ ...MEMBER_RAVI, is_active: false }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = workerRow(MEMBER_RAVI.email);
+
+    await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    await refreshStarted;
+
+    // The PUT has completed, but the row still renders its old ACTIVE snapshot.
+    // Role/status/password actions must remain visibly and functionally locked
+    // until the GET confirms the worker's new state and permission boundary.
+    expect(within(row).getByRole("combobox")).toBeDisabled();
+    const staleDeactivate = within(row).getByRole("button", { name: "Deactivate" });
+    const reset = within(row).getByRole("button", { name: "Reset password" });
+    expect(staleDeactivate).toBeDisabled();
+    expect(reset).toBeDisabled();
+    await user.click(reset);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseRefresh?.();
+    await waitFor(() =>
+      expect(within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Activate" }))
+        .toBeEnabled(),
+    );
+  });
+
   it("claims the row synchronously when password reset opens", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
@@ -351,16 +426,75 @@ describe("TeamPage workers table", () => {
     expect(deactivate).toBeEnabled();
   });
 
+  it("rejects role and reset events delivered after a status action claims the row", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let roleCalls = 0;
+    let releaseStatus!: () => void;
+    let markStatusStarted!: () => void;
+    const statusStarted = new Promise<void>((resolve) => {
+      markStatusStarted = resolve;
+    });
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve;
+    });
+    server.use(
+      http.put("/api/team/workers/:membershipId/status", async () => {
+        markStatusStarted();
+        await statusGate;
+        return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+      }),
+      http.post("/api/team/workers/:membershipId/role", () => {
+        roleCalls += 1;
+        return HttpResponse.json({ ...MEMBER_RAVI, role_id: ROLE_HELPER.id });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const row = workerRow(MEMBER_RAVI.email);
+    const deactivate = within(row).getByRole("button", { name: "Deactivate" });
+    const reset = within(row).getByRole("button", { name: "Reset password" });
+
+    await user.click(within(row).getByRole("combobox"));
+    const helperOption = await screen.findByRole("option", { name: /Helper/ });
+
+    // All three events are delivered before React can paint disabled controls.
+    // The ref acquired by the first event is the functional authority here.
+    act(() => {
+      deactivate.click();
+      reset.click();
+      helperOption.click();
+    });
+
+    await statusStarted;
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(roleCalls).toBe(0);
+
+    await act(async () => {
+      releaseStatus();
+    });
+  });
+
   it("retries the same desired worker state instead of inverting it", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const bodies: unknown[] = [];
+    let releaseRetry!: () => void;
+    let markRetryStarted!: () => void;
+    const retryStarted = new Promise<void>((resolve) => {
+      markRetryStarted = resolve;
+    });
+    const retryGate = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
     server.use(
       teamHandler(),
       http.put("/api/team/workers/:membershipId/status", async ({ request }) => {
         bodies.push(await request.json());
-        return bodies.length === 1
-          ? HttpResponse.json({ detail: "response was interrupted" }, { status: 503 })
-          : HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+        if (bodies.length === 1) {
+          return HttpResponse.json({ detail: "response was interrupted" }, { status: 503 });
+        }
+        markRetryStarted();
+        await retryGate;
+        return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
       }),
     );
     const user = userEvent.setup();
@@ -369,8 +503,13 @@ describe("TeamPage workers table", () => {
     await user.click(within(row).getByRole("button", { name: "Deactivate" }));
     expect(await within(row).findByRole("alert")).toHaveTextContent("response was interrupted");
     await user.click(within(row).getByRole("button", { name: "Retry deactivate" }));
-    await waitFor(() => expect(bodies).toHaveLength(2));
+    await retryStarted;
+    expect(within(row).queryByRole("alert")).not.toBeInTheDocument();
     expect(bodies).toEqual([{ is_active: false }, { is_active: false }]);
+
+    await act(async () => {
+      releaseRetry();
+    });
   });
 });
 
@@ -393,10 +532,10 @@ describe("TeamPage add-worker dialog", () => {
 
   async function openDialog() {
     const user = userEvent.setup();
-    await renderLoaded();
+    const rendered = await renderLoaded();
     await user.click(screen.getByRole("button", { name: "Add worker" }));
     const dialog = await screen.findByRole("dialog");
-    return { user, dialog };
+    return { user, dialog, ...rendered };
   }
 
   async function pickRole(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
@@ -540,6 +679,75 @@ describe("TeamPage add-worker dialog", () => {
     await user.dblClick(within(dialog).getByRole("button", { name: "Add worker" }));
     await waitFor(() => expect(postCalls).toBe(1));
   });
+
+  it("keeps the open form inert when its team snapshot starts refreshing", async () => {
+    let getCalls = 0;
+    let releaseRefresh!: () => void;
+    let markRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        markRefreshStarted();
+        await refreshGate;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+    );
+    const { user, dialog, queryClient } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Email/), "new@example.com");
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
+    await pickRole(user, dialog);
+
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      refreshPromise = queryClient.invalidateQueries({
+        queryKey: getTeamPageApiTeamGetQueryKey(),
+      });
+    });
+    await refreshStarted;
+
+    const fieldset = dialog.querySelector("fieldset") as HTMLFieldSetElement;
+    const submit = within(dialog).getByRole("button", { name: "Add worker" });
+    await waitFor(() => {
+      expect(fieldset).toBeDisabled();
+      expect(submit).toBeDisabled();
+      expect(submit).toHaveAttribute("disabled");
+    });
+    expect(screen.getByRole("status", { hidden: true })).toHaveTextContent(
+      "Waiting for the latest team data",
+    );
+
+    // Exercise the synchronous guard independently of the painted disabled
+    // state: stale DOM or an imperative event must not start the POST.
+    fieldset.disabled = false;
+    (submit as HTMLButtonElement).disabled = false;
+    submit.click();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(postCalls).toBe(0);
+
+    await act(async () => {
+      releaseRefresh();
+      await refreshPromise;
+    });
+  });
+
+  it("disables submission when no assignable role exists", async () => {
+    server.use(teamHandler({ ...TEAM_PAYLOAD, roles: [] }));
+    const { dialog } = await openDialog();
+
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "You have no roles you are allowed to assign",
+    );
+    expect(within(dialog).getByRole("button", { name: "Add worker" })).toBeDisabled();
+  });
 });
 
 describe("TeamPage reset-password dialog", () => {
@@ -567,10 +775,10 @@ describe("TeamPage reset-password dialog", () => {
 
   async function openReset(email = MEMBER_RAVI.email) {
     const user = userEvent.setup();
-    await renderLoaded();
+    const rendered = await renderLoaded();
     await user.click(within(workerRow(email)).getByRole("button", { name: "Reset password" }));
     const dialog = await screen.findByRole("dialog");
-    return { user, dialog };
+    return { user, dialog, ...rendered };
   }
 
   it("opens titled with the worker's name", async () => {
@@ -663,6 +871,58 @@ describe("TeamPage reset-password dialog", () => {
     expect(within(row).getByText(reason)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("keeps an open reset form inert while the team snapshot is refreshing", async () => {
+    let getCalls = 0;
+    let releaseRefresh!: () => void;
+    let markRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        markRefreshStarted();
+        await refreshGate;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+    );
+    const { user, dialog, queryClient } = await openReset();
+    await user.type(within(dialog).getByLabelText(/New password/), "brandnewpass");
+
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      refreshPromise = queryClient.invalidateQueries({
+        queryKey: getTeamPageApiTeamGetQueryKey(),
+      });
+    });
+    await refreshStarted;
+
+    const fieldset = dialog.querySelector("fieldset") as HTMLFieldSetElement;
+    const submit = within(dialog).getByRole("button", { name: "Reset password" });
+    await waitFor(() => {
+      expect(fieldset).toBeDisabled();
+      expect(submit).toBeDisabled();
+      expect(submit).toHaveAttribute("disabled");
+    });
+
+    fieldset.disabled = false;
+    (submit as HTMLButtonElement).disabled = false;
+    submit.click();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(resetCalls).toBe(0);
+
+    await act(async () => {
+      releaseRefresh();
+      await refreshPromise;
+    });
+  });
 });
 
 describe("TeamPage role cards", () => {
@@ -740,6 +1000,70 @@ describe("TeamPage role cards", () => {
     expect(deleteCalls).toBe(0);
   });
 
+  it("rechecks the preset/member guard if a disabled delete is invoked imperatively", async () => {
+    let deleteCalls = 0;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.delete("/api/team/roles/:roleId", () => {
+        deleteCalls += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await renderLoaded();
+    const presetDelete = within(cardOf("Manager")).getByRole("button", { name: "Delete" });
+    expect(presetDelete).toBeDisabled();
+
+    // The handler itself owns this policy too; bypassing the HTML disabled
+    // attribute must still stop before confirmation or a request.
+    (presetDelete as HTMLButtonElement).disabled = false;
+    presetDelete.click();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleteCalls).toBe(0);
+  });
+
+  it("claims delete synchronously against a second delete and edit event", async () => {
+    let deleteCalls = 0;
+    let releaseDelete!: () => void;
+    let markDeleteStarted!: () => void;
+    const deleteStarted = new Promise<void>((resolve) => {
+      markDeleteStarted = resolve;
+    });
+    const deleteGate = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.delete("/api/team/roles/:roleId", async () => {
+        deleteCalls += 1;
+        markDeleteStarted();
+        await deleteGate;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await renderLoaded();
+    const card = cardOf("Unused");
+    const deleteButton = within(card).getByRole("button", { name: "Delete" });
+    const editButton = within(card).getByRole("button", { name: "Edit" });
+
+    // React has not painted mutation pending state between these events. The
+    // ref must be sufficient to reject both competing operations.
+    act(() => {
+      deleteButton.click();
+      deleteButton.click();
+      editButton.click();
+    });
+
+    await deleteStarted;
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(deleteCalls).toBe(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseDelete();
+    });
+  });
+
   it("DELETEs the role after confirmation and refetches the team", async () => {
     let deleteCalls = 0;
     let deletedId: string | null = null;
@@ -767,24 +1091,117 @@ describe("TeamPage role cards", () => {
     await waitFor(() => expect(getCalls).toBeGreaterThan(callsBefore));
   });
 
+  it("keeps a deleted role card inert until the team refetch removes it", async () => {
+    let getCalls = 0;
+    let announceRefresh: (() => void) | undefined;
+    let releaseRefresh: (() => void) | undefined;
+    const refreshStarted = new Promise<void>((resolve) => {
+      announceRefresh = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls > 1) {
+          announceRefresh?.();
+          await refreshGate;
+          return HttpResponse.json({
+            ...TEAM_PAYLOAD,
+            roles: TEAM_PAYLOAD.roles.filter((role) => role.id !== ROLE_UNUSED.id),
+          });
+        }
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+      http.delete("/api/team/roles/:roleId", () => new HttpResponse(null, { status: 204 })),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = cardOf("Unused");
+
+    await user.click(within(card).getByRole("button", { name: "Delete" }));
+    await refreshStarted;
+
+    const edit = within(card).getByRole("button", { name: "Edit" });
+    const deleteButton = within(card).getByRole("button", { name: "Delete" });
+    expect(edit).toBeDisabled();
+    expect(deleteButton).toBeDisabled();
+    await user.click(edit);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    releaseRefresh?.();
+    await waitFor(() => expect(screen.queryByText("Unused")).not.toBeInTheDocument());
+  });
+
   it("announces a failed role deletion and offers a confirmed retry", async () => {
     let calls = 0;
+    let getCalls = 0;
+    let releaseRefresh!: () => void;
+    let markRefreshStarted!: () => void;
+    let releaseDeleteRetry!: () => void;
+    let markDeleteRetryStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const deleteRetryStarted = new Promise<void>((resolve) => {
+      markDeleteRetryStarted = resolve;
+    });
+    const deleteRetryGate = new Promise<void>((resolve) => {
+      releaseDeleteRetry = resolve;
+    });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
-      http.delete("/api/team/roles/:roleId", () => {
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        markRefreshStarted();
+        await refreshGate;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+      http.delete("/api/team/roles/:roleId", async () => {
         calls += 1;
-        return calls === 1
-          ? HttpResponse.json({ detail: "role changed concurrently" }, { status: 409 })
-          : new HttpResponse(null, { status: 204 });
+        if (calls === 1) {
+          return HttpResponse.json({ detail: "role changed concurrently" }, { status: 409 });
+        }
+        markDeleteRetryStarted();
+        await deleteRetryGate;
+        return new HttpResponse(null, { status: 204 });
       }),
     );
     const user = userEvent.setup();
-    await renderLoaded();
+    const { queryClient } = await renderLoaded();
     const card = cardOf("Unused");
     await user.click(within(card).getByRole("button", { name: "Delete" }));
 
     expect(await within(card).findByRole("alert")).toHaveTextContent("role changed concurrently");
-    await user.click(within(card).getByRole("button", { name: "Retry delete role" }));
+    const retry = within(card).getByRole("button", { name: "Retry delete role" });
+
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      refreshPromise = queryClient.invalidateQueries({
+        queryKey: getTeamPageApiTeamGetQueryKey(),
+      });
+    });
+    await refreshStarted;
+    await waitFor(() => expect(retry).toBeDisabled());
+
+    await act(async () => {
+      releaseRefresh();
+      await refreshPromise;
+    });
+    await waitFor(() => expect(retry).toBeEnabled());
+    await user.click(retry);
+    await deleteRetryStarted;
+    expect(within(card).queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(async () => {
+      releaseDeleteRetry();
+    });
     await waitFor(() => expect(calls).toBe(2));
   });
 });
@@ -843,6 +1260,7 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toEqual({ name: "Watchman", description: null, permissions: ["animals.view"] });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("selecting an action automatically selects its required view permission", async () => {
@@ -942,6 +1360,404 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
     await user.click(within(refreshedDialog).getByRole("button", { name: "Save role" }));
 
     await waitFor(() => expect(revisions).toEqual([4, 5]));
+  });
+
+  it("does not refresh or remount the editor for a non-conflict save error", async () => {
+    let getCalls = 0;
+    server.use(
+      http.get("/api/team", () => {
+        getCalls += 1;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+      http.put("/api/team/roles/10", () =>
+        HttpResponse.json({ detail: "role name is reserved" }, { status: 400 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen
+      .getAllByText("Night Watch")
+      .map((element) => element.closest("div.rounded-xl") as HTMLElement | null)
+      .find((element) => element && within(element).queryByRole("button", { name: "Edit" }))!;
+    await user.click(within(card).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit role: Night Watch" });
+
+    await user.click(within(dialog).getByRole("button", { name: "Save role" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("role name is reserved");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(getCalls).toBe(1);
+    expect(screen.getByRole("dialog", { name: "Edit role: Night Watch" })).toBe(dialog);
+  });
+
+  it("keeps an open role form inert while the team snapshot is refreshing", async () => {
+    let getCalls = 0;
+    let releaseRefresh!: () => void;
+    let markRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        markRefreshStarted();
+        await refreshGate;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+    );
+    const user = userEvent.setup();
+    const { queryClient } = await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "New role" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Role name/), "Relief worker");
+
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      refreshPromise = queryClient.invalidateQueries({
+        queryKey: getTeamPageApiTeamGetQueryKey(),
+      });
+    });
+    await refreshStarted;
+
+    const fieldset = dialog.querySelector("fieldset") as HTMLFieldSetElement;
+    const submit = within(dialog).getByRole("button", { name: "Create role" });
+    await waitFor(() => {
+      expect(fieldset).toBeDisabled();
+      expect(submit).toBeDisabled();
+      expect(submit).toHaveAttribute("disabled");
+    });
+
+    fieldset.disabled = false;
+    (submit as HTMLButtonElement).disabled = false;
+    submit.click();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(postBody).toBeNull();
+
+    await act(async () => {
+      releaseRefresh();
+      await refreshPromise;
+    });
+  });
+});
+
+describe("TeamPage global team-snapshot authority", () => {
+  function roleCard(name: string): HTMLElement {
+    const card = screen
+      .getAllByText(name)
+      .map((element) => element.closest("div.rounded-xl"))
+      .find(
+        (element): element is HTMLElement =>
+          element instanceof HTMLElement &&
+          within(element).queryByRole("button", { name: "Edit" }) !== null,
+      );
+    expect(card).toBeDefined();
+    return card as HTMLElement;
+  }
+
+  function expectMutablePageControlsToBeDisabled() {
+    const ravi = workerRow(MEMBER_RAVI.email);
+    const sita = workerRow(MEMBER_SITA.email);
+    const unused = roleCard(ROLE_UNUSED.name);
+
+    expect(screen.getByRole("button", { name: "Add worker" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "New role" })).toBeDisabled();
+    expect(within(ravi).getByRole("combobox")).toBeDisabled();
+    expect(within(ravi).getByRole("button", { name: "Deactivate" })).toBeDisabled();
+    expect(within(ravi).getByRole("button", { name: "Reset password" })).toBeDisabled();
+    expect(within(sita).getByRole("button", { name: "Activate" })).toBeDisabled();
+    expect(within(unused).getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(within(unused).getByRole("button", { name: "Delete" })).toBeDisabled();
+  }
+
+  it("rejects stale same-render events as soon as a replacement GET claims authority", async () => {
+    let getCalls = 0;
+    let roleCalls = 0;
+    let statusCalls = 0;
+    let deleteCalls = 0;
+    let releaseRefresh!: () => void;
+    let markRefreshStarted!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get("/api/team", async () => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        markRefreshStarted();
+        await refreshGate;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+      http.post("/api/team/workers/:membershipId/role", () => {
+        roleCalls += 1;
+        return HttpResponse.json({ ...MEMBER_RAVI, role_id: ROLE_HELPER.id });
+      }),
+      http.put("/api/team/workers/:membershipId/status", () => {
+        statusCalls += 1;
+        return HttpResponse.json({ ...MEMBER_RAVI, is_active: false });
+      }),
+      http.delete("/api/team/roles/:roleId", () => {
+        deleteCalls += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const user = userEvent.setup();
+    const { queryClient } = await renderLoaded();
+    const ravi = workerRow(MEMBER_RAVI.email);
+    const unused = roleCard(ROLE_UNUSED.name);
+    const reset = within(ravi).getByRole("button", { name: "Reset password" });
+    const deactivate = within(ravi).getByRole("button", { name: "Deactivate" });
+    const edit = within(unused).getByRole("button", { name: "Edit" });
+    const deleteButton = within(unused).getByRole("button", { name: "Delete" });
+    const addWorker = screen.getByRole("button", { name: "Add worker" });
+    const newRole = screen.getByRole("button", { name: "New role" });
+    await user.click(within(ravi).getByRole("combobox"));
+    const helperOption = await screen.findByRole("option", { name: /Helper/ });
+
+    let refreshPromise!: Promise<void>;
+    act(() => {
+      // Query state changes synchronously, while React's disabled props are
+      // still from the prior render. Every handler must consult cache state.
+      refreshPromise = queryClient.invalidateQueries({
+        queryKey: getTeamPageApiTeamGetQueryKey(),
+      });
+      helperOption.click();
+      reset.click();
+      deactivate.click();
+      deleteButton.click();
+      edit.click();
+      addWorker.click();
+      newRole.click();
+    });
+    await refreshStarted;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(roleCalls).toBe(0);
+    expect(statusCalls).toBe(0);
+    expect(deleteCalls).toBe(0);
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Waiting for the latest team data");
+
+    await act(async () => {
+      releaseRefresh();
+      await refreshPromise;
+    });
+  });
+
+  it("rejects a same-render action after cache status loses success authority", async () => {
+    server.use(teamHandler());
+    const { queryClient } = await renderLoaded();
+    const newRole = screen.getByRole("button", { name: "New role" });
+    const teamQuery = queryClient.getQueryCache().find({
+      queryKey: getTeamPageApiTeamGetQueryKey(),
+    });
+    expect(teamQuery).toBeDefined();
+
+    act(() => {
+      // Observer notification is batched, so this button still belongs to the
+      // last successful render. canStart must read the cache synchronously.
+      teamQuery!.setState({
+        ...teamQuery!.state,
+        status: "error",
+        fetchStatus: "idle",
+        error: new Error("team snapshot became stale"),
+      });
+      newRole.click();
+    });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Team data could not be refreshed",
+    );
+  });
+
+  it("stays locked when a second mutation cancels and replaces the first invalidation GET", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let getCalls = 0;
+    let releaseDelete!: () => void;
+    let announceDeleteStarted!: () => void;
+    let announceFirstRefreshStarted!: () => void;
+    let announceFirstRefreshAborted!: () => void;
+    let announceReplacementStarted!: () => void;
+    let releaseReplacement!: () => void;
+    const deleteStarted = new Promise<void>((resolve) => {
+      announceDeleteStarted = resolve;
+    });
+    const deleteGate = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const firstRefreshStarted = new Promise<void>((resolve) => {
+      announceFirstRefreshStarted = resolve;
+    });
+    const firstRefreshAborted = new Promise<void>((resolve) => {
+      announceFirstRefreshAborted = resolve;
+    });
+    const replacementStarted = new Promise<void>((resolve) => {
+      announceReplacementStarted = resolve;
+    });
+    const replacementGate = new Promise<void>((resolve) => {
+      releaseReplacement = resolve;
+    });
+
+    server.use(
+      http.get("/api/team", async ({ request }) => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        if (getCalls === 2) {
+          const aborted = new Promise<void>((resolve) => {
+            if (request.signal.aborted) {
+              resolve();
+              return;
+            }
+            request.signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          announceFirstRefreshStarted();
+          await aborted;
+          announceFirstRefreshAborted();
+          return HttpResponse.json(TEAM_PAYLOAD);
+        }
+
+        announceReplacementStarted();
+        await replacementGate;
+        return HttpResponse.json({
+          ...TEAM_PAYLOAD,
+          memberships: TEAM_PAYLOAD.memberships.map((membership) =>
+            membership.id === MEMBER_RAVI.id
+              ? { ...MEMBER_RAVI, is_active: false }
+              : membership,
+          ),
+          roles: TEAM_PAYLOAD.roles.filter((role) => role.id !== ROLE_UNUSED.id),
+        });
+      }),
+      http.put("/api/team/workers/:membershipId/status", () =>
+        HttpResponse.json({ ...MEMBER_RAVI, is_active: false }),
+      ),
+      http.delete("/api/team/roles/:roleId", async () => {
+        announceDeleteStarted();
+        await deleteGate;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await renderLoaded();
+    const ravi = workerRow(MEMBER_RAVI.email);
+    const unused = roleCard(ROLE_UNUSED.name);
+
+    // Both handlers claim their mutations before React can paint the global
+    // authority lock. The status write finishes first and starts GET #2.
+    act(() => {
+      within(ravi).getByRole("button", { name: "Deactivate" }).click();
+      within(unused).getByRole("button", { name: "Delete" }).click();
+    });
+    await deleteStarted;
+    await firstRefreshStarted;
+    await waitFor(() => expectMutablePageControlsToBeDisabled());
+    const addWorker = screen.getByRole("button", { name: "Add worker" });
+    let observedUnlockedGap = false;
+    const authorityObserver = new MutationObserver(() => {
+      if (!addWorker.hasAttribute("disabled")) observedUnlockedGap = true;
+    });
+    authorityObserver.observe(addWorker, { attributes: true, attributeFilter: ["disabled"] });
+
+    // Finishing the second write invalidates the same key: TanStack aborts
+    // GET #2 and starts GET #3. A waiter released by the abort must not make
+    // any stale mutation control authoritative while GET #3 is pending.
+    await act(async () => {
+      releaseDelete();
+      await firstRefreshAborted;
+      await replacementStarted;
+    });
+    expect(getCalls).toBe(3);
+    await waitFor(() => expectMutablePageControlsToBeDisabled());
+    expect(observedUnlockedGap).toBe(false);
+
+    await act(async () => {
+      releaseReplacement();
+    });
+    await waitFor(() =>
+      expect(within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Activate" }))
+        .toBeEnabled(),
+    );
+    expect(screen.getByRole("button", { name: "Add worker" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "New role" })).toBeEnabled();
+    expect(screen.queryByText(ROLE_UNUSED.name)).not.toBeInTheDocument();
+    authorityObserver.disconnect();
+  });
+
+  it("keeps stale team data visible but all mutations disabled after a refresh failure", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let getCalls = 0;
+    let failRefresh = true;
+    server.use(
+      http.get("/api/team", () => {
+        getCalls += 1;
+        if (getCalls === 1) return HttpResponse.json(TEAM_PAYLOAD);
+        if (failRefresh) {
+          return HttpResponse.json({ detail: "refresh failed" }, { status: 503 });
+        }
+        return HttpResponse.json({
+          ...TEAM_PAYLOAD,
+          memberships: TEAM_PAYLOAD.memberships.map((membership) =>
+            membership.id === MEMBER_RAVI.id
+              ? { ...MEMBER_RAVI, is_active: false }
+              : membership,
+          ),
+        });
+      }),
+      http.put("/api/team/workers/:membershipId/status", () =>
+        HttpResponse.json({ ...MEMBER_RAVI, is_active: false }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(
+      within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Deactivate" }),
+    );
+
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(
+      "Team data could not be refreshed. Actions are disabled until the latest team snapshot loads.",
+    );
+    // The successful initial snapshot remains rendered, but it is explicitly
+    // stale: even controls unrelated to the completed status write are inert.
+    expect(screen.getByText(MEMBER_RAVI.email)).toBeInTheDocument();
+    expectMutablePageControlsToBeDisabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    // status=error/fetchStatus=idle is not authoritative. Bypass the painted
+    // disabled attribute to exercise both halves of canStart directly.
+    const staleNewRole = screen.getByRole("button", { name: "New role" });
+    (staleNewRole as HTMLButtonElement).disabled = false;
+    staleNewRole.click();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    failRefresh = false;
+    await user.click(within(banner).getByRole("button", { name: "Retry team refresh" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(getCalls).toBe(3);
+    expect(within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Activate" }))
+      .toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add worker" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "New role" })).toBeEnabled();
+    expect(within(roleCard(ROLE_UNUSED.name)).getByRole("button", { name: "Edit" }))
+      .toBeEnabled();
+    expect(within(roleCard(ROLE_UNUSED.name)).getByRole("button", { name: "Delete" }))
+      .toBeEnabled();
   });
 });
 

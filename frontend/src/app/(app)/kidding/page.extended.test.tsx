@@ -884,5 +884,26 @@ describe("KiddingPage", () => {
       const nextDialog = await screen.findByRole("dialog", { name: "Record kidding" });
       expect(within(nextDialog).getByText(/Doe G-013 · due/)).toBeInTheDocument();
     });
+
+    it("reopens the same pregnancy after the deep-link URL is cleared and revisited", async () => {
+      navState.search = "?breeding_id=12";
+      const view = renderWithProviders(<KiddingPage />);
+      const firstDialog = await screen.findByRole("dialog", { name: "Record kidding" });
+      await userEvent
+        .setup()
+        .click(within(firstDialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      navState.search = "";
+      view.rerender(<KiddingPage />);
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      navState.search = "?breeding_id=12";
+      view.rerender(<KiddingPage />);
+
+      expect(
+        await screen.findByRole("dialog", { name: "Record kidding" }),
+      ).toBeInTheDocument();
+    });
   });
 });

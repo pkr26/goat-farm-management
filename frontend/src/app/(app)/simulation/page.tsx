@@ -795,6 +795,11 @@ function NumberArrayInput({
     setDraft(raw);
     const { parsed, message } = validate(raw);
     setError(message);
+    // Notify synchronously on every raw edit, not only when the derived error
+    // changes. Conflict recovery uses the parent callback as an edit fence, so
+    // a second keystroke in an already-invalid draft must still supersede the
+    // pending refresh before it can remount this input and erase that draft.
+    onValidityChange(!message);
     if (!message) onCommit(parsed);
   }
 
@@ -945,6 +950,11 @@ export default function SimulationPage() {
    *  edits: NumberInput commits on each valid keystroke, so doing that would
    *  discard a herd import the moment the operator nudged a number. */
   const editorEpochRef = useRef(0);
+  /** Counts in-editor changes separately from whole-editor loader intents.
+   * Conflict recovery fetches a fresh saved revision asynchronously; it may
+   * replace the editor only if the operator has not continued editing since
+   * the rejected PATCH was submitted. */
+  const editorContentEpochRef = useRef(0);
   const [invalidFields, setInvalidFields] = useState<Set<string>>(() => new Set());
   const [editorVersion, setEditorVersion] = useState(0);
   const [horizonInputVersion, setHorizonInputVersion] = useState(0);
@@ -1109,6 +1119,10 @@ export default function SimulationPage() {
   }
 
   function setFieldValidity(key: string, valid: boolean) {
+    // Number inputs call this synchronously for every raw keystroke. Keep the
+    // conflict-recovery fence ahead of React state batching even when validity
+    // remains unchanged (for example, continued typing in an invalid draft).
+    editorContentEpochRef.current += 1;
     setInvalidFields((previous) => {
       const alreadyValid = !previous.has(key);
       if (alreadyValid === valid) return previous;
@@ -1121,6 +1135,7 @@ export default function SimulationPage() {
 
   function updateField(section: string, key: string, value: unknown) {
     acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
     setAssumptions((prev) => {
       if (!prev) return prev;
       const current = (prev as Record<string, SectionValues>)[section] ?? {};
@@ -1146,6 +1161,7 @@ export default function SimulationPage() {
 
   function updateNestedField(section: string, key: string, subKey: string, value: unknown) {
     acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
     setAssumptions((prev) => {
       if (!prev) return prev;
       const current = (prev as Record<string, SectionValues>)[section] ?? {};
@@ -1299,6 +1315,7 @@ export default function SimulationPage() {
 
   function addEvent() {
     acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
     setEventKeys((previous) => [...previous, `event-${eventKeyCounter.current++}`]);
     setEvents((prev) => [
       ...prev,
@@ -1314,6 +1331,7 @@ export default function SimulationPage() {
 
   function updateEvent(index: number, patch: Partial<HerdEventAssumptions>) {
     acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
     setEvents((prev) =>
       prev.map((event, i) => (i === index ? { ...event, ...patch } : event)),
     );
@@ -1321,6 +1339,7 @@ export default function SimulationPage() {
 
   function removeEvent(index: number) {
     acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
     const removedKey = eventKeys[index];
     setEvents((prev) => prev.filter((_, i) => i !== index));
     setEventKeys((previous) => previous.filter((_, i) => i !== index));
@@ -1587,6 +1606,7 @@ export default function SimulationPage() {
     if (!payload || !loadedScenario) return;
     if (hasEditorErrors || !scenarioUsable(loadedScenario)) return;
     const epoch = editorEpochRef.current;
+    const contentEpoch = editorContentEpochRef.current;
     await simulationAction.run(async () => {
       try {
         const updated = await updateMutation.mutateAsync({
@@ -1614,6 +1634,7 @@ export default function SimulationPage() {
             if (
               fresh.status === 200 &&
               editorEpochRef.current === epoch &&
+              editorContentEpochRef.current === contentEpoch &&
               scenarioUsable(fresh.data)
             ) {
               // Replace the stale editor wholesale. Merely advancing the

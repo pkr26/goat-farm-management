@@ -104,6 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [farms, setFarms] = useState<FarmEntry[]>([]);
   const farmsRef = useRef<FarmEntry[]>([]);
   const [farmId, setFarmIdState] = useState<number | null>(null);
+  // Keep the live choice independently of localStorage. Persistence is only
+  // a convenience and may be blocked; an in-flight membership refresh must
+  // not revert a farm the operator selected while that request was running.
+  const farmIdRef = useRef<number | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
@@ -121,6 +125,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Latest-wins fence for explicit membership refreshes. Two reads can
   // observe different server snapshots and arrive in reverse order.
   const farmRefreshGeneration = useRef(0);
+  // Identity establishment and membership snapshots have related but
+  // distinct ownership. An explicit refresh may supersede an establishment's
+  // older farm list, but it cannot commit the staged token's UserOut itself.
+  const sessionEstablishmentGeneration = useRef(0);
+  // Starting a newer refresh is not the same as successfully applying it. An
+  // establishment may use its older-but-valid list as a fallback while that
+  // refresh is pending or after it fails; only a committed newer snapshot
+  // suppresses the establishment list permanently.
+  const appliedFarmGeneration = useRef(0);
   const signedOutRedirectIntent = useRef<string | null>(null);
   const signOutFlight = useRef<{
     /** Epoch immediately after this flight cleared its owning session. */
@@ -134,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted.current = false;
       farmRefreshGeneration.current += 1;
+      sessionEstablishmentGeneration.current += 1;
     };
   }, []);
 
@@ -146,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // and briefly render previous-farm data.
       queryClient.cancelQueries();
       queryClient.clear();
+      farmIdRef.current = id;
       setFarmIdState(id);
       setCurrentFarmId(String(id));
       const selected = farmsRef.current.find((farm) => farm.id === id) as
@@ -162,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    *  both behave identically. */
   const clearSession = useCallback(() => {
     farmRefreshGeneration.current += 1;
+    sessionEstablishmentGeneration.current += 1;
     queryClient.clear();
     clearPersistedIdempotencyRequestState();
     setAccessToken(null);
@@ -170,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     farmsRef.current = [];
     setFarms([]);
+    farmIdRef.current = null;
     setFarmIdState(null);
     // Last, so the in-memory teardown above can never be left half applied.
     clearStoredFarmId();
@@ -215,8 +232,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!mounted.current) return;
     farmsRef.current = list;
     setFarms(list);
-    const stored = readStoredFarmId();
-    const valid = list.find((f) => f.id === stored) ?? list[0];
+    const preferred = farmIdRef.current ?? readStoredFarmId();
+    const valid = list.find((f) => f.id === preferred) ?? list[0];
     if (valid) selectFarm(valid.id, valid.timezone);
     else {
       // Losing the final membership is a farm transition too. Abort and drop
@@ -224,6 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // and remove the now-invalid persisted selection.
       queryClient.cancelQueries();
       queryClient.clear();
+      farmIdRef.current = null;
       setFarmIdState(null);
       setCurrentFarmId(null);
       setActiveFarmTimezone(null);
@@ -244,6 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw error;
     }
     if (!mounted.current || generation !== farmRefreshGeneration.current) return;
+    appliedFarmGeneration.current = generation;
     applyFarmList(list);
   }, [applyFarmList]);
 
@@ -258,7 +277,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted.current) throw providerUnmountedError();
       // Any membership read started by the previous session is stale even if
       // it later happens to resolve with a superficially valid list.
-      farmRefreshGeneration.current += 1;
+      const establishmentGeneration = ++sessionEstablishmentGeneration.current;
+      const farmGeneration = ++farmRefreshGeneration.current;
       setAccessToken(accessToken, u.id);
       // Read AFTER installing the token: setAccessToken is what bumps the
       // epoch, so capturing it earlier would make every call supersede itself
@@ -267,17 +287,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const list = await apiFetch<FarmEntry[]>("/api/auth/farms");
         if (!mounted.current) throw providerUnmountedError();
+        // A newer establishment owns both identity and membership. An
+        // explicit refresh owns only the membership snapshot: it must not
+        // strand this staged token with the previous (or no) React user.
+        if (
+          establishmentGeneration !== sessionEstablishmentGeneration.current
+        ) return;
         setUser(u);
+        if (
+          farmGeneration !== farmRefreshGeneration.current &&
+          appliedFarmGeneration.current > farmGeneration
+        ) return;
+        appliedFarmGeneration.current = farmGeneration;
         applyFarmList(list);
       } catch (error) {
         if (
           !mounted.current ||
+          establishmentGeneration !== sessionEstablishmentGeneration.current ||
           isAuthSessionChangedError(error) ||
           authSessionEpochValue() !== ownedEpoch
         ) {
-          // A newer session already superseded this call's epoch (e.g. a
-          // second sign-in raced this one's farms fetch); that newer session
-          // owns clearSession/revoke, so tearing down here would destroy it.
+          // A newer establishment or session already superseded this
+          // call (e.g. a second sign-in raced this one's farms fetch); that
+          // newer owner controls clearSession/revoke, so tearing down here
+          // would destroy its state.
           // The error name alone is not enough: a transport failure or a
           // broken body stream rejects before any epoch assert can run, so
           // compare the epoch directly as well.

@@ -456,6 +456,22 @@ describe("HealthPage", () => {
     );
   });
 
+  it("synchronizes the schedule picker when a query-only navigation changes its animal", async () => {
+    window.history.replaceState({}, "", "/health?schedule_animal_id=3");
+    const view = renderWithProviders(<HealthPage />);
+    await screen.findByText("Event log");
+    const card = screen.getByText("Vaccination schedule per animal").closest(
+      "[data-slot='card']",
+    ) as HTMLElement;
+    const picker = within(card).getByRole("combobox");
+    await waitFor(() => expect(picker).toHaveTextContent("G-003 · Kaveri"));
+
+    window.history.replaceState({}, "", "/health?schedule_animal_id=4");
+    view.rerender(<HealthPage />);
+
+    await waitFor(() => expect(picker).toHaveTextContent("G-004"));
+  });
+
   // ---------- dialog: scope switching & validation ----------
 
   async function openDialog() {
@@ -1502,6 +1518,71 @@ describe("HealthPage", () => {
     await waitFor(() =>
       expect(within(nextDialog).getAllByRole("combobox")[0]).toHaveTextContent("G-004"),
     );
+  });
+
+  it("does not let an unresolved task prefill consume a newer cached deep link", async () => {
+    const firstTask = makeTask({
+      id: 21,
+      title: "First deferred vaccine",
+      category: "VACCINE",
+      animal_id: 3,
+    });
+    const secondTask = makeTask({
+      id: 22,
+      title: "Second cached vaccine",
+      category: "VACCINE",
+      animal_id: 4,
+    });
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    tasks = [];
+    server.use(
+      http.get("/api/tasks/21", async () => {
+        markFirstStarted();
+        await firstGate;
+        return HttpResponse.json(firstTask);
+      }),
+      http.get("/api/tasks/22", () => HttpResponse.json(secondTask)),
+    );
+
+    // Resolve task 22 once so the query-only return to it can settle from the
+    // cache in the same effect flush that hydrates its URL.
+    window.history.replaceState({}, "", "/health?task_id=22");
+    const view = renderWithProviders(<HealthPage />);
+    let dialog = await screen.findByRole("dialog");
+    await waitFor(() =>
+      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+        "G-004",
+      ),
+    );
+    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    window.history.replaceState({}, "", "/health");
+    view.rerender(<HealthPage />);
+
+    window.history.replaceState({}, "", "/health?task_id=21");
+    view.rerender(<HealthPage />);
+    await firstStarted;
+    dialog = await screen.findByRole("dialog");
+
+    window.history.replaceState({}, "", "/health?task_id=22");
+    view.rerender(<HealthPage />);
+
+    await waitFor(() =>
+      expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
+        "G-004",
+      ),
+    );
+    expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent(
+      "Second cached vaccine",
+    );
+    releaseFirst();
   });
 
   it.each(["1e2", "9007199254740992", "not-an-id"])(

@@ -7,13 +7,13 @@
  * Delete-scenario pending state.
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
-import { renderWithProviders } from "@/test/render";
+import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import SimulationPage from "./page";
 
@@ -235,10 +235,14 @@ function registerApiHandlers(options: {
 }
 
 /** Render the page and wait for the auto-loaded defaults to reach the editor. */
-async function renderLoaded(options?: Parameters<typeof registerApiHandlers>[0]) {
+async function renderLoaded(
+  options?: Parameters<typeof registerApiHandlers>[0],
+  queryClient = createTestQueryClient(),
+) {
   registerApiHandlers(options);
-  renderWithProviders(<SimulationPage />);
+  const view = renderWithProviders(<SimulationPage />, queryClient);
   expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
+  return view;
 }
 
 describe("SimulationPage herd events", () => {
@@ -449,6 +453,389 @@ describe("SimulationPage herd events", () => {
     await user.click(screen.getByRole("button", { name: "Update Versioned plan" }));
 
     await waitFor(() => expect(revisions).toEqual([7, 8]));
+  });
+
+  it("does not overwrite edits made while conflict recovery is in flight", async () => {
+    const scenario = {
+      id: 8,
+      farm_id: 1,
+      name: "Versioned plan",
+      notes: "",
+      assumptions: DEFAULTS,
+      revision: 7,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fresh = {
+      ...scenario,
+      assumptions: {
+        ...DEFAULTS,
+        herd: { ...DEFAULTS.herd, does: 88 },
+      },
+      revision: 8,
+      updated_at: "2026-01-03T00:00:00Z",
+    };
+    let releaseUpdate!: () => void;
+    let markUpdateStarted!: () => void;
+    const updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    const updateStarted = new Promise<void>((resolve) => {
+      markUpdateStarted = resolve;
+    });
+    server.use(
+      http.patch("/api/simulation/scenarios/8", async () => {
+        markUpdateStarted();
+        await updateGate;
+        return HttpResponse.json({ detail: "scenario changed concurrently" }, { status: 409 });
+      }),
+      http.get("/api/simulation/scenarios/8", () => HttpResponse.json(fresh)),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update Versioned plan" }));
+    await updateStarted;
+    const does = screen.getByLabelText("Does");
+    // One valid DOM edit invokes both the validity callback and the value
+    // commit exactly once. Their generation increments must be monotonic: if
+    // either moved backwards, the two callbacks would cancel each other and
+    // make the conflict refresh mistake this edit for an untouched editor.
+    fireEvent.change(does, { target: { value: "77" } });
+    expect(does).toHaveValue(77);
+
+    releaseUpdate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Update Versioned plan" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Does")).toHaveValue(77);
+  });
+
+  it("does not overwrite a nested edit made while conflict recovery is in flight", async () => {
+    const assumptions = {
+      ...DEFAULTS,
+      risk: { meat_price: { enabled: true, low: 0.8, high: 1.2 } },
+    };
+    const scenario = {
+      id: 8,
+      farm_id: 1,
+      name: "Nested plan",
+      notes: "",
+      assumptions,
+      revision: 7,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fresh = {
+      ...scenario,
+      assumptions: {
+        ...assumptions,
+        risk: { meat_price: { enabled: true, low: 0.6, high: 1.2 } },
+      },
+      revision: 8,
+    };
+    let releaseUpdate!: () => void;
+    let markUpdateStarted!: () => void;
+    const updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    const updateStarted = new Promise<void>((resolve) => {
+      markUpdateStarted = resolve;
+    });
+    server.use(
+      http.patch("/api/simulation/scenarios/8", async () => {
+        markUpdateStarted();
+        await updateGate;
+        return HttpResponse.json({ detail: "scenario changed concurrently" }, { status: 409 });
+      }),
+      http.get("/api/simulation/scenarios/8", () => HttpResponse.json(fresh)),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update Nested plan" }));
+    await updateStarted;
+    await user.click(screen.getByText("Risk"));
+    const low = screen.getByLabelText("Low");
+    fireEvent.change(low, { target: { value: "0.9" } });
+    expect(low).toHaveValue(0.9);
+
+    releaseUpdate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Update Nested plan" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Low")).toHaveValue(0.9);
+  });
+
+  it("does not overwrite an event edit made while conflict recovery is in flight", async () => {
+    const originalEvent = {
+      month: 12,
+      kind: "purchase",
+      animal_class: "doe",
+      count: 10,
+      price_per_head: null,
+    };
+    const scenario = {
+      id: 8,
+      farm_id: 1,
+      name: "Event plan",
+      notes: "",
+      assumptions: { ...DEFAULTS, events: [originalEvent] },
+      revision: 7,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fresh = {
+      ...scenario,
+      assumptions: { ...DEFAULTS, events: [{ ...originalEvent, count: 99 }] },
+      revision: 8,
+    };
+    let releaseUpdate!: () => void;
+    let markUpdateStarted!: () => void;
+    const updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    const updateStarted = new Promise<void>((resolve) => {
+      markUpdateStarted = resolve;
+    });
+    server.use(
+      http.patch("/api/simulation/scenarios/8", async () => {
+        markUpdateStarted();
+        await updateGate;
+        return HttpResponse.json({ detail: "scenario changed concurrently" }, { status: 409 });
+      }),
+      http.get("/api/simulation/scenarios/8", () => HttpResponse.json(fresh)),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update Event plan" }));
+    await updateStarted;
+    const count = screen.getByLabelText("Count");
+    fireEvent.change(count, { target: { value: "11" } });
+    expect(count).toHaveValue(11);
+
+    releaseUpdate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Update Event plan" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Count")).toHaveValue(11);
+  });
+
+  it("does not overwrite a mixed event removal and editor change during conflict recovery", async () => {
+    const originalEvent = {
+      month: 12,
+      kind: "purchase",
+      animal_class: "doe",
+      count: 10,
+      price_per_head: null,
+    };
+    const scenario = {
+      id: 8,
+      farm_id: 1,
+      name: "Event fence plan",
+      notes: "",
+      assumptions: { ...DEFAULTS, events: [originalEvent] },
+      revision: 7,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const fresh = {
+      ...scenario,
+      assumptions: {
+        ...DEFAULTS,
+        herd: { ...DEFAULTS.herd, does: 88 },
+        events: [originalEvent],
+      },
+      revision: 8,
+    };
+    let releaseUpdate!: () => void;
+    let markUpdateStarted!: () => void;
+    const updateGate = new Promise<void>((resolve) => {
+      releaseUpdate = resolve;
+    });
+    const updateStarted = new Promise<void>((resolve) => {
+      markUpdateStarted = resolve;
+    });
+    server.use(
+      http.patch("/api/simulation/scenarios/8", async () => {
+        markUpdateStarted();
+        await updateGate;
+        return HttpResponse.json({ detail: "scenario changed concurrently" }, { status: 409 });
+      }),
+      http.get("/api/simulation/scenarios/8", () => HttpResponse.json(fresh)),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(screen.getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update Event fence plan" }));
+    await updateStarted;
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.change(screen.getByLabelText("Start Year Month"), {
+      target: { value: "2026-02" },
+    });
+    expect(screen.getByText(/No scheduled events/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Start Year Month")).toHaveValue("2026-02");
+
+    releaseUpdate();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Update Event fence plan" })).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Start Year Month")).toHaveValue("2026-02");
+    expect(screen.getByText(/No scheduled events/)).toBeInTheDocument();
+  });
+
+  it("does not let a conflicted first scenario replace a newly loaded second scenario", async () => {
+    const first = {
+      id: 8,
+      farm_id: 1,
+      name: "First conflicted plan",
+      notes: "",
+      assumptions: { ...DEFAULTS, herd: { ...DEFAULTS.herd, does: 61 } },
+      revision: 1,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const second = {
+      ...first,
+      id: 9,
+      name: "Second current plan",
+      // Keep this whole-editor replacement free of numeric controls. Numeric
+      // inputs notify validity when mounted, which independently advances the
+      // content epoch and can mask whether the dedicated editor epoch rejected
+      // the stale conflict refresh.
+      assumptions: { herd: { foundation_flock_state: "open" } },
+    };
+    const freshFirst = {
+      ...first,
+      assumptions: { ...DEFAULTS, herd: { ...DEFAULTS.herd, does: 88 } },
+      revision: 2,
+    };
+    let markRefreshStarted!: () => void;
+    let releaseRefresh!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      markRefreshStarted = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.patch("/api/simulation/scenarios/8", () =>
+        HttpResponse.json({ detail: "scenario changed concurrently" }, { status: 409 }),
+      ),
+      http.get("/api/simulation/scenarios/8", async () => {
+        markRefreshStarted();
+        await refreshGate;
+        return HttpResponse.json(freshFirst);
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [first, second] });
+
+    const firstRow = screen.getByText("First conflicted plan").closest("tr") as HTMLElement;
+    const secondRow = screen.getByText("Second current plan").closest("tr") as HTMLElement;
+    await user.click(within(firstRow).getByRole("button", { name: "Load" }));
+    await user.click(screen.getByRole("button", { name: "Update First conflicted plan" }));
+    await refreshStarted;
+    await user.click(within(secondRow).getByRole("button", { name: "Load" }));
+    expect(screen.getByText("Editing scenario: Second current plan")).toBeInTheDocument();
+
+    releaseRefresh();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Update Second current plan" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Editing scenario: Second current plan")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Does")).not.toBeInTheDocument();
+  });
+
+  it("does not re-arm completed defaults after any kind of editor change", async () => {
+    const baselineEvent = {
+      month: 12,
+      kind: "purchase",
+      animal_class: "doe",
+      count: 10,
+      price_per_head: null,
+    };
+    const defaults = {
+      ...DEFAULTS,
+      risk: { meat_price: { enabled: true, low: 0.8, high: 1.2 } },
+      events: [baselineEvent],
+    };
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+    await renderLoaded({ defaults }, queryClient);
+
+    // Every response differs so React Query publishes a new data reference and
+    // the defaults mirroring effect genuinely re-evaluates. Once the initial
+    // defaults have landed, background refetches are cache maintenance rather
+    // than permission to replace live editor state.
+    let defaultsRefetches = 0;
+    server.use(
+      http.get("/api/simulation/defaults", () => {
+        defaultsRefetches += 1;
+        return HttpResponse.json({
+          ...defaults,
+          meta: {
+            ...defaults.meta,
+            start_year_month: `2026-${String((defaultsRefetches % 9) + 1).padStart(2, "0")}`,
+          },
+        });
+      }),
+    );
+    async function refetchDefaults() {
+      const before = defaultsRefetches;
+      await act(async () => {
+        await queryClient.refetchQueries({ queryKey: ["/api/simulation/defaults"] });
+      });
+      expect(defaultsRefetches).toBe(before + 1);
+      // React Query publishes observer changes through its notification
+      // scheduler. Let the mirroring effect run before checking that it was
+      // correctly disarmed; an immediate assertion can observe the old editor
+      // even when a mutant has wrongly re-armed defaults acceptance.
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+      });
+    }
+
+    fireEvent.change(screen.getByLabelText("Does"), { target: { value: "77" } });
+    await refetchDefaults();
+    expect(screen.getByLabelText("Does")).toHaveValue(77);
+
+    await user.click(screen.getByText("Risk"));
+    fireEvent.change(screen.getByLabelText("Low"), { target: { value: "0.9" } });
+    await refetchDefaults();
+    expect(screen.getByLabelText("Low")).toHaveValue(0.9);
+
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    expect(screen.getAllByLabelText("Count")).toHaveLength(2);
+    await refetchDefaults();
+    expect(screen.getAllByLabelText("Count")).toHaveLength(2);
+
+    fireEvent.change(screen.getAllByLabelText("Count")[0], { target: { value: "11" } });
+    await refetchDefaults();
+    expect(screen.getAllByLabelText("Count")[0]).toHaveValue(11);
+
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+    expect(screen.getAllByLabelText("Count")).toHaveLength(1);
+    await refetchDefaults();
+    expect(screen.getAllByLabelText("Count")).toHaveLength(1);
+    expect(screen.getByLabelText("Count")).toHaveValue(11);
   });
 
   it("does not let a late update rebind the editor after another scenario is loaded", async () => {
@@ -891,6 +1278,37 @@ describe("SimulationPage numeric input guards", () => {
     expect(screen.getByText("A value is required.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
   });
+
+  it("keeps loaded and newly added event identities unique across removals", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        events: [
+          {
+            month: 6,
+            kind: "purchase",
+            animal_class: "doe",
+            count: 5,
+            price_per_head: null,
+          },
+        ],
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
+    expect(screen.getAllByLabelText("Count")).toHaveLength(3);
+
+    // The third row's validation belongs to its stable event key. Removing the
+    // loaded first row must not clear that gate through a reused/colliding key.
+    await user.clear(screen.getAllByLabelText("Count")[2]);
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+
+    expect(screen.getAllByLabelText("Count")).toHaveLength(2);
+    expect(screen.getByText("A value is required.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+  });
 });
 
 describe("SimulationPage results and scenario management", () => {
@@ -1059,6 +1477,34 @@ describe("SimulationPage advanced financial controls", () => {
     ]);
     expect(captured.body?.assumptions.feed?.annual_feed_price_growth_rate).toBe(-0.03);
     expect(captured.body?.assumptions.costs?.operating_cost_growth_rate_annual).toBe(-0.02);
+  });
+
+  it("does not commit an invalid array draft into the displayed result identity", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        sales: {
+          monthly_meat_price_multipliers: Array(12).fill(1),
+          festival_sale_months: [],
+          annual_livestock_price_growth_rate: 0,
+        },
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+
+    await user.click(screen.getByText("Sales"));
+    const seasonality = screen.getByLabelText(/Monthly Meat Price Multipliers/);
+    await user.clear(seasonality);
+    await user.type(seasonality, "1,1,1,1,1,1,1,1,1,1,1");
+
+    expect(
+      screen.getByText("Enter exactly 12 monthly multipliers (Jan-Dec)."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/These results do not match the current editor assumptions/),
+    ).not.toBeInTheDocument();
   });
 
   it("blocks a run when initial fodder exceeds storage and recovers after correction", async () => {

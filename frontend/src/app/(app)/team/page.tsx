@@ -62,6 +62,11 @@ import { useSingleFlight } from "@/lib/use-single-flight";
 /** Sentinel for "no role" (empty string is not a valid item value). */
 const NONE = "none";
 
+type TeamAuthority = {
+  blocked: boolean;
+  canStart: () => boolean;
+};
+
 function mutationError(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
 }
@@ -138,6 +143,7 @@ function WorkerRow({
   protectedTarget,
   isOwner,
   onReset,
+  authority,
 }: {
   m: MembershipOut;
   roles: RoleOut[];
@@ -146,6 +152,7 @@ function WorkerRow({
   protectedTarget: boolean;
   isOwner: boolean;
   onReset: (m: MembershipOut, release: () => void) => void;
+  authority: TeamAuthority;
 }) {
   const invalidate = useInvalidateTeam();
   const roleMutation = useChangeRoleApiTeamWorkersMembershipIdRolePost();
@@ -157,6 +164,7 @@ function WorkerRow({
   // movement at all. Union the busy state so the lock can never refuse an
   // action the UI still presents as available.
   const actionLock = useRef<"role" | "status" | "reset" | null>(null);
+  const [actionSettling, setActionSettling] = useState(false);
   const [resetOwned, setResetOwned] = useState(false);
   const [actionError, setActionError] = useState<{
     action: "role" | "status";
@@ -166,7 +174,12 @@ function WorkerRow({
   } | null>(null);
   /** value → label map for the root `items` prop: without it, Base UI's
    * Select.Value renders the raw value in the closed trigger. */
-  const rowBusy = roleMutation.isPending || statusMutation.isPending || resetOwned;
+  const rowBusy =
+    authority.blocked ||
+    actionSettling ||
+    roleMutation.isPending ||
+    statusMutation.isPending ||
+    resetOwned;
   const assignableRoles = roles.filter((role) => roleWithinCeiling(role, can, isOwner));
   const roleItems: Record<string, string> = {
     [NONE]: "No role",
@@ -174,24 +187,29 @@ function WorkerRow({
   };
 
   async function changeRole(roleId: number) {
-    if (actionLock.current !== null) return;
+    if (!authority.canStart() || actionLock.current !== null) return;
     actionLock.current = "role";
+    setActionSettling(true);
     setActionError(null);
     try {
       await roleMutation.mutateAsync({ membershipId: m.id, data: { role_id: roleId } });
       toast.success("Role updated.");
-      invalidate();
+      // Keep the row claimed until the server-owned role/status snapshot has
+      // landed. Unlocking after only the POST response exposes stale controls
+      // (including controls the newly assigned role may make protected).
+      await invalidate();
     } catch (err) {
       const message = mutationError(err);
       setActionError({ action: "role", message, roleId });
       toast.error(message);
     } finally {
       actionLock.current = null;
+      setActionSettling(false);
     }
   }
 
   async function setWorkerActive(desiredActive: boolean, confirmDeactivation = true) {
-    if (actionLock.current !== null) return;
+    if (!authority.canStart() || actionLock.current !== null) return;
     if (
       !desiredActive &&
       m.is_active &&
@@ -201,6 +219,7 @@ function WorkerRow({
       return;
     }
     actionLock.current = "status";
+    setActionSettling(true);
     setActionError(null);
     try {
       await statusMutation.mutateAsync({
@@ -208,13 +227,14 @@ function WorkerRow({
         data: { is_active: desiredActive },
       });
       toast.success(desiredActive ? "Worker activated." : "Worker deactivated.");
-      invalidate();
+      await invalidate();
     } catch (err) {
       const message = mutationError(err);
       setActionError({ action: "status", message, desiredActive });
       toast.error(message);
     } finally {
       actionLock.current = null;
+      setActionSettling(false);
     }
   }
 
@@ -311,7 +331,11 @@ function WorkerRow({
                   !m.can_reset_password ? `reset-password-reason-${m.id}` : undefined
                 }
                 onClick={() => {
-                  if (!m.can_reset_password || actionLock.current !== null) return;
+                  if (
+                    !m.can_reset_password ||
+                    !authority.canStart() ||
+                    actionLock.current !== null
+                  ) return;
                   actionLock.current = "reset";
                   setResetOwned(true);
                   onReset(m, () => {
@@ -361,10 +385,12 @@ function AddWorkerDialog({
   open,
   onOpenChange,
   roles,
+  authority,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roles: RoleOut[];
+  authority: TeamAuthority;
 }) {
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateWorkerApiTeamWorkersPost();
@@ -389,6 +415,7 @@ function AddWorkerDialog({
   );
 
   async function onSubmit(values: WorkerValues) {
+    if (!authority.canStart()) return;
     await createFlight.run(async () => {
       setFormError(null);
       try {
@@ -401,7 +428,7 @@ function AddWorkerDialog({
           },
         });
         toast.success("Worker added.");
-        invalidate();
+        await invalidate();
         onOpenChange(false);
         reset();
       } catch (err) {
@@ -432,7 +459,7 @@ function AddWorkerDialog({
         </p>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
-            disabled={isSubmitting || createFlight.pending}
+            disabled={authority.blocked || isSubmitting || createFlight.pending}
             className="space-y-4"
           >
           {formError && (
@@ -526,7 +553,12 @@ function AddWorkerDialog({
           <DialogFooter>
             <Button
               type="submit"
-              disabled={isSubmitting || createFlight.pending || roles.length === 0}
+              disabled={
+                authority.blocked ||
+                isSubmitting ||
+                createFlight.pending ||
+                roles.length === 0
+              }
             >
               {isSubmitting || createFlight.pending
                 ? "Adding…"
@@ -545,9 +577,11 @@ function AddWorkerDialog({
 function ResetPasswordDialog({
   membership,
   onClose,
+  authority,
 }: {
   membership: MembershipOut;
   onClose: () => void;
+  authority: TeamAuthority;
 }) {
   const resetMutation = useResetPasswordApiTeamWorkersMembershipIdResetPasswordPost();
   const resetFlight = useSingleFlight();
@@ -562,6 +596,7 @@ function ResetPasswordDialog({
   });
 
   async function onSubmit(values: ResetValues) {
+    if (!authority.canStart()) return;
     await resetFlight.run(async () => {
       setFormError(null);
       try {
@@ -590,7 +625,7 @@ function ResetPasswordDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
-            disabled={isSubmitting || resetFlight.pending}
+            disabled={authority.blocked || isSubmitting || resetFlight.pending}
             className="space-y-4"
           >
           {formError && (
@@ -617,7 +652,10 @@ function ResetPasswordDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || resetFlight.pending}>
+            <Button
+              type="submit"
+              disabled={authority.blocked || isSubmitting || resetFlight.pending}
+            >
               {isSubmitting || resetFlight.pending
                 ? "Resetting…"
                 : formError
@@ -640,12 +678,14 @@ function RoleDialog({
   can,
   isOwner,
   onClose,
+  authority,
 }: {
   role: RoleOut | null;
   team: TeamOut;
   can: (code: string) => boolean;
   isOwner: boolean;
   onClose: () => void;
+  authority: TeamAuthority;
 }) {
   const invalidate = useInvalidateTeam();
   const createMutation = useCreateRoleApiTeamRolesPost();
@@ -690,6 +730,7 @@ function RoleDialog({
   }
 
   async function onSubmit(values: RoleValues) {
+    if (!authority.canStart()) return;
     await saveFlight.run(async () => {
       setFormError(null);
       const data = {
@@ -708,7 +749,7 @@ function RoleDialog({
           await createMutation.mutateAsync({ data });
           toast.success("Role created.");
         }
-        invalidate();
+        await invalidate();
         onClose();
       } catch (err) {
         // A 409 means another admin already changed this role, so the
@@ -717,7 +758,7 @@ function RoleDialog({
         // to 409 forever. The parent keys this dialog by the refreshed
         // revision, so invalidation remounts a truthful editor instead of
         // preserving stale permissions and overwriting the other admin.
-        if (err instanceof ApiError && err.status === 409) invalidate();
+        if (err instanceof ApiError && err.status === 409) await invalidate();
         const message = mutationError(err);
         setFormError(message);
         toast.error(message);
@@ -736,7 +777,7 @@ function RoleDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <fieldset
-            disabled={isSubmitting || saveFlight.pending}
+            disabled={authority.blocked || isSubmitting || saveFlight.pending}
             className="space-y-4"
           >
           {formError && (
@@ -852,7 +893,10 @@ function RoleDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || saveFlight.pending}>
+            <Button
+              type="submit"
+              disabled={authority.blocked || isSubmitting || saveFlight.pending}
+            >
               {isSubmitting || saveFlight.pending
                 ? "Saving…"
                 : formError
@@ -876,15 +920,18 @@ function RoleCard({
   team,
   canManageRole,
   onEdit,
+  authority,
 }: {
   role: RoleOut;
   team: TeamOut;
   canManageRole: boolean;
   onEdit: (role: RoleOut) => void;
+  authority: TeamAuthority;
 }) {
   const invalidate = useInvalidateTeam();
   const deleteMutation = useDeleteRoleApiTeamRolesRoleIdDelete();
   const deleteLock = useRef(false);
+  const [deleteSettling, setDeleteSettling] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const memberCount = role.member_count ?? 0;
   const managerRole = role.permissions.includes("team.manage");
@@ -900,21 +947,37 @@ function RoleCard({
       : undefined);
 
   async function deleteRole() {
-    if (deleteLock.current || deleteHint !== undefined) return;
+    if (!authority.canStart() || deleteLock.current || deleteHint !== undefined) return;
     if (!window.confirm(`Delete role "${role.name}"?`)) return;
     deleteLock.current = true;
+    setDeleteSettling(true);
     setDeleteError(null);
     try {
       await deleteMutation.mutateAsync({ roleId: role.id });
       toast.success("Role deleted.");
-      invalidate();
+      // The cached card survives while /api/team refetches. Hold both actions
+      // through that refresh so the deleted role cannot be edited or deleted
+      // again from the stale card.
+      await invalidate();
     } catch (err) {
       const message = mutationError(err);
       setDeleteError(message);
       toast.error(message);
     } finally {
       deleteLock.current = false;
+      setDeleteSettling(false);
     }
+  }
+
+  function editRole() {
+    // The ref closes the same-render gap before deleteSettling can paint.
+    if (
+      !authority.canStart() ||
+      deleteLock.current ||
+      deleteSettling ||
+      deleteMutation.isPending
+    ) return;
+    onEdit(role);
   }
 
   return (
@@ -939,16 +1002,26 @@ function RoleCard({
           <Button
             size="sm"
             variant="outline"
-            disabled={scopeHint !== undefined}
+            disabled={
+              authority.blocked ||
+              scopeHint !== undefined ||
+              deleteSettling ||
+              deleteMutation.isPending
+            }
             title={scopeHint}
-            onClick={() => onEdit(role)}
+            onClick={editRole}
           >
             Edit
           </Button>
           <Button
             size="sm"
             variant="destructive"
-            disabled={deleteHint !== undefined || deleteMutation.isPending}
+            disabled={
+              authority.blocked ||
+              deleteHint !== undefined ||
+              deleteSettling ||
+              deleteMutation.isPending
+            }
             title={deleteHint}
             onClick={() => void deleteRole()}
           >
@@ -965,7 +1038,7 @@ function RoleCard({
             type="button"
             size="sm"
             variant="outline"
-            disabled={deleteMutation.isPending}
+            disabled={authority.blocked || deleteSettling || deleteMutation.isPending}
             onClick={() => void deleteRole()}
           >
             Retry delete role
@@ -991,6 +1064,7 @@ export default function TeamPage() {
   const { user } = useAuth();
   const { can, isOwner, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("team.manage");
+  const queryClient = useQueryClient();
 
   const [workerOpen, setWorkerOpen] = useState(false);
   type ResetTarget = {
@@ -1003,6 +1077,18 @@ export default function TeamPage() {
 
   const query = useTeamPageApiTeamGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
+  const authority: TeamAuthority = {
+    blocked: query.fetchStatus !== "idle" || query.isError,
+    // Read the cache synchronously as well as disabling painted controls.
+    // TanStack batches observer renders, so another click can otherwise land
+    // after invalidateQueries starts a replacement GET but before React shows
+    // query.isFetching. A failed background GET also leaves cached rows on
+    // screen; status=error keeps those stale controls inert until retry wins.
+    canStart: () => {
+      const state = queryClient.getQueryState(getTeamPageApiTeamGetQueryKey());
+      return state?.status === "success" && state.fetchStatus === "idle";
+    },
+  };
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -1056,6 +1142,29 @@ export default function TeamPage() {
         description="Manage the workers on this farm, their roles and what each role can do."
       />
 
+      {query.isError && (
+        <div className="space-y-3" role="alert">
+          <p className="text-sm text-destructive">
+            Team data could not be refreshed. Actions are disabled until the latest team snapshot
+            loads.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            Retry team refresh
+          </Button>
+        </div>
+      )}
+
+      {authority.blocked && !query.isError && (
+        <p className="text-sm text-muted-foreground" role="status">
+          Waiting for the latest team data… actions will be available when it finishes.
+        </p>
+      )}
+
       <DataTableCard
         title="Workers"
         description={
@@ -1068,7 +1177,9 @@ export default function TeamPage() {
           // delegated team.manage holder can only ever end in a 403.
           isOwner ? (
             <Button
+              disabled={authority.blocked}
               onClick={() => {
+                if (!authority.canStart()) return;
                 setWorkerOpen(true);
               }}
             >
@@ -1104,6 +1215,7 @@ export default function TeamPage() {
                   isSelf={m.email === user?.email}
                   isOwner={isOwner}
                   protectedTarget={isProtectedTarget(m)}
+                  authority={authority}
                   onReset={(membership, release) => {
                     resetTargetRef.current?.release();
                     const target = { membership, release };
@@ -1120,7 +1232,16 @@ export default function TeamPage() {
       <DataTableCard
         title="Roles"
         description="A role bundles the pages and actions a worker can use."
-        actions={<Button onClick={() => setRoleDialog({ role: null })}>New role</Button>}
+        actions={
+          <Button
+            disabled={authority.blocked}
+            onClick={() => {
+              if (authority.canStart()) setRoleDialog({ role: null });
+            }}
+          >
+            New role
+          </Button>
+        }
       >
         {payload.roles.length === 0 ? (
           <EmptyState
@@ -1137,6 +1258,7 @@ export default function TeamPage() {
                 team={payload}
                 canManageRole={roleWithinCeiling(r, can, isOwner)}
                 onEdit={(role) => setRoleDialog({ role })}
+                authority={authority}
               />
             ))}
           </div>
@@ -1148,12 +1270,14 @@ export default function TeamPage() {
           open={workerOpen}
           onOpenChange={setWorkerOpen}
           roles={assignableRoles}
+          authority={authority}
         />
       )}
       {resetTarget && (
         <ResetPasswordDialog
           key={resetTarget.membership.id}
           membership={resetTarget.membership}
+          authority={authority}
           onClose={() => {
             const closingTarget = resetTarget;
             if (resetTargetRef.current === closingTarget) {
@@ -1178,6 +1302,7 @@ export default function TeamPage() {
           can={can}
           isOwner={isOwner}
           onClose={() => setRoleDialog(null)}
+          authority={authority}
         />
       )}
     </div>

@@ -19,7 +19,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError, apiFetch, refreshSessionDetailed } from "@/lib/api-client";
+import {
+  ApiError,
+  apiFetch,
+  authSessionEpochValue,
+  refreshSessionDetailed,
+} from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { farmToday } from "@/lib/format";
 
@@ -104,9 +109,11 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   async function downloadExport() {
     if (!beginAction("export")) return;
     const operationEpoch = dialogEpoch.current;
+    const sessionEpoch = authSessionEpochValue();
     setExportError(null);
     try {
       const payload = await apiFetch<AccountExportOut>("/api/auth/account/export");
+      if (authSessionEpochValue() !== sessionEpoch) return;
       const blob = new Blob([JSON.stringify(payload, null, 2)], {
         type: "application/json",
       });
@@ -123,7 +130,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       }
       toast.success("Your account data export was downloaded.");
     } catch (error) {
-      if (operationEpoch === dialogEpoch.current) {
+      if (
+        authSessionEpochValue() === sessionEpoch &&
+        operationEpoch === dialogEpoch.current
+      ) {
         setExportError(
           error instanceof ApiError ? error.detail : "Could not download your account data.",
         );
@@ -136,6 +146,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
   async function deleteAccount() {
     if (!deletePassword || !beginAction("delete")) return;
     const operationEpoch = dialogEpoch.current;
+    const sessionEpoch = authSessionEpochValue();
     setDeleteError(null);
     try {
       const payload = {
@@ -145,12 +156,16 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         method: "DELETE",
         body: JSON.stringify(payload),
       });
+      if (authSessionEpochValue() !== sessionEpoch) return;
       toast.success(
         "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",
       );
       await signOut();
     } catch (error) {
-      if (operationEpoch === dialogEpoch.current) {
+      if (
+        authSessionEpochValue() === sessionEpoch &&
+        operationEpoch === dialogEpoch.current
+      ) {
         setDeleteError(
           error instanceof ApiError ? error.detail : "Could not delete your account.",
         );
@@ -162,6 +177,12 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
 
   async function onSubmit(values: PasswordValues) {
     const operationEpoch = dialogEpoch.current;
+    // The password mutation and its follow-up refresh are one logical action
+    // for the session that submitted the form. The API client fences the
+    // mutation itself, but a replacement login can still land in the gap
+    // between that promise resolving and the refresh below settling. Never
+    // let this old dialog sign out or report against that newer session.
+    const sessionEpoch = authSessionEpochValue();
     setServerError(null);
     try {
       const response = await mutation.mutateAsync({
@@ -170,6 +191,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           new_password: values.new_password,
         },
       });
+      if (authSessionEpochValue() !== sessionEpoch) return;
       if (response.status === 200) {
         // The server revoked every other session and rotated THIS device's
         // refresh cookie; the old in-memory access token is now invalid. But
@@ -184,6 +206,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         const outcome = await refreshSessionDetailed().catch(
           () => ({ kind: "unavailable" }) as const,
         );
+        if (authSessionEpochValue() !== sessionEpoch) return;
         if (outcome.kind === "rejected") {
           // The server answered: the rotated cookie will not produce a token.
           toast.success("Password changed. Sign in again to continue.");
@@ -205,7 +228,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       toast.success("Password changed. Other signed-in sessions were revoked.");
       if (operationEpoch === dialogEpoch.current && mounted.current) close();
     } catch (error) {
-      if (operationEpoch === dialogEpoch.current) {
+      if (
+        authSessionEpochValue() === sessionEpoch &&
+        operationEpoch === dialogEpoch.current
+      ) {
         setServerError(error instanceof ApiError ? error.detail : "Could not change the password.");
       }
     }

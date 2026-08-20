@@ -1049,5 +1049,26 @@ describe("BreedingPage", () => {
       const nextDialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
       expect(within(nextDialog).getByText(/Doe G-006 · bred 2 Jul 2026/)).toBeInTheDocument();
     });
+
+    it("reopens the same record after the deep-link URL is cleared and revisited", async () => {
+      navState.search = "?ultrasound_id=1";
+      const view = renderWithProviders(<BreedingPage />);
+      const firstDialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
+      await userEvent
+        .setup()
+        .click(within(firstDialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      navState.search = "";
+      view.rerender(<BreedingPage />);
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      navState.search = "?ultrasound_id=1";
+      view.rerender(<BreedingPage />);
+
+      expect(
+        await screen.findByRole("dialog", { name: "Ultrasound result" }),
+      ).toBeInTheDocument();
+    });
   });
 });

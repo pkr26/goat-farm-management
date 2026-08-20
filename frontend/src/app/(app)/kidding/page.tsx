@@ -620,6 +620,16 @@ function KiddingPageContent() {
   const activeRecord = recordFor ?? deepLinkedRecord;
 
   useEffect(() => {
+    // Scope dismissal to one continuous URL intent. Query-only navigation can
+    // clear the link and later revisit the same pregnancy without remounting
+    // this page; retaining the old id forever would suppress that new visit.
+    if (requestedBreedingId === null && dismissedPrefillId !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- URL intent teardown
+      setDismissedPrefillId(null);
+    }
+  }, [dismissedPrefillId, requestedBreedingId]);
+
+  useEffect(() => {
     if (!payload) return;
     const lastHistoryOffset =
       payload.total === 0 ? 0 : Math.floor((payload.total - 1) / payload.limit) * payload.limit;

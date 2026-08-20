@@ -284,8 +284,36 @@ describe("AnimalProfilePage", () => {
   });
 
   async function renderProfile() {
-    renderWithProviders(<AnimalProfilePage />);
+    const view = renderWithProviders(<AnimalProfilePage />);
     await screen.findByRole("heading", { level: 1, name: /G-001/ });
+    return view;
+  }
+
+  async function startHeldProfileRefresh(
+    queryClient: Awaited<ReturnType<typeof renderProfile>>["queryClient"],
+    profile: Record<string, unknown> = PROFILE,
+  ) {
+    let announceRefresh!: () => void;
+    let releaseRefresh!: () => void;
+    const refreshStarted = new Promise<void>((resolve) => {
+      announceRefresh = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    server.use(
+      http.get("/api/animals/1", async () => {
+        announceRefresh();
+        await refreshGate;
+        return HttpResponse.json(profile);
+      }),
+    );
+    const refetch = queryClient.refetchQueries({ queryKey: ["/api/animals/1"] });
+    await refreshStarted;
+    return async () => {
+      releaseRefresh();
+      await refetch;
+    };
   }
 
   async function openDialog(user: User, button: string) {
@@ -517,6 +545,51 @@ describe("AnimalProfilePage", () => {
         expect(latest?.get("health_events_offset")).toBe("25");
         expect(latest?.get("breedings_offset")).toBe("25");
       });
+    });
+
+    it("disables placeholder pagination so a quick reversal cannot skip a page", async () => {
+      const requestedWeightOffsets: number[] = [];
+      let holdThirdPage = false;
+      let releaseThirdPage: (() => void) | undefined;
+      const thirdPageGate = new Promise<void>((resolve) => {
+        releaseThirdPage = resolve;
+      });
+      server.use(
+        http.get("/api/animals/1", async ({ request }) => {
+          const query = new URL(request.url).searchParams;
+          const weightsOffset = Number(query.get("weights_offset") ?? 0);
+          requestedWeightOffsets.push(weightsOffset);
+          if (holdThirdPage && weightsOffset === 50) await thirdPageGate;
+          return HttpResponse.json({
+            ...PROFILE,
+            weights_total: 60,
+            weights_offset: weightsOffset,
+          });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const weightsCard = screen
+        .getByText("Weight history (60)")
+        .closest('[data-slot="card"]') as HTMLElement;
+
+      await user.click(within(weightsCard).getByRole("button", { name: "Next" }));
+      await screen.findByText("Showing 26–50 of 60 weight records");
+
+      holdThirdPage = true;
+      await user.click(within(weightsCard).getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requestedWeightOffsets.at(-1)).toBe(50));
+
+      // The page-2 payload remains visible as placeholder data while page 3
+      // loads. Its Previous button would calculate offset 0 and skip back
+      // over page 2 unless every control is locked for this transition.
+      const stalePrevious = within(weightsCard).getByRole("button", { name: "Previous" });
+      expect(stalePrevious).toBeDisabled();
+      await user.click(stalePrevious);
+      expect(requestedWeightOffsets).toEqual([0, 25, 50]);
+
+      releaseThirdPage?.();
+      await screen.findByText("Showing 51–60 of 60 weight records");
     });
 
     it("resets every history offset when navigating to a different animal", async () => {
@@ -927,6 +1000,41 @@ describe("AnimalProfilePage", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
 
+    it("rejects a programmatic clearance click while the profile snapshot is refreshing", async () => {
+      const restrictedProfile = profileWith({
+        movement_restricted: true,
+        restriction_reason: "Scheduled-disease suspicion",
+        restriction_version: 1,
+      });
+      useProfileHandler(restrictedProfile);
+      const user = userEvent.setup();
+      const { queryClient } = await renderProfile();
+      const dialog = await openDialog(user, "Record clearance");
+      await user.type(
+        within(dialog).getByLabelText("Clearance reference *"),
+        "VET-CLEAR-HELD",
+      );
+
+      const finishRefresh = await startHeldProfileRefresh(queryClient, restrictedProfile);
+      const trigger = screen.getByRole("button", { name: "Record clearance", hidden: true });
+      const reference = within(dialog).getByLabelText("Clearance reference *");
+      const confirm = within(dialog).getByRole("button", { name: "Confirm clearance" });
+      await waitFor(() => expect(trigger).toBeDisabled());
+      expect(reference).toBeDisabled();
+      expect(confirm).toBeDisabled();
+
+      // Force the click past the native disabled attribute to exercise the
+      // callback guard itself, matching a queued/scripted event rather than an
+      // ordinary pointer interaction.
+      confirm.removeAttribute("disabled");
+      fireEvent.click(confirm);
+      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      expect(clearanceBodies).toHaveLength(0);
+
+      await finishRefresh();
+      await waitFor(() => expect(reference).toBeEnabled());
+    });
+
     it("does not offer clearance without health.manage", async () => {
       server.use(permissionsHandler(["animals.view", "animals.move"]));
       useProfileHandler(profileWith({ movement_restricted: true }));
@@ -1123,6 +1231,76 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByRole("button", { name: "Move bucket" })).toBeEnabled();
       expect(screen.getByRole("button", { name: "Change status" })).toBeEnabled();
     });
+
+    it("keeps lifecycle actions locked until the post-write profile refresh settles", async () => {
+      let profileCalls = 0;
+      let announceRefresh: (() => void) | undefined;
+      let releaseRefresh: (() => void) | undefined;
+      const refreshStarted = new Promise<void>((resolve) => {
+        announceRefresh = resolve;
+      });
+      const refreshGate = new Promise<void>((resolve) => {
+        releaseRefresh = resolve;
+      });
+      server.use(
+        http.get("/api/animals/1", async () => {
+          profileCalls += 1;
+          if (profileCalls > 1) {
+            announceRefresh?.();
+            await refreshGate;
+          }
+          return HttpResponse.json(PROFILE);
+        }),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record weight");
+      setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "31");
+      await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+      await refreshStarted;
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      const weight = screen.getByRole("button", { name: "Record weight" });
+      const move = screen.getByRole("button", { name: "Move bucket" });
+      const status = screen.getByRole("button", { name: "Change status" });
+      expect(weight).toBeDisabled();
+      expect(move).toBeDisabled();
+      expect(status).toBeDisabled();
+
+      await user.click(move);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+      releaseRefresh?.();
+      await waitFor(() => expect(weight).toBeEnabled());
+      expect(move).toBeEnabled();
+      expect(status).toBeEnabled();
+    });
+
+    it("rejects a programmatic weight submit while the profile snapshot is refreshing", async () => {
+      const user = userEvent.setup();
+      const { queryClient } = await renderProfile();
+      const dialog = await openDialog(user, "Record weight");
+      setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "31");
+
+      const finishRefresh = await startHeldProfileRefresh(queryClient);
+      const trigger = screen.getByRole("button", { name: "Record weight", hidden: true });
+      const input = within(dialog).getByLabelText(/weight \(kg\)/i);
+      const save = within(dialog).getByRole("button", { name: "Save" });
+      await waitFor(() => expect(trigger).toBeDisabled());
+      expect(input).toBeDisabled();
+      expect(save).toBeDisabled();
+      expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+      // Disabled controls stop ordinary clicks, while the submit handler is
+      // still the final safety boundary for scripted events and stale queued
+      // submissions that were validated before the refetch began.
+      fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
+      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      expect(weightBodies).toHaveLength(0);
+
+      await finishRefresh();
+      await waitFor(() => expect(save).toBeEnabled());
+    });
   });
 
   describe("move bucket dialog", () => {
@@ -1250,6 +1428,29 @@ describe("AnimalProfilePage", () => {
 
       releaseMove?.();
       await waitFor(() => expect(trigger).toBeEnabled());
+    });
+
+    it("rejects a programmatic move submit while the profile snapshot is refreshing", async () => {
+      const user = userEvent.setup();
+      const { queryClient } = await renderProfile();
+      const dialog = await openDialog(user, "Move bucket");
+      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+
+      const finishRefresh = await startHeldProfileRefresh(queryClient);
+      const trigger = screen.getByRole("button", { name: "Move bucket", hidden: true });
+      const bucket = within(dialog).getByRole("combobox");
+      const move = within(dialog).getByRole("button", { name: "Move" });
+      await waitFor(() => expect(trigger).toBeDisabled());
+      expect(bucket).toBeDisabled();
+      expect(move).toBeDisabled();
+      expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+      fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
+      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      expect(moveBodies).toHaveLength(0);
+
+      await finishRefresh();
+      await waitFor(() => expect(move).toBeEnabled());
     });
   });
 
@@ -1559,6 +1760,28 @@ describe("AnimalProfilePage", () => {
 
       releaseStatus?.();
       await waitFor(() => expect(trigger).toBeEnabled());
+    });
+
+    it("rejects a programmatic status submit while the profile snapshot is refreshing", async () => {
+      const user = userEvent.setup();
+      const { queryClient } = await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+
+      const finishRefresh = await startHeldProfileRefresh(queryClient);
+      const trigger = screen.getByRole("button", { name: "Change status", hidden: true });
+      const status = within(dialog).getByRole("combobox");
+      const confirm = within(dialog).getByRole("button", { name: "Confirm" });
+      await waitFor(() => expect(trigger).toBeDisabled());
+      expect(status).toBeDisabled();
+      expect(confirm).toBeDisabled();
+      expect(dialog.querySelector("fieldset")).toBeDisabled();
+
+      fireEvent.submit(dialog.querySelector("form") as HTMLFormElement);
+      await new Promise((resolve) => window.setTimeout(resolve, 75));
+      expect(statusBodies).toHaveLength(0);
+
+      await finishRefresh();
+      await waitFor(() => expect(confirm).toBeEnabled());
     });
   });
 });
