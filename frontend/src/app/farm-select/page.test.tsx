@@ -144,6 +144,35 @@ describe("FarmSelectPage — farm picker", () => {
     expect(localStorage.getItem("goatfarm.farmId")).toBe("2");
   });
 
+  it("surfaces a permission-discovery failure, unlocks the picker, and allows retry", async () => {
+    let permissionCalls = 0;
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      http.get("/api/auth/permissions", () => {
+        permissionCalls += 1;
+        return permissionCalls === 1
+          ? HttpResponse.json({ detail: "Permissions temporarily unavailable" }, { status: 503 })
+          : HttpResponse.json({ is_owner: false, permissions: ["health.view"] });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    const secondFarm = await screen.findByText("Second Farm");
+
+    await user.click(secondFarm);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Permissions temporarily unavailable",
+    );
+    expect(cardOf("Second Farm")).toBeEnabled();
+    expect(pushMock).not.toHaveBeenCalled();
+
+    await user.click(cardOf("Second Farm"));
+    await waitFor(() => expect(pushMock).toHaveBeenLastCalledWith("/health"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(permissionCalls).toBe(2);
+  });
+
   it("restores a permitted internal route and its page state after switching farms", async () => {
     navState.search = "?returnTo=%2Ftasks%3Ftab%3Doverdue";
     server.use(

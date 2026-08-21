@@ -495,6 +495,18 @@ describe("TasksPage (extended)", () => {
     await waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(2));
   });
 
+  it("dismisses the skip dialog before any transition starts", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(within(rowOf("Morning feed count")).getByRole("button", { name: "Skip" }));
+    await screen.findByRole("dialog", { name: "Skip this task?" });
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(actionCalls).toHaveLength(0);
+  });
+
   it("records a trimmed skip reason in the task audit history", async () => {
     const user = userEvent.setup();
     await renderLoaded();
@@ -611,6 +623,27 @@ describe("TasksPage (extended)", () => {
     expect(screen.getByRole("button", { name: "Retry verify" })).toBeInTheDocument();
   });
 
+  it("does not refetch and retains the note when rejection fails", async () => {
+    let failed = 0;
+    server.use(
+      http.post("/api/tasks/:taskId/reject", () => {
+        failed += 1;
+        return HttpResponse.json({ detail: "verification already changed" }, { status: 409 });
+      }),
+    );
+    const user = await openAwaiting();
+    const row = rowOf("Deep-clean kidding pen");
+    const reason = within(row).getByLabelText("Rejection reason");
+    await user.type(reason, "Still wet");
+    await user.click(within(row).getByRole("button", { name: "Reject" }));
+
+    await waitFor(() => expect(failed).toBe(1));
+    expect(listCalls).toBe(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("verification already changed");
+    expect(screen.getByRole("button", { name: "Retry reject" })).toBeInTheDocument();
+    expect(reason).toHaveValue("Still wet");
+  });
+
   it("shows no Verify/Reject controls without tasks.verify", async () => {
     server.use(permissionsHandler(["tasks.view", "tasks.complete"]));
     await renderLoaded();
@@ -627,6 +660,15 @@ describe("TasksPage (extended)", () => {
     await user.click(screen.getByRole("button", { name: "New duty" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
+
+  it("dismisses a new-duty draft before submission", async () => {
+    const { user } = await openDialog();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(createBody).toBeNull();
+  });
 
   it("requires a title before creating", async () => {
     const { user, dialog } = await openDialog();
@@ -834,6 +876,20 @@ describe("TasksPage (extended)", () => {
     const names = options.map((o) => o.textContent ?? "");
     expect(names.some((n) => n.includes("Raju"))).toBe(true);
     expect(names.some((n) => n.includes("Ex Worker"))).toBe(false);
+  });
+
+  it("keeps an active worker's label selected and posts only that worker id", async () => {
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/title/i), "Check isolation pen");
+    const combos = () => within(dialog).getAllByRole("combobox");
+
+    await pickOption(user, combos()[3], /Raju \(Vet\)/);
+    expect(combos()[3]).toHaveTextContent("Raju (Vet)");
+    expect(combos()[2]).toHaveTextContent("— none —");
+    await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
+
+    await waitFor(() => expect(createBody).not.toBeNull());
+    expect(createBody).toMatchObject({ assigned_role_id: null, assigned_user_id: 9 });
   });
 
   it("keeps the dialog open when creating fails on the server", async () => {

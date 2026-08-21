@@ -653,6 +653,36 @@ describe("RemotePicker", () => {
     view.rerender(<Picker disabled />);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByRole("combobox", { name: "Animal" })).toBeDisabled();
+
+    view.rerender(<Picker disabled={false} />);
+    expect(screen.getByRole("combobox", { name: "Animal" })).toBeEnabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("makes a non-first selected option the sole initial roving tab stop", async () => {
+    const user = userEvent.setup();
+    const Harness = renderPicker({
+      initialValue: "2",
+      loadPage: async () => ({
+        options: [
+          { value: "1", label: "G-0001 · Nila" },
+          { value: "2", label: "G-0002 · Tara" },
+          { value: "3", label: "G-0003 · Mira" },
+        ],
+        total: 3,
+        nextOffset: 3,
+      }),
+    });
+    render(<Harness />);
+
+    await user.click(screen.getByRole("combobox", { name: "Animal" }));
+    const first = await screen.findByRole("option", { name: /G-0001 · Nila/ });
+    const selected = screen.getByRole("option", { name: /G-0002 · Tara/ });
+    const last = screen.getByRole("option", { name: /G-0003 · Mira/ });
+
+    expect(first).toHaveAttribute("tabindex", "-1");
+    expect(selected).toHaveAttribute("tabindex", "0");
+    expect(last).toHaveAttribute("tabindex", "-1");
   });
 
   it("supports arrow, Home, End and Enter navigation and returns focus on Escape", async () => {
@@ -662,9 +692,10 @@ describe("RemotePicker", () => {
         options: [
           { value: "1", label: "G-0001 · Nila" },
           { value: "2", label: "G-0002 · Tara" },
+          { value: "3", label: "G-0003 · Mira" },
         ],
-        total: 2,
-        nextOffset: 2,
+        total: 3,
+        nextOffset: 3,
       }),
     });
     render(<Harness />);
@@ -674,24 +705,45 @@ describe("RemotePicker", () => {
     const search = screen.getByLabelText("Search animals");
     const first = await screen.findByRole("option", { name: /G-0001 · Nila/ });
     const second = screen.getByRole("option", { name: /G-0002 · Tara/ });
+    const third = screen.getByRole("option", { name: /G-0003 · Mira/ });
+    const listbox = screen.getByRole("listbox", {
+      name: "Choose an animal results",
+    });
+    expect(first).toHaveAttribute("tabindex", "0");
+    expect(second).toHaveAttribute("tabindex", "-1");
+    expect(third).toHaveAttribute("tabindex", "-1");
+    expect(search).toHaveAttribute(
+      "aria-describedby",
+      "animal-picker-picker-status",
+    );
+    expect(screen.getByRole("dialog", { name: "Choose an animal" })).toHaveAttribute(
+      "id",
+      "animal-picker-picker-dialog",
+    );
 
     search.focus();
-    await user.keyboard("{ArrowDown}");
+    expect(fireEvent.keyDown(search, { key: "ArrowDown" })).toBe(false);
     expect(first).toHaveFocus();
     await user.keyboard("x");
     expect(first).toHaveFocus();
-    await user.keyboard("{ArrowUp}");
-    expect(second).toHaveFocus();
+    expect(fireEvent.keyDown(listbox, { key: "ArrowUp" })).toBe(false);
+    expect(third).toHaveFocus();
+    expect(first).toHaveAttribute("tabindex", "-1");
+    expect(third).toHaveAttribute("tabindex", "0");
     await user.keyboard("{ArrowDown}");
+    expect(first).toHaveFocus();
+    expect(first).toHaveAttribute("tabindex", "0");
+    expect(third).toHaveAttribute("tabindex", "-1");
+    await user.keyboard("{ArrowDown}");
+    expect(second).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
     expect(first).toHaveFocus();
     await user.keyboard("{ArrowDown}");
     expect(second).toHaveFocus();
-    await user.keyboard("{ArrowUp}");
-    expect(first).toHaveFocus();
     await user.keyboard("{Home}");
     expect(first).toHaveFocus();
     await user.keyboard("{End}{Enter}");
-    expect(screen.getByLabelText("chosen value")).toHaveTextContent("2");
+    expect(screen.getByLabelText("chosen value")).toHaveTextContent("3");
 
     await user.click(trigger);
     await user.keyboard("{Escape}");

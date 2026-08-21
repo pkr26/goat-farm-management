@@ -88,6 +88,27 @@ describe("AccountDialog", () => {
     mocks.signOut.mockResolvedValue(undefined);
   });
 
+  it("renders both the display name and email when a name is available", async () => {
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner Name" email="owner@example.test" />);
+
+    const dialog = await openAccount(user);
+
+    expect(within(dialog).getByText("Owner Name")).toBeInTheDocument();
+    expect(within(dialog).getByText("owner@example.test")).toHaveClass(
+      "text-muted-foreground",
+    );
+    for (const label of [
+      "Current password for password change",
+      "New password",
+      "Confirm new password",
+    ]) {
+      expect(within(dialog).getByLabelText(label)).not.toHaveAttribute(
+        "aria-invalid",
+      );
+    }
+  });
+
   it("enforces every password field and the twelve-character boundary", async () => {
     const user = userEvent.setup();
     render(<AccountDialog name="Owner" email="owner@example.test" />);
@@ -97,6 +118,17 @@ describe("AccountDialog", () => {
     expect(await within(dialog).findByText("Current password is required")).toBeInTheDocument();
     expect(within(dialog).getByText("Password must be at least 12 characters")).toBeInTheDocument();
     expect(within(dialog).getByText("Confirm the new password")).toBeInTheDocument();
+    expect(
+      within(dialog).getByLabelText("Current password for password change"),
+    ).toHaveAttribute("aria-invalid", "true");
+    expect(within(dialog).getByLabelText("New password")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(within(dialog).getByLabelText("Confirm new password")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
     expect(mocks.mutateAsync).not.toHaveBeenCalled();
 
     await user.type(
@@ -148,6 +180,28 @@ describe("AccountDialog", () => {
       "Password changed. Other signed-in sessions were revoked.",
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("shows the password action as busy until the mutation settles", async () => {
+    let resolveMutation: ((value: { status: number }) => void) | undefined;
+    mocks.mutateAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveMutation = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change password" }));
+
+    expect(within(dialog).getByRole("button", { name: "Changing…" })).toBeDisabled();
+    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledOnce());
+
+    await act(async () => resolveMutation?.({ status: 200 }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("does not let a stale password recovery sign out a replacement session", async () => {
@@ -565,10 +619,48 @@ describe("AccountDialog", () => {
 
     expect(mocks.apiFetch).toHaveBeenCalledOnce();
     expect(mocks.apiFetch).toHaveBeenCalledWith("/api/auth/account/export");
-    expect(within(dialog).getByRole("button", { name: "Change password" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Preparing…" })).toBeDisabled();
+    const changePassword = within(dialog).getByRole("button", {
+      name: "Change password",
+    });
+    expect(changePassword).toBeDisabled();
+    expect(changePassword).toHaveAttribute("disabled");
+    expect(
+      within(dialog).getByLabelText("Current password for password change"),
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByLabelText("Current password to delete account"),
+    ).toBeDisabled();
     expect(
       within(dialog).getByRole("button", { name: "Delete account and access" }),
     ).toBeDisabled();
+
+    await act(async () => rejectExport?.(new ApiError(503, "Export unavailable")));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("button", { name: "Download my data" })).toBeEnabled(),
+    );
+  });
+
+  it("locks the unopened deletion entry point while an export is pending", async () => {
+    let rejectExport: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectExport = reject;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Download my data" }),
+    );
+
+    expect(within(dialog).getByRole("button", { name: "Preparing…" })).toBeDisabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Delete my account…" }),
+    ).toHaveAttribute("disabled");
 
     await act(async () => rejectExport?.(new ApiError(503, "Export unavailable")));
     await waitFor(() =>
@@ -620,6 +712,40 @@ describe("AccountDialog", () => {
     });
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "Your sign-in identity and profile were removed, and your farm access was disabled. Inactive membership audit anchors and de-identified operational references may remain.",
+    );
+  });
+
+  it("labels and locks deletion controls until the request settles", async () => {
+    let rejectDeletion: ((reason: unknown) => void) | undefined;
+    mocks.apiFetch.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectDeletion = reject;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<AccountDialog name="Owner" email="owner@example.test" />);
+    const dialog = await openAccount(user);
+    await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
+    await user.type(
+      within(dialog).getByLabelText("Current password to delete account"),
+      "owner-password",
+    );
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Delete account and access" }),
+    );
+
+    expect(within(dialog).getByRole("button", { name: "Deleting…" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveAttribute(
+      "disabled",
+    );
+
+    await act(async () => rejectDeletion?.(new ApiError(503, "Deletion unavailable")));
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Delete account and access" }),
+      ).toBeEnabled(),
     );
   });
 

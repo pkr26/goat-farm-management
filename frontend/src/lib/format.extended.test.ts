@@ -125,6 +125,15 @@ describe("formatDate — boundaries", () => {
     expect(formatDate("2026-02-14T00:00:00+05:30")).toBe("14 Feb 2026");
   });
 
+  it("accepts ISO timestamps without seconds and with compact offsets", () => {
+    expect(formatDate("2026-08-05T23:59Z")).toBe("5 Aug 2026");
+    expect(formatDate("2026-02-14T00:00+0530")).toBe("14 Feb 2026");
+  });
+
+  it("normalizes single-digit date parts before validating a timestamp", () => {
+    expect(formatDate("2026-8-5T10:30:00Z")).toBe("5 Aug 2026");
+  });
+
   it("renders an em dash for structurally incomplete dates", () => {
     expect(formatDate("2026-08")).toBe("—");
     expect(formatDate("2026")).toBe("—");

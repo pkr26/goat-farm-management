@@ -1,5 +1,5 @@
 import { renderToString } from "react-dom/server";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -86,6 +86,70 @@ describe("SidebarProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Toggle twice" }));
 
     expect(screen.getByLabelText("sidebar state")).toHaveTextContent("expanded");
+  });
+
+  it("uses internal state when no controlled change handler was supplied", () => {
+    let updateOpen: ((open: boolean) => void) | undefined;
+    function Probe() {
+      const { open, setOpen } = useSidebar();
+      updateOpen = setOpen;
+      return (
+        <output aria-label="uncontrolled sidebar state">
+          {open ? "expanded" : "collapsed"}
+        </output>
+      );
+    }
+
+    render(
+      <SidebarProvider defaultOpen>
+        <Probe />
+      </SidebarProvider>,
+    );
+
+    expect(() => {
+      act(() => updateOpen?.(false));
+    }).not.toThrow();
+    expect(screen.getByLabelText("uncontrolled sidebar state")).toHaveTextContent(
+      "collapsed",
+    );
+  });
+
+  it("tracks controlled prop and handler replacements before a functional toggle", () => {
+    let toggle: (() => void) | undefined;
+    const firstHandler = vi.fn();
+    const replacementHandler = vi.fn();
+    function Probe() {
+      const sidebar = useSidebar();
+      toggle = sidebar.toggleSidebar;
+      return (
+        <output aria-label="controlled sidebar state">
+          {sidebar.open ? "expanded" : "collapsed"}
+        </output>
+      );
+    }
+
+    const view = render(
+      <SidebarProvider open onOpenChange={firstHandler}>
+        <Probe />
+      </SidebarProvider>,
+    );
+    expect(screen.getByLabelText("controlled sidebar state")).toHaveTextContent(
+      "expanded",
+    );
+
+    view.rerender(
+      <SidebarProvider open={false} onOpenChange={replacementHandler}>
+        <Probe />
+      </SidebarProvider>,
+    );
+    expect(screen.getByLabelText("controlled sidebar state")).toHaveTextContent(
+      "collapsed",
+    );
+    act(() => toggle?.());
+
+    expect(firstHandler).not.toHaveBeenCalled();
+    expect(replacementHandler).toHaveBeenCalledOnce();
+    expect(replacementHandler).toHaveBeenCalledWith(true);
   });
 
   it("does not reopen a stale mobile drawer after a desktop round trip", async () => {

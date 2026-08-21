@@ -716,6 +716,20 @@ describe("DashboardPage — loading, error and permission states", () => {
     expect(screen.queryByRole("heading", { name: /dashboard/i })).not.toBeInTheDocument();
   });
 
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+
+    renderWithProviders(<DashboardPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
+
   it("fetches the dashboard when dashboard.view is the only permission held", async () => {
     server.use(permissionsHandler(["dashboard.view"]), dashboardHandler(POPULATED));
 

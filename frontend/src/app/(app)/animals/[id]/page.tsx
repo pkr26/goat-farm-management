@@ -424,7 +424,11 @@ const statusSchema = z
     suspected_disease: z
       .string()
       .max(120, "Suspected disease cannot exceed 120 characters")
-      .optional(),
+      // Keep the resolver output total. Besides simplifying the statutory
+      // validation below, this prevents an omitted programmatic value from
+      // ever reaching a string operation as `undefined`.
+      .optional()
+      .default(""),
     authority_notified_at: z.string().optional(),
   })
   .superRefine((values, context) => {
@@ -448,7 +452,7 @@ const statusSchema = z
     if (
       values.new_status === StatusChangeInNewStatus.DEAD &&
       values.suspected_scheduled_disease &&
-      !values.suspected_disease?.trim()
+      !values.suspected_disease.trim()
     ) {
       context.addIssue({
         code: "custom",
@@ -1549,7 +1553,11 @@ function AnimalProfilePageContent() {
     <ProfileBody
       profile={profile}
       refresh={refresh}
-      profileSettling={query.isFetching}
+      // A failed background refresh leaves the last good profile rendered,
+      // but that snapshot is no longer authoritative enough to start a
+      // lifecycle write. Keep actions inert until Retry establishes a fresh
+      // server-owned version.
+      profileSettling={query.isFetching || query.isError}
       historySettling={query.isPlaceholderData}
       backHref={backHref}
       backLabel={backLabel}

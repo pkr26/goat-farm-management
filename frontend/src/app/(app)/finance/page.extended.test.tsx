@@ -352,6 +352,51 @@ describe("FinancePage filters", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(lastParams.get("offset")).toBe("50"));
   });
+
+  it("returns to the first ledger page whenever any filter changes or clears", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("/api/finance", ({ request }) => {
+        lastParams = new URL(request.url).searchParams;
+        return HttpResponse.json({ ...PAYLOAD, transactions_total: 120 });
+      }),
+    );
+    await renderLoaded();
+
+    async function moveToSecondPage() {
+      const next = screen.getByRole("button", { name: "Next" });
+      await waitFor(() => expect(next).toBeEnabled());
+      await user.click(next);
+      await waitFor(() => expect(lastParams.get("offset")).toBe("50"));
+    }
+
+    await moveToSecondPage();
+    fireEvent.change(screen.getByLabelText("Filter by month"), {
+      target: { value: "2025-12" },
+    });
+    await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
+
+    await moveToSecondPage();
+    await user.click(screen.getByLabelText("Filter transactions by type"));
+    await user.click(await screen.findByRole("option", { name: "INCOME" }));
+    await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
+
+    await moveToSecondPage();
+    await user.click(screen.getByLabelText("Filter transactions by category"));
+    await user.click(await screen.findByRole("option", { name: "FEED" }));
+    await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
+
+    await moveToSecondPage();
+    await user.click(screen.getByRole("button", { name: "2025-12" }));
+    await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
+
+    await moveToSecondPage();
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
+    expect(lastParams.has("month")).toBe(false);
+    expect(lastParams.has("type")).toBe(false);
+    expect(lastParams.has("category")).toBe(false);
+  });
 });
 
 describe("FinancePage RBAC and errors", () => {
@@ -368,6 +413,19 @@ describe("FinancePage RBAC and errors", () => {
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(calls).toBe(0);
+  });
+
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<FinancePage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
   });
 
   it("hides New transaction for a finance.view-only user", async () => {
@@ -937,5 +995,39 @@ describe("FinancePage new-transaction dialog", () => {
 
     await user.dblClick(within(dialog).getByRole("button", { name: "Add transaction" }));
     await waitFor(() => expect(postCalls).toBe(1));
+  });
+
+  it("does not let a dismissed add completion close or reset a reopened draft", async () => {
+    let releaseAdd: (() => void) | undefined;
+    const parked = new Promise<void>((resolve) => {
+      releaseAdd = resolve;
+    });
+    server.use(
+      http.post("/api/finance/new", async ({ request }) => {
+        postCalls += 1;
+        postBody = (await request.json()) as Record<string, unknown>;
+        await parked;
+        return HttpResponse.json({ ...TXN_EXPENSE, id: 3 }, { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Amount/), "100");
+    await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
+    await waitFor(() => expect(postCalls).toBe(1));
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "New transaction" }));
+    const reopened = await screen.findByRole("dialog");
+    const newAmount = within(reopened).getByLabelText(/Amount/);
+    expect(newAmount).toBeDisabled();
+
+    releaseAdd?.();
+    await waitFor(() => expect(newAmount).toBeEnabled());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.type(newAmount, "200");
+    expect(newAmount).toHaveValue(200);
+    expect(getCalls).toBeGreaterThan(1);
+    expect(postBody).toMatchObject({ amount: 100 });
   });
 });

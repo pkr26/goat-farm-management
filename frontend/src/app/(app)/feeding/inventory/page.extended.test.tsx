@@ -7,6 +7,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
+import { toast } from "sonner";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -20,6 +21,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
 }));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 beforeAll(() => {
   // jsdom lacks the pointer-capture/scroll APIs Radix Select relies on.
@@ -165,6 +168,19 @@ describe("InventoryPage RBAC", () => {
     expect(calls).toBe(0);
   });
 
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<InventoryPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
+
   it("hides Mix batch and Add stock for a feeding.view-only user", async () => {
     server.use(permissionsHandler(["feeding.view"]), inventoryHandler([ITEM_MAIZE]));
     renderWithProviders(<InventoryPage />);
@@ -191,6 +207,7 @@ describe("InventoryPage add-stock dialog", () => {
   let listCalls: number;
 
   beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
     addCalls = 0;
     addBody = null;
     addItemId = null;
@@ -303,6 +320,19 @@ describe("InventoryPage add-stock dialog", () => {
     expect(addCalls).toBe(0);
   });
 
+  it("blocks a derived restock expense above the ledger cap", async () => {
+    const { user, dialog } = await openAddStock();
+
+    await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "2");
+    await user.type(within(dialog).getByLabelText(/Price per kg/), "500000000.01");
+    await user.click(within(dialog).getByRole("button", { name: "Add" }));
+
+    expect(
+      await within(dialog).findByText("Restock cost cannot exceed ₹1,000,000,000"),
+    ).toBeInTheDocument();
+    expect(addCalls).toBe(0);
+  });
+
   it("shows gram-scale inventory and finished stock without rounding them to zero", async () => {
     server.use(
       inventoryHandler([{ ...ITEM_MAIZE, qty_on_hand: 0.001 }]),
@@ -360,6 +390,7 @@ describe("InventoryPage add-stock dialog", () => {
 
     await waitFor(() => expect(addCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("cannot add stock");
   });
 
   it("does not reopen the same stock form while its dismissed write is pending", async () => {
@@ -409,6 +440,7 @@ describe("InventoryPage mix-batch dialog", () => {
   let mixBody: Record<string, unknown> | null;
 
   beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
     mixCalls = 0;
     mixBody = null;
     server.use(
@@ -446,12 +478,16 @@ describe("InventoryPage mix-batch dialog", () => {
   });
 
   it("blocks mixing and offers retry when recipes fail to load", async () => {
+    let recipeCalls = 0;
     server.use(
-      http.get("/api/feeding/recipes", () =>
-        HttpResponse.json({ detail: "recipes unavailable" }, { status: 503 }),
-      ),
+      http.get("/api/feeding/recipes", () => {
+        recipeCalls += 1;
+        return recipeCalls === 1
+          ? HttpResponse.json({ detail: "recipes unavailable" }, { status: 503 })
+          : HttpResponse.json(RECIPES_PAYLOAD);
+      }),
     );
-    const { dialog } = await openMix();
+    const { user, dialog } = await openMix();
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Could not load recipes",
@@ -459,6 +495,11 @@ describe("InventoryPage mix-batch dialog", () => {
     expect(within(dialog).getByRole("button", { name: "Mix batch" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Retry recipes" })).toBeEnabled();
     expect(mixCalls).toBe(0);
+
+    await user.click(within(dialog).getByRole("button", { name: "Retry recipes" }));
+    await waitFor(() => expect(recipeCalls).toBe(2));
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Mix batch" })).toBeEnabled();
   });
 
   it("rejects 0 batches", async () => {
@@ -537,6 +578,12 @@ describe("InventoryPage mix-batch dialog", () => {
       await within(dialog).findByText(/Cannot mix — insufficient stock: Crushed maize: need 36 kg, have 20 kg/),
     ).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Mix batch" }));
+    const reopened = await screen.findByRole("dialog");
+    expect(within(reopened).queryByText(/Cannot mix/)).not.toBeInTheDocument();
   });
 
   it("does not show the shortage panel for non-400 errors", async () => {
@@ -554,5 +601,6 @@ describe("InventoryPage mix-batch dialog", () => {
     await waitFor(() => expect(mixCalls).toBe(1));
     expect(within(dialog).queryByText(/Cannot mix/)).not.toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("boom");
   });
 });

@@ -90,6 +90,31 @@ describe("LoginPage", () => {
     expect(pushMock).not.toHaveBeenCalledWith("/dashboard");
   });
 
+  it("falls back to farm selection when permission discovery fails without logging out", async () => {
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "login-token",
+          user: { id: 2, email: "demo@goatfarm.in", name: "Demo User" },
+        }),
+      ),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 7, name: "Demo Farm", location: null, role: null }]),
+      ),
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "Permissions unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenLastCalledWith("/farm-select"));
+  });
+
   it("shows 'Invalid email or password.' on a 401 and does not navigate", async () => {
     server.use(
       http.post("/api/auth/login", () =>

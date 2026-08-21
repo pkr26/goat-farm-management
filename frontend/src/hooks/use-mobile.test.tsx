@@ -1,3 +1,4 @@
+import { renderToString } from "react-dom/server";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,10 +11,22 @@ function Probe() {
 describe("useIsMobile", () => {
   let matches = false;
   const listeners = new Set<() => void>();
+  const addEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === "change") listeners.add(listener as () => void);
+    },
+  );
+  const removeEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject) => {
+      if (type === "change") listeners.delete(listener as () => void);
+    },
+  );
 
   beforeEach(() => {
     matches = false;
     listeners.clear();
+    addEventListener.mockClear();
+    removeEventListener.mockClear();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
     vi.stubGlobal("matchMedia", vi.fn(
       () =>
@@ -23,12 +36,8 @@ describe("useIsMobile", () => {
           },
           media: "(max-width: 767px)",
           onchange: null,
-          addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
-            listeners.add(listener as () => void);
-          },
-          removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
-            listeners.delete(listener as () => void);
-          },
+          addEventListener,
+          removeEventListener,
           addListener: vi.fn(),
           removeListener: vi.fn(),
           dispatchEvent: vi.fn(),
@@ -40,6 +49,9 @@ describe("useIsMobile", () => {
 
   it("reads the same media query source that triggers its subscription", () => {
     render(<Probe />);
+
+    expect(window.matchMedia).toHaveBeenCalledWith("(max-width: 767px)");
+    expect(addEventListener).toHaveBeenCalledWith("change", expect.any(Function));
 
     // Deliberately disagree with innerWidth. The media query is the source
     // that can notify the store, so its snapshot must also be authoritative.
@@ -59,5 +71,15 @@ describe("useIsMobile", () => {
     view.unmount();
 
     expect(listeners.size).toBe(0);
+    expect(removeEventListener).toHaveBeenCalledWith(
+      "change",
+      expect.any(Function),
+    );
+  });
+
+  it("uses the deterministic desktop snapshot during server rendering", () => {
+    matches = true;
+
+    expect(renderToString(<Probe />)).toContain("desktop");
   });
 });

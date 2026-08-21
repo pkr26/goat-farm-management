@@ -7,7 +7,7 @@
  * (blank → null, trimmed notes), and server-error handling.
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,7 +15,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, farmToday } from "@/lib/format";
+import { addDays, farmToday, formatDate } from "@/lib/format";
 
 import KiddingPage from "./page";
 
@@ -290,6 +290,55 @@ describe("KiddingPage", () => {
     await waitFor(() => expect(upcomingOffsets).toEqual([0, 25, 0]));
   });
 
+  it("re-homes history and overdue pages when both totals shrink", async () => {
+    const requests: URLSearchParams[] = [];
+    let shrunk = false;
+    server.use(
+      http.get("/api/kidding", ({ request }) => {
+        const query = new URL(request.url).searchParams;
+        requests.push(new URLSearchParams(query));
+        return HttpResponse.json({
+          ...payload,
+          upcoming_total: 1,
+          upcoming_limit: 25,
+          upcoming_offset: Number(query.get("upcoming_offset") ?? 0),
+          overdue_total: shrunk ? 1 : 60,
+          overdue_limit: 25,
+          overdue_offset: Number(query.get("overdue_offset") ?? 0),
+          total: shrunk ? 1 : 120,
+          limit: 50,
+          offset: Number(query.get("offset") ?? 0),
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(<KiddingPage />);
+    await screen.findByText("Recent kiddings");
+
+    const overdueCard = screen
+      .getByText("Overdue (past expected date, no kidding recorded)")
+      .closest('[data-slot="card"]') as HTMLElement;
+    await user.click(within(overdueCard).getByRole("button", { name: "Next" }));
+    const historyCard = screen
+      .getByText("Recent kiddings")
+      .closest('[data-slot="card"]') as HTMLElement;
+    await user.click(within(historyCard).getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      expect(requests.at(-1)?.get("overdue_offset")).toBe("25");
+      expect(requests.at(-1)?.get("offset")).toBe("50");
+    });
+
+    shrunk = true;
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/kidding"] });
+    });
+
+    await waitFor(() => {
+      expect(requests.at(-1)?.get("overdue_offset")).toBe("0");
+      expect(requests.at(-1)?.get("offset")).toBe("0");
+    });
+  });
+
   it("renders the overdue card with days late and a record button", async () => {
     await renderLoaded();
     expect(
@@ -423,6 +472,19 @@ describe("KiddingPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<KiddingPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
+
   it("hides Record-kidding buttons without kidding.manage", async () => {
     server.use(permissionsHandler(["kidding.view"]));
     await renderLoaded();
@@ -442,6 +504,15 @@ describe("KiddingPage", () => {
     await user.click(within(section).getByRole("button", { name: "Record kidding" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
+
+  it("dismisses an unsubmitted kidding dialog with Escape", async () => {
+    const { user } = await openDialog();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(postBody).toBeNull();
+  });
 
   it("opens with two kid rows (twins default) and the due-date description", async () => {
     const { dialog } = await openDialog();
@@ -697,6 +768,42 @@ describe("KiddingPage", () => {
     expect(postBody).toBeNull();
   });
 
+  it("rejects a mortality date in the future", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
+      target: { value: daysFromToday(1) },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+
+    expect(await within(dialog).findByText("Date can't be in the future")).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
+  it("does not allow a kidding to predate its pregnancy-confirmation scan", async () => {
+    payload.upcoming = [
+      {
+        ...UPCOMING_REC,
+        ultrasound_result_date: daysFromToday(-4),
+      },
+    ];
+    const { user, dialog } = await openDialog();
+    const kiddingDate = within(dialog).getByLabelText(/kidding date/i);
+
+    fireEvent.change(kiddingDate, { target: { value: daysFromToday(-5) } });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+    expect(
+      await within(dialog).findByText(
+        `Kidding date cannot be before ${formatDate(daysFromToday(-4))}`,
+      ),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+
+    fireEvent.change(kiddingDate, { target: { value: daysFromToday(-4) } });
+    await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
+    await waitFor(() => expect(postBody).not.toBeNull());
+  });
+
   it("drops the mortality date when a kid is switched back off DIED", async () => {
     const { user, dialog } = await openDialog();
     await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
@@ -816,6 +923,25 @@ describe("KiddingPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
+    it.each(["0", "9007199254740992"])(
+      "ignores the invalid numeric deep-link id %s without fetching details",
+      async (rawId) => {
+        let detailCalls = 0;
+        server.use(
+          http.get("/api/kidding/pregnancies/:recordId", ({ params }) => {
+            detailCalls += 1;
+            return HttpResponse.json(makeBreeding({ id: Number(params.recordId) }));
+          }),
+        );
+        navState.search = `?breeding_id=${rawId}`;
+
+        await renderLoaded();
+
+        expect(detailCalls).toBe(0);
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      },
+    );
+
     it("fetches and opens a linked pregnancy outside both current due pages", async () => {
       const older = makeBreeding({
         id: 99,
@@ -842,6 +968,34 @@ describe("KiddingPage", () => {
       expect(within(dialog).getByText(/Doe G-099 · due/)).toBeInTheDocument();
       expect(kiddingPregnancyCalls).toBe(1);
       expect(breedingDetailCalls).toBe(0);
+    });
+
+    it("surfaces and retries an off-page linked-pregnancy failure", async () => {
+      const older = makeBreeding({
+        id: 99,
+        expected_kidding_date: daysFromToday(45),
+        doe_tag: "G-099",
+      });
+      let detailCalls = 0;
+      server.use(
+        http.get("/api/kidding/pregnancies/99", () => {
+          detailCalls += 1;
+          return detailCalls === 1
+            ? HttpResponse.json({ detail: "Linked pregnancy unavailable" }, { status: 503 })
+            : HttpResponse.json(older);
+        }),
+      );
+      navState.search = "?breeding_id=99";
+      const user = userEvent.setup();
+      renderWithProviders(<KiddingPage />);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Linked pregnancy unavailable");
+      await user.click(within(alert).getByRole("button", { name: "Retry linked pregnancy" }));
+
+      const dialog = await screen.findByRole("dialog", { name: "Record kidding" });
+      expect(within(dialog).getByText(/Doe G-099 · due/)).toBeInTheDocument();
+      expect(detailCalls).toBe(2);
     });
 
     it("does not honor a forged record deep link without kidding.manage", async () => {

@@ -102,6 +102,13 @@ describe("FeedingPage kg/head confirmation", () => {
     );
   });
 
+  it("rounds down when the first discarded digit is below five", async () => {
+    await saveRation("1.2344");
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Saved 1.234 kg/head for BREEDING."),
+    );
+  });
+
   it("leaves a value already at storage precision untouched", async () => {
     await saveRation("1.8");
     await waitFor(() =>

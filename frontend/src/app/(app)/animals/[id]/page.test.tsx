@@ -17,6 +17,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { addDays, farmToday } from "@/lib/format";
 
 import AnimalProfilePage from "./page";
 
@@ -800,6 +801,31 @@ describe("AnimalProfilePage", () => {
       expect(attempts).toBe(2);
     });
 
+    it("keeps the last profile visible but blocks actions after a refresh failure", async () => {
+      const { queryClient } = await renderProfile();
+      let attempts = 0;
+      server.use(
+        http.get("/api/animals/1", () => {
+          attempts += 1;
+          return attempts === 1
+            ? HttpResponse.json({ detail: "refresh failed" }, { status: 503 })
+            : HttpResponse.json(PROFILE);
+        }),
+      );
+
+      await queryClient.refetchQueries({ queryKey: ["/api/animals/1"] });
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        "Could not refresh this profile — showing the last loaded data.",
+      );
+      expect(screen.getByRole("heading", { level: 1, name: /G-001/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Record weight" })).toBeDisabled();
+
+      await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(attempts).toBe(2));
+      await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Record weight" })).toBeEnabled();
+    });
+
     it("treats a non-numeric id as invalid and never calls the API", async () => {
       nav.id = "abc";
       renderWithProviders(<AnimalProfilePage />);
@@ -837,6 +863,20 @@ describe("AnimalProfilePage", () => {
       server.use(http.get("/api/auth/permissions", () => new Promise<Response>(() => {})));
       renderWithProviders(<AnimalProfilePage />);
       expect((await screen.findAllByText("Loading…")).length).toBeGreaterThan(0);
+    });
+
+    it("fails closed when permissions cannot be loaded", async () => {
+      server.use(
+        http.get("/api/auth/permissions", () =>
+          HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+        ),
+      );
+      renderWithProviders(<AnimalProfilePage />);
+
+      expect(
+        await screen.findByText("Could not load your permissions — refresh the page to try again."),
+      ).toBeInTheDocument();
+      expect(getCalls).toBe(0);
     });
 
     it("shows all three action buttons with the full permission set", async () => {
@@ -951,6 +991,25 @@ describe("AnimalProfilePage", () => {
         },
       ]));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
+
+    it("keeps the clearance dialog open after a network failure", async () => {
+      useProfileHandler(
+        profileWith({ movement_restricted: true, restriction_version: 1 }),
+      );
+      server.use(
+        http.post("/api/health/restrictions/1/clear", () => HttpResponse.error()),
+      );
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Record clearance");
+      await user.type(within(dialog).getByLabelText("Clearance reference *"), "VET-NETWORK-1");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm clearance" }));
+
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+        "Could not clear the restriction.",
+      );
+      expect(dialog).toBeInTheDocument();
     });
 
     it("refreshes a superseded restriction episode before allowing a clearance retry", async () => {
@@ -1399,6 +1458,18 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
 
+    it("shows a generic toast after a move network failure", async () => {
+      server.use(http.post("/api/animals/1/move", () => HttpResponse.error()));
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Move bucket");
+      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await user.click(within(dialog).getByRole("button", { name: "Move" }));
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Something went wrong"));
+      expect(dialog).toBeInTheDocument();
+    });
+
     it("does not reopen the move form while its dismissed write is pending", async () => {
       let releaseMove: (() => void) | undefined;
       const parked = new Promise<void>((resolve) => {
@@ -1506,6 +1577,35 @@ describe("AnimalProfilePage", () => {
       ).not.toBeChecked();
     });
 
+    it("does not submit hidden mortality fields after changing DEAD to CULLED", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      const combo = () => within(dialog).getByRole("combobox");
+      await pickOption(user, combo(), "DEAD");
+      await user.type(within(dialog).getByLabelText("Mortality cause"), "Suspected PPR");
+      setInput(within(dialog).getByLabelText("Mortality reported date"), farmToday());
+      await user.click(
+        within(dialog).getByRole("checkbox", {
+          name: "Suspected scheduled/notifiable disease",
+        }),
+      );
+      await user.type(within(dialog).getByLabelText("Suspected disease *"), "PPR");
+      setInput(within(dialog).getByLabelText("Authority notified date"), farmToday());
+
+      await pickOption(user, combo(), "CULLED");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "CULLED",
+        mortality_cause: null,
+        mortality_reported_at: null,
+        suspected_scheduled_disease: false,
+        suspected_disease: null,
+        authority_notified_at: null,
+      });
+    });
+
     it("POSTs a SOLD status with price and buyer, toasts, closes and refetches", async () => {
       const user = userEvent.setup();
       await renderProfile();
@@ -1607,6 +1707,45 @@ describe("AnimalProfilePage", () => {
         suspected_scheduled_disease: true,
         suspected_disease: "PPR",
         authority_notified_at: "2026-08-07",
+      });
+    });
+
+    it("rejects future status audit dates and accepts today's exact boundary", async () => {
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      const confirm = within(dialog).getByRole("button", { name: "Confirm" });
+      const tomorrow = addDays(farmToday(), 1);
+
+      setInput(within(dialog).getByLabelText(/^Date/), tomorrow);
+      await user.click(confirm);
+      expect(await within(dialog).findByText("Date can't be in the future"))
+        .toBeInTheDocument();
+      expect(statusBodies).toHaveLength(0);
+
+      setInput(within(dialog).getByLabelText(/^Date/), farmToday());
+      await pickOption(user, within(dialog).getByRole("combobox"), "DEAD");
+      setInput(within(dialog).getByLabelText("Mortality reported date"), tomorrow);
+      await user.click(
+        within(dialog).getByRole("checkbox", {
+          name: "Suspected scheduled/notifiable disease",
+        }),
+      );
+      setInput(within(dialog).getByLabelText("Suspected disease *"), "PPR");
+      setInput(within(dialog).getByLabelText("Authority notified date"), tomorrow);
+      await user.click(confirm);
+      expect(within(dialog).getAllByText("Date can't be in the future")).toHaveLength(2);
+      expect(statusBodies).toHaveLength(0);
+
+      setInput(within(dialog).getByLabelText("Mortality reported date"), farmToday());
+      setInput(within(dialog).getByLabelText("Authority notified date"), farmToday());
+      await user.click(confirm);
+      await waitFor(() => expect(statusBodies).toHaveLength(1));
+      expect(statusBodies[0]).toMatchObject({
+        new_status: "DEAD",
+        date: farmToday(),
+        mortality_reported_at: farmToday(),
+        authority_notified_at: farmToday(),
       });
     });
 
@@ -1730,6 +1869,17 @@ describe("AnimalProfilePage", () => {
         expect(toastMock.error).toHaveBeenCalledWith("Sale price is required for SOLD"),
       );
       expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("shows a generic toast after a status network failure", async () => {
+      server.use(http.post("/api/animals/1/status", () => HttpResponse.error()));
+      const user = userEvent.setup();
+      await renderProfile();
+      const dialog = await openDialog(user, "Change status");
+      await user.click(within(dialog).getByRole("button", { name: "Confirm" }));
+
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Something went wrong"));
+      expect(dialog).toBeInTheDocument();
     });
 
     it("does not reopen the status form while its dismissed write is pending", async () => {

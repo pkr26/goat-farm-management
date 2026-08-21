@@ -8,6 +8,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
+import { toast } from "sonner";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -22,6 +23,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
 }));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 beforeAll(() => {
   // jsdom lacks the pointer-capture/scroll APIs Radix Select relies on.
@@ -312,18 +315,26 @@ describe("FeedingPage errors and RBAC", () => {
   });
 
   it("surfaces a recipe-catalog failure while retaining planned recipe options", async () => {
+    let recipeCalls = 0;
     server.use(
       planHandler({ lines: [LINE_BREEDING], records: [] }),
-      http.get("/api/feeding/recipes", () =>
-        HttpResponse.json({ detail: "recipe catalog unavailable" }, { status: 503 }),
-      ),
+      http.get("/api/feeding/recipes", () => {
+        recipeCalls += 1;
+        return recipeCalls === 1
+          ? HttpResponse.json({ detail: "recipe catalog unavailable" }, { status: 503 })
+          : HttpResponse.json(RECIPES_PAYLOAD);
+      }),
     );
     const user = userEvent.setup();
     renderWithProviders(<FeedingPage />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
       "Could not load the recipe catalog",
     );
+    await user.click(within(alert).getByRole("button", { name: "Retry recipes" }));
+    await waitFor(() => expect(recipeCalls).toBe(2));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Record dispensing" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("Lactating 60/40");
   });
@@ -349,6 +360,19 @@ describe("FeedingPage errors and RBAC", () => {
       await screen.findByText("You don't have access to this page."),
     ).toBeInTheDocument();
     expect(planCalls).toBe(0);
+  });
+
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<FeedingPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
   });
 
   it("hides every manage control for a feeding.view-only user", async () => {
@@ -431,6 +455,35 @@ describe("FeedingPage dispensing history", () => {
       expect(historyParams.has("date_from")).toBe(false);
       expect(historyParams.has("date_to")).toBe(false);
     });
+  });
+
+  it("returns to the first history page whenever either date changes or both clear", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen.getByText("Dispensing history").closest('[data-slot="card"]') as HTMLElement;
+
+    async function moveToSecondPage() {
+      const next = within(card).getByRole("button", { name: "Next" });
+      await waitFor(() => expect(next).toBeEnabled());
+      await user.click(next);
+      await waitFor(() => expect(historyParams.get("offset")).toBe("50"));
+    }
+
+    await moveToSecondPage();
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-01-01" },
+    });
+    await waitFor(() => expect(historyParams.get("offset")).toBe("0"));
+
+    await moveToSecondPage();
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-01-31" },
+    });
+    await waitFor(() => expect(historyParams.get("offset")).toBe("0"));
+
+    await moveToSecondPage();
+    await user.click(screen.getByRole("button", { name: "Clear dates" }));
+    await waitFor(() => expect(historyParams.get("offset")).toBe("0"));
   });
 
   it("blocks an inverted date range before sending it", async () => {
@@ -735,6 +788,7 @@ describe("FeedingPage dispense dialog", () => {
     await waitFor(() => expect(dispenseCalls).toBe(1));
     // Error path only toasts; the dialog must stay open for correction.
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("insufficient feed mixed");
   });
 });
 
@@ -742,6 +796,7 @@ describe("FeedingPage kg/head override dialog", () => {
   let settingsBody: Record<string, unknown> | null;
 
   beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
     settingsBody = null;
     server.use(
       planHandler({ lines: [LINE_BREEDING], records: [] }),
@@ -805,6 +860,26 @@ describe("FeedingPage kg/head override dialog", () => {
     await waitFor(() => expect(settingsBody).not.toBeNull());
     expect(settingsBody).toEqual({ bucket: "BREEDING", daily_kg_per_head: 1.8 });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("reports a rejected ration save and keeps the editor open", async () => {
+    server.use(
+      http.post("/api/feeding/settings", () =>
+        HttpResponse.json({ detail: "ration is locked" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByLabelText(/kg per head per day/);
+    await user.clear(input);
+    await user.type(input, "1.8");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("ration is locked"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(input).toHaveValue(1.8);
   });
 
   it("shows the refreshed ration value when the editor is reopened", async () => {

@@ -221,6 +221,26 @@ describe("TeamPage workers table", () => {
     await waitFor(() => expect(getCalls).toBeGreaterThan(callsBefore));
   });
 
+  it("activates an inactive worker without asking for deactivation confirmation", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.put("/api/team/workers/3/status", async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...MEMBER_SITA, is_active: true });
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(
+      within(workerRow(MEMBER_SITA.email)).getByRole("button", { name: "Activate" }),
+    );
+
+    await waitFor(() => expect(body).toEqual({ is_active: true }));
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
   it("POSTs the new role when the row's role select changes", async () => {
     let roleBody: Record<string, unknown> | null = null;
     let roleMembership: string | null = null;
@@ -543,6 +563,12 @@ describe("TeamPage add-worker dialog", () => {
     await user.click(await screen.findByRole("option", { name: "Night Watch" }));
   }
 
+  it("dismisses an idle worker dialog", async () => {
+    const { user } = await openDialog();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("rejects an invalid email", async () => {
     const { user, dialog } = await openDialog();
 
@@ -658,6 +684,18 @@ describe("TeamPage add-worker dialog", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("shows a generic error after a worker-create network failure", async () => {
+    server.use(http.post("/api/team/workers", () => HttpResponse.error()));
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Email/), "ravi@example.com");
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
+    await pickRole(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Something went wrong");
+    expect(dialog).toBeInTheDocument();
+  });
+
   it("focuses the email field and associates validation errors", async () => {
     const { user, dialog } = await openDialog();
     const email = within(dialog).getByLabelText(/Email/);
@@ -678,6 +716,40 @@ describe("TeamPage add-worker dialog", () => {
 
     await user.dblClick(within(dialog).getByRole("button", { name: "Add worker" }));
     await waitFor(() => expect(postCalls).toBe(1));
+  });
+
+  it("does not dismiss the worker dialog while creation is in flight", async () => {
+    let releaseCreate!: () => void;
+    let markCreateStarted!: () => void;
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const createStarted = new Promise<void>((resolve) => {
+      markCreateStarted = resolve;
+    });
+    server.use(
+      http.post("/api/team/workers", async ({ request }) => {
+        postCalls += 1;
+        postBody = (await request.json()) as Record<string, unknown>;
+        markCreateStarted();
+        await createGate;
+        return HttpResponse.json(MEMBER_RAVI, { status: 201 });
+      }),
+    );
+    const { user, dialog } = await openDialog();
+    await user.type(within(dialog).getByLabelText(/Email/), "new@example.com");
+    await user.type(within(dialog).getByLabelText(/Password/), "newworker123");
+    await pickRole(user, dialog);
+    await user.click(within(dialog).getByRole("button", { name: "Add worker" }));
+    await createStarted;
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await act(async () => {
+      releaseCreate();
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("keeps the open form inert when its team snapshot starts refreshing", async () => {
@@ -1229,6 +1301,15 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
     );
   });
 
+  it("dismisses an idle role dialog", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    await user.click(screen.getByRole("button", { name: "New role" }));
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
   it("requires a role name", async () => {
     const user = userEvent.setup();
     await renderLoaded();
@@ -1281,6 +1362,81 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
     });
   });
 
+  it("repairs a legacy action-only role before it can be saved", async () => {
+    const actionOnlyRole = {
+      ...ROLE_UNUSED,
+      id: 15,
+      name: "Legacy animal entry",
+      permissions: ["animals.create"],
+    };
+    server.use(
+      teamHandler({ ...TEAM_PAYLOAD, roles: [...TEAM_PAYLOAD.roles, actionOnlyRole] }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen
+      .getByText("Legacy animal entry")
+      .closest("div.rounded-xl") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByRole("checkbox", { name: "Add animals" })).toBeChecked();
+    expect(within(dialog).getByRole("checkbox", { name: "View animals" })).toBeChecked();
+    await user.click(within(dialog).getByRole("button", { name: "Save role" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putRoleId).toBe("15");
+    expect(putBody).toMatchObject({
+      permissions: ["animals.create", "animals.view"],
+      expected_revision: actionOnlyRole.revision,
+    });
+  });
+
+  it("repairs every module action's missing view dependency", async () => {
+    const dependencies = {
+      "animals.create": "animals.view",
+      "animals.move": "animals.view",
+      "animals.weight": "animals.view",
+      "animals.status": "animals.view",
+      "breeding.manage": "breeding.view",
+      "kidding.manage": "kidding.view",
+      "health.manage": "health.view",
+      "purchases.manage": "purchases.view",
+      "feeding.manage": "feeding.view",
+      "tasks.create": "tasks.view",
+      "tasks.complete": "tasks.view",
+      "tasks.verify": "tasks.view",
+      "finance.manage": "finance.view",
+      "simulation.manage": "simulation.view",
+    } as const;
+    const actionOnlyRole = {
+      ...ROLE_UNUSED,
+      id: 16,
+      name: "Legacy all-action role",
+      permissions: Object.keys(dependencies),
+    };
+    const codes = [...new Set([...Object.keys(dependencies), ...Object.values(dependencies)])];
+    server.use(
+      teamHandler({
+        ...TEAM_PAYLOAD,
+        roles: [...TEAM_PAYLOAD.roles, actionOnlyRole],
+        permission_groups: [{ group: "All permissions", codes }],
+        permission_labels: Object.fromEntries(codes.map((code) => [code, code])),
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen
+      .getByText("Legacy all-action role")
+      .closest("div.rounded-xl") as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+
+    for (const view of new Set(Object.values(dependencies))) {
+      expect(within(dialog).getByRole("checkbox", { name: view })).toBeChecked();
+    }
+  });
+
   it("edits a role: prefilled name, prechecked permissions, PUT on save", async () => {
     const user = userEvent.setup();
     await renderLoaded();
@@ -1313,6 +1469,44 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
       permissions: ["animals.view"],
       expected_revision: ROLE_NIGHT_WATCH.revision,
     });
+  });
+
+  it("does not dismiss the role editor while a save is in flight", async () => {
+    let releaseSave!: () => void;
+    let markSaveStarted!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const saveStarted = new Promise<void>((resolve) => {
+      markSaveStarted = resolve;
+    });
+    server.use(
+      http.put("/api/team/roles/10", async ({ request }) => {
+        putBody = (await request.json()) as Record<string, unknown>;
+        putRoleId = "10";
+        markSaveStarted();
+        await saveGate;
+        return HttpResponse.json(ROLE_NIGHT_WATCH);
+      }),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+    const card = screen
+      .getAllByText("Night Watch")
+      .map((element) => element.closest("div.rounded-xl") as HTMLElement | null)
+      .find((element) => element && within(element).queryByRole("button", { name: "Edit" }))!;
+    await user.click(within(card).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Save role" }));
+    await saveStarted;
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await act(async () => {
+      releaseSave();
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("refreshes a conflicted role before retrying its optimistic revision", async () => {
@@ -1762,6 +1956,25 @@ describe("TeamPage global team-snapshot authority", () => {
 });
 
 describe("TeamPage RBAC and errors", () => {
+  it("fails closed when permissions cannot be loaded", async () => {
+    let calls = 0;
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+      http.get("/api/team", () => {
+        calls += 1;
+        return HttpResponse.json(TEAM_PAYLOAD);
+      }),
+    );
+    renderWithProviders(<TeamPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+    expect(calls).toBe(0);
+  });
+
   it("denies access without team.manage and never calls the endpoint", async () => {
     let calls = 0;
     server.use(

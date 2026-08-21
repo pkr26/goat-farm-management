@@ -179,7 +179,11 @@ const createSchema = z
       .string()
       .optional()
       .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
-    historical_import_reason: z.string().max(255).optional(),
+    // Keep the resolver output total before the BORN-only audit requirement
+    // below. Programmatic/legacy form submissions may omit this optional
+    // input, but validation should still follow the normal issue path rather
+    // than relying on an undefined-safe string operation.
+    historical_import_reason: z.string().max(255).optional().default(""),
     notes: z.string().max(4000, "Max 4000 characters").optional(),
   })
   .superRefine((values, ctx) => {
@@ -200,7 +204,7 @@ const createSchema = z
         message: `Only ${requiredSex === AnimalCreateInSex.M ? "male" : "female"} animals may enter ${values.current_bucket}`,
       });
     }
-    if (!values.historical_import_reason?.trim()) {
+    if (!values.historical_import_reason.trim()) {
       ctx.addIssue({
         code: "custom",
         path: ["historical_import_reason"],
@@ -368,7 +372,7 @@ function CreateAnimalDialog({
             notes: emptyToNull(values.notes),
             historical_import_reason:
               values.source === AnimalCreateInSource.BORN
-                ? values.historical_import_reason?.trim() || null
+                ? values.historical_import_reason.trim() || null
                 : null,
           },
         });

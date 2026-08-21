@@ -376,6 +376,19 @@ describe("BreedingPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<BreedingPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
+
   it("hides Add breeding and the Actions column without breeding.manage", async () => {
     server.use(permissionsHandler(["breeding.view"]));
     await renderLoaded();
@@ -451,6 +464,15 @@ describe("BreedingPage", () => {
     await user.click(screen.getByRole("button", { name: "Add breeding" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
+
+  it("dismisses an unsubmitted breeding dialog", async () => {
+    const { user } = await openNewDialog();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(breedingPostBody).toBeNull();
+  });
 
   it("opens the dialog and lists only candidate does and active bucks", async () => {
     const { user, dialog } = await openNewDialog();
@@ -682,6 +704,15 @@ describe("BreedingPage", () => {
     return { user, dialog: await screen.findByRole("dialog") };
   }
 
+  it("dismisses an unsubmitted ultrasound dialog with Escape", async () => {
+    const { user } = await openUltrasound();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(ultrasoundBody).toBeNull();
+  });
+
   // REGRESSION — with the scan due, the dialog used to open with "Pregnant —
   // confirmed" already checked and kid count prefilled to 2, so an operator
   // recording a NEGATIVE scan who trusted the prefill silently booked a false
@@ -872,6 +903,15 @@ describe("BreedingPage", () => {
     return { user, dialog };
   }
 
+  it("dismisses an unsubmitted pregnancy-loss dialog with Escape", async () => {
+    const { user } = await openPregnancyLossDialog();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(abortCalls).toBe(0);
+  });
+
   it("collects auditable loss facts and refetches after the POST", async () => {
     const { user, dialog } = await openPregnancyLossDialog();
     await pickOption(user, within(dialog).getByLabelText("Cause *"), "DISEASE");
@@ -907,6 +947,26 @@ describe("BreedingPage", () => {
     );
     expect(within(dialog).getByRole("button", { name: "Record pregnancy loss" })).toBeDisabled();
     expect(abortCalls).toBe(0);
+  });
+
+  it("uses the confirmed ultrasound date as the pregnancy-loss chronology floor", async () => {
+    listPayload.records = listPayload.records.map((record) =>
+      record.id === PREGNANT_REC.id
+        ? { ...record, ultrasound_result_date: "2026-08-04" }
+        : record,
+    );
+    const { dialog } = await openPregnancyLossDialog();
+    const lossDate = within(dialog).getByLabelText("Loss date *");
+
+    fireEvent.change(lossDate, { target: { value: "2026-08-03" } });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Loss date cannot be before 4 Aug 2026",
+    );
+    expect(within(dialog).getByRole("button", { name: "Record pregnancy loss" })).toBeDisabled();
+
+    fireEvent.change(lossDate, { target: { value: "2026-08-04" } });
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Record pregnancy loss" })).toBeEnabled();
   });
 
   it("keeps the loss dialog and facts available after a server conflict", async () => {
@@ -993,6 +1053,25 @@ describe("BreedingPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
+    it.each(["0", "9007199254740992"])(
+      "ignores the invalid numeric deep-link id %s without fetching details",
+      async (rawId) => {
+        let detailCalls = 0;
+        server.use(
+          http.get("/api/breeding/:recordId", ({ params }) => {
+            detailCalls += 1;
+            return HttpResponse.json(makeRecord({ id: Number(params.recordId) }));
+          }),
+        );
+        navState.search = `?ultrasound_id=${rawId}`;
+
+        await renderLoaded();
+
+        expect(detailCalls).toBe(0);
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      },
+    );
+
     it("fetches and opens an older linked record outside the current page", async () => {
       const older = makeRecord({ id: 99, breeding_date: "2026-06-01", ultrasound_date: "2026-07-03" });
       server.use(http.get("/api/breeding/99", () => HttpResponse.json(older)));
@@ -1002,6 +1081,34 @@ describe("BreedingPage", () => {
       const dialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
       expect(within(dialog).getByText(/bred 1 Jun 2026/)).toBeInTheDocument();
       expect(within(dialog).getByText(/planned scan 3 Jul 2026/)).toBeInTheDocument();
+    });
+
+    it("surfaces and retries an off-page linked-record failure", async () => {
+      let detailCalls = 0;
+      const older = makeRecord({
+        id: 99,
+        breeding_date: "2026-06-01",
+        ultrasound_date: "2026-07-03",
+      });
+      server.use(
+        http.get("/api/breeding/99", () => {
+          detailCalls += 1;
+          return detailCalls === 1
+            ? HttpResponse.json({ detail: "Linked breeding unavailable" }, { status: 503 })
+            : HttpResponse.json(older);
+        }),
+      );
+      navState.search = "?ultrasound_id=99";
+      const user = userEvent.setup();
+      renderWithProviders(<BreedingPage />);
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("Linked breeding unavailable");
+      await user.click(within(alert).getByRole("button", { name: "Retry ultrasound record" }));
+
+      const dialog = await screen.findByRole("dialog", { name: "Ultrasound result" });
+      expect(within(dialog).getByText(/bred 1 Jun 2026/)).toBeInTheDocument();
+      expect(detailCalls).toBe(2);
     });
 
     it("opens a linked record whose planned scan is still ahead", async () => {

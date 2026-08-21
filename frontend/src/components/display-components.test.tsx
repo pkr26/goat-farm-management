@@ -128,6 +128,7 @@ describe("shared display components", () => {
   it("normalizes known status spellings and humanizes unknown statuses", () => {
     const { rerender } = render(<StatusBadge status=" awaiting-verification " />);
     let badge = screen.getByText("Awaiting Verification");
+    expect(badge.textContent).toBe("Awaiting Verification");
     expect(badge).toHaveClass("bg-amber-100");
     expect(badge).toHaveAttribute("data-variant", "outline");
 
@@ -138,6 +139,42 @@ describe("shared display components", () => {
 
     rerender(<StatusBadge status="ACTIVE">Ready now</StatusBadge>);
     expect(screen.getByText("Ready now")).toHaveClass("bg-emerald-100");
+  });
+
+  it("collapses repeated spaces and hyphens before tint lookup and display", () => {
+    const { rerender } = render(
+      <StatusBadge status="awaiting---verification" />,
+    );
+    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-amber-100");
+
+    rerender(<StatusBadge status="  awaiting   verification  " />);
+    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-amber-100");
+  });
+
+  it.each([
+    ["ACTIVE", "bg-emerald-100"],
+    ["ALIVE", "bg-emerald-100"],
+    ["BORN", "bg-emerald-100"],
+    ["COMPLETED", "bg-emerald-100"],
+    ["VERIFIED", "bg-emerald-100"],
+    ["NORMAL", "bg-emerald-100"],
+    ["SOLD", "bg-blue-100"],
+    ["PURCHASED", "bg-blue-100"],
+    ["CULLED", "bg-red-100"],
+    ["STILLBORN", "bg-red-100"],
+    ["REJECTED", "bg-red-100"],
+    ["DIFFICULT", "bg-red-100"],
+    ["DEAD", "bg-zinc-200"],
+    ["DIED", "bg-zinc-200"],
+    ["QUARANTINE", "bg-amber-100"],
+    ["PENDING", "bg-amber-100"],
+    ["AWAITING_VERIFICATION", "bg-amber-100"],
+    ["ASSISTED", "bg-amber-100"],
+  ])("renders the semantic tint for %s", (status, expectedClass) => {
+    render(<StatusBadge status={status} />);
+    expect(
+      screen.getByText(new RegExp(`^${status.replaceAll("_", " ")}$`, "i")),
+    ).toHaveClass(expectedClass);
   });
 
   it("renders the logo mark with an optional wordmark", () => {

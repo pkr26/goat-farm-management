@@ -277,4 +277,17 @@ describe("ReportsPage", () => {
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(calls).toBe(0);
   });
+
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<ReportsPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
 });

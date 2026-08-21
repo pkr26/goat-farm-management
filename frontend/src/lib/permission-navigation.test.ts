@@ -111,6 +111,21 @@ describe("permittedAppPathFromList — farm switching", () => {
     expect(permittedAppPathFromList("/feeding/inventory", ["feeding.view"])).toBe(
       "/feeding/inventory",
     );
+    expect(
+      permittedAppPathFromList("/feeding/recipes?tab=archived", ["feeding.view"]),
+    ).toBe("/feeding/recipes?tab=archived");
+    expect(
+      permittedAppPathFromList("/health/new?task_id=41", [
+        "health.view",
+        "health.manage",
+      ]),
+    ).toBe("/health/new?task_id=41");
+    expect(
+      permittedAppPathFromList("/kidding/new/?task_id=42", [
+        "kidding.view",
+        "kidding.manage",
+      ]),
+    ).toBe("/kidding/new/?task_id=42");
     expect(permittedAppPathFromList("/tasks/?tab=overdue#task-7", ["tasks.view"])).toBe(
       "/tasks/?tab=overdue#task-7",
     );

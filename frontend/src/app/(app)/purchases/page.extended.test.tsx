@@ -8,6 +8,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
+import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -22,6 +23,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
   useParams: () => ({}),
 }));
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 function localToday(): string {
   return farmToday();
@@ -184,6 +187,19 @@ describe("PurchasesPage RBAC", () => {
     expect(calls).toBe(0);
   });
 
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<PurchasesPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
+
   it("hides New batch for a purchases.view-only user", async () => {
     server.use(permissionsHandler(["purchases.view"]), listHandler([BATCH_1]));
     renderWithProviders(<PurchasesPage />);
@@ -198,6 +214,7 @@ describe("PurchasesPage new-batch dialog", () => {
   let listCalls: number;
 
   beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
     postCalls = 0;
     postBody = null;
     listCalls = 0;
@@ -521,6 +538,7 @@ describe("PurchasesPage new-batch dialog", () => {
 
     await waitFor(() => expect(postCalls).toBe(1));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(toast.error).toHaveBeenCalledWith("duplicate batch");
   });
 
   it("does not reopen a new batch form while a dismissed create is still in flight", async () => {
@@ -590,6 +608,15 @@ describe("PurchasesPage batch detail dialog", () => {
     expect(header).toHaveTextContent("Sharma Goat Farm");
     expect(header).toHaveTextContent("50 head");
     expect(header).toHaveTextContent("₹1,50,000");
+  });
+
+  it("dismisses the batch detail dialog without changing the list", async () => {
+    const { user } = await openDetail();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("#5")).toBeInTheDocument();
   });
 
   it("lists created animals with links to their pages", async () => {

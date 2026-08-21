@@ -203,6 +203,35 @@ describe("AppLayout — header", () => {
     expect(await screen.findByText(TEST_USER.email)).toBeInTheDocument();
   });
 
+  it("shows the explicitly selected farm when several memberships exist", async () => {
+    localStorage.setItem("goatfarm.farmId", "2");
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          {
+            id: 1,
+            name: "First Farm",
+            location: null,
+            timezone: "Asia/Kolkata",
+            role: null,
+          },
+          {
+            id: 2,
+            name: "Selected Farm",
+            location: null,
+            timezone: "America/Phoenix",
+            role: "Vet",
+          },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    expect(await screen.findByText("Selected Farm")).toBeInTheDocument();
+    expect(screen.queryByText("First Farm")).not.toBeInTheDocument();
+  });
+
   it("logout posts to the API, clears the stored farm and navigates to /login", async () => {
     let logoutCalls = 0;
     server.use(
@@ -488,6 +517,23 @@ describe("AppLayout — permission-gated nav", () => {
 
     expect(await screen.findByText("Test Goat Farm")).toBeInTheDocument();
     expect(navLinks()).toHaveLength(0);
+  });
+
+  it("shows a permission failure without exposing stale navigation", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /GoatFarm — go to/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("GoatFarm")).toBeInTheDocument();
   });
 
   it("nav links point at their module routes", async () => {

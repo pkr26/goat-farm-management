@@ -15,7 +15,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { setActiveFarmTimezone } from "@/lib/format";
+import { addDays, farmToday, setActiveFarmTimezone } from "@/lib/format";
 
 import AnimalsPage from "./page";
 
@@ -91,6 +91,17 @@ async function pickOption(user: User, trigger: HTMLElement, name: string) {
 
 function setDate(input: HTMLElement, value: string) {
   fireEvent.change(input, { target: { value } });
+}
+
+function calendarMonthsAgo(months: number): string {
+  const [year, month, day] = farmToday().split("-").map(Number);
+  const targetMonth = year * 12 + (month - 1) - months;
+  const targetYear = Math.floor(targetMonth / 12);
+  const targetMonthIndex = targetMonth % 12;
+  const lastDay = new Date(Date.UTC(targetYear, targetMonthIndex + 1, 0)).getUTCDate();
+  return `${targetYear}-${String(targetMonthIndex + 1).padStart(2, "0")}-${String(
+    Math.min(day, lastDay),
+  ).padStart(2, "0")}`;
 }
 
 describe("AnimalsPage extended", () => {
@@ -344,6 +355,20 @@ describe("AnimalsPage extended", () => {
       renderWithProviders(<AnimalsPage />);
       expect((await screen.findAllByText("Loading…")).length).toBeGreaterThan(0);
     });
+
+    it("fails closed when permissions cannot be loaded", async () => {
+      server.use(
+        http.get("/api/auth/permissions", () =>
+          HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+        ),
+      );
+      renderWithProviders(<AnimalsPage />);
+
+      expect(
+        await screen.findByText("Could not load your permissions — refresh the page to try again."),
+      ).toBeInTheDocument();
+      expect(seenParams).toHaveLength(0);
+    });
   });
 
   describe("create dialog", () => {
@@ -561,6 +586,52 @@ describe("AnimalsPage extended", () => {
       expect(postBody).toMatchObject({ weight_kg: 0.01 });
     });
 
+    it("requires an entry weight whenever an entry-weight date is supplied", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Dated entry-weight fixture",
+      );
+      setDate(within(dialog).getByLabelText(/entry weight date/i), farmToday());
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(await within(dialog).findByText("Entry weight date requires an entry weight"))
+        .toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("requires a recorded DOB for a historical BREEDING import", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Breeding provenance fixture",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(
+        await within(dialog).findByText(
+          "A breeding import requires a date of birth or estimated DOB",
+        ),
+      ).toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
     it("submits sex M when Male is selected", async () => {
       const user = userEvent.setup();
       await renderLoaded();
@@ -587,6 +658,36 @@ describe("AnimalsPage extended", () => {
         purchase_date: "2026-01-15",
         purchase_price: 12500,
         seller_name: "Raju Pawar",
+      });
+    });
+
+    it("accepts today's exact boundary for birth, estimated, and purchase dates", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      let dialog = await openCreateDialog(user);
+      setDate(within(dialog).getByLabelText(/purchase date/i), farmToday());
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      await waitFor(() => expect(postCalls).toBe(1));
+      expect(postBody).toMatchObject({ purchase_date: farmToday() });
+
+      await user.click(screen.getByRole("button", { name: "Add animal" }));
+      dialog = await screen.findByRole("dialog");
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Exact date boundary fixture",
+      );
+      setDate(within(dialog).getByLabelText(/^date of birth/i), farmToday());
+      setDate(within(dialog).getByLabelText(/estimated dob/i), farmToday());
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      await waitFor(() => expect(postCalls).toBe(2));
+      expect(postBody).toMatchObject({
+        date_of_birth: farmToday(),
+        estimated_dob: farmToday(),
       });
     });
 
@@ -679,6 +780,84 @@ describe("AnimalsPage extended", () => {
       expect(
         await within(dialog).findByText("Entry weight must be at least 22 kg to enter BREEDING"),
       ).toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("accepts a doe at the exact BREEDING age and weight boundaries", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Exact breeding boundary fixture",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      setDate(within(dialog).getByLabelText(/date of birth/i), calendarMonthsAgo(10));
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      await waitFor(() => expect(postCalls).toBe(1));
+      expect(postBody).toMatchObject({
+        current_bucket: "BREEDING",
+        date_of_birth: calendarMonthsAgo(10),
+        weight_kg: 22,
+      });
+    });
+
+    it("rejects a doe one calendar day short of the BREEDING age boundary", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Breeding day boundary fixture",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      setDate(
+        within(dialog).getByLabelText(/date of birth/i),
+        addDays(calendarMonthsAgo(10), 1),
+      );
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(await within(dialog).findByText(/doe must be at least 10 months old/))
+        .toBeInTheDocument();
+      expect(postCalls).toBe(0);
+    });
+
+    it("uses the stricter buck BREEDING age and weight minimums", async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await pickOption(user, within(dialog).getAllByRole("combobox")[0], "Male");
+      await pickOption(
+        user,
+        within(dialog).getAllByRole("combobox")[1],
+        "Historical born-on-farm import",
+      );
+      await user.type(
+        within(dialog).getByLabelText("Historical import reason *"),
+        "Buck breeding boundary fixture",
+      );
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      setDate(within(dialog).getByLabelText(/date of birth/i), calendarMonthsAgo(11));
+      setDate(within(dialog).getByLabelText("Entry weight (kg)"), "24");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+
+      expect(await within(dialog).findByText(/buck must be at least 12 months old/))
+        .toBeInTheDocument();
+      expect(within(dialog).getByText("Entry weight must be at least 25 kg to enter BREEDING"))
+        .toBeInTheDocument();
       expect(postCalls).toBe(0);
     });
 

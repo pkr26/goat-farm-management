@@ -68,7 +68,7 @@ import { useSingleFlight } from "@/lib/use-single-flight";
 /** Explicit virtual recipe used by quarantine animals on days 1–3. */
 const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
 
-type ShiftCell = { shift: string; pct: number; kg: number; time: string };
+type ShiftCell = { shift: string; kg: number; time: string };
 
 function allocationShiftKey(bucket: string, recipe: string, shift: string): string {
   return `${bucket}\u0000${recipe}\u0000${shift}`;
@@ -104,7 +104,6 @@ function toShiftCell(raw: unknown): ShiftCell {
   const cell = (raw ?? {}) as Record<string, unknown>;
   return {
     shift: typeof cell.shift === "string" ? cell.shift : "?",
-    pct: typeof cell.pct === "number" ? cell.pct : 0,
     kg: typeof cell.kg === "number" ? cell.kg : 0,
     time: typeof cell.time === "string" ? cell.time : "",
   };

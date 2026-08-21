@@ -262,6 +262,19 @@ describe("BucketsPage", () => {
     expect(getCalls).toBe(0);
   });
 
+  it("shows a permission error instead of misreporting no access", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<BucketsPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+  });
+
   it("shows a loading indicator while permissions resolve", async () => {
     server.use(http.get("/api/auth/permissions", () => new Promise<Response>(() => {})));
     renderWithProviders(<BucketsPage />);

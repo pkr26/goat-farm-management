@@ -105,9 +105,14 @@ describe("VaccinationSchedulePage", () => {
 
   it("renders a status badge per row", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    expect(await screen.findByText("DONE")).toBeInTheDocument();
-    expect(screen.getByText("OVERDUE")).toBeInTheDocument();
-    expect(screen.getByText("UPCOMING")).toBeInTheDocument();
+    expect(await screen.findByText("DONE")).toHaveClass("bg-emerald-100");
+    const overdue = screen.getByText("OVERDUE");
+    const upcoming = screen.getByText("UPCOMING");
+    expect(overdue).toHaveClass("bg-red-100");
+    expect(upcoming).toHaveClass("bg-amber-100");
+    expect(overdue.closest("tr")).toHaveClass("bg-red-50");
+    expect(upcoming.closest("tr")).toHaveClass("bg-amber-50");
+    expect(screen.getByText("DONE").closest("tr")).not.toHaveClass("bg-red-50", "bg-amber-50");
     expect(screen.getByText("SOMETHING_ELSE")).toBeInTheDocument();
   });
 
@@ -156,6 +161,20 @@ describe("VaccinationSchedulePage", () => {
     renderWithProviders(<VaccinationSchedulePage />);
     expect(
       await screen.findByText("You don't have access to this page."),
+    ).toBeInTheDocument();
+    expect(requestedIds).toEqual([]);
+  });
+
+  it("fails closed when permissions cannot be loaded", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<VaccinationSchedulePage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
     ).toBeInTheDocument();
     expect(requestedIds).toEqual([]);
   });

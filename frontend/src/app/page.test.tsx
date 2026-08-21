@@ -78,7 +78,7 @@ describe("RootPage redirect hub", () => {
 
     renderWithProviders(<RootPage />);
 
-    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replaceMock).toHaveBeenLastCalledWith("/login"));
   });
 
   it("redirects to /farm-select when logged in but the user has no farms", async () => {

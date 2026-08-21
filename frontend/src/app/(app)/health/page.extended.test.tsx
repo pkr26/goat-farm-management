@@ -16,7 +16,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AnimalOut, HealthEventOut, TaskOut } from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
-import { addDays, farmToday } from "@/lib/format";
+import { addDays, farmToday, formatDate } from "@/lib/format";
 import { setCurrentFarmId } from "@/lib/api-client";
 
 import HealthPage from "./page";
@@ -304,6 +304,31 @@ describe("HealthPage", () => {
     expect(within(row).getByText("15 Jul 2027")).toBeInTheDocument();
   });
 
+  it("distinguishes overdue, due-this-week, and later next-due dates", async () => {
+    events = [
+      makeEvent({ id: 11, product_name: "Overdue dose", next_due_date: addDays(TODAY, -1) }),
+      makeEvent({ id: 12, product_name: "Due today", next_due_date: TODAY }),
+      makeEvent({ id: 13, product_name: "Due in seven", next_due_date: addDays(TODAY, 7) }),
+      makeEvent({ id: 14, product_name: "Due later", next_due_date: addDays(TODAY, 8) }),
+    ];
+    renderWithProviders(<HealthPage />);
+    await screen.findByText("Event log");
+    await screen.findByText("Overdue dose");
+
+    const overdueRow = screen.getByText("Overdue dose").closest("tr")!;
+    const todayRow = screen.getByText("Due today").closest("tr")!;
+    const sevenDayRow = screen.getByText("Due in seven").closest("tr")!;
+    const laterRow = screen.getByText("Due later").closest("tr")!;
+    expect(within(overdueRow).getByText(formatDate(addDays(TODAY, -1)))).toHaveClass(
+      "bg-red-100",
+    );
+    expect(within(todayRow).getByText(formatDate(TODAY))).toHaveClass("bg-amber-100");
+    expect(within(sevenDayRow).getByText(formatDate(addDays(TODAY, 7)))).toHaveClass(
+      "bg-amber-100",
+    );
+    expect(laterRow.querySelector(".bg-red-100, .bg-amber-100")).toBeNull();
+  });
+
   it("renders dashes for empty optional cells", async () => {
     events = [
       makeEvent({
@@ -386,6 +411,20 @@ describe("HealthPage", () => {
   });
 
   // ---------- RBAC ----------
+
+  it("fails closed when permissions cannot be loaded", async () => {
+    server.use(
+      http.get("/api/auth/permissions", () =>
+        HttpResponse.json({ detail: "permissions unavailable" }, { status: 503 }),
+      ),
+    );
+    renderWithProviders(<HealthPage />);
+
+    expect(
+      await screen.findByText("Could not load your permissions — refresh the page to try again."),
+    ).toBeInTheDocument();
+    expect(eventsCalls).toBe(0);
+  });
 
   it("blocks the page without health.view", async () => {
     server.use(permissionsHandler(["health.manage"]));
@@ -624,6 +663,18 @@ describe("HealthPage", () => {
     expect(postBody).toBeNull();
   });
 
+  it("accepts the exact zero-cost boundary", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    fireEvent.change(within(dialog).getByLabelText(/total cost/i), {
+      target: { value: "0" },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ cost: 0 });
+  });
+
   it("requires a named schedule and authority whenever a next-due date is recorded", async () => {
     const { user, dialog } = await openDialog();
     await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
@@ -772,6 +823,74 @@ describe("HealthPage", () => {
     });
   });
 
+  it("rejects every independent traceability chronology violation", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+    const save = within(dialog).getByRole("button", { name: "Save event" });
+
+    fireEvent.change(within(dialog).getByLabelText("Product manufactured"), {
+      target: { value: TOMORROW },
+    });
+    await user.click(save);
+    expect(await within(dialog).findByText("Manufacture date cannot be in the future"))
+      .toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText(/^date/i), {
+      target: { value: addDays(TODAY, -10) },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Product manufactured"), {
+      target: { value: addDays(TODAY, -5) },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Product expires"), {
+      target: { value: addDays(TODAY, -6) },
+    });
+    await user.click(save);
+    expect(await within(dialog).findByText("Expiry cannot be before manufacture date"))
+      .toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText("Product manufactured"), {
+      target: { value: addDays(TODAY, -10) },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Product expires"), {
+      target: { value: addDays(TODAY, 10) },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Vaccine valid until"), {
+      target: { value: addDays(TODAY, 11) },
+    });
+    await user.click(save);
+    expect(
+      await within(dialog).findByText("Vaccine validity cannot extend beyond product expiry"),
+    ).toBeInTheDocument();
+    expect(postBody).toBeNull();
+  });
+
+  it("requires a disease name and rejects future statutory reporting dates", async () => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByText("Advanced traceability & compliance"));
+    await user.click(
+      within(dialog).getByRole("checkbox", {
+        name: "Suspected scheduled/notifiable disease — apply movement restriction",
+      }),
+    );
+    fireEvent.change(within(dialog).getByLabelText(/disease target/i), {
+      target: { value: "   " },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Authority notified date"), {
+      target: { value: TOMORROW },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Isolation started date"), {
+      target: { value: TOMORROW },
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    expect(await within(dialog).findByText("Name the suspected scheduled disease"))
+      .toBeInTheDocument();
+    expect(within(dialog).getAllByText("Date cannot be in the future")).toHaveLength(2);
+    expect(postBody).toBeNull();
+  });
+
   // ---------- dialog: submit mapping ----------
 
   it("posts an animal-scoped event with NONE sentinels mapped to null", async () => {
@@ -786,7 +905,7 @@ describe("HealthPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
     await waitFor(() => expect(postBody).not.toBeNull());
-    expect(postBody).toMatchObject({
+    expect(postBody).toEqual({
       scope: "animal",
       animal_id: 3,
       bucket: null,
@@ -800,6 +919,20 @@ describe("HealthPage", () => {
       vet_name: null,
       cost: 250,
       next_due_date: null,
+      schedule_template_name: null,
+      next_due_authority: null,
+      product_lot: null,
+      product_manufactured_on: null,
+      product_expires_on: null,
+      vaccine_valid_until: null,
+      certificate_number: null,
+      official_tag_number: null,
+      administered_by: null,
+      withdrawal_until: null,
+      suspected_scheduled_disease: false,
+      authority_notified_at: null,
+      isolation_started_at: null,
+      notes: null,
       task_id: null,
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -811,21 +944,30 @@ describe("HealthPage", () => {
     await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
     fireEvent.change(within(dialog).getByLabelText(/disease target/i), {
-      target: { value: "PPR" },
+      target: { value: "  PPR  " },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Dose"), {
+      target: { value: "  1 ml  " },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Vet"), {
+      target: { value: "  Dr Rao  " },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Notes"), {
+      target: { value: "  statutory record  " },
     });
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
       target: { value: addDays(TODAY, 30) },
     });
     const values: Record<string, string> = {
-      "Next-due authority": "Farm veterinarian",
-      "Product lot/batch": "LOT-PPR-26",
-      "Administered by": "Dr Rao",
+      "Next-due authority": "  Farm veterinarian  ",
+      "Product lot/batch": "  LOT-PPR-26  ",
+      "Administered by": "  Dr Rao  ",
       "Product manufactured": addDays(TODAY, -30),
       "Product expires": addDays(TODAY, 365),
       "Vaccine valid until": addDays(TODAY, 300),
       "Withdrawal until": addDays(TODAY, 7),
-      "Certificate number": "CERT-88",
-      "Official tag number": "TAG-003",
+      "Certificate number": "  CERT-88  ",
+      "Official tag number": "  TAG-003  ",
     };
     for (const [label, value] of Object.entries(values)) {
       fireEvent.change(within(dialog).getByLabelText(label), { target: { value } });
@@ -849,6 +991,9 @@ describe("HealthPage", () => {
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(postBody).toMatchObject({
       disease_target: "PPR",
+      dose: "1 ml",
+      vet_name: "Dr Rao",
+      notes: "statutory record",
       next_due_date: addDays(TODAY, 30),
       schedule_template_name: "PPR",
       next_due_authority: "Farm veterinarian",
@@ -921,6 +1066,18 @@ describe("HealthPage", () => {
       expected_animal_ids: [3, 4],
     });
     expect(previewBodies).toEqual([{ scope: "batch", purchase_batch_id: 2 }]);
+  });
+
+  it("auto-opens a bare purchase-batch deep link on the batch scope", async () => {
+    window.history.replaceState({}, "", "/health?purchase_batch_id=2");
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
+    await waitFor(() =>
+      expect(within(dialog).getByRole("combobox", { name: "Purchase batch *" }))
+        .toHaveTextContent("Batch #2"),
+    );
   });
 
   it("discards a deferred preview when the linked duty changes for the same batch", async () => {
@@ -1042,6 +1199,73 @@ describe("HealthPage", () => {
     expect(within(reopened).queryByRole("status")).not.toBeInTheDocument();
   });
 
+  it("does not apply a deferred preview after the operator changes the bucket", async () => {
+    let releasePreview!: () => void;
+    let markPreviewStarted!: () => void;
+    const previewGate = new Promise<void>((resolve) => {
+      releasePreview = resolve;
+    });
+    const previewStarted = new Promise<void>((resolve) => {
+      markPreviewStarted = resolve;
+    });
+    server.use(
+      http.post("/api/health/events/preview", async ({ request }) => {
+        const target = (await request.json()) as Record<string, unknown>;
+        markPreviewStarted();
+        await previewGate;
+        return HttpResponse.json({
+          scope: target.scope,
+          bucket: target.bucket,
+          purchase_batch_id: null,
+          task_id: null,
+          target_animal_ids: [3],
+          target_animals: [{ id: 3, tag_number: "G-003", name: "Kaveri" }],
+          target_count: 1,
+          max_targets: 250,
+        });
+      }),
+    );
+
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    const bucket = within(dialog).getByRole("combobox", { name: "Bucket *" });
+    await pickOption(user, bucket, "BREEDING");
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+    await previewStarted;
+
+    await pickOption(user, bucket, "FOUNDATION");
+    releasePreview();
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Review target animals" }),
+      ).toBeEnabled(),
+    );
+    expect(within(dialog).queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a bulk-preview failure and leaves the target reviewable", async () => {
+    server.use(
+      http.post("/api/health/events/preview", () =>
+        HttpResponse.json({ detail: "preview service unavailable" }, { status: 503 }),
+      ),
+    );
+    const { user, dialog } = await openDialog();
+    await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Bucket *" }),
+      "BREEDING",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "preview service unavailable",
+    );
+    expect(within(dialog).getByRole("button", { name: "Review target animals" }))
+      .toBeEnabled();
+    expect(postBody).toBeNull();
+  });
+
   it("requires a fresh review after the server rejects a stale bulk snapshot", async () => {
     let recordAttempts = 0;
     server.use(
@@ -1130,6 +1354,18 @@ describe("HealthPage", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(within(dialog).getByRole("alert")).toHaveTextContent("animal not on this farm");
     expect(within(dialog).getByRole("button", { name: "Retry save" })).toBeInTheDocument();
+  });
+
+  it("surfaces a generic write error after a network failure", async () => {
+    server.use(http.post("/api/health/events", () => HttpResponse.error()));
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Could not save the health event.",
+    );
+    expect(dialog).toBeInTheDocument();
   });
 
   it("clears hidden statutory dates when scheduled-disease reporting is turned off", async () => {
@@ -1585,7 +1821,49 @@ describe("HealthPage", () => {
     releaseFirst();
   });
 
-  it.each(["1e2", "9007199254740992", "not-an-id"])(
+  it("does not apply a late exact-duty lookup after the operator retargets the event", async () => {
+    const exactTask = makeTask({
+      id: 734,
+      title: "Late PPR duty",
+      category: "VACCINE",
+      animal_id: 3,
+    });
+    let releaseLookup!: () => void;
+    let markLookupStarted!: () => void;
+    const lookupGate = new Promise<void>((resolve) => {
+      releaseLookup = resolve;
+    });
+    const lookupStarted = new Promise<void>((resolve) => {
+      markLookupStarted = resolve;
+    });
+    window.history.replaceState({}, "", "/health?task_id=734&animal_id=3");
+    server.use(
+      http.get("/api/tasks/734", async () => {
+        markLookupStarted();
+        await lookupGate;
+        return HttpResponse.json(exactTask);
+      }),
+    );
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+    await lookupStarted;
+    const user = userEvent.setup();
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Animal *" }),
+      /G-004/,
+    );
+
+    releaseLookup();
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —"),
+    );
+    expect(within(dialog).getByRole("combobox", { name: "Animal *" }))
+      .toHaveTextContent("G-004");
+    expect(within(dialog).queryByText(/Could not link duty/)).not.toBeInTheDocument();
+  });
+
+  it.each(["0", "1e2", "9007199254740992", "not-an-id"])(
     "ignores the malformed animal deep-link id %s instead of coercing a target",
     async (animalId) => {
       window.history.replaceState({}, "", `/health?animal_id=${animalId}`);
@@ -1609,6 +1887,19 @@ describe("HealthPage", () => {
 
     await waitFor(() => expect(postBody).not.toBeNull());
     expect(pushMock).toHaveBeenCalledWith("/tasks?tab=overdue");
+  });
+
+  it("returns to the originating page when a deep-linked dialog is dismissed", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/health?animal_id=3&returnTo=%2Ftasks%3Ftab%3Doverdue",
+    );
+    renderWithProviders(<HealthPage />);
+    const dialog = await screen.findByRole("dialog");
+
+    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/tasks?tab=overdue"));
   });
 
   it("does not let an old-farm event completion navigate the newly selected farm", async () => {

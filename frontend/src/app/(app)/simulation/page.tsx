@@ -222,7 +222,10 @@ const FIELD_BOUNDS: Record<
   "feed.initial_fodder_stock_kg_dm": { min: 0, max: 1e9 },
   "feed.fodder_storage_capacity_kg_dm": { min: 0, max: 1e9 },
   "feed.fodder_storage_loss_fraction_monthly": { min: 0, max: 1 },
-  "costs.labour_per_head_threshold": { min: 1 },
+  // Mirrors MAX_LABOUR_PER_HEAD_THRESHOLD in the backend. It is deliberately
+  // much larger than the herd-size ceiling ("effectively never scale" is a
+  // legitimate policy), but still finite enough for downstream arithmetic.
+  "costs.labour_per_head_threshold": { min: 1, max: 1_000_000_000_000_000 },
   "costs.insurance_pct_stock_value_annual": { min: 0, max: 0.25 },
   "costs.operating_cost_growth_rate_annual": { exclusiveMin: -1, max: 1 },
   "costs.planned_capacity_head": { min: 0, max: 100_000 },
@@ -299,8 +302,18 @@ const FIELD_UNITS: Record<string, string> = {
   "feed.fodder_storage_loss_fraction_monthly": "fraction",
   "costs.operating_cost_growth_rate_annual": "fraction",
   "finance.income_tax_rate": "fraction",
+  "risk.correlation_strength": "fraction",
+  "risk.disease_outbreak_probability_annual": "fraction",
+  "risk.drought_probability_annual": "fraction",
+  "risk.market_crash_probability_annual": "fraction",
+  "risk.disease_adult_mortality_multiplier": "multiplier",
+  "risk.disease_kid_mortality_multiplier": "multiplier",
+  "risk.disease_conception_multiplier": "multiplier",
+  "risk.drought_fodder_yield_multiplier": "multiplier",
   "risk.drought_feed_price_multiplier": "multiplier",
   "risk.market_crash_price_multiplier": "multiplier",
+  "optimization.doe_scale_low": "multiplier",
+  "optimization.doe_scale_high": "multiplier",
 };
 
 /** Fields the backend models as "amount, or null for no ceiling". They arrive
@@ -664,6 +677,18 @@ function NumberInput(props: NumberInputProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const errorId = id ? `${id}-error` : undefined;
+  const commit = useRef(onCommit);
+  useEffect(() => {
+    commit.current = onCommit;
+  });
+  // A draft can become legal solely because a live bound changed (for
+  // example, event month 90 when the horizon grows from 60 to 120). Keep the
+  // value to commit after render; clearing only the error would otherwise show
+  // 90 while the payload silently retained the old month.
+  const [recoveredBoundsValue, setRecoveredBoundsValue] = useState<{
+    value: number | null;
+  } | null>(null);
+  const committedBoundsRecovery = useRef<typeof recoveredBoundsValue>(null);
 
   function validate(raw: string): { value?: number | null; error?: string } {
     if (raw === "") {
@@ -701,8 +726,26 @@ function NumberInput(props: NumberInputProps) {
   const [seenBounds, setSeenBounds] = useState(boundsKey);
   if (boundsKey !== seenBounds) {
     setSeenBounds(boundsKey);
-    setError(validate(draft ?? (value === null ? "" : String(value))).error ?? null);
+    const next = validate(draft ?? (value === null ? "" : String(value)));
+    setRecoveredBoundsValue(
+      draft !== null && error && !next.error
+        ? { value: next.value as number | null }
+        : null,
+    );
+    setError(next.error ?? null);
   }
+
+  useEffect(() => {
+    if (
+      recoveredBoundsValue === null ||
+      committedBoundsRecovery.current === recoveredBoundsValue
+    )
+      return;
+    committedBoundsRecovery.current = recoveredBoundsValue;
+    if (recoveredBoundsValue.value === null)
+      (commit.current as (v: number | null) => void)(null);
+    else (commit.current as (v: number) => void)(recoveredBoundsValue.value);
+  }, [recoveredBoundsValue]);
 
   // Keep the parent's invalidFields in step with `error`, however it changed.
   const notifyValidity = useRef(onValidityChange);
@@ -758,6 +801,12 @@ function NumberArrayInput({
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const errorId = `${id}-error`;
+  const commit = useRef(onCommit);
+  useEffect(() => {
+    commit.current = onCommit;
+  });
+  const [recoveredBoundsValue, setRecoveredBoundsValue] = useState<number[] | null>(null);
+  const committedBoundsRecovery = useRef<typeof recoveredBoundsValue>(null);
 
   function validate(raw: string): { parsed: number[]; message: string | null } {
     if (raw.trim() === "" && rule.allowEmpty) return { parsed: [], message: null };
@@ -823,8 +872,22 @@ function NumberArrayInput({
   const [seenBounds, setSeenBounds] = useState(boundsKey);
   if (boundsKey !== seenBounds) {
     setSeenBounds(boundsKey);
-    setError(validate(draft ?? value.join(", ")).message);
+    const next = validate(draft ?? value.join(", "));
+    setRecoveredBoundsValue(
+      draft !== null && error && !next.message ? next.parsed : null,
+    );
+    setError(next.message);
   }
+
+  useEffect(() => {
+    if (
+      recoveredBoundsValue === null ||
+      committedBoundsRecovery.current === recoveredBoundsValue
+    )
+      return;
+    committedBoundsRecovery.current = recoveredBoundsValue;
+    commit.current(recoveredBoundsValue);
+  }, [recoveredBoundsValue]);
 
   // Keep the parent's invalidFields in step with `error`, however it changed.
   const notifyValidity = useRef(onValidityChange);

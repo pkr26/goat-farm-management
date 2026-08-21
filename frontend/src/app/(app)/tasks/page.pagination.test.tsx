@@ -237,6 +237,28 @@ describe("TasksPage independent pagination", () => {
     );
   });
 
+  it("accepts the exact maximum offset while canonicalizing one malformed sibling", async () => {
+    totals = {
+      today: 1_000_001,
+      overdue: 1,
+      upcoming: 1,
+      awaiting: 1,
+      completed: 1,
+    };
+    nav.state.search =
+      "tab=today&today_offset=1000000&overdue_offset=oops&from=dashboard";
+    renderWithProviders(<TasksPage />);
+
+    await waitFor(() => expect(seenParams.length).toBeGreaterThan(0));
+    expect(seenParams[0].get("today_offset")).toBe("1000000");
+    expect(seenParams[0].get("overdue_offset")).toBe("0");
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenLastCalledWith(
+        "/tasks?tab=today&today_offset=1000000&from=dashboard",
+      ),
+    );
+  });
+
   it("accepts non-page-aligned integer offsets allowed by the API contract", async () => {
     nav.state.search = "tab=today&today_offset=17";
     const user = userEvent.setup();

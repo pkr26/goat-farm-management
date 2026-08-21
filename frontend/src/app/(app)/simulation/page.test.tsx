@@ -262,14 +262,23 @@ describe("SimulationPage", () => {
     let calls = 0;
     server.use(
       permissionsHandler(["animals.view"]),
+      http.get("/api/simulation/defaults/breeds", () => {
+        calls += 1;
+        return HttpResponse.json({ breeds: [], systems: [] });
+      }),
       http.get("/api/simulation/defaults", () => {
         calls += 1;
         return HttpResponse.json(DEFAULTS);
+      }),
+      http.get("/api/simulation/scenarios", () => {
+        calls += 1;
+        return HttpResponse.json({ items: [], total: 0, limit: 20, offset: 0 });
       }),
     );
     renderWithProviders(<SimulationPage />);
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
+    await waitFor(() => expect(calls).toBe(0));
     expect(calls).toBe(0);
   });
 
@@ -513,21 +522,36 @@ describe("SimulationPage", () => {
       {
         id: 9,
         farm_id: 1,
-        name: "Legacy broken plan",
-        notes: "Created before validation was tightened",
-        assumptions: null,
+        name: "Flagged legacy plan",
+        notes: "Backend validation marked this revision invalid",
+        assumptions: DEFAULTS,
         valid: false,
         validation_error: "horizon_months must be at least 12",
         created_at: "2026-01-01T00:00:00Z",
         updated_at: "2026-01-02T00:00:00Z",
       },
+      {
+        id: 10,
+        farm_id: 1,
+        name: "Unreadable legacy plan",
+        notes: "Assumptions could not be reconstructed",
+        assumptions: null,
+        valid: true,
+        validation_error: "stored assumptions are unavailable",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+      },
     ]);
 
-    expect(screen.getByText("Invalid saved assumptions")).toBeInTheDocument();
+    expect(screen.getAllByText("Invalid saved assumptions")).toHaveLength(2);
     expect(screen.getByText(/horizon_months must be at least 12/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Load" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
+    expect(screen.getByText(/stored assumptions are unavailable/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Load" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Run" })).toHaveLength(2);
+    for (const button of screen.getAllByRole("button", { name: /^(Load|Run)$/ }))
+      expect(button).toBeDisabled();
+    for (const button of screen.getAllByRole("button", { name: "Delete" }))
+      expect(button).toBeEnabled();
   });
 
   it("caps comparison selection at five valid scenarios", async () => {
@@ -553,6 +577,7 @@ describe("SimulationPage", () => {
       "true",
     );
     expect(screen.getByText(/5 selected/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Compare selected" })).toBeEnabled();
   });
 
   // REGRESSION — selectedUsableIds was a bare alias of selectedIds, so a
@@ -611,8 +636,30 @@ describe("SimulationPage", () => {
     expect(screen.getByLabelText("Compare Plan 3")).not.toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Compare selected" }));
-    expect(await screen.findByText("Comparison")).toBeInTheDocument();
+    const comparisonHeading = await screen.findByText("Comparison");
+    const comparison = comparisonHeading.parentElement as HTMLElement;
     expect(requestedIds).toBe("1,2");
+    for (const label of [
+      "NPV",
+      "IRR",
+      "MIRR",
+      "BCR",
+      "Avg DSCR",
+      "Minimum DSCR",
+      "Operating margin",
+      "Minimum cash",
+      "Additional working capital",
+      "Payback month",
+    ])
+      expect(within(comparison).getByText(label)).toBeInTheDocument();
+    expect(within(comparison).getAllByText("₹2,34,567")).toHaveLength(2);
+    expect(within(comparison).getAllByText("18.0%")).toHaveLength(2);
+    expect(within(comparison).getAllByText("16.0%")).toHaveLength(2);
+    expect(within(comparison).getAllByText("1.42")).toHaveLength(2);
+    expect(within(comparison).getAllByText("1.80")).toHaveLength(4);
+    expect(within(comparison).getAllByText("25.0%")).toHaveLength(2);
+    expect(within(comparison).getAllByText("₹43,000")).toHaveLength(2);
+    expect(within(comparison).getAllByText("30")).toHaveLength(2);
   });
 
   it("pages truthfully and preserves valid compare selections across pages", async () => {
@@ -698,6 +745,7 @@ describe("SimulationPage", () => {
 
   it("saves a scenario and shows it in the refreshed list", async () => {
     const scenarios: unknown[] = [];
+    const captured: { name?: string; notes?: string } = {};
     server.use(
       http.post("/api/simulation/scenarios", async ({ request }) => {
         const body = (await request.json()) as {
@@ -705,6 +753,8 @@ describe("SimulationPage", () => {
           notes?: string;
           assumptions: unknown;
         };
+        captured.name = body.name;
+        captured.notes = body.notes;
         const scenario = {
           id: 1,
           farm_id: 1,
@@ -724,12 +774,36 @@ describe("SimulationPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Save as scenario" }));
     const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByLabelText(/^Name/), "Base plan");
+    await user.type(within(dialog).getByLabelText(/^Name/), "  Base plan  ");
+    await user.type(within(dialog).getByLabelText("Notes"), "  Conservative case  ");
     await user.click(within(dialog).getByRole("button", { name: "Save scenario" }));
 
     expect(await screen.findByText("Base plan")).toBeInTheDocument();
+    expect(screen.getByText("Conservative case")).toBeInTheDocument();
+    expect(captured).toEqual({ name: "Base plan", notes: "Conservative case" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("No saved scenarios yet.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the save dialog open and shows server detail when creation fails", async () => {
+    server.use(
+      http.post("/api/simulation/scenarios", () =>
+        HttpResponse.json({ detail: "scenario name already exists" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByRole("button", { name: "Save as scenario" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/^Name/), "Duplicate plan");
+    await user.click(within(dialog).getByRole("button", { name: "Save scenario" }));
+
+    expect(
+      await within(dialog).findByText("scenario name already exists"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Name/)).toHaveValue("Duplicate plan");
+    expect(within(dialog).getByRole("button", { name: "Save scenario" })).toBeEnabled();
   });
 
   it("does not dismiss the save dialog while its write is in flight", async () => {
@@ -861,6 +935,107 @@ describe("SimulationPage", () => {
     expect(unitOf("Horizon Months")).toBe("Unit: months");
   });
 
+  it("projects representative backend numeric contracts into the editor controls", async () => {
+    registerApiHandlers();
+    server.use(
+      http.get("/api/simulation/defaults", () =>
+        HttpResponse.json({
+          meta: { horizon_months: 60, start_year_month: "2026-01" },
+          herd: {
+            does: 50,
+            female_retention_fraction: 0.5,
+            doe_purchase_price: 8000,
+          },
+          reproduction: { conception_rate: 0.85, gestation_months: 5 },
+          mortality: { adult: 0.05 },
+          culling: { doe_cull_rate_annual: 0.2, buck_doe_ratio: 25 },
+          growth: { birth_weight_kg: 2.5, sale_age_months: 12 },
+          sales: {
+            meat_price_per_kg: 350,
+            eid_price_uplift: 0.3,
+            selling_cost_fraction: 0.05,
+          },
+          feed: {
+            dmi_buck: 0.035,
+            green_dm_pct: 0.25,
+            grazing_dm_fraction: 0,
+            dry_price_per_kg: 5,
+          },
+          costs: {
+            labour_per_month: 10000,
+            insurance_pct_stock_value_annual: 0.04,
+          },
+          finance: {
+            initial_stock_cost: 0,
+            loan_fraction_of_project_cost: 0.85,
+            interest_rate_annual: 0.11,
+          },
+          risk: {
+            monte_carlo_runs: 500,
+            seed: 42,
+            correlation_strength: 0.6,
+            disease_outbreak_probability_annual: 0.1,
+          },
+          optimization: {
+            maximum_project_cost: null,
+            doe_scale_low: 0.75,
+            max_candidates: 120,
+          },
+        }),
+      ),
+    );
+    renderWithProviders(<SimulationPage />);
+    await screen.findByText("Horizon Months");
+
+    const bounds = (
+      label: string,
+      expected: { min?: string; max?: string; step?: string; unit?: string },
+    ) => {
+      const input = screen.getByLabelText(label);
+      if (expected.min === undefined) expect(input).not.toHaveAttribute("min");
+      else expect(input).toHaveAttribute("min", expected.min);
+      if (expected.max === undefined) expect(input).not.toHaveAttribute("max");
+      else expect(input).toHaveAttribute("max", expected.max);
+      if (expected.step) expect(input).toHaveAttribute("step", expected.step);
+      if (expected.unit) expect(input).toHaveAttribute("data-unit", expected.unit);
+    };
+
+    bounds("Horizon Months", { min: "12", max: "240", step: "1", unit: "months" });
+    bounds("Does", { min: "0", max: "100000", step: "1" });
+    bounds("Female Retention Fraction", { min: "0", max: "1", step: "any" });
+    bounds("Doe Purchase Price", { min: "0", max: "1000000000", unit: "₹" });
+    bounds("Conception Rate", { min: "0", max: "1", unit: "fraction" });
+    bounds("Gestation Months", { min: "1", max: "7", step: "1", unit: "months" });
+    bounds("Adult", { min: "0", max: "0.9" });
+    bounds("Doe Cull Rate Annual", { min: "0", max: "1", unit: "fraction" });
+    bounds("Buck Doe Ratio", { min: "1", max: "100", step: "1", unit: "does per buck" });
+    bounds("Birth Weight Kg", { max: "1000", unit: "kg" });
+    bounds("Sale Age Months", { min: "6", max: "24", step: "1", unit: "months" });
+    bounds("Meat Price Per Kg", { min: "0", max: "1000000000", unit: "₹" });
+    bounds("Eid Price Uplift", { min: "0", max: "2", unit: "fraction" });
+    bounds("Selling Cost Fraction", { min: "0", max: "0.5", unit: "fraction" });
+    bounds("Dmi Buck", { max: "0.1", unit: "fraction" });
+    bounds("Green Dm Pct", { max: "1", unit: "fraction" });
+    bounds("Grazing Dm Fraction", { min: "0", max: "1", unit: "fraction" });
+    bounds("Dry Price Per Kg", { min: "0", max: "1000000000", unit: "₹" });
+    bounds("Labour Per Month", { min: "0", max: "1000000000", unit: "₹/month" });
+    bounds("Insurance Pct Stock Value Annual", { min: "0", max: "0.25" });
+    bounds("Initial Stock Cost", { min: "0", max: "1000000000", unit: "₹" });
+    bounds("Loan Fraction Of Project Cost", { min: "0", max: "1", unit: "fraction" });
+    bounds("Interest Rate Annual", { min: "0", max: "0.5", unit: "fraction" });
+    bounds("Monte Carlo Runs", { min: "1", max: "2000", step: "1" });
+    bounds("Seed", { min: "0", max: "2147483647", step: "1" });
+    bounds("Correlation Strength", { min: "0", max: "0.95", unit: "fraction" });
+    bounds("Disease Outbreak Probability Annual", {
+      min: "0",
+      max: "1",
+      unit: "fraction",
+    });
+    bounds("Maximum Project Cost", { min: "0", unit: "₹" });
+    bounds("Doe Scale Low", { max: "5", unit: "multiplier" });
+    bounds("Max Candidates", { min: "1", max: "300", step: "1" });
+  });
+
   // REGRESSION — the System trigger passed no `items` map, so Base UI showed
   // the raw enum "stall_fed" while the open list read "Stall Fed".
   it("shows the humanized system label in the closed trigger", async () => {
@@ -983,6 +1158,45 @@ describe("SimulationPage", () => {
       await user.clear(does);
       await user.type(does, "51");
       expect(screen.queryByText(STALE)).not.toBeInTheDocument();
+    });
+
+    it("sends every saved-run option and restores the row after an API failure", async () => {
+      const captured: { params: URLSearchParams | null } = { params: null };
+      let fail = true;
+      server.use(
+        http.post("/api/simulation/scenarios/7/run", ({ request }) => {
+          if (fail) {
+            fail = false;
+            return HttpResponse.json(
+              { detail: "saved engine exploded" },
+              { status: 500 },
+            );
+          }
+          captured.params = new URL(request.url).searchParams;
+          return HttpResponse.json(RESULT);
+        }),
+      );
+      const user = userEvent.setup();
+      await renderLoaded([SCENARIO]);
+      await user.click(screen.getByRole("checkbox", { name: "Monte Carlo" }));
+      await user.click(screen.getByRole("checkbox", { name: "Sensitivity" }));
+      await user.click(screen.getByRole("checkbox", { name: "Optimization" }));
+
+      const run = screen.getByRole("button", { name: "Run" });
+      await user.click(run);
+      expect(await screen.findByText("saved engine exploded")).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Run" })).toBeEnabled(),
+      );
+
+      await user.click(run);
+      expect(await screen.findByText("Source: Saved scenario “Plan B”")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
+      expect(Object.fromEntries(captured.params ?? [])).toEqual({
+        monte_carlo: "true",
+        sensitivity: "true",
+        optimization: "true",
+      });
     });
   });
 

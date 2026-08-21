@@ -17,6 +17,9 @@ import { createTestQueryClient, renderWithProviders } from "@/test/render";
 
 import SimulationPage from "./page";
 
+const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMocks }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/simulation",
@@ -171,7 +174,10 @@ interface RunBody {
       monthly_green_price_multipliers?: number[];
       annual_feed_price_growth_rate?: number;
     };
-    costs?: { operating_cost_growth_rate_annual?: number };
+    costs?: {
+      labour_per_head_threshold?: number;
+      operating_cost_growth_rate_annual?: number;
+    };
     growth?: { birth_weight_kg?: number; weight_by_age_months?: number[] };
     events?: unknown[];
   };
@@ -324,16 +330,23 @@ describe("SimulationPage herd events", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Add event" }));
+    const month = screen.getByLabelText("Month");
+    await user.clear(month);
+    await user.type(month, "60");
+    const count = screen.getByLabelText("Count");
+    await user.clear(count);
+    await user.type(count, "100000");
+    await user.type(screen.getByLabelText("Price per head"), "0");
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
 
     expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
     expect(captured.body?.assumptions.events).toEqual([
       {
-        month: 12,
+        month: 60,
         kind: "purchase",
         animal_class: "doe",
-        count: 10,
-        price_per_head: null,
+        count: 100000,
+        price_per_head: 0,
       },
     ]);
   });
@@ -974,6 +987,88 @@ describe("SimulationPage herd events", () => {
 });
 
 describe("SimulationPage use current herd", () => {
+  it("keeps the editor intact and surfaces the API detail when a snapshot fails", async () => {
+    toastMocks.error.mockClear();
+    const user = userEvent.setup();
+    await renderLoaded();
+    server.use(
+      http.get("/api/simulation/herd-snapshot", () =>
+        HttpResponse.json({ detail: "snapshot unavailable" }, { status: 503 }),
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Use current herd" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(50));
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith("snapshot unavailable"),
+    );
+    expect(screen.queryByText(/Loaded current herd/)).not.toBeInTheDocument();
+  });
+
+  it("does not let a late herd snapshot overwrite a subsequently loaded scenario", async () => {
+    toastMocks.error.mockClear();
+    let releaseSnapshot!: () => void;
+    let markSnapshotStarted!: () => void;
+    const snapshotGate = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    const snapshotStarted = new Promise<void>((resolve) => {
+      markSnapshotStarted = resolve;
+    });
+    const scenario = {
+      id: 7,
+      farm_id: 1,
+      name: "Later plan",
+      notes: "",
+      assumptions: {
+        ...DEFAULTS,
+        herd: { ...DEFAULTS.herd, does: 99 },
+      },
+      valid: true,
+      validation_error: null,
+      revision: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    registerApiHandlers({ scenarios: [scenario] });
+    server.use(
+      http.get("/api/simulation/herd-snapshot", async () => {
+        markSnapshotStarted();
+        await snapshotGate;
+        return HttpResponse.json({
+          does: 48,
+          bucks: 3,
+          f_kids: 4,
+          f_weaners: 5,
+          f_growers: 6,
+          m_kids: 3,
+          m_weaners: 2,
+          m_growers: 1,
+          total_head: 72,
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SimulationPage />);
+    expect(await screen.findByLabelText("Does")).toHaveValue(50);
+
+    await user.click(screen.getByRole("button", { name: "Use current herd" }));
+    await snapshotStarted;
+    const scenarioRow = screen.getByText("Later plan").closest("tr") as HTMLElement;
+    await user.click(within(scenarioRow).getByRole("button", { name: "Load" }));
+    expect(screen.getByLabelText("Does")).toHaveValue(99);
+
+    releaseSnapshot();
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        expect.stringMatching(/editor was reloaded while the herd snapshot was loading/i),
+      ),
+    );
+    expect(screen.getByLabelText("Does")).toHaveValue(99);
+    expect(screen.getByText("Editing scenario: Later plan")).toBeInTheDocument();
+  });
+
   // REGRESSION — the herd snapshot was keyed on the live breed dropdown, so
   // changing the dropdown without reloading defaults imported head counts
   // bucketed by the new breed's age-at-first-breeding thresholds into an
@@ -1111,6 +1206,7 @@ describe("SimulationPage use current herd", () => {
   });
 
   it("does not swallow an in-flight defaults fallback when calibration fails", async () => {
+    toastMocks.error.mockClear();
     let defaultsCalls = 0;
     let releaseDefaults!: () => void;
     let markDefaultsStarted!: () => void;
@@ -1161,11 +1257,33 @@ describe("SimulationPage use current herd", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Calibrate from farm" })).toBeEnabled(),
     );
+    expect(toastMocks.error).toHaveBeenCalledWith("calibration unavailable");
     expect(screen.getByLabelText("Does")).toHaveValue(55);
   });
 });
 
 describe("SimulationPage numeric input guards", () => {
+  it("accepts only real simulation start months inside the supported year range", async () => {
+    await renderLoaded();
+    const start = screen.getByLabelText("Start Year Month");
+
+    fireEvent.change(start, { target: { value: "2201-01" } });
+    expect(
+      screen.getAllByText(/real month from 1900-01 to 2200-12/).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    fireEvent.change(start, { target: { value: "2200-12" } });
+    expect(
+      screen.queryByText("Start year month must be a real month from 1900-01 to 2200-12."),
+    ).not.toBeInTheDocument();
+    expect(start).toHaveValue("2200-12");
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+
+    fireEvent.change(start, { target: { value: "1899-12" } });
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+  });
+
   it("marks a required assumption blank and blocks the run without writing 0", async () => {
     const captured: { body: RunBody | null } = { body: null };
     const user = userEvent.setup();
@@ -1187,6 +1305,31 @@ describe("SimulationPage numeric input guards", () => {
 
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
     expect(captured.body).toBeNull();
+  });
+
+  it("enforces integer, inclusive-minimum, and inclusive-maximum scalar bounds", async () => {
+    const user = userEvent.setup();
+    await renderLoaded();
+    const horizon = screen.getByLabelText("Horizon Months");
+
+    await user.clear(horizon);
+    await user.type(horizon, "12.5");
+    expect(screen.getByText("Enter a whole number.")).toBeInTheDocument();
+    expect(horizon).toHaveAttribute("aria-invalid", "true");
+
+    await user.clear(horizon);
+    await user.type(horizon, "11");
+    expect(screen.getByText("Must be at least 12.")).toBeInTheDocument();
+
+    await user.clear(horizon);
+    await user.type(horizon, "12");
+    expect(screen.queryByText("Must be at least 12.")).not.toBeInTheDocument();
+
+    await user.clear(horizon);
+    await user.type(horizon, "240");
+    expect(screen.queryByText("Must be at most 240.")).not.toBeInTheDocument();
+    expect(horizon).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
   });
 
   it("marks a required event month blank and blocks the run", async () => {
@@ -1355,13 +1498,14 @@ describe("SimulationPage results and scenario management", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-02T00:00:00Z",
     };
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded({ scenarios: [scenario] });
 
     const deleteButton = await screen.findByRole("button", { name: "Delete" });
     const runButton = screen.getByRole("button", { name: "Run" });
     await user.click(deleteButton);
+    expect(confirm).toHaveBeenCalledWith('Delete scenario "Old plan"?');
 
     // Mutation in flight: a second click can't fire a duplicate DELETE.
     expect(deleteButton).toBeDisabled();
@@ -1376,9 +1520,329 @@ describe("SimulationPage results and scenario management", () => {
     await waitFor(() => expect(deleteButton).toBeEnabled());
     expect(screen.queryByText("Editing scenario: Old plan")).not.toBeInTheDocument();
   });
+
+  it("clears a deleted scenario from editor, result provenance, and comparison selection", async () => {
+    server.use(
+      http.post("/api/simulation/scenarios/7/run", () => HttpResponse.json(RESULT)),
+      http.delete(
+        "/api/simulation/scenarios/7",
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    );
+    const scenario = {
+      id: 7,
+      farm_id: 1,
+      name: "Disposable plan",
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      revision: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+    const row = screen.getByText("Disposable plan").closest("tr") as HTMLElement;
+
+    await user.click(screen.getByLabelText("Compare Disposable plan"));
+    expect(screen.getByText(/1 selected/)).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "Load" }));
+    await user.click(within(row).getByRole("button", { name: "Run" }));
+    expect(
+      await screen.findByText("Source: Saved scenario “Disposable plan”"),
+    ).toBeInTheDocument();
+
+    await user.click(within(row).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Source: Saved scenario “Disposable plan”"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Editing scenario: Disposable plan")).not.toBeInTheDocument();
+    expect(screen.getByText(/0 selected/)).toBeInTheDocument();
+  });
+
+  it("re-homes an externally emptied last page instead of leaving a false empty page", async () => {
+    const scenarios = Array.from({ length: 21 }, (_, index) => ({
+      id: index + 1,
+      farm_id: 1,
+      name: `Concurrent plan ${index + 1}`,
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      revision: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    }));
+    const queryClient = createTestQueryClient();
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios }, queryClient);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Concurrent plan 21")).toBeInTheDocument();
+
+    scenarios.splice(0, scenarios.length);
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+
+    expect(await screen.findByText("No saved scenarios yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/page no longer exists/)).not.toBeInTheDocument();
+  });
 });
 
 describe("SimulationPage advanced financial controls", () => {
+  it("requires every underlying read permission before exposing farm calibration", async () => {
+    await renderLoaded({
+      permissions: [...MANAGE_PERMS, "animals.view"],
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Calibrate from farm" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Calibration history")).not.toBeInTheDocument();
+  });
+
+  it("enforces the backend labour-scaling ceiling without using the herd-size cap", async () => {
+    const captured: { body: RunBody | null } = { body: null };
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        costs: { labour_per_head_threshold: 75 },
+      },
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
+
+    await user.click(screen.getByText("Costs"));
+    const threshold = screen.getByLabelText("Labour Per Head Threshold");
+    await user.clear(threshold);
+    await user.type(threshold, "1000000000000001");
+    expect(
+      screen.getByText("Must be at most 1000000000000000."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    await user.clear(threshold);
+    await user.type(threshold, "100001");
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect(captured.body?.assumptions.costs?.labour_per_head_threshold).toBe(100001);
+  });
+
+  it("enforces financing relationships at their exact legal boundaries", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        finance: {
+          loan_fraction_of_project_cost: 0.8,
+          subsidy_fraction: 0.1,
+          loan_term_months: 12,
+          moratorium_months: 11,
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Finance"));
+    const subsidy = screen.getByLabelText("Subsidy Fraction");
+    await user.clear(subsidy);
+    await user.type(subsidy, "0.3");
+    expect(
+      screen.getByText("Loan fraction plus subsidy fraction must not exceed 1."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    // Exactly 100% combined financing is legal.
+    await user.clear(subsidy);
+    await user.type(subsidy, "0.2");
+    expect(
+      screen.queryByText("Loan fraction plus subsidy fraction must not exceed 1."),
+    ).not.toBeInTheDocument();
+
+    const moratorium = screen.getByLabelText("Moratorium Months");
+    await user.clear(moratorium);
+    await user.type(moratorium, "12");
+    expect(
+      screen.getByText("Moratorium must be shorter than the loan term."),
+    ).toBeInTheDocument();
+
+    await user.clear(moratorium);
+    await user.type(moratorium, "11");
+    expect(
+      screen.queryByText("Moratorium must be shorter than the loan term."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
+  it("requires a positive planned capacity only when that basis is selected", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        costs: { capacity_basis: "projected_peak", planned_capacity_head: 0 },
+      },
+    });
+
+    await user.click(screen.getByText("Costs"));
+    await user.click(screen.getByLabelText("Capacity Basis"));
+    await user.click(await screen.findByRole("option", { name: "Planned capacity" }));
+    expect(
+      screen.getByText(
+        "Planned capacity must be greater than 0 when the capacity basis is planned.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
+
+    const capacity = screen.getByLabelText("Planned Capacity Head");
+    await user.clear(capacity);
+    await user.type(capacity, "1");
+    expect(
+      screen.queryByText(
+        "Planned capacity must be greater than 0 when the capacity basis is planned.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
+  it("enforces optimization range ordering while permitting equal endpoints", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        optimization: {
+          objective: "balanced",
+          doe_scale_low: 0.75,
+          doe_scale_high: 1.25,
+        },
+      },
+    });
+
+    const low = screen.getByLabelText("Doe Scale Low");
+    await user.clear(low);
+    await user.type(low, "1.5");
+    expect(
+      screen.getByText("Doe scale low must be less than or equal to doe scale high."),
+    ).toBeInTheDocument();
+
+    await user.clear(low);
+    await user.type(low, "1.25");
+    expect(
+      screen.queryByText("Doe scale low must be less than or equal to doe scale high."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
+  it("enforces growth-curve ordering and both adult-weight floors", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        growth: {
+          birth_weight_kg: 2.5,
+          adult_weight_doe_kg: 32,
+          adult_weight_buck_kg: 34,
+          weight_by_age_months: [
+            2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5,
+            24.5, 26.5,
+          ],
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Growth"));
+    const birthWeight = screen.getByLabelText("Birth Weight Kg");
+    await user.clear(birthWeight);
+    await user.type(birthWeight, "5");
+    expect(
+      screen.getByText(/Weight by age months must not decrease from birth/),
+    ).toBeInTheDocument();
+
+    // Equality with month one is legal (nondecreasing, not strictly increasing).
+    await user.clear(birthWeight);
+    await user.type(birthWeight, "4.5");
+    expect(
+      screen.queryByText(/Weight by age months must not decrease from birth/),
+    ).not.toBeInTheDocument();
+
+    const adultDoe = screen.getByLabelText("Adult Weight Doe Kg");
+    await user.clear(adultDoe);
+    await user.type(adultDoe, "26");
+    expect(
+      screen.getByText(
+        "Adult doe and buck weights must be at least the highest yearling weight.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.clear(adultDoe);
+    await user.type(adultDoe, "26.5");
+    expect(
+      screen.queryByText(
+        "Adult doe and buck weights must be at least the highest yearling weight.",
+      ),
+    ).not.toBeInTheDocument();
+
+    const adultBuck = screen.getByLabelText("Adult Weight Buck Kg");
+    await user.clear(adultBuck);
+    await user.type(adultBuck, "26");
+    expect(
+      screen.getByText(
+        "Adult doe and buck weights must be at least the highest yearling weight.",
+      ),
+    ).toBeInTheDocument();
+
+    await user.clear(adultBuck);
+    await user.type(adultBuck, "26.5");
+    expect(
+      screen.queryByText(
+        "Adult doe and buck weights must be at least the highest yearling weight.",
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
+  it("requires every enabled risk spread to bracket the base multiplier", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        risk: {
+          meat_price: { enabled: true, low: 0.8, high: 1.2 },
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Risk"));
+    const low = screen.getByLabelText("Low");
+    const high = screen.getByLabelText("High");
+    await user.clear(low);
+    await user.type(low, "1.01");
+    expect(screen.getByText("Meat Price low and high must bracket 1.")).toBeInTheDocument();
+
+    await user.clear(low);
+    await user.type(low, "1");
+    expect(
+      screen.queryByText("Meat Price low and high must bracket 1."),
+    ).not.toBeInTheDocument();
+
+    await user.clear(high);
+    await user.type(high, "0.99");
+    expect(screen.getByText("Meat Price low and high must bracket 1.")).toBeInTheDocument();
+
+    await user.clear(high);
+    await user.type(high, "1");
+    expect(
+      screen.queryByText("Meat Price low and high must bracket 1."),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
   it("keeps birth weight synchronized with age zero in the growth curve", async () => {
     const captured: { body: RunBody | null } = { body: null };
     const user = userEvent.setup();
@@ -1479,6 +1943,99 @@ describe("SimulationPage advanced financial controls", () => {
     expect(captured.body?.assumptions.costs?.operating_cost_growth_rate_annual).toBe(-0.02);
   });
 
+  it("rejects malformed, out-of-range, duplicate, and decreasing array inputs", async () => {
+    const user = userEvent.setup();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        growth: {
+          birth_weight_kg: 2.5,
+          adult_weight_doe_kg: 32,
+          adult_weight_buck_kg: 34,
+          weight_by_age_months: [
+            2.5, 4.5, 6.5, 8.5, 10.5, 12.5, 14.5, 16.5, 18.5, 20.5, 22.5,
+            24.5, 26.5,
+          ],
+        },
+        sales: {
+          monthly_meat_price_multipliers: Array(12).fill(1),
+          festival_sale_months: [],
+        },
+      },
+    });
+
+    await user.click(screen.getByText("Sales"));
+    const monthly = screen.getByLabelText(/Monthly Meat Price Multipliers/);
+    await user.clear(monthly);
+    await user.type(monthly, "1,,1,1,1,1,1,1,1,1,1,1");
+    expect(screen.getByText("Enter only comma-separated numbers.")).toBeInTheDocument();
+
+    await user.clear(monthly);
+    await user.type(monthly, "1,x,1,1,1,1,1,1,1,1,1,1");
+    expect(screen.getByText("Enter only comma-separated numbers.")).toBeInTheDocument();
+
+    await user.clear(monthly);
+    await user.type(monthly, "0,1,1,1,1,1,1,1,1,1,1,1");
+    expect(screen.getByText("Every entry must be greater than 0.")).toBeInTheDocument();
+
+    await user.clear(monthly);
+    await user.type(monthly, "11,1,1,1,1,1,1,1,1,1,1,1");
+    expect(screen.getByText("Every entry must be at most 10.")).toBeInTheDocument();
+
+    const festivals = screen.getByLabelText(/Festival Sale Months/);
+    await user.type(festivals, "1, 1.5");
+    expect(
+      screen.getByText("Every simulation months entry must be a whole number."),
+    ).toBeInTheDocument();
+
+    await user.clear(festivals);
+    await user.type(festivals, "1, 0");
+    expect(screen.getByText("Every entry must be at least 1.")).toBeInTheDocument();
+
+    await user.clear(festivals);
+    await user.type(festivals, "61");
+    expect(screen.getByText("Every entry must be at most 60.")).toBeInTheDocument();
+
+    await user.clear(festivals);
+    await user.type(festivals, "12, 12");
+    expect(
+      screen.getByText("Simulation Months must not contain duplicates."),
+    ).toBeInTheDocument();
+
+    await user.clear(festivals);
+    await user.type(
+      festivals,
+      Array.from({ length: 41 }, (_, index) => String(index + 1)).join(","),
+    );
+    expect(
+      screen.getByText("Enter at most 40 simulation months."),
+    ).toBeInTheDocument();
+
+    await user.clear(festivals);
+    await user.type(festivals, "1, 60");
+    expect(screen.queryByText(/simulation months entry/)).not.toBeInTheDocument();
+    expect(festivals).not.toHaveAttribute("aria-invalid");
+
+    await user.click(screen.getByText("Growth"));
+    const curve = screen.getByLabelText(/Weight By Age Months/);
+    await user.clear(curve);
+    await user.type(curve, "2.5,4.5,6.5,6,10.5,12.5,14.5,16.5,18.5,20.5,22.5,24.5,26.5");
+    expect(
+      screen.getByText("Weights (Ages 0-12) must not decrease."),
+    ).toBeInTheDocument();
+
+    await user.clear(curve);
+    await user.type(curve, "2.5,4.5,4.5,8.5,10.5,12.5,14.5,16.5,18.5,20.5,22.5,24.5,26.5");
+    expect(
+      screen.queryByText("Weights (Ages 0-12) must not decrease."),
+    ).not.toBeInTheDocument();
+
+    await user.clear(monthly);
+    await user.type(monthly, "10,1,1,1,1,1,1,1,1,1,1,1");
+    expect(screen.queryByText(/Every entry must be/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+  });
+
   it("does not commit an invalid array draft into the displayed result identity", async () => {
     const user = userEvent.setup();
     await renderLoaded({
@@ -1539,6 +2096,13 @@ describe("SimulationPage advanced financial controls", () => {
         ),
       ).not.toBeInTheDocument(),
     );
+    await user.clear(initialStock);
+    await user.type(initialStock, "300");
+    expect(
+      screen.queryByText(
+        "Initial fodder stock must fit within fodder storage capacity.",
+      ),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
   });
 
@@ -1708,9 +2272,20 @@ describe("SimulationPage advanced financial controls", () => {
     // state. Validation used to run only on keystroke, so a value that was out
     // of range at the old horizon kept its error AND kept the field in the
     // parent's invalidFields set — permanently disabling Run and Save even
-    // after the horizon grew past it.
+    // after the horizon grew past it. Once the draft becomes valid it must
+    // also be committed; merely clearing the error would display month 90
+    // while silently sending the old month 12 in the payload.
+    const captured: { body: RunBody | null } = { body: null };
     const user = userEvent.setup();
-    await renderLoaded();
+    await renderLoaded({
+      defaults: {
+        ...DEFAULTS,
+        sales: { festival_sale_months: [] },
+      },
+      onRun: (body) => {
+        captured.body = body;
+      },
+    });
 
     await user.click(screen.getByRole("button", { name: "5 yr" }));
     await user.click(screen.getByRole("button", { name: "Add event" }));
@@ -1720,11 +2295,22 @@ describe("SimulationPage advanced financial controls", () => {
     expect(await screen.findByText("Must be at most 60.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeDisabled();
 
+    await user.click(screen.getByText("Sales"));
+    await user.type(screen.getByLabelText(/Festival Sale Months/), "90");
+    expect(screen.getByText("Every entry must be at most 60.")).toBeInTheDocument();
+
     // Raising the horizon to 10 yr (120 months) makes month 90 legal again.
     await user.click(screen.getByRole("button", { name: "10 yr" }));
     await waitFor(() =>
       expect(screen.queryByText("Must be at most 60.")).not.toBeInTheDocument(),
     );
-    expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Run simulation" }));
+    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect(captured.body?.assumptions.events?.[0]).toMatchObject({ month: 90 });
+    expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([90]);
   });
 });
