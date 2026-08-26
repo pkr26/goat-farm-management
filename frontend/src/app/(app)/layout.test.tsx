@@ -70,6 +70,20 @@ function navLinks() {
     .filter((el) => el.closest('[data-slot="sidebar-content"]'));
 }
 
+/** The sidebar group whose heading is `label`, so a test can assert which
+ *  items an operator finds under that heading. */
+function navGroup(label: string) {
+  const group = screen.getByText(label).closest('[data-slot="sidebar-group"]');
+  if (!group) throw new Error(`no sidebar group titled "${label}"`);
+  return group as HTMLElement;
+}
+
+function navGroupItems(label: string) {
+  return within(navGroup(label))
+    .getAllByRole("link")
+    .map((link) => link.textContent);
+}
+
 function FarmScopedDraft() {
   const { refreshFarms } = useAuth();
   const [draft, setDraft] = useState("");
@@ -429,6 +443,21 @@ describe("AppLayout — header", () => {
     );
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
   });
+
+  it("shows the signed-in name and email in the account dialog", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Test Goat Farm");
+
+    await user.click(screen.getByRole("button", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Account & password" });
+
+    // The dialog falls back to the email whenever it is handed no name, so a
+    // name that never reaches it fails silently: the panel still looks right
+    // while every account reads as nameless.
+    expect(within(dialog).getByText(TEST_USER.name as string)).toBeInTheDocument();
+    expect(within(dialog).getByText(TEST_USER.email)).toBeInTheDocument();
+  });
 });
 
 describe("AppLayout — permission-gated nav", () => {
@@ -589,6 +618,65 @@ describe("AppLayout — permission-gated nav", () => {
       "data-active",
     );
   });
+
+  it("files every nav item under its own labelled group", async () => {
+    navState.pathname = "/dashboard";
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
+    // The group heading is the only thing that explains why Health and
+    // Feeding sit together; without it the sidebar is one flat 13-item list.
+    expect(navGroupItems("Overview")).toEqual(["Dashboard"]);
+    expect(navGroupItems("Herd")).toEqual([
+      "Animals",
+      "Buckets",
+      "Breeding",
+      "Kidding",
+    ]);
+    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding"]);
+    expect(navGroupItems("Operations")).toEqual(["Purchases", "Tasks"]);
+    expect(navGroupItems("Business")).toEqual([
+      "Finance",
+      "Simulation",
+      "Reports",
+      "Team",
+    ]);
+  });
+
+  it("keeps a group heading only while the worker can reach something under it", async () => {
+    server.use(permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]));
+
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    await waitFor(() => expect(navLinks()).toHaveLength(3));
+    expect(navGroupItems("Overview")).toEqual(["Dashboard"]);
+    expect(navGroupItems("Herd")).toEqual(["Animals"]);
+    expect(navGroupItems("Operations")).toEqual(["Tasks"]);
+    // A heading with nothing under it reads as "this section is broken"
+    // rather than "you do not have this section".
+    expect(screen.queryByText("Health & Feed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Business")).not.toBeInTheDocument();
+  });
+
+  it("keeps the permissions-failure notice out of a healthy sidebar", async () => {
+    const { unmount } = renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
+    expect(
+      screen.queryByText(/Could not load your permissions/),
+    ).not.toBeInTheDocument();
+
+    // A genuinely empty grant is not a failure either: telling that worker to
+    // refresh the page would send them round a loop that changes nothing.
+    unmount();
+    server.use(permissionsHandler([]));
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    await screen.findByRole("link", { name: "GoatFarm — go to access status" });
+    expect(
+      screen.queryByText(/Could not load your permissions/),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("AppLayout — loading and no-farm states", () => {
@@ -670,5 +758,57 @@ describe("AppLayout — loading and no-farm states", () => {
         removeEventListener: vi.fn(),
       }));
     }
+  });
+
+  it("never sends a session that already has an active farm to /farm-select", async () => {
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
+    // The farm gate is the only navigation this shell performs; bouncing a
+    // fully selected session would make every page load lose its route.
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("does not mistake a pending session bootstrap for a missing farm", async () => {
+    let refreshRequested = false;
+    let releaseRefresh: (() => void) | undefined;
+    server.use(
+      http.post("/api/auth/refresh", () => {
+        refreshRequested = true;
+        return new Promise<Response>((resolve) => {
+          releaseRefresh = () =>
+            resolve(HttpResponse.json({ access_token: "tok", user: TEST_USER }));
+        });
+      }),
+    );
+
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    await screen.findByText("Loading…");
+
+    // Settled signal, not a wall-clock sleep: the request is on the wire and
+    // no farm is known yet — exactly the state that must NOT redirect.
+    await waitFor(() => expect(refreshRequested).toBe(true));
+    expect(replaceMock).not.toHaveBeenCalled();
+
+    // Release the module-level refresh promise so this test cannot poison the
+    // following AuthProvider bootstrap when files run serially.
+    releaseRefresh?.();
+    await screen.findByText("Test Goat Farm");
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a signed-out session to the /login redirect, not the farm gate", async () => {
+    server.use(
+      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
+    );
+
+    renderWithProviders(<AppLayout>{null}</AppLayout>);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    // No user means no farm either, but /farm-select would be a dead end for
+    // someone who is not signed in — and the shell must keep its loading gate
+    // instead of rendering a header for a null user.
+    expect(replaceMock).not.toHaveBeenCalledWith("/farm-select");
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 });

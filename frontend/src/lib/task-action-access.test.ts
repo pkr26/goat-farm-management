@@ -31,6 +31,22 @@ describe("permittedTaskActionPath", () => {
     expect(permittedTaskActionPath("/animals/1", can)).toBeNull();
     expect(permittedTaskActionPath(null, can)).toBeNull();
   });
+
+  // safeAppPath only rejects "%" inside the *pathname*, so an encoded
+  // traversal/separator parked in the query or hash reaches this function
+  // intact. It must still fail closed: the value is echoed back into a link
+  // whose target module was authorized from the pathname alone, and the
+  // encoded bytes survive into whatever the destination form does with them.
+  it.each([
+    "/health/new?returnTo=%2e%2e/finance",
+    "/health/new?returnTo=%2E%2E/finance",
+    "/health/new?next=%2ffinance",
+    "/health/new?next=%5cfinance",
+    "/breeding/7?returnTo=%2e%2e",
+    "/kidding/new#%2e%2e",
+  ])("rejects an encoded traversal or separator outside the pathname (%j)", (path) => {
+    expect(permittedTaskActionPath(path, () => true)).toBeNull();
+  });
 });
 
 // REGRESSION — mirrors of backend api/tasks.py::skip and the linked-duty

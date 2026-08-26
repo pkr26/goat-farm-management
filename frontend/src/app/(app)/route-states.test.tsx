@@ -80,6 +80,24 @@ describe("(app) route states", () => {
     ).toHaveAttribute("href", "/farm-select");
   });
 
+  it.each([
+    ["not-found", "Back to an available page"],
+    ["no-access", "Choose another farm"],
+  ] as const)("%s renders its recovery link as a secondary button", (page, name) => {
+    permissionState.loading = false;
+    permissionState.isError = false;
+    permissionState.allowedPath = "health";
+
+    render(page === "not-found" ? <NotFound /> : <NoAccessPage />);
+
+    // These are dead ends, so the way out is a secondary action: the link
+    // must carry the outline variant, not the filled primary call-to-action
+    // styling that real page actions use.
+    const link = screen.getByRole("link", { name });
+    expect(link).toHaveClass("border-border", "bg-background");
+    expect(link).not.toHaveClass("bg-primary");
+  });
+
   it("no-access explains the recovery path and links to farm selection", () => {
     render(<NoAccessPage />);
 

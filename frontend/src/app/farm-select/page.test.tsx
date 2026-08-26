@@ -10,17 +10,19 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { permissionsHandler, server } from "@/test/msw-server";
+import { setAccessToken } from "@/lib/api-client";
+import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import FarmSelectPage from "./page";
 
-const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
+const { pushMock, replaceMock, navState, sessionEpochShift } = vi.hoisted(() => ({
   pushMock: vi.fn(),
   replaceMock: vi.fn(),
   navState: { search: "" },
+  sessionEpochShift: { value: 0 },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -30,15 +32,42 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
+// api-client is otherwise untouched (shift stays 0). The shift lets a test open
+// the one window api-client's own epoch asserts cannot cover: a newer sign-in
+// landing between a request resolving and this page's continuation running.
+vi.mock("@/lib/api-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-client")>();
+  return {
+    ...actual,
+    authSessionEpochValue: () => actual.authSessionEpochValue() + sessionEpochShift.value,
+  };
+});
+
+afterEach(() => {
+  sessionEpochShift.value = 0;
+});
+
 const TWO_FARMS = [
   { id: 1, name: "Test Goat Farm", location: "Solapur", role: null },
   { id: 2, name: "Second Farm", location: null, role: "Mover" },
 ];
 
+const TIMEZONE_HINT =
+  "IANA name used for due dates and daily records, for example Asia/Kolkata.";
+
 function cardOf(name: string): HTMLElement {
   const card = screen.getByText(name).closest("button");
   expect(card).not.toBeNull();
   return card as HTMLElement;
+}
+
+/** A promise a test releases by hand, to hold a request on the wire. */
+function gate(): { wait: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { wait, release };
 }
 
 describe("FarmSelectPage — loading & logged-out states", () => {
@@ -244,6 +273,145 @@ describe("FarmSelectPage — farm picker", () => {
       await screen.findByText("No farms yet — create your first one below."),
     ).toBeInTheDocument();
     expect(screen.getByText("Create a farm")).toBeInTheDocument();
+  });
+
+  it("shows each farm's own timezone and defaults a row the API left without one", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          { id: 1, name: "London Farm", location: "Kent", role: null, timezone: "Europe/London" },
+          { id: 2, name: "Legacy Farm", location: null, role: null },
+        ]),
+      ),
+    );
+
+    renderWithProviders(<FarmSelectPage />);
+
+    await screen.findByText("Legacy Farm");
+    // The card must show the farm's OWN zone: due dates and daily records are
+    // rendered in it, so falling back to the default would misdate the farm.
+    expect(within(cardOf("London Farm")).getByText("Europe/London")).toBeInTheDocument();
+    // A row from before the timezone column existed reads as the API default.
+    expect(within(cardOf("Legacy Farm")).getByText("Asia/Kolkata")).toBeInTheDocument();
+    // The empty-state hint belongs to an empty list only.
+    expect(
+      screen.queryByText("No farms yet — create your first one below."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("marks the chosen card as opening and keeps the page locked past the navigation", async () => {
+    const permissions = gate();
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      http.get("/api/auth/permissions", async () => {
+        await permissions.wait;
+        return HttpResponse.json({ is_owner: false, permissions: ["dashboard.view"] });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+
+    // Only the picked card reports progress, and it replaces the farm name.
+    const opening = await screen.findByText("Opening…");
+    expect(screen.queryByText("Second Farm")).not.toBeInTheDocument();
+    expect(opening.closest("button")).toBeDisabled();
+    expect(cardOf("Test Goat Farm")).toBeDisabled();
+    // Creating a farm mid-open would race a second selectFarm() for the API
+    // client's X-Farm-Id, so the whole create form is locked too — and the
+    // submit button carries its own disabled flag, not just the fieldset's.
+    expect(screen.getByLabelText("Farm name")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create farm" })).toHaveAttribute("disabled");
+
+    permissions.release();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    // useSingleFlight releases its guard as soon as openFarm returns (the
+    // create form re-enables here), but router.push is still committing: the
+    // picker must stay locked on the chosen farm so a second pick cannot swap
+    // X-Farm-Id under the route being opened.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Create farm" })).not.toHaveAttribute(
+        "disabled",
+      ),
+    );
+    expect(screen.getByText("Opening…")).toBeInTheDocument();
+    expect(cardOf("Test Goat Farm")).toBeDisabled();
+  });
+
+  it("names the failing step when the permissions read dies without a server detail", async () => {
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      http.get("/api/auth/permissions", () => HttpResponse.error()),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+
+    // A transport failure carries no ApiError.detail — the operator still gets
+    // a message naming what failed instead of a blank alert.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load permissions for this farm.",
+    );
+    expect(cardOf("Second Farm")).toBeEnabled();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when a permissions failure lands after another session took over", async () => {
+    const permissions = gate();
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      http.get("/api/auth/permissions", async () => {
+        await permissions.wait;
+        return HttpResponse.json(
+          { detail: "Permissions temporarily unavailable" },
+          { status: 503 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+    await screen.findByText("Opening…");
+
+    // Another tab signed in while the read was on the wire: this pick belongs
+    // to a session that no longer owns the page.
+    setAccessToken("second-session-token", TEST_USER.id);
+    permissions.release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The superseded pick neither reports its failure nor hands the picker
+    // back — the new session owns both the error UI and the selection.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("Permissions temporarily unavailable")).not.toBeInTheDocument();
+    expect(screen.getByText("Opening…")).toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate when a newer session lands while the permissions read resolves", async () => {
+    const permissions = gate();
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json(TWO_FARMS)),
+      http.get("/api/auth/permissions", async () => {
+        await permissions.wait;
+        return HttpResponse.json({ is_owner: false, permissions: ["dashboard.view"] });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await user.click(await screen.findByText("Second Farm"));
+    await screen.findByText("Opening…");
+
+    // The permissions answer belongs to the replaced session; routing on it
+    // would drop the newer session's operator into a farm they never picked.
+    sessionEpochShift.value = 1;
+    permissions.release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });
 
@@ -643,5 +811,168 @@ describe("FarmSelectPage — create a farm", () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     expect(screen.queryByText("boom")).not.toBeInTheDocument();
     expect(attempt).toBe(2);
+  });
+
+  it("drops the previous server error the moment a retry starts, not when it lands", async () => {
+    const second = gate();
+    let attempt = 0;
+    server.use(
+      http.post("/api/auth/farms", async () => {
+        attempt += 1;
+        if (attempt === 1) return HttpResponse.json({ detail: "boom" }, { status: 500 });
+        await second.wait;
+        return HttpResponse.json({ id: 3, name: "Hillside", location: null, role: null });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText(/farm name/i), "Hillside");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    // While the retry is in flight the stale failure must already be gone:
+    // left next to the "Creating…" button it reads as "this attempt failed
+    // too", and the operator submits a third time.
+    await waitFor(() => expect(screen.queryByText("boom")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /creating…/i })).toBeDisabled();
+
+    second.release();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(attempt).toBe(2);
+  });
+
+  it("returns every field to its default after a creation, including the timezone", async () => {
+    server.use(
+      http.post("/api/auth/farms", async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 3, ...body, role: null });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText("Farm name"), "Hillside");
+    await user.type(screen.getByLabelText(/Location/), "Pune");
+    const timezone = screen.getByLabelText("Farm timezone");
+    await user.clear(timezone);
+    await user.type(timezone, "Europe/London");
+    await user.click(screen.getByRole("button", { name: "Create farm" }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    // A leftover location — or the previous farm's timezone — would be silently
+    // attached to the NEXT farm created from this form.
+    expect(screen.getByLabelText("Farm name")).toHaveValue("");
+    expect(screen.getByLabelText(/Location/)).toHaveValue("");
+    expect(screen.getByLabelText("Farm timezone")).toHaveValue("Asia/Kolkata");
+  });
+
+  it("does not blame a creation failure that lands after another session took over", async () => {
+    const post = gate();
+    server.use(
+      http.post("/api/auth/farms", async () => {
+        await post.wait;
+        return HttpResponse.json({ detail: "Farm name already exists" }, { status: 400 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText(/farm name/i), "Green Acres");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    // Another tab signed in while the write was on the wire.
+    setAccessToken("second-session-token", TEST_USER.id);
+    post.release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The failure belongs to the replaced session: showing it would blame the
+    // new session's operator for a write they never made.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("Could not create the farm.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Farm name already exists")).not.toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("does not open a farm whose creation resolved into a replaced session", async () => {
+    const post = gate();
+    let posts = 0;
+    server.use(
+      http.post("/api/auth/farms", async () => {
+        posts += 1;
+        await post.wait;
+        return HttpResponse.json({
+          id: 3,
+          name: "Green Acres",
+          location: null,
+          timezone: "Asia/Kolkata",
+          role: null,
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Test Goat Farm");
+
+    await user.type(screen.getByLabelText(/farm name/i), "Green Acres");
+    await user.click(screen.getByRole("button", { name: /create farm/i }));
+
+    // A newer sign-in owns the page by the time the durable POST answers.
+    sessionEpochShift.value = 1;
+    post.release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The farm exists, but it must not be selected for — nor its route pushed
+    // at — whoever the newer session belongs to.
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("goatfarm.farmId")).toBe("1");
+    // The form still holds what was typed: the new session owns any retry
+    // decision, and a cleared form invites a duplicate farm.
+    expect(screen.getByLabelText(/farm name/i)).toHaveValue("Green Acres");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(posts).toBe(1);
+  });
+
+  it("marks only the fields that failed validation and wires each message to its input", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<FarmSelectPage />);
+    await screen.findByText("Your farms");
+
+    const name = screen.getByLabelText("Farm name");
+    const location = screen.getByLabelText(/Location/);
+    const timezone = screen.getByLabelText("Farm timezone");
+
+    // A pristine form announces nothing as invalid (aria-invalid="false" is a
+    // claim of its own, so the attribute must be absent, not falsy)…
+    expect(name).not.toHaveAttribute("aria-invalid");
+    expect(location).not.toHaveAttribute("aria-invalid");
+    expect(timezone).not.toHaveAttribute("aria-invalid");
+    // …and the timezone field is described by its format hint from the start.
+    expect(timezone).toHaveAccessibleDescription(TIMEZONE_HINT);
+
+    fireEvent.change(name, { target: { value: "n".repeat(121) } });
+    fireEvent.change(location, { target: { value: "l".repeat(121) } });
+    await user.clear(timezone);
+    await user.click(screen.getByRole("button", { name: "Create farm" }));
+
+    // Each message names its own limit and reaches screen readers through the
+    // field it belongs to, not just as loose text on the page.
+    await waitFor(() => expect(name).toHaveAttribute("aria-invalid", "true"));
+    expect(name).toHaveAccessibleDescription("Farm name must be at most 120 characters");
+    expect(location).toHaveAttribute("aria-invalid", "true");
+    expect(location).toHaveAccessibleDescription("Location must be at most 120 characters");
+    expect(timezone).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Timezone is required")).toBeInTheDocument();
+    // The hint survives alongside the error rather than being replaced by it.
+    expect(timezone).toHaveAccessibleDescription(`${TIMEZONE_HINT} Timezone is required`);
   });
 });

@@ -8,6 +8,13 @@ function Probe() {
   return <output aria-label="viewport mode">{useIsMobile() ? "mobile" : "desktop"}</output>;
 }
 
+/** Renders the raw value so `false` stays distinguishable from `undefined`:
+ *  both are falsy, so a ternary probe cannot tell a real boolean snapshot
+ *  from a missing one. */
+function RawProbe() {
+  return <output aria-label="raw viewport value">{String(useIsMobile())}</output>;
+}
+
 describe("useIsMobile", () => {
   let matches = false;
   const listeners = new Set<() => void>();
@@ -81,5 +88,17 @@ describe("useIsMobile", () => {
     matches = true;
 
     expect(renderToString(<Probe />)).toContain("desktop");
+  });
+
+  // The server snapshot must be the boolean `false`, not merely something
+  // falsy. Hydration compares the server value against the client's first
+  // snapshot, and consumers narrow the result (`isMobile === false`, boolean
+  // props, aria-* serialization) — `undefined` silently breaks all three
+  // while still rendering "desktop" through a ternary.
+  it("returns a real boolean — not just a falsy value — on the server", () => {
+    matches = true;
+
+    expect(renderToString(<RawProbe />)).toContain("false");
+    expect(renderToString(<RawProbe />)).not.toContain("undefined");
   });
 });

@@ -130,4 +130,17 @@ describe("safeAppPath", () => {
   it("fails closed for a non-string runtime value", () => {
     expect(safeAppPath(42 as never)).toBeNull();
   });
+
+  // The leading-slash guard is specifically a *startsWith* test. A path is
+  // rejected for beginning with "//" (protocol-relative), never for ending
+  // with one: empty trailing segments are canonical under URL parsing and a
+  // backend-generated deep link may legitimately carry them.
+  it.each([
+    "/tasks//",
+    "/animals/7//",
+    "/tasks?next=//",
+    "/tasks#anchor//",
+  ])("keeps a canonical local path that merely ends in a double slash (%j)", (raw) => {
+    expect(safeAppPath(raw)).toBe(raw);
+  });
 });

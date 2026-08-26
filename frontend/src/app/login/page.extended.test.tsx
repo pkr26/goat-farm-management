@@ -82,6 +82,54 @@ describe("LoginPage — rendering", () => {
     );
   });
 
+  it("keeps a space between the sign-up prompt and the Register link", async () => {
+    await renderPage();
+
+    // The trailing {" "} is load-bearing: JSX drops the whitespace between a
+    // text node and the following element, so without it the sentence runs
+    // together as "No account?Register".
+    const prompt = screen.getByRole("link", { name: /register/i }).closest("p");
+    expect(prompt).toHaveTextContent(/^No account\? Register$/);
+  });
+
+  it("lists every product highlight in the brand panel", async () => {
+    await renderPage();
+
+    // The brand panel is the whole value proposition on the desktop layout;
+    // a dropped entry (or a title rendered without its description) would
+    // leave a silently blank column rather than fail anything else.
+    expect(screen.getByText("Complete herd records")).toBeInTheDocument();
+    expect(
+      screen.getByText("Track every animal, tag and lineage in one place."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Proactive health care")).toBeInTheDocument();
+    expect(
+      screen.getByText("Stay ahead of vaccinations, treatments and checkups."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Insights that pay off")).toBeInTheDocument();
+    expect(
+      screen.getByText("Breeding, kidding and finance reports at a glance."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("marks both fields valid and announces nothing before the first submit", async () => {
+    await renderPage();
+
+    // aria-invalid must be a definite "false" rather than simply absent, and
+    // nothing may hold the alert role while the form is untouched — an empty
+    // live region is still announced by a screen reader on page load.
+    const email = screen.getByLabelText(/email/i);
+    expect(email).toHaveAttribute("aria-invalid", "false");
+    expect(email).not.toHaveAttribute("aria-describedby");
+
+    const password = screen.getByLabelText(/password/i);
+    expect(password).toHaveAttribute("aria-invalid", "false");
+    expect(password).not.toHaveAttribute("aria-describedby");
+
+    expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
   it("shows no validation errors before the first submit attempt", async () => {
     await renderPage();
 
@@ -109,6 +157,32 @@ describe("LoginPage — validation", () => {
     expect(screen.getByText("Password is required")).toBeInTheDocument();
     expect(login.count).toBe(0);
     expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("points each invalid field at its own error message", async () => {
+    const login = trackLoginRequests();
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    expect(await screen.findByText("Enter a valid email address")).toBeInTheDocument();
+
+    const email = screen.getByLabelText(/email/i);
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(email).toHaveAttribute("aria-describedby", "email-error");
+    // The pointer has to resolve to the message itself: a describedby that
+    // names a missing (or empty) node leaves the field announced as invalid
+    // with no reason given.
+    expect(email).toHaveAccessibleDescription("Enter a valid email address");
+
+    const password = screen.getByLabelText(/password/i);
+    expect(password).toHaveAttribute("aria-invalid", "true");
+    expect(password).toHaveAttribute("aria-describedby", "password-error");
+    expect(password).toHaveAccessibleDescription("Password is required");
+
+    // Exactly the two field messages are alerts — no stray empty live region.
+    expect(screen.getAllByRole("alert")).toHaveLength(2);
+    expect(login.count).toBe(0);
   });
 
   it("rejects a malformed email and does not call the API", async () => {
@@ -172,6 +246,36 @@ describe("LoginPage — validation", () => {
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     expect(loginBody).toEqual({ email: "demo@goatfarm.in", password: "x" });
+  });
+
+  it("accepts an email pasted with non-breaking spaces around it", async () => {
+    let loginBody: unknown;
+    server.use(
+      http.post("/api/auth/login", async ({ request }) => {
+        loginBody = await request.json();
+        return HttpResponse.json({
+          access_token: "tok",
+          user: { id: 3, email: "demo@goatfarm.in", name: null },
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+
+    // An <input type="email"> sanitises only ASCII whitespace, so a value
+    // copied out of a document or mail client keeps its U+00A0 padding —
+    // only the schema's own .trim() rescues it from "Enter a valid email".
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: "\u00A0demo@goatfarm.in\u00A0" },
+    });
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(screen.queryByText("Enter a valid email address")).not.toBeInTheDocument();
+    // The trimmed value is what reaches the API, not the padded original.
+    expect(loginBody).toEqual({ email: "demo@goatfarm.in", password: "demo1234" });
   });
 
   it("rejects credentials just above the API's bounded input sizes", async () => {
@@ -268,6 +372,25 @@ describe("LoginPage — server error handling", () => {
 
     expect(await screen.findByText("Invalid email or password.")).toBeInTheDocument();
     expect(screen.queryByText("Account locked until tomorrow")).not.toBeInTheDocument();
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("announces the server error through its own live alert region", async () => {
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({ detail: "Service temporarily unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+    await submitValidForm(user);
+
+    // The message has to live inside the role="alert" paragraph rather than
+    // as loose text in the form: the fields are valid, so this alert is the
+    // only announcement a screen reader gets that the sign-in failed.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Service temporarily unavailable");
     expect(pushMock).not.toHaveBeenCalled();
   });
 

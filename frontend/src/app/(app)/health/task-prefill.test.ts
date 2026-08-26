@@ -149,4 +149,22 @@ describe("taskPrefill (3-1)", () => {
       {},
     );
   });
+
+  it.each([
+    ["Vaccinate  (PPR live viral, SC)", "(PPR live viral, SC)"],
+    ["vaccinate\n\nGoat Pox", "Goat Pox"],
+  ])("reads past the whole gap after \"vaccinate\", not just one space, in %j", (title, target) => {
+    expect(taskPrefill(makeTask({ category: "VACCINE", title }))).toEqual({
+      disease_target: target,
+    });
+  });
+
+  it("gives a blank target for a duty that says \"vaccinate\" and nothing else", () => {
+    // The capture falls back onto the padding here, and the record form only
+    // prefills a truthy hint - so this has to come back blank rather than as a
+    // lone space typed into the disease field.
+    expect(
+      taskPrefill(makeTask({ category: "VACCINE", title: "[B #2] Day 10: vaccinate  " })),
+    ).toEqual({ disease_target: "" });
+  });
 });

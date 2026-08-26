@@ -3,15 +3,19 @@
  * rendering (timing notes, date-or-dash cells), status badge variants
  * (DONE/OVERDUE/UPCOMING/unknown), empty state, invalid-id guard, RBAC, and
  * the server-error detail.
+ *
+ * Also: the permission-answer wait, multi-digit route ids, the header's
+ * title composition with and without animals.view, the Back link's outline
+ * styling, and the detail-free ("network died") failure message.
  */
 
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
+import { HttpResponse, delay, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ScheduleRowOut } from "@/api/generated/models";
-import { permissionsHandler, server } from "@/test/msw-server";
+import { ALL_PERMISSIONS, permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import VaccinationSchedulePage from "./page";
@@ -211,5 +215,96 @@ describe("VaccinationSchedulePage", () => {
     renderWithProviders(<VaccinationSchedulePage />);
     await screen.findByText("PPR");
     expect(screen.queryByRole("link", { name: "+ Add event" })).not.toBeInTheDocument();
+  });
+
+  // ---------- route id parsing ----------
+
+  it("fetches a multi-digit animal id verbatim", async () => {
+    // Herds outgrow single-digit ids: id 42 must reach the API and drive the
+    // header link and the Back link, not trip the invalid-id guard.
+    paramsMock.animalId = "42";
+    server.use(
+      http.get("/api/health/schedule/:animalId", ({ params }) => {
+        requestedIds.push(String(params.animalId));
+        return HttpResponse.json({ animal_id: 42, rows: ROWS });
+      }),
+    );
+    renderWithProviders(<VaccinationSchedulePage />);
+
+    expect(await screen.findByRole("link", { name: "Animal #42" })).toHaveAttribute(
+      "href",
+      "/animals/42",
+    );
+    expect(screen.queryByText("Invalid animal id.")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to health log" })).toHaveAttribute(
+      "href",
+      "/health?schedule_animal_id=42",
+    );
+    expect(requestedIds).toEqual(["42"]);
+  });
+
+  // ---------- permission gate ----------
+
+  it("waits for the permission answer instead of announcing no access", async () => {
+    // An unanswered permission query is not evidence of a missing grant: the
+    // page must hold its loading placeholder rather than telling an operator
+    // with full rights that the schedule is not theirs.
+    server.use(
+      http.get("/api/auth/permissions", async () => {
+        await delay("infinite");
+        return HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS });
+      }),
+    );
+    renderWithProviders(<VaccinationSchedulePage />);
+
+    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    expect(
+      screen.queryByText("You don't have access to this page."),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Invalid animal id.")).not.toBeInTheDocument();
+    expect(requestedIds).toEqual([]);
+  });
+
+  // ---------- header composition ----------
+
+  it("keeps the title readable around the animal link", async () => {
+    renderWithProviders(<VaccinationSchedulePage />);
+    await screen.findByRole("link", { name: "Animal #7" });
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      /^Vaccination schedule — Animal #7$/,
+    );
+  });
+
+  it("names the animal as plain text for a viewer without animals.view", async () => {
+    server.use(permissionsHandler(["health.view", "health.manage"]));
+    renderWithProviders(<VaccinationSchedulePage />);
+    await screen.findByText("PPR");
+
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).toHaveTextContent(/^Vaccination schedule — Animal #7$/);
+    expect(within(heading).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("styles Back as the secondary action next to the primary add-event button", async () => {
+    renderWithProviders(<VaccinationSchedulePage />);
+    await screen.findByText("PPR");
+
+    const back = screen.getByRole("link", { name: "Back to health log" });
+    expect(back).toHaveClass("border-border", "bg-background");
+    expect(back).not.toHaveClass("bg-primary");
+    expect(screen.getByRole("link", { name: "+ Add event" })).toHaveClass("bg-primary");
+  });
+
+  // ---------- failure with no server detail ----------
+
+  it("explains a schedule fetch that failed without a server detail", async () => {
+    server.use(http.get("/api/health/schedule/:animalId", () => HttpResponse.error()));
+    renderWithProviders(<VaccinationSchedulePage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load the vaccination schedule.",
+    );
+    expect(screen.getByRole("button", { name: "Retry schedule" })).toBeInTheDocument();
   });
 });

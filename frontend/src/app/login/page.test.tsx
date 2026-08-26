@@ -24,6 +24,16 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
+/**
+ * Leaves the page's route while keeping the AuthProvider mounted — exactly
+ * what a real navigation does, since the provider lives in the root layout.
+ * `rendered.unmount()` tears down the provider too, which hides everything
+ * the page's own mounted guard is responsible for.
+ */
+function LoginRoute({ visible }: { visible: boolean }) {
+  return visible ? <LoginPage /> : <p>Left the login route</p>;
+}
+
 describe("LoginPage", () => {
   beforeEach(() => {
     pushMock.mockClear();
@@ -250,6 +260,186 @@ describe("LoginPage", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(pushMock).not.toHaveBeenCalledWith("/farm-select");
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the submit button itself disabled for the whole coalesced flight", async () => {
+    let loginCalls = 0;
+    let releaseLogin!: () => void;
+    const loginGate = new Promise<void>((resolve) => {
+      releaseLogin = resolve;
+    });
+    server.use(
+      http.post("/api/auth/login", async () => {
+        loginCalls += 1;
+        await loginGate;
+        return HttpResponse.json({
+          access_token: "login-token",
+          user: { id: 2, email: "demo@goatfarm.in", name: "Demo User" },
+        });
+      }),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 7, name: "Demo Farm", location: null, role: null }]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+
+    const form = screen.getByRole("button", { name: /sign in/i }).closest("form")!;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() => expect(loginCalls).toBeGreaterThan(0));
+
+    // react-hook-form clears isSubmitting the moment the SECOND (coalesced)
+    // submit returns, so from here only the single-flight `pending` flag still
+    // reports the request. The button must carry its own disabled attribute
+    // through that window, not merely inherit the fieldset's — that is what a
+    // second Enter press on the focused button hits.
+    const button = screen.getByRole("button", { name: /signing in…/i });
+    expect(button).toHaveAttribute("disabled");
+    expect(button).toBeDisabled();
+
+    releaseLogin();
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
+    expect(loginCalls).toBe(1);
+  });
+
+  it("does not establish a session for a page that left the route mid-login", async () => {
+    let farmsCalls = 0;
+    let releaseLogin!: () => void;
+    let loginStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      loginStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseLogin = resolve;
+    });
+    server.use(
+      http.post("/api/auth/login", async () => {
+        loginStarted();
+        await gate;
+        return HttpResponse.json({
+          access_token: "stale-login-token",
+          user: { id: 2, email: "demo@goatfarm.in", name: "Demo User" },
+        });
+      }),
+      http.get("/api/auth/farms", () => {
+        farmsCalls += 1;
+        return HttpResponse.json([
+          { id: 7, name: "Demo Farm", location: null, role: null },
+        ]);
+      }),
+    );
+
+    const user = userEvent.setup();
+    const view = renderWithProviders(<LoginRoute visible />);
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    await started;
+
+    view.rerender(<LoginRoute visible={false} />);
+    releaseLogin();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The provider is still mounted here, so signIn WOULD have installed the
+    // token: only the page's own mounted guard stops it. Establishing the
+    // session anyway would authenticate a route the operator already left —
+    // the membership fetch signIn always makes is the observable proof.
+    expect(farmsCalls).toBe(0);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("does not discover permissions for a page that left the route mid-signIn", async () => {
+    let permissionCalls = 0;
+    let releaseFarms!: () => void;
+    let farmsStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      farmsStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseFarms = resolve;
+    });
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "login-token",
+          user: { id: 2, email: "demo@goatfarm.in", name: "Demo User" },
+        }),
+      ),
+      http.get("/api/auth/farms", async () => {
+        farmsStarted();
+        await gate;
+        return HttpResponse.json([
+          { id: 7, name: "Demo Farm", location: null, role: null },
+        ]);
+      }),
+      http.get("/api/auth/permissions", () => {
+        permissionCalls += 1;
+        return HttpResponse.json({ is_owner: true, permissions: ["dashboard.view"] });
+      }),
+    );
+
+    const user = userEvent.setup();
+    const view = renderWithProviders(<LoginRoute visible />);
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    await started;
+
+    // The session itself completes — the page is gone by the time signIn
+    // resolves, so the login continuation must stop before deciding where
+    // this now-unmounted form should have sent the operator.
+    view.rerender(<LoginRoute visible={false} />);
+    releaseFarms();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(permissionCalls).toBe(0);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate for a page that left the route while permissions loaded", async () => {
+    let releasePermissions!: () => void;
+    let permissionsStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      permissionsStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releasePermissions = resolve;
+    });
+    server.use(
+      http.post("/api/auth/login", () =>
+        HttpResponse.json({
+          access_token: "login-token",
+          user: { id: 2, email: "demo@goatfarm.in", name: "Demo User" },
+        }),
+      ),
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([{ id: 7, name: "Demo Farm", location: null, role: null }]),
+      ),
+      http.get("/api/auth/permissions", async () => {
+        permissionsStarted();
+        await gate;
+        return HttpResponse.json({ is_owner: true, permissions: ["dashboard.view"] });
+      }),
+    );
+
+    const user = userEvent.setup();
+    const view = renderWithProviders(<LoginRoute visible />);
+    await user.type(screen.getByLabelText(/email/i), "demo@goatfarm.in");
+    await user.type(screen.getByLabelText(/password/i), "demo1234");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    await started;
+
+    // Permissions resolve successfully, so nothing else rejects this
+    // continuation: the mounted check is the only thing keeping a
+    // router.push from yanking the operator off the route they moved to.
+    view.rerender(<LoginRoute visible={false} />);
+    releasePermissions();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     expect(pushMock).not.toHaveBeenCalled();
   });
 });

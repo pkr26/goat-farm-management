@@ -8,6 +8,7 @@
  */
 
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +34,20 @@ function RootMountedAfterBootstrap() {
     <StrictMode>
       <RootPage />
     </StrictMode>
+  );
+}
+
+/** The hub plus a way to switch the active farm, which is what drives it
+ *  back into its "still deciding" state after it has already redirected. */
+function RootWithFarmSwitch({ farmId }: { farmId: number }) {
+  const { selectFarm } = useAuth();
+  return (
+    <>
+      <button type="button" onClick={() => selectFarm(farmId)}>
+        Switch farm
+      </button>
+      <RootPage />
+    </>
   );
 }
 
@@ -152,5 +167,47 @@ describe("RootPage redirect hub", () => {
 
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
     expect(localStorage.getItem("goatfarm.farmId")).toBe(String(TEST_FARMS[0].id));
+  });
+
+  it("dispatches no destination other than /login for a signed-out visitor", async () => {
+    server.use(
+      http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
+    );
+
+    renderWithProviders(<RootPage />);
+
+    // AuthProvider sends a signed-out session to /login as well, so asserting
+    // only the last call cannot tell the hub's own destination apart from the
+    // provider's — a hub that redirected somewhere else would hide behind it.
+    // Pin every destination the router was handed instead.
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    expect([...new Set(replaceMock.mock.calls.map(([path]) => path))]).toEqual(["/login"]);
+  });
+
+  it("re-decides after a farm switch without dispatching an undecided destination", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          ...TEST_FARMS,
+          { id: 2, name: "Second Farm", location: null, role: "Mover" },
+        ]),
+      ),
+    );
+    const user = userEvent.setup();
+
+    renderWithProviders(<RootWithFarmSwitch farmId={2} />);
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/dashboard"));
+    // Selecting a farm clears the query cache, so the new farm's permissions
+    // go back to loading and the hub has no destination for a moment. That
+    // undecided state must abort the redirect and re-arm it, never be pushed
+    // to the router as a destination of its own.
+    await user.click(screen.getByRole("button", { name: "Switch farm" }));
+
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledTimes(2));
+    expect(replaceMock.mock.calls.map(([path]) => path)).toEqual([
+      "/dashboard",
+      "/dashboard",
+    ]);
   });
 });
