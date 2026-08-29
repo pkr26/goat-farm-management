@@ -17,9 +17,10 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from fastapi import Response
+from fastapi import HTTPException, Response
 from pydantic import SecretStr
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects import postgresql
 
 import app.api.animals as animals_api
 import app.api.auth as auth_api
@@ -53,7 +54,7 @@ from app.models import (
     WeightRecord,
 )
 from app.schemas.finance import TransactionIn
-from app.schemas.team import WorkerCreateIn
+from app.schemas.team import MembershipOut, WorkerCreateIn
 from app.services.idempotency import (
     _request_hashes,
     purge_expired_idempotency_records,
@@ -65,6 +66,14 @@ from app.utils import today, utcnow
 from .conftest import create_farm, login, owner_with_farm, register
 
 WORKER_PASSWORD = "workerpass123"
+
+# Boundary keys the Idempotency-Key header contract (min_length=1,
+# max_length=128, pattern ^[\x21-\x7e]+$) explicitly admits.
+CONTRACT_ADMITTED_KEYS = ("a", "b!c", "d~e", "x" * 128)
+MALFORMED_KEY_DETAIL = "Idempotency-Key must be 1-128 printable non-whitespace ASCII characters"
+REQUEST_MISMATCH_DETAIL = "Idempotency-Key was already used with a different request"
+INCOMPLETE_RESULT_DETAIL = "Idempotency result is incomplete; retry with a new key"
+BATCH_SIZE_BOUNDS_ERROR = "batch_size must be between 1 and 10000"
 
 
 def finance_payload(**overrides: object) -> dict[str, object]:
@@ -145,6 +154,197 @@ async def test_replay_probe_checks_expiry_after_awaited_query(
         response_type=TransactionIn,
     )
     assert replay is None
+
+
+class ProbeResult:
+    """Minimal ``Result`` stand-in for a direct replay-probe lookup."""
+
+    def __init__(self, record: object) -> None:
+        self._record = record
+
+    def scalar_one_or_none(self) -> object:
+        return self._record
+
+
+class ProbeSession:
+    """Session stand-in that answers the probe's single scoped lookup."""
+
+    def __init__(self, record: object = None) -> None:
+        self._record = record
+        self.executed = 0
+
+    async def execute(self, _statement: object) -> ProbeResult:
+        self.executed += 1
+        return ProbeResult(self._record)
+
+
+def committed_finance_record(**overrides: object) -> tuple[TransactionIn, SimpleNamespace]:
+    """A payload plus the committed, in-retention record the probe would replay."""
+    payload = TransactionIn.model_validate(finance_payload())
+    request_hash, _accepted = _request_hashes("POST /api/finance/new", payload, {})
+    record = SimpleNamespace(
+        expires_at=utcnow() + timedelta(hours=1),
+        request_hash=request_hash,
+        response_body=payload.model_dump(mode="json"),
+        response_status=200,
+        completed_at=utcnow(),
+    )
+    for name, value in overrides.items():
+        setattr(record, name, value)
+    return payload, record
+
+
+async def test_replay_probe_accepts_every_key_the_header_contract_admits() -> None:
+    """A key the Idempotency-Key header admits reaches the lookup, not a 422."""
+    payload = TransactionIn.model_validate(finance_payload())
+
+    for key in CONTRACT_ADMITTED_KEYS:
+        db = ProbeSession()
+        replay = await replay_idempotent_if_committed(
+            db,  # type: ignore[arg-type]
+            http_response=Response(),
+            key=key,
+            farm_id=1,
+            actor_id=1,
+            operation="POST /api/finance/new",
+            payload=payload,
+            path_identity={},
+            response_type=TransactionIn,
+        )
+        assert replay is None, repr(key)
+        assert db.executed == 1, repr(key)
+
+
+@pytest.mark.parametrize("key", ["", "x" * 129, "bad key", "tab\tkey", "del\x7f", "nl\nkey"])
+async def test_replay_probe_rejects_malformed_keys_before_querying(key: str) -> None:
+    """A reusable service caller gets the key guard's exact 422, not a lookup."""
+    payload = TransactionIn.model_validate(finance_payload())
+    db = ProbeSession()
+
+    with pytest.raises(HTTPException) as rejected:
+        await replay_idempotent_if_committed(
+            db,  # type: ignore[arg-type]
+            http_response=Response(),
+            key=key,
+            farm_id=1,
+            actor_id=1,
+            operation="POST /api/finance/new",
+            payload=payload,
+            path_identity={},
+            response_type=TransactionIn,
+        )
+
+    assert rejected.value.status_code == 422
+    assert rejected.value.detail == MALFORMED_KEY_DETAIL
+    assert db.executed == 0
+
+
+@pytest.mark.parametrize(
+    ("farm_id", "operation"),
+    [(None, "team.workers.create"), (1, "auth.farms.create")],
+)
+async def test_replay_probe_rejects_a_scope_mismatch(farm_id: int | None, operation: str) -> None:
+    """Programmer misuse names the one actor-scoped operation verbatim."""
+    payload = TransactionIn.model_validate(finance_payload())
+    db = ProbeSession()
+
+    with pytest.raises(ValueError) as mismatch:
+        await replay_idempotent_if_committed(
+            db,  # type: ignore[arg-type]
+            http_response=Response(),
+            key="scope-mismatch-key",
+            farm_id=farm_id,
+            actor_id=1,
+            operation=operation,
+            payload=payload,
+            path_identity={},
+            response_type=TransactionIn,
+        )
+
+    assert str(mismatch.value) == (
+        "farm_id may be omitted only for the actor-scoped 'auth.farms.create' operation"
+    )
+    assert db.executed == 0
+
+
+async def test_replay_probe_expiry_boundary_is_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A record expiring exactly at the post-query clock reading is already expired."""
+    before_query = utcnow()
+    after_query = before_query + timedelta(seconds=2)
+    payload, record = committed_finance_record(expires_at=after_query)
+    db = ProbeSession(record)
+    monkeypatch.setattr(
+        idempotency_service,
+        "utcnow",
+        lambda: after_query if db.executed else before_query,
+    )
+    http_response = Response()
+
+    replay = await replay_idempotent_if_committed(
+        db,  # type: ignore[arg-type]
+        http_response=http_response,
+        key="expires-exactly-on-the-boundary",
+        farm_id=1,
+        actor_id=1,
+        operation="POST /api/finance/new",
+        payload=payload,
+        path_identity={},
+        response_type=TransactionIn,
+    )
+
+    assert replay is None
+    assert "Idempotency-Replayed" not in http_response.headers
+
+
+@pytest.mark.parametrize("missing", ["response_body", "response_status", "completed_at"])
+async def test_replay_probe_fails_closed_on_incomplete_record(missing: str) -> None:
+    """A partially written record is refused, never handed back as a success."""
+    payload, record = committed_finance_record(**{missing: None})
+    http_response = Response()
+
+    with pytest.raises(HTTPException) as refused:
+        await replay_idempotent_if_committed(
+            ProbeSession(record),  # type: ignore[arg-type]
+            http_response=http_response,
+            key="incomplete-record-key",
+            farm_id=1,
+            actor_id=1,
+            operation="POST /api/finance/new",
+            payload=payload,
+            path_identity={},
+            response_type=TransactionIn,
+        )
+
+    assert refused.value.status_code == 409
+    assert refused.value.detail == INCOMPLETE_RESULT_DETAIL
+    assert "Idempotency-Replayed" not in http_response.headers
+
+
+async def test_replay_probe_restores_the_committed_status_and_marks_the_replay() -> None:
+    """A replay carries the committed status, not whatever the route declares."""
+    payload, record = committed_finance_record()
+    http_response = Response()
+    # What FastAPI's solve_dependencies injects before a route body runs.
+    http_response.status_code = None  # type: ignore[assignment]
+
+    replay = await replay_idempotent_if_committed(
+        ProbeSession(record),  # type: ignore[arg-type]
+        http_response=http_response,
+        key="restores-the-committed-status",
+        farm_id=1,
+        actor_id=1,
+        operation="POST /api/finance/new",
+        payload=payload,
+        path_identity={},
+        response_type=TransactionIn,
+    )
+
+    assert replay is not None
+    assert replay.model_dump(mode="json") == record.response_body
+    assert http_response.status_code == 200
+    assert http_response.headers["Idempotency-Replayed"] == "true"
 
 
 def hold_winning_claim(monkeypatch: pytest.MonkeyPatch, route_module: ModuleType) -> None:
@@ -1083,6 +1283,164 @@ async def test_expiry_cleanup_is_scheduled_and_strictly_batch_bounded(
             await purge_expired_idempotency_records(db, batch_size=0)
 
 
+async def test_purge_candidate_query_orders_by_expiry_then_id_and_skips_locked_rows() -> None:
+    """The candidate SELECT keeps retention order, its id tiebreak and SKIP LOCKED."""
+    statements: list[Any] = []
+
+    class EmptyResult:
+        def scalars(self):  # type: ignore[no-untyped-def]
+            return iter(())
+
+    class CapturingSession:
+        async def execute(self, statement):  # type: ignore[no-untyped-def]
+            statements.append(statement)
+            return EmptyResult()
+
+    removed = await purge_expired_idempotency_records(
+        CapturingSession(),  # type: ignore[arg-type]
+        batch_size=7,
+    )
+
+    assert removed == 0
+    assert len(statements) == 1
+    rendered = str(statements[0].compile(dialect=postgresql.dialect()))
+    assert "ORDER BY idempotency_records.expires_at, idempotency_records.id" in rendered
+    assert rendered.rstrip().endswith("FOR UPDATE SKIP LOCKED")
+
+
+async def test_purge_skips_rows_locked_by_a_concurrent_transaction(
+    client: httpx.AsyncClient,
+) -> None:
+    """A row a live request holds is skipped, never waited on."""
+    owner = await owner_with_farm(client, email="purge-lock-owner@farm.in")
+    for index in range(2):
+        response = await client.post(
+            "/api/finance/new",
+            json=finance_payload(amount=index + 1),
+            headers=owner | {"Idempotency-Key": f"purge-lock-key-{index}"},
+        )
+        assert response.status_code == 201, response.text
+
+    async with get_sessionmaker()() as db:
+        ids = list(
+            (
+                await db.execute(select(IdempotencyRecord.id).order_by(IdempotencyRecord.id))
+            ).scalars()
+        )
+        await db.execute(
+            update(IdempotencyRecord)
+            .where(IdempotencyRecord.id.in_(ids))
+            .values(expires_at=utcnow() - timedelta(seconds=1))
+        )
+        await db.commit()
+    assert len(ids) == 2
+
+    holder = get_sessionmaker()()
+    try:
+        held = await holder.execute(
+            select(IdempotencyRecord).where(IdempotencyRecord.id == ids[0]).with_for_update()
+        )
+        assert held.scalar_one().id == ids[0]
+        async with get_sessionmaker()() as db:
+            # Without SKIP LOCKED the candidate SELECT parks behind the holder
+            # until the statement timeout, so the wait itself is the assertion.
+            removed = await asyncio.wait_for(
+                purge_expired_idempotency_records(db, batch_size=10),
+                timeout=5,
+            )
+            await db.commit()
+    finally:
+        await holder.rollback()
+        await holder.close()
+
+    assert removed == 1
+    async with get_sessionmaker()() as db:
+        remaining = list((await db.execute(select(IdempotencyRecord.id))).scalars())
+    assert remaining == [ids[0]]
+
+
+async def test_purge_deletes_the_earliest_expiring_rows_first(
+    client: httpx.AsyncClient,
+) -> None:
+    """A bounded batch drains by how long a row has been expired, not by id."""
+    owner = await owner_with_farm(client, email="purge-order-owner@farm.in")
+    for index in range(3):
+        response = await client.post(
+            "/api/finance/new",
+            json=finance_payload(amount=index + 1),
+            headers=owner | {"Idempotency-Key": f"purge-order-key-{index}"},
+        )
+        assert response.status_code == 201, response.text
+
+    now = utcnow()
+    async with get_sessionmaker()() as db:
+        ids = list(
+            (
+                await db.execute(select(IdempotencyRecord.id).order_by(IdempotencyRecord.id))
+            ).scalars()
+        )
+        # expires_at descends as id ascends, so the two orders disagree.
+        for offset, record_id in enumerate(ids):
+            await db.execute(
+                update(IdempotencyRecord)
+                .where(IdempotencyRecord.id == record_id)
+                .values(expires_at=now - timedelta(seconds=1 + offset))
+            )
+        await db.commit()
+    assert len(ids) == 3
+
+    async with get_sessionmaker()() as db:
+        removed = await purge_expired_idempotency_records(db, batch_size=1)
+        await db.commit()
+
+    assert removed == 1
+    async with get_sessionmaker()() as db:
+        remaining = set((await db.execute(select(IdempotencyRecord.id))).scalars())
+    assert remaining == {ids[0], ids[1]}
+
+
+async def test_purge_removes_a_record_expiring_exactly_now(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The purge boundary is inclusive, matching both replay paths."""
+    owner = await owner_with_farm(client, email="purge-boundary-owner@farm.in")
+    response = await client.post(
+        "/api/finance/new",
+        json=finance_payload(amount=5),
+        headers=owner | {"Idempotency-Key": "purge-boundary-key"},
+    )
+    assert response.status_code == 201, response.text
+
+    boundary = utcnow()
+    async with get_sessionmaker()() as db:
+        await db.execute(update(IdempotencyRecord).values(expires_at=boundary))
+        await db.commit()
+    monkeypatch.setattr(idempotency_service, "utcnow", lambda: boundary)
+
+    async with get_sessionmaker()() as db:
+        removed = await purge_expired_idempotency_records(db, batch_size=10)
+        await db.commit()
+
+    assert removed == 1
+    assert await idempotency_count() == 0
+
+
+async def test_purge_batch_size_bounds_are_inclusive_1_and_10000() -> None:
+    """Both legal deployment edges are accepted; the rejection text is exact."""
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_idempotency_records(db, batch_size=1) == 0
+        assert await purge_expired_idempotency_records(db, batch_size=10_000) == 0
+
+        with pytest.raises(ValueError) as too_low:
+            await purge_expired_idempotency_records(db, batch_size=0)
+        with pytest.raises(ValueError) as too_high:
+            await purge_expired_idempotency_records(db, batch_size=10_001)
+
+    assert str(too_low.value) == BATCH_SIZE_BOUNDS_ERROR
+    assert str(too_high.value) == BATCH_SIZE_BOUNDS_ERROR
+
+
 async def test_concurrent_waiter_takes_over_after_claimant_rollback(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1348,6 +1706,229 @@ async def test_worker_create_replay_accepts_previous_hmac_key_during_rotation(
         headers=keyed,
     )
     assert conflict.status_code == 409, conflict.text
+
+
+async def test_worker_create_accepts_every_key_the_header_contract_admits(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every key shape the published header contract admits still provisions."""
+    owner = await owner_with_farm(client, email="boundary-key-owner@farm.in")
+
+    async def immediate_hash(password: str, *, actor_id: int) -> str:
+        return f"prepared:{password}"
+
+    monkeypatch.setattr(team_api, "_hash_team_password", immediate_hash)
+    team = await client.get("/api/team", headers=owner)
+    assert team.status_code == 200, team.text
+    cleaner = next(role["id"] for role in team.json()["roles"] if role["code"] == "CLEANER")
+
+    for index, key in enumerate(CONTRACT_ADMITTED_KEYS):
+        created = await client.post(
+            "/api/team/workers",
+            json={
+                "email": f"boundary-key-worker-{index}@farm.in",
+                "name": f"Boundary Key Worker {index}",
+                "password": WORKER_PASSWORD,
+                "role_id": cleaner,
+            },
+            headers=owner | {"Idempotency-Key": key},
+        )
+        assert created.status_code == 201, f"{key!r}: {created.text}"
+
+
+async def test_worker_create_replay_conflict_names_the_request_mismatch(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The replay probe's 409 keeps its exact operator-facing explanation."""
+    owner = await owner_with_farm(client, email="probe-conflict-owner@farm.in")
+
+    async def immediate_hash(password: str, *, actor_id: int) -> str:
+        return f"prepared:{password}"
+
+    monkeypatch.setattr(team_api, "_hash_team_password", immediate_hash)
+    team = await client.get("/api/team", headers=owner)
+    assert team.status_code == 200, team.text
+    cleaner = next(role["id"] for role in team.json()["roles"] if role["code"] == "CLEANER")
+    payload: dict[str, object] = {
+        "email": "probe-conflict-worker@farm.in",
+        "name": "Probe Conflict Worker",
+        "password": WORKER_PASSWORD,
+        "role_id": cleaner,
+    }
+    keyed = owner | {"Idempotency-Key": "probe-conflict-key"}
+    first = await client.post("/api/team/workers", json=payload, headers=keyed)
+    assert first.status_code == 201, first.text
+
+    conflict = await client.post(
+        "/api/team/workers",
+        json=payload | {"password": "differentpass123"},
+        headers=keyed,
+    )
+
+    assert conflict.status_code == 409, conflict.text
+    assert conflict.json()["detail"] == REQUEST_MISMATCH_DETAIL
+
+
+async def test_replay_probe_lookup_is_scoped_to_farm_actor_and_operation(
+    client: httpx.AsyncClient,
+) -> None:
+    """A committed record from another scope is never a replay candidate."""
+    owner = await owner_with_farm(client, email="probe-scope-owner@farm.in")
+    beta = await create_farm(
+        client,
+        {"Authorization": owner["Authorization"]},
+        name="Probe Scope Beta",
+    )
+    await register(client, email="probe-scope-stranger@farm.in")
+    async with get_sessionmaker()() as db:
+        owner_id = (
+            await db.execute(select(User.id).where(User.email == "probe-scope-owner@farm.in"))
+        ).scalar_one()
+        stranger_id = (
+            await db.execute(select(User.id).where(User.email == "probe-scope-stranger@farm.in"))
+        ).scalar_one()
+    alpha_id = int(owner["X-Farm-Id"])
+    beta_id = int(beta["X-Farm-Id"])
+
+    payload = WorkerCreateIn.model_validate(
+        {
+            "email": "probe-scope-worker@farm.in",
+            "name": "Probe Scope Worker",
+            "password": WORKER_PASSWORD,
+            "role_id": 1,
+        }
+    )
+    request_hash, _accepted = _request_hashes("team.workers.create", payload, {})
+    key = "probe-scope-shared-key"
+    key_digest = hashlib.sha256(key.encode("ascii")).hexdigest()
+    # A decoy body that must never be handed to this caller.
+    decoy_body = {
+        "id": 4242,
+        "user_id": 9999,
+        "email": "leaked-worker@farm.in",
+        "name": "Leaked Worker",
+        "role_id": 1,
+        "role_name": "Cleaner",
+        "is_active": True,
+        "can_reset_password": True,
+        "reset_password_block_reason": None,
+    }
+    decoys = {
+        "another actor": (alpha_id, stranger_id, "team.workers.create"),
+        "another farm": (beta_id, owner_id, "team.workers.create"),
+        "another operation": (alpha_id, owner_id, "POST /api/finance/new"),
+    }
+
+    for label, (farm_id, actor_id, operation) in decoys.items():
+        async with get_sessionmaker()() as db:
+            db.add(
+                IdempotencyRecord(
+                    farm_id=farm_id,
+                    actor_id=actor_id,
+                    operation=operation,
+                    key_digest=key_digest,
+                    request_hash=request_hash,
+                    response_status=201,
+                    response_body=decoy_body,
+                    completed_at=utcnow(),
+                    expires_at=utcnow() + timedelta(hours=1),
+                )
+            )
+            await db.commit()
+
+        async with get_sessionmaker()() as db:
+            http_response = Response()
+            replay = await replay_idempotent_if_committed(
+                db,
+                http_response=http_response,
+                key=key,
+                farm_id=alpha_id,
+                actor_id=owner_id,
+                operation="team.workers.create",
+                payload=payload,
+                path_identity={},
+                response_type=MembershipOut,
+            )
+            assert replay is None, label
+            assert "Idempotency-Replayed" not in http_response.headers, label
+
+        async with get_sessionmaker()() as db:
+            await db.execute(delete(IdempotencyRecord))
+            await db.commit()
+
+
+async def test_worker_create_key_is_not_shared_across_operations(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A finance key is not a worker-create key for the same actor and farm."""
+    owner = await owner_with_farm(client, email="cross-operation-key-owner@farm.in")
+
+    async def immediate_hash(password: str, *, actor_id: int) -> str:
+        return f"prepared:{password}"
+
+    monkeypatch.setattr(team_api, "_hash_team_password", immediate_hash)
+    keyed = owner | {"Idempotency-Key": "shared-across-operations"}
+    finance = await client.post("/api/finance/new", json=finance_payload(amount=42), headers=keyed)
+    assert finance.status_code == 201, finance.text
+
+    team = await client.get("/api/team", headers=owner)
+    assert team.status_code == 200, team.text
+    cleaner = next(role["id"] for role in team.json()["roles"] if role["code"] == "CLEANER")
+    worker = await client.post(
+        "/api/team/workers",
+        json={
+            "email": "cross-operation-worker@farm.in",
+            "name": "Cross Operation Worker",
+            "password": WORKER_PASSWORD,
+            "role_id": cleaner,
+        },
+        headers=keyed,
+    )
+
+    assert worker.status_code == 201, worker.text
+    assert "Idempotency-Replayed" not in worker.headers
+
+
+async def test_worker_create_key_is_not_shared_across_farms(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One owner may reuse a retry key in each of their farms."""
+    owner = await owner_with_farm(client, email="cross-farm-key-owner@farm.in")
+    beta = await create_farm(
+        client,
+        {"Authorization": owner["Authorization"]},
+        name="Cross Farm Beta",
+    )
+
+    async def immediate_hash(password: str, *, actor_id: int) -> str:
+        return f"prepared:{password}"
+
+    monkeypatch.setattr(team_api, "_hash_team_password", immediate_hash)
+    shared_key = {"Idempotency-Key": "shared-across-farms"}
+    created = []
+    for label, headers in (("alpha", owner), ("beta", beta)):
+        team = await client.get("/api/team", headers=headers)
+        assert team.status_code == 200, team.text
+        cleaner = next(role["id"] for role in team.json()["roles"] if role["code"] == "CLEANER")
+        worker = await client.post(
+            "/api/team/workers",
+            json={
+                "email": f"cross-farm-{label}-worker@farm.in",
+                "name": f"Cross Farm {label.title()} Worker",
+                "password": WORKER_PASSWORD,
+                "role_id": cleaner,
+            },
+            headers=headers | shared_key,
+        )
+        assert worker.status_code == 201, f"{label}: {worker.text}"
+        assert "Idempotency-Replayed" not in worker.headers
+        created.append(worker.json()["id"])
+
+    assert created[0] != created[1]
 
 
 async def test_pending_manual_task_limit_is_concurrency_safe_and_replay_safe(

@@ -844,6 +844,34 @@ async def test_logout_invalid_tokens_are_blocked_before_repeated_signature_work(
 
 
 @pytest.mark.usefixtures("rate_limit_one")
+async def test_invalid_token_throttle_body_explains_the_auth_lockout(
+    client: httpx.AsyncClient,
+) -> None:
+    """A 429 from the invalid-token budget must explain itself.
+
+    Pinning only the status and Retry-After left the body free to degrade to
+    the bare "Too Many Requests" status phrase, so a throttled legitimate
+    client would never learn that authentication — not the route — is locked.
+    """
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    headers = {"Authorization": f"Bearer {forge_token(1, key=attacker_key)}"}
+    assert (await client.get("/api/auth/me", headers=headers)).status_code == 401
+    blocked = await client.get("/api/auth/me", headers=headers)
+    assert blocked.status_code == 429
+    assert blocked.headers["Retry-After"] == "300"
+    assert blocked.json()["detail"] == (
+        "Too many invalid authentication attempts — please try again later."
+    )
+
+    # Logout shares the access-token ledger, so it must explain itself too.
+    logout_blocked = await client.post("/api/auth/logout", headers=headers)
+    assert logout_blocked.status_code == 429
+    assert logout_blocked.json()["detail"] == (
+        "Too many invalid authentication attempts — please try again later."
+    )
+
+
+@pytest.mark.usefixtures("rate_limit_one")
 async def test_logout_bounds_each_invalid_token_when_the_other_component_is_authentic(
     client: httpx.AsyncClient,
 ) -> None:
@@ -877,6 +905,78 @@ async def test_logout_bounds_each_invalid_token_when_the_other_component_is_auth
     assert (await client.post("/api/auth/logout", headers=expired_headers)).status_code == 204
     set_refresh_cookie(client, "attacker-refresh")
     assert (await client.post("/api/auth/logout", headers=expired_headers)).status_code == 429
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_repeated_invalid_access_token_is_bounded_without_poisoning_the_limiter(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recording a classified-invalid token must store its real window.
+
+    Every other invalid-token test either stops at the first charge or uses
+    ten distinct tokens, so no bucket was ever recorded twice. A window of
+    ``None`` survives the first record and then makes both the second record
+    and the periodic sweep raise TypeError, turning two unauthenticated
+    requests into a permanent, process-wide auth outage.
+    """
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = forge_token(1, key=attacker_key)  # ONE token, presented repeatedly
+    headers = {"Authorization": f"Bearer {token}"}
+    codes = [(await client.get("/api/auth/me", headers=headers)).status_code for _ in range(4)]
+    assert codes == [401, 401, 401, 429]  # three charged attempts, then the token ceiling
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    assert auth_limiter._windows[("access-token-invalid-token", digest)] == 300
+
+    # A poisoned window would also break the shared limiter for every later
+    # caller once the periodic sweep runs.
+    monkeypatch.setattr(auth_limiter, "_next_sweep", 0.0)
+    probe = await client.post(
+        "/api/auth/login", json={"email": "sweep-probe@farm.in", "password": "wrongpass1"}
+    )
+    assert probe.status_code == 401
+
+
+@pytest.mark.usefixtures("rate_limit_one")
+async def test_invalid_token_ip_budget_is_scoped_to_one_source_ip(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The wide anti-spray ledger is per source IP, not one global bucket.
+
+    Every other invalid-token test drives the app from a single host, where a
+    constant key and the real client host count identically. Collapsing the
+    ledger would let one attacker turn every other client's first
+    invalid-token 401 into a 429 for the whole window.
+    """
+    from app.main import create_app
+
+    monkeypatch.setenv("GOATFARM_TRUSTED_PROXY_HOSTS", "127.0.0.1")
+    get_settings.cache_clear()
+    app = create_app()
+    attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as proxied:
+        codes = []
+        for _ in range(10):  # ten distinct forgeries — only the per-IP ledger can trip
+            resp = await proxied.get(
+                "/api/auth/me",
+                headers={
+                    "Authorization": f"Bearer {forge_token(1, key=attacker_key)}",
+                    "X-Forwarded-For": "1.2.3.4",
+                },
+            )
+            codes.append(resp.status_code)
+        assert codes == [*([401] * 9), 429]
+        neighbor = await proxied.get(
+            "/api/auth/me",
+            headers={
+                "Authorization": f"Bearer {forge_token(1, key=attacker_key)}",
+                "X-Forwarded-For": "5.6.7.8",
+            },
+        )
+        assert neighbor.status_code == 401  # a different source IP keeps its own budget
+    assert ("access-token-invalid-ip", "1.2.3.4") in auth_limiter._hits
+    assert ("access-token-invalid-ip", "5.6.7.8") in auth_limiter._hits
 
 
 @pytest.mark.usefixtures("rate_limit_one")
@@ -970,6 +1070,21 @@ def test_global_sweep_forgets_stale_unique_keys_without_revisiting_them() -> Non
     assert limiter._hits == {}
 
 
+def test_default_sweep_interval_expires_stale_keys_after_thirty_seconds() -> None:
+    """The shipped limiter sweeps on its documented 30s cadence.
+
+    The sweep test above pins an explicit interval, so the default that the
+    single production instance actually runs with was never exercised.
+    """
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0])  # defaults on purpose
+    for i in range(100):
+        limiter.record("login", f"one-shot-{i}", 10)
+    now[0] += 30.0  # exactly the documented default interval
+    assert not limiter.is_blocked("login", "unrelated", 3, 10)
+    assert limiter._hits == {}
+
+
 def test_sliding_window_cardinality_is_hard_bounded() -> None:
     now = [1000.0]
     limiter = SlidingWindowRateLimiter(clock=lambda: now[0], max_keys=25, sweep_interval_seconds=60)
@@ -978,6 +1093,52 @@ def test_sliding_window_cardinality_is_hard_bounded() -> None:
     assert len(limiter._hits) == 25
     assert len(limiter._windows) == 25
     assert len(limiter._limits) <= 25
+
+
+def test_default_cardinality_ceiling_is_fifty_thousand_keys() -> None:
+    """50_000 buckets is the documented memory ceiling of the live limiter.
+
+    The bound above is only ever asserted for an explicit ``max_keys``; the
+    default the process-wide ``auth_limiter`` ships with was unpinned.
+    """
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0])  # defaults on purpose
+    for i in range(50_001):
+        limiter.record("register", f"unique-{i}", 300)
+    assert len(limiter._hits) == 50_000
+    assert len(limiter._windows) == 50_000
+
+
+def test_limiter_accepts_its_smallest_legal_bounds() -> None:
+    """A one-slot, one-second limiter is a legal, working configuration.
+
+    Both constructor guards reject only values below 1. No test ever passed
+    the boundary itself, so an off-by-one in either guard would have made the
+    smallest documented configuration unconstructable unnoticed.
+    """
+    now = [1000.0]
+    limiter = SlidingWindowRateLimiter(clock=lambda: now[0], max_keys=1, sweep_interval_seconds=1)
+    limiter.record("login-email", "victim@farm.in", 300, max_attempts=1)
+    assert limiter.is_blocked("login-email", "victim@farm.in", 1, 300)
+    limiter.record("login-email", "spray@farm.in", 300, max_attempts=1)
+    assert list(limiter._hits) == [("login-email", "spray@farm.in")]
+
+
+def test_limiter_rejects_nonpositive_bounds_with_named_messages() -> None:
+    """A rejected bound must name the keyword argument that was wrong.
+
+    Neither guard body ran anywhere in the suite, so the diagnostic an
+    operator reads out of the startup traceback was entirely unasserted; the
+    anchors are what keep it from degrading to ``None`` or a mangled variant.
+    """
+    with pytest.raises(ValueError, match=r"^max_keys must be positive$"):
+        SlidingWindowRateLimiter(max_keys=0)
+    with pytest.raises(ValueError, match=r"^max_keys must be positive$"):
+        SlidingWindowRateLimiter(max_keys=-1)
+    with pytest.raises(ValueError, match=r"^sweep_interval_seconds must be positive$"):
+        SlidingWindowRateLimiter(sweep_interval_seconds=0)
+    with pytest.raises(ValueError, match=r"^sweep_interval_seconds must be positive$"):
+        SlidingWindowRateLimiter(sweep_interval_seconds=-5)
 
 
 def test_hot_rate_limit_bucket_is_strictly_threshold_bounded() -> None:
@@ -1445,6 +1606,70 @@ def test_app_managed_development_pair_recovers_after_torn_publish(
     assert isinstance(private_key, rsa.RSAPrivateKey)
     assert isinstance(public_key, rsa.RSAPublicKey)
     assert private_key.public_key().public_numbers() == public_key.public_numbers()
+
+
+def test_healthy_app_managed_development_pair_is_reused_not_regenerated(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    """A later dev boot must adopt the existing application-managed pair.
+
+    Only the rejection paths (torn, mismatched, non-PEM) were covered. Were a
+    healthy pair reported invalid, every keyring load would silently rotate
+    the signing key, logging out every outstanding access/refresh token.
+    """
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    first = issue_access_token(1)  # first boot: generates the pair and the lock marker
+    private_before = priv.read_bytes()
+    public_before = pub.read_bytes()
+    assert (priv.parent / ".jwt_keygen.lock").exists()
+    assert security._development_keypair_is_valid(priv, pub) is True
+
+    try:
+        security._jwt_keyring = None  # second boot: reload the same paths from disk
+        security._key_cache.clear()
+        issue_access_token(1)
+
+        assert priv.read_bytes() == private_before
+        assert pub.read_bytes() == public_before
+        assert decode_token(first, "access") == 1
+    finally:
+        security._jwt_keyring = None
+
+
+def test_unreadable_app_managed_development_pair_is_repaired(
+    tmp_jwt_keys: tuple[Path, Path],
+) -> None:
+    """Unparsable key material is rejected and repaired, never called valid.
+
+    The validator's whole job is refusing bad material, but its exception
+    handler was never asserted on: reporting such a pair valid skips the
+    repair and leaves the keyring loader unable to issue or verify anything.
+    """
+    from app import security
+
+    priv, pub = tmp_jwt_keys
+    priv.parent.mkdir(parents=True)
+    priv.write_bytes(b"-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----\n")
+    pub.write_bytes(b"not a public key either")
+    # Without the application-owned marker _ensure_keypair never consults the
+    # validator at all, so the repair path would go untested.
+    (priv.parent / ".jwt_keygen.lock").touch(mode=0o600)
+
+    assert security._development_keypair_is_valid(priv, pub) is False
+
+    try:
+        with security._key_lock:
+            security._ensure_keypair()
+
+        private_key = security.serialization.load_pem_private_key(priv.read_bytes(), password=None)
+        public_key = security.serialization.load_pem_public_key(pub.read_bytes())
+        assert isinstance(private_key, rsa.RSAPrivateKey)
+        assert isinstance(public_key, rsa.RSAPublicKey)
+        assert private_key.public_key().public_numbers() == public_key.public_numbers()
+    finally:
+        security._jwt_keyring = None
 
 
 def test_partial_keypair_reader_crosses_in_progress_generation_lock(

@@ -29,8 +29,8 @@ from app.services.health import (
 )
 from app.utils import today, utcnow
 
-from .conftest import create_farm, owner_with_farm
-from .test_health_extended import iso, make_animal, make_batch, record_event
+from .conftest import create_farm, owner_with_farm, register
+from .test_health_extended import iso, make_animal, make_batch, post_event, record_event
 
 
 async def wait_for_lock_waiter(minimum: int = 1, timeout_seconds: float = 10.0) -> None:
@@ -163,6 +163,112 @@ async def test_bulk_write_rejects_missing_duplicate_and_stale_reviewed_sets(
     assert ledger.json()["total"] == 0
 
 
+async def test_stale_reviewed_snapshot_states_its_conflict_verbatim(
+    client: httpx.AsyncClient,
+) -> None:
+    """Pins the operator-facing 409 copy raised once a reviewed target went stale."""
+    owner = await owner_with_farm(client)
+    await make_animal(client, owner, tag="COPY-1")
+    second = await make_animal(client, owner, tag="COPY-2")
+    reviewed = await preview(client, owner, scope="bucket", bucket="FOUNDATION")
+    expected = reviewed.json()["target_animal_ids"]
+
+    died = await client.post(
+        f"/api/animals/{second['id']}/status",
+        json={"new_status": "DEAD"},
+        headers=owner,
+    )
+    assert died.status_code == 200, died.text
+    stale = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": expected,
+            "type": "VACCINE",
+        },
+        headers=owner,
+    )
+
+    # The locked ids still match the reviewed set, so it is the stability guard
+    # that speaks here rather than the id-mismatch guard. Its wording is what
+    # the operator is shown, so it is pinned exactly rather than case-folded.
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"] == "Reviewed target snapshot is stale"
+
+
+async def test_bulk_snapshot_never_locks_or_doses_a_foreign_farm_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """A reviewed set naming another farm's animal is stale, never a cross-tenant lock."""
+    victim = await owner_with_farm(client, email="victim@farm.in", farm_name="Victim")
+    outsider = await make_animal(client, victim, tag="VICTIM-1")
+    attacker = await owner_with_farm(client, email="attacker@farm.in", farm_name="Attacker")
+    mine = await make_animal(client, attacker, tag="MINE-1")
+
+    stolen = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": sorted([mine["id"], outsider["id"]]),
+            "type": "FOOTBATH",
+        },
+        headers=attacker,
+    )
+
+    # The target lock is farm-scoped, so the foreign id cannot come back, the
+    # reviewed set cannot match, and no row outside the tenant is ever locked
+    # or dosed — the composite health-event foreign key is not the last line.
+    assert stolen.status_code == 409, stolen.text
+    assert stolen.json()["detail"] == "Reviewed target snapshot is stale"
+    victim_ledger = await client.get("/api/health/events", headers=victim)
+    assert victim_ledger.status_code == 200, victim_ledger.text
+    assert victim_ledger.json()["events"] == []
+    assert victim_ledger.json()["total"] == 0
+
+
+async def test_bulk_lock_walks_targets_in_canonical_id_order(
+    client: httpx.AsyncClient,
+) -> None:
+    """Canonical ascending-id lock order holds even when the heap disagrees."""
+    owner = await owner_with_farm(client, email="order@farm.in", farm_name="Order")
+    first = await make_animal(client, owner, tag="ORDER-1")
+    second = await make_animal(client, owner, tag="ORDER-2")
+    third = await make_animal(client, owner, tag="ORDER-3")
+    expected = sorted([first["id"], second["id"], third["id"]])
+
+    async with get_sessionmaker()() as db:
+        # Rewriting the lowest id writes a new live tuple at the end of the
+        # heap, so physical order and id order now genuinely disagree.
+        await db.execute(update(Animal).where(Animal.id == first["id"]).values(name="Moved goat"))
+        await db.commit()
+        heap_order = list(
+            (
+                await db.execute(
+                    select(Animal.id).where(Animal.id.in_(expected)).order_by(text("ctid"))
+                )
+            ).scalars()
+        )
+    assert heap_order == [second["id"], third["id"], first["id"]]
+
+    recorded = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": expected,
+            "type": "FOOTBATH",
+        },
+        headers=owner,
+    )
+    # An unordered FOR UPDATE would lock out of canonical order and then read
+    # the ids back in heap order, failing the freshness comparison and telling
+    # the operator a perfectly current snapshot is stale.
+    assert recorded.status_code == 201, recorded.text
+    assert [event["animal_id"] for event in recorded.json()] == expected
+
+
 async def test_bucket_bulk_stays_at_250_while_valid_purchase_batch_remains_treatable(
     client: httpx.AsyncClient,
 ) -> None:
@@ -220,6 +326,43 @@ async def test_bucket_bulk_stays_at_250_while_valid_purchase_batch_remains_treat
     )
     assert treated.status_code == 201, treated.text
     assert len(treated.json()) == 251
+
+
+async def test_largest_int32_purchase_batch_id_is_still_treatable(
+    client: httpx.AsyncClient,
+) -> None:
+    """The int32 ceiling is a legal batch id, not a permanently stale snapshot."""
+    owner = await owner_with_farm(client, email="edge@farm.in", farm_name="Edge")
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text(
+                "SELECT setval(pg_get_serial_sequence('purchase_batches', 'id'), :ceiling, false)"
+            ),
+            {"ceiling": 2_147_483_647},
+        )
+        await db.commit()
+
+    batch = await make_batch(client, owner, count=2)
+    assert batch["id"] == 2_147_483_647
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal_ids = sorted(animal["id"] for animal in detail.json()["animals"])
+
+    recorded = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "batch",
+            "purchase_batch_id": batch["id"],
+            "expected_animal_ids": animal_ids,
+            "type": "VACCINE",
+        },
+        headers=owner,
+    )
+    # The batch lookup gate covers the whole int32 range; excluding its top
+    # value would leave this batch resolvable nowhere and untreatable forever.
+    assert recorded.status_code == 201, recorded.text
+    assert [event["animal_id"] for event in recorded.json()] == animal_ids
+    assert {event["purchase_batch_id"] for event in recorded.json()} == {batch["id"]}
 
 
 async def test_linked_batch_health_prelocks_active_animals_outside_quarantine(
@@ -387,6 +530,208 @@ async def test_batch_animal_cannot_reenter_an_incomplete_protocol(
     )
     assert refused.status_code == 409, refused.text
     assert "protocol has started, ended, or is incomplete" in refused.json()["detail"]
+
+
+async def test_batch_animal_cannot_reenter_after_recorded_protocol_facts(
+    client: httpx.AsyncClient,
+) -> None:
+    """Completion or rejection facts on a still-PENDING protocol row refuse re-entry."""
+    owner = await owner_with_farm(client)
+    identity = await client.get("/api/auth/me", headers=owner)
+    assert identity.status_code == 200, identity.text
+    owner_id = identity.json()["id"]
+    batch = await make_batch(client, owner, count=1, create_animals=True)
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal = detail.json()["animals"][0]
+    protocol_task_id = detail.json()["tasks"][0]["id"]
+    moved = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+    reentry = {
+        "to_bucket": "QUARANTINE",
+        "history_override": True,
+        "reason": "Late correction must not evade recorded protocol facts",
+    }
+
+    # A duty sent back to its worker is PENDING again but already carries a fact.
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(Task)
+            .where(Task.id == protocol_task_id)
+            .values(
+                rejected_by_id=owner_id,
+                rejected_at=utcnow(),
+                verification_note="sent back",
+            )
+        )
+        await db.commit()
+    after_rejection = await client.post(
+        f"/api/animals/{animal['id']}/move", json=reentry, headers=owner
+    )
+    assert after_rejection.status_code == 409, after_rejection.text
+    assert after_rejection.json()["detail"] == (
+        "This animal cannot re-enter quarantine because its purchase-batch "
+        "protocol has started, ended, or is incomplete."
+    )
+
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            update(Task)
+            .where(Task.id == protocol_task_id)
+            .values(
+                rejected_by_id=None,
+                rejected_at=None,
+                verification_note=None,
+                completed_by_id=owner_id,
+                completed_at=utcnow(),
+            )
+        )
+        await db.commit()
+        stamped_status = (
+            await db.execute(select(Task.status).where(Task.id == protocol_task_id))
+        ).scalar_one()
+    assert stamped_status == "PENDING"
+    after_completion = await client.post(
+        f"/api/animals/{animal['id']}/move", json=reentry, headers=owner
+    )
+    assert after_completion.status_code == 409, after_completion.text
+    assert after_completion.json()["detail"] == (
+        "This animal cannot re-enter quarantine because its purchase-batch "
+        "protocol has started, ended, or is incomplete."
+    )
+
+    stored = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert stored.status_code == 200, stored.text
+    assert stored.json()["animal"]["current_bucket"] == "FOUNDATION"
+
+
+async def test_batch_reentry_locks_only_its_own_batch(client: httpx.AsyncClient) -> None:
+    """A sibling purchase batch in the same farm must not widen the re-entry lock."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(client, owner, count=1, create_animals=True)
+    sibling = await make_batch(
+        client, owner, count=1, create_animals=True, supplier="Nandyal Traders"
+    )
+    assert sibling["id"] != batch["id"]
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal = detail.json()["animals"][0]
+    moved = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+
+    reentry = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "QUARANTINE",
+            "history_override": True,
+            "reason": "Restore the corrected purchase classification",
+        },
+        headers=owner,
+    )
+    assert reentry.status_code == 200, reentry.text
+    assert reentry.json()["current_bucket"] == "QUARANTINE"
+
+
+async def test_batch_reentry_ignores_tasks_outside_its_batch(client: httpx.AsyncClient) -> None:
+    """Unrelated farm duties are not counted as this batch's protocol rows."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(client, owner, count=1, create_animals=True)
+    duty = await client.post(
+        "/api/tasks",
+        json={
+            "title": "Unrelated cleaning duty",
+            "due_date": iso(today()),
+            "category": "CLEANING",
+        },
+        headers=owner,
+    )
+    assert duty.status_code == 201, duty.text
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    assert duty.json()["id"] not in {task["id"] for task in detail.json()["tasks"]}
+    animal = detail.json()["animals"][0]
+    moved = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+
+    reentry = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "QUARANTINE",
+            "history_override": True,
+            "reason": "Restore the corrected purchase classification",
+        },
+        headers=owner,
+    )
+    assert reentry.status_code == 200, reentry.text
+    assert reentry.json()["current_bucket"] == "QUARANTINE"
+    untouched = await client.get(f"/api/tasks/{duty.json()['id']}", headers=owner)
+    assert untouched.status_code == 200, untouched.text
+    assert untouched.json()["status"] == "PENDING"
+
+
+async def test_batch_reentry_refusal_states_both_halves_of_its_reason(
+    client: httpx.AsyncClient,
+) -> None:
+    """The refusal body names the animal, the batch and the protocol, verbatim."""
+    owner = await owner_with_farm(client)
+    batch = await make_batch(client, owner, count=1, create_animals=True)
+    detail = await client.get(f"/api/purchases/{batch['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal = detail.json()["animals"][0]
+    moved = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Correct imported quarantine history",
+        },
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
+    completed = await client.post(
+        f"/api/tasks/{detail.json()['tasks'][0]['id']}/complete",
+        headers=owner,
+    )
+    assert completed.status_code == 200, completed.text
+
+    refused = await client.post(
+        f"/api/animals/{animal['id']}/move",
+        json={
+            "to_bucket": "QUARANTINE",
+            "history_override": True,
+            "reason": "Late correction must not evade completed protocol work",
+        },
+        headers=owner,
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"] == (
+        "This animal cannot re-enter quarantine because its purchase-batch "
+        "protocol has started, ended, or is incomplete."
+    )
 
 
 async def test_linked_health_winner_prevents_waiting_animal_quarantine_reentry(
@@ -756,6 +1101,33 @@ async def test_new_schedule_links_are_canonical_immutable_and_indexed(
     assert "(animal_id, schedule_template_id, date DESC, id DESC)" in index_definition
 
 
+async def test_disease_target_alone_earns_the_canonical_schedule_link(
+    client: httpx.AsyncClient,
+) -> None:
+    """A product-less vaccine entry is linked by its disease target alone."""
+    owner = await owner_with_farm(client)
+    animal = await make_animal(client, owner, tag="SCHEDULE-TARGET")
+    recorded = await record_event(
+        client,
+        owner,
+        animal_id=animal["id"],
+        type="VACCINE",
+        disease_target="PPR",
+    )
+    assert recorded[0]["schedule_template_name"] is None
+
+    async with get_sessionmaker()() as db:
+        ppr_id = (
+            await db.execute(select(VaccineTemplate.id).where(VaccineTemplate.name == "PPR"))
+        ).scalar_one()
+        event_row = await db.get(HealthEvent, recorded[0]["id"])
+        assert event_row is not None
+        # Dropping the target from the inference haystack leaves this row
+        # unlinked: still visible through the bounded legacy text window, but
+        # off ix_health_events_animal_template_latest and its canonical probes.
+        assert event_row.schedule_template_id == ppr_id
+
+
 async def test_bounded_legacy_schedule_window_still_matches_unlinked_history(
     client: httpx.AsyncClient,
 ) -> None:
@@ -968,6 +1340,97 @@ async def test_compliance_dates_are_enforced_for_direct_database_writes(
             match="ck_health_events_compliance_requires_suspicion",
         ):
             await db.commit()
+
+
+@pytest.mark.parametrize("field", ["authority_notified_at", "isolation_started_at"])
+async def test_compliance_dates_are_checked_against_their_own_value_and_label(
+    client: httpx.AsyncClient,
+    field: str,
+) -> None:
+    """Each compliance date is chronology-checked with its own value and its own label."""
+    owner = await owner_with_farm(client, email="comp@farm.in")
+    animal = await make_animal(
+        client,
+        owner,
+        tag="COMP-1",
+        estimated_dob=iso(today() - timedelta(days=100)),
+    )
+
+    response = await post_event(
+        client,
+        owner,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        date=iso(today()),
+        disease_target="Anthrax",
+        suspected_scheduled_disease=True,
+        **{field: iso(today() - timedelta(days=200))},
+    )
+
+    # Checking anything other than this field's own value turns a domain 422
+    # into an unhandled comparison against None, and a wrong label leaves the
+    # operator guessing which of the two compliance dates was rejected.
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == f"{field} cannot predate COMP-1's recorded birth date"
+
+
+async def test_event_dates_in_the_farms_future_name_the_offending_field(
+    client: httpx.AsyncClient,
+) -> None:
+    """Every farm-future 422 names the field it rejected, in the farm's own timezone."""
+    account = await register(client, "tz-owner@farm.in")
+    created = await client.post(
+        "/api/auth/farms",
+        json={"name": "West farm", "timezone": "Pacific/Honolulu"},
+        headers=account,
+    )
+    assert created.status_code == 201, created.text
+    # A farm west of UTC makes today() + 1 unambiguously future for the farm
+    # while still inside the schema's UTC+1-day ceiling, so these rejections
+    # come from the farm-local guard rather than from input validation.
+    west = account | {"X-Farm-Id": str(created.json()["id"])}
+    animal = await make_animal(client, west, tag="TZ-1")
+    tomorrow = iso(today() + timedelta(days=1))
+
+    future_event = await post_event(
+        client,
+        west,
+        animal_id=animal["id"],
+        type="VACCINE",
+        date=tomorrow,
+    )
+    assert future_event.status_code == 422, future_event.text
+    assert (
+        future_event.json()["detail"] == "health event date cannot be in the future for this farm"
+    )
+
+    future_manufacture = await post_event(
+        client,
+        west,
+        animal_id=animal["id"],
+        type="VACCINE",
+        date=iso(today() - timedelta(days=1)),
+        product_manufactured_on=tomorrow,
+    )
+    assert future_manufacture.status_code == 422, future_manufacture.text
+    assert future_manufacture.json()["detail"] == (
+        "product_manufactured_on cannot be in the future for this farm"
+    )
+
+    for field in ("authority_notified_at", "isolation_started_at"):
+        future_compliance = await post_event(
+            client,
+            west,
+            animal_id=animal["id"],
+            type="TREATMENT",
+            disease_target="Anthrax",
+            suspected_scheduled_disease=True,
+            **{field: tomorrow},
+        )
+        assert future_compliance.status_code == 422, future_compliance.text
+        assert future_compliance.json()["detail"] == (
+            f"{field} cannot be in the future for this farm"
+        )
 
 
 def test_health_template_matching_uses_words_and_requires_both_combined_components() -> None:

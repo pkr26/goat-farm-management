@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import date, timedelta
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -42,6 +43,8 @@ from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
 from .test_breeding_extended import pregnant_doe
+from .test_finance_extended import correction_payload, get_finance, iso
+from .test_finance_extended import make_animal as make_finance_animal
 
 WORKER_PASSWORD = "workerpass123"
 
@@ -112,6 +115,33 @@ async def make_animal(
     )
     assert response.status_code == 201, response.text
     return int(response.json()["id"])
+
+
+async def quarantine_batch_with_ppr_task(
+    client: httpx.AsyncClient,
+    owner: dict[str, str],
+) -> tuple[int, int, int]:
+    """Buy one animal into quarantine: returns (batch id, animal id, PPR task id)."""
+    purchase = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": (today() - timedelta(days=9)).isoformat(),
+            "supplier": "Cross-tenant lock fixture",
+            "count": 1,
+            "avg_age_months": 7,
+            "avg_weight_kg": 15,
+            "total_price": 100,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert purchase.status_code == 201, purchase.text
+    batch_id = int(purchase.json()["id"])
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal_id = int(detail.json()["animals"][0]["id"])
+    task_id = int(next(task["id"] for task in detail.json()["tasks"] if "PPR" in task["title"]))
+    return batch_id, animal_id, task_id
 
 
 async def create_worker(
@@ -397,6 +427,197 @@ async def test_linked_batch_health_rejects_subset_and_stale_full_snapshot(
         ).scalar_one()
     assert task is not None and task.status == TaskStatus.PENDING.value
     assert event_count == 0
+
+
+async def test_a_foreign_farms_locked_task_never_blocks_a_health_event(
+    client: httpx.AsyncClient,
+) -> None:
+    """The health event's ``FOR UPDATE`` task lookup must stay farm-scoped.
+
+    Dropping ``Task.farm_id == farm.id`` from that lookup leaves the HTTP body
+    identical — the later farm guard still answers the same 409 — so the only
+    observable is blocking: farm A's request would queue behind whatever holds
+    farm B's task row, a cross-tenant availability coupling nothing else
+    constrains. Park that foreign row and prove the rejection still returns.
+    """
+    owner_a = await owner_with_farm(client)
+    owner_b = await owner_with_farm(
+        client,
+        email="foreign-task-tenant@farm.in",
+        farm_name="Beta Farm",
+    )
+    batch_a, animal_a, _own_task = await quarantine_batch_with_ppr_task(client, owner_a)
+    _batch_b, _animal_b, foreign_task = await quarantine_batch_with_ppr_task(client, owner_b)
+
+    holder = get_sessionmaker()()
+    await holder.execute(select(Task.id).where(Task.id == foreign_task).with_for_update())
+    async with second_client() as health_client:
+        request = asyncio.create_task(
+            health_client.post(
+                "/api/health/events",
+                json={
+                    "scope": "batch",
+                    "purchase_batch_id": batch_a,
+                    "expected_animal_ids": [animal_a],
+                    "type": "VACCINE",
+                    "product_name": "PPR vaccine",
+                    "task_id": foreign_task,
+                },
+                headers=owner_a,
+            )
+        )
+        try:
+            try:
+                response = await asyncio.wait_for(asyncio.shield(request), timeout=5)
+            except TimeoutError:
+                pytest.fail("a health event blocked on another farm's locked task row")
+        finally:
+            await holder.rollback()
+            await holder.close()
+            if not request.done():
+                request.cancel()
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Linked health task is not pending or compatible"
+    async with get_sessionmaker()() as db:
+        events = (await db.execute(select(func.count()).select_from(HealthEvent))).scalar_one()
+    assert events == 0
+
+
+async def test_linked_batch_subset_states_its_quarantine_mismatch_verbatim(
+    client: httpx.AsyncClient,
+) -> None:
+    """Pins the whole 409 copy raised when a linked duty gets a reviewed subset.
+
+    That sentence is the operator's entire remediation instruction (re-run the
+    preview, then submit the batch's full active quarantine cohort), so it is
+    pinned verbatim instead of by a substring of one of its two fragments.
+    """
+    owner = await owner_with_farm(client)
+    purchase = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "supplier": "Verbatim conflict supplier",
+            "count": 2,
+            "avg_age_months": 7,
+            "avg_weight_kg": 15,
+            "total_price": 200,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert purchase.status_code == 201, purchase.text
+    batch_id = int(purchase.json()["id"])
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal_ids = sorted(int(animal["id"]) for animal in detail.json()["animals"])
+    vaccine = next(task for task in detail.json()["tasks"] if task["category"] == "VACCINE")
+
+    forged_subset = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "batch",
+            "purchase_batch_id": batch_id,
+            "expected_animal_ids": animal_ids[:1],
+            "type": "VACCINE",
+            "task_id": vaccine["id"],
+        },
+        headers=owner,
+    )
+    assert forged_subset.status_code == 409, forged_subset.text
+    assert forged_subset.json()["detail"] == (
+        "Reviewed target snapshot does not match the linked batch's active quarantine animals"
+    )
+    async with get_sessionmaker()() as db:
+        events = (await db.execute(select(func.count()).select_from(HealthEvent))).scalar_one()
+    assert events == 0
+
+
+async def test_unlocatable_reviewed_id_states_its_stale_conflict_verbatim(
+    client: httpx.AsyncClient,
+) -> None:
+    """Pins the 409 copy for a reviewed id the farm-scoped lock cannot return.
+
+    ``MAX_INT32_ID`` is not *greater* than ``MAX_INT32_ID``, so it slips past
+    the out-of-range guard and it is the id mismatch after the ``FOR UPDATE``
+    snapshot that answers. Losing that detail — Starlette then substitutes a
+    bare ``"Conflict"`` — leaves the operator no instruction to re-preview.
+    """
+    owner = await owner_with_farm(client)
+    animal_id = await make_animal(client, owner, "STALE-SNAPSHOT-1")
+
+    unlocatable = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "bucket",
+            "bucket": "FOUNDATION",
+            "expected_animal_ids": [animal_id, 2_147_483_647],
+            "type": "VACCINE",
+        },
+        headers=owner,
+    )
+    assert unlocatable.status_code == 409, unlocatable.text
+    assert unlocatable.json()["detail"] == "Reviewed target snapshot is stale"
+    async with get_sessionmaker()() as db:
+        events = (await db.execute(select(func.count()).select_from(HealthEvent))).scalar_one()
+    assert events == 0
+
+
+async def test_released_batch_target_states_its_stale_conflict_verbatim(
+    client: httpx.AsyncClient,
+) -> None:
+    """Pins the 409 copy for an unlinked batch write whose target left quarantine.
+
+    Every reviewed id still locks — the id-equality gate passes — so it is the
+    stability gate that speaks here. Its wording is the operator's only cue
+    that the preview, not the request, has to be redone.
+    """
+    owner = await owner_with_farm(client)
+    purchase = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "supplier": "Released target supplier",
+            "count": 2,
+            "avg_age_months": 7,
+            "avg_weight_kg": 15,
+            "total_price": 200,
+            "create_animals": True,
+        },
+        headers=owner,
+    )
+    assert purchase.status_code == 201, purchase.text
+    batch_id = int(purchase.json()["id"])
+    detail = await client.get(f"/api/purchases/{batch_id}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    animal_ids = sorted(int(animal["id"]) for animal in detail.json()["animals"])
+    released = await client.post(
+        f"/api/animals/{animal_ids[0]}/move",
+        json={
+            "to_bucket": "FOUNDATION",
+            "history_override": True,
+            "reason": "Cleared early by veterinarian",
+        },
+        headers=owner,
+    )
+    assert released.status_code == 200, released.text
+
+    stale = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "batch",
+            "purchase_batch_id": batch_id,
+            "expected_animal_ids": animal_ids,
+            "type": "VACCINE",
+        },
+        headers=owner,
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"] == "Reviewed target snapshot is stale"
+    async with get_sessionmaker()() as db:
+        events = (await db.execute(select(func.count()).select_from(HealthEvent))).scalar_one()
+    assert events == 0
 
 
 async def test_recurring_completion_vs_worker_toggle_catches_successor(
@@ -1986,3 +2207,81 @@ async def test_direct_breeding_parent_rewrite_cannot_invert_kidding_locks(
     assert isinstance(insert_result, DBAPIError), repr(insert_result)
     assert getattr(insert_result.orig, "sqlstate", None) == "23514"
     assert "kidding requires a confirmed pregnancy for the same doe and farm" in str(insert_result)
+
+
+async def test_purchase_correction_serialises_with_a_concurrent_animal_writer(
+    client: httpx.AsyncClient,
+) -> None:
+    """The ANIMAL_PURCHASE correction must read its source animal FOR UPDATE.
+
+    A competing writer commits a terminal SOLD status on the same animal row
+    while the correction is in flight. Because the correction takes the row
+    lock *before* validating, it queues behind that writer, re-reads the
+    committed status_date and refuses to move the purchase date past it. A
+    plain snapshot read would validate against status_date IS NULL, pass the
+    guard and still block only at flush time — durably storing an animal
+    bought 50 days after it was sold, with no constraint to catch it.
+    """
+    owner = await owner_with_farm(client)
+    purchase_date = today() - timedelta(days=120)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="LOCK-BUY",
+        purchase_date=iso(purchase_date),
+        purchase_price=10000.0,
+        seller_name="Kurnool breeder",
+    )
+    animal_id = int(animal["id"])
+    booked = next(
+        row
+        for row in (await get_finance(client, owner))["transactions"]
+        if row["source_type"] == "ANIMAL_PURCHASE"
+    )
+    corrected_purchase_date = today() - timedelta(days=10)
+    sold_date = today() - timedelta(days=60)
+
+    # Park the animal row exactly as /status, /move and /weight do.
+    holder = get_sessionmaker()()
+    locked = (
+        await holder.execute(select(Animal).where(Animal.id == animal_id).with_for_update())
+    ).scalar_one()
+    async with second_client() as correction_client:
+        request = asyncio.create_task(
+            correction_client.post(
+                f"/api/finance/transactions/{booked['id']}/correct",
+                json=correction_payload(
+                    date=iso(corrected_purchase_date),
+                    type="EXPENSE",
+                    category="ANIMAL_PURCHASE",
+                    amount=12000.0,
+                    reason="Wrong invoice figure",
+                ),
+                headers=owner,
+            )
+        )
+        try:
+            await wait_for_lock_waiters(1)
+            assert not request.done()
+            locked.status = "SOLD"
+            locked.status_date = sold_date
+            await holder.commit()
+            async with asyncio.timeout(10):
+                response = await request
+        finally:
+            await holder.rollback()
+            await holder.close()
+            if not request.done():
+                request.cancel()
+
+    assert response.status_code == 422, response.text
+    assert (
+        response.json()["detail"] == "Purchase date cannot follow LOCK-BUY's terminal status date"
+    )
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Animal, animal_id)
+    assert stored is not None
+    assert stored.purchase_date == purchase_date
+    assert stored.status_date == sold_date
+    assert stored.status == "SOLD"
+    assert stored.purchase_price == Decimal("10000.00")

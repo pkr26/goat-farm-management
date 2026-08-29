@@ -882,6 +882,231 @@ async def test_animal_source_correction_preserves_link_and_syncs_date(
     assert after_fact.status_code == 422, after_fact.text
 
 
+async def _source_transaction(
+    client: httpx.AsyncClient,
+    headers: dict,
+    source_type: str,
+    *,
+    related_animal_id: int | None = None,
+) -> dict:
+    """Pick a system-booked ledger row, optionally the one linked to a given animal."""
+    rows = (await client.get("/api/finance", headers=headers)).json()["transactions"]
+    return next(
+        row
+        for row in rows
+        if row["source_type"] == source_type
+        and (related_animal_id is None or row["related_animal_id"] == related_animal_id)
+    )
+
+
+async def test_purchase_correction_cannot_predate_recorded_birth(
+    client: httpx.AsyncClient,
+) -> None:
+    """The birth-date guard answers 422 and names the fact that blocks the correction."""
+    owner = await owner_with_farm(client)
+    born_on = today() - timedelta(days=100)
+    purchased_on = today() - timedelta(days=50)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="DOB-GUARD",
+        date_of_birth=born_on.isoformat(),
+        purchase_price=100.0,
+        purchase_date=purchased_on.isoformat(),
+    )
+    booked = await _source_transaction(client, owner, "ANIMAL_PURCHASE")
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=(born_on - timedelta(days=20)).isoformat(),
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=90.0,
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == (
+        f"Purchase date cannot predate {animal['tag_number']}'s recorded birth date"
+    )
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.json()["animal"]["purchase_price"] == 100.0
+    assert profile.json()["animal"]["purchase_date"] == purchased_on.isoformat()
+
+
+async def test_purchase_correction_cannot_follow_terminal_status_date(
+    client: httpx.AsyncClient,
+) -> None:
+    """The terminal-status guard is strict: the status date itself stays purchasable."""
+    owner = await owner_with_farm(client)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="STATUS-GUARD",
+        purchase_price=100.0,
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    sold_on = today() - timedelta(days=3)
+    sold = await client.post(
+        f"/api/animals/{animal['id']}/status",
+        json={"new_status": "SOLD", "date": sold_on.isoformat(), "sale_price": 500},
+        headers=owner,
+    )
+    assert sold.status_code == 200, sold.text
+    booked = await _source_transaction(client, owner, "ANIMAL_PURCHASE")
+    after_status = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=(sold_on + timedelta(days=1)).isoformat(),
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=90.0,
+        ),
+        headers=owner,
+    )
+    assert after_status.status_code == 422, after_status.text
+    assert after_status.json()["detail"] == (
+        f"Purchase date cannot follow {animal['tag_number']}'s terminal status date"
+    )
+    same_day = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=sold_on.isoformat(),
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=90.0,
+        ),
+        headers=owner,
+    )
+    assert same_day.status_code == 201, same_day.text
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.json()["animal"]["purchase_date"] == sold_on.isoformat()
+
+
+async def test_purchase_correction_after_recorded_fact_explains_which_fact(
+    client: httpx.AsyncClient,
+) -> None:
+    """The chronology ValueError reaches the caller as the 422 detail, naming the fact."""
+    owner = await owner_with_farm(client)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="FACT-DETAIL",
+        purchase_price=100.0,
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    weight_date = today() - timedelta(days=7)
+    weighed = await client.post(
+        f"/api/animals/{animal['id']}/weight",
+        json={"date": weight_date.isoformat(), "weight_kg": 25},
+        headers=owner,
+    )
+    assert weighed.status_code == 201, weighed.text
+    booked = await _source_transaction(client, owner, "ANIMAL_PURCHASE")
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=(weight_date + timedelta(days=1)).isoformat(),
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=90.0,
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == (
+        f"Purchase date cannot follow {animal['tag_number']}'s earliest recorded "
+        f"lifecycle event on {weight_date.isoformat()}"
+    )
+
+
+async def test_purchase_correction_moves_only_its_own_initial_bucket_move(
+    client: httpx.AsyncClient,
+) -> None:
+    """The relocated initial placement is scoped to the animal being corrected."""
+    owner = await owner_with_farm(client)
+    bought_on = today() - timedelta(days=20)
+    first = await make_finance_animal(
+        client,
+        owner,
+        tag="MOVE-FIRST",
+        purchase_price=100.0,
+        purchase_date=bought_on.isoformat(),
+    )
+    second = await make_finance_animal(
+        client,
+        owner,
+        tag="MOVE-SECOND",
+        purchase_price=200.0,
+        purchase_date=bought_on.isoformat(),
+    )
+    booked = await _source_transaction(
+        client, owner, "ANIMAL_PURCHASE", related_animal_id=second["id"]
+    )
+    corrected_date = today() - timedelta(days=15)
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=corrected_date.isoformat(),
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=190.0,
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    async with get_sessionmaker()() as db:
+        placements = dict(
+            (
+                await db.execute(
+                    select(BucketMove.animal_id, BucketMove.effective_date).where(
+                        BucketMove.from_bucket.is_(None),
+                        BucketMove.animal_id.in_([first["id"], second["id"]]),
+                    )
+                )
+            ).all()
+        )
+    assert placements[second["id"]] == corrected_date
+    assert placements[first["id"]] == bought_on
+
+
+async def test_repointing_a_source_linked_row_explains_the_refusal(
+    client: httpx.AsyncClient,
+) -> None:
+    """The re-point guard says why, not just 422, so a client can tell it apart."""
+    owner = await owner_with_farm(client)
+    animal = await make_health_animal(client, owner, tag="RELINK-HEALTH")
+    other = await make_health_animal(client, owner, tag="RELINK-OTHER")
+    await record_event(
+        client,
+        owner,
+        scope="animal",
+        animal_id=animal["id"],
+        type="VACCINE",
+        product_name="PPR vaccine",
+        cost=125.0,
+    )
+    booked = await _source_transaction(client, owner, "HEALTH_EVENT")
+    relink = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=booked["date"],
+            type=booked["type"],
+            category=booked["category"],
+            amount=booked["amount"],
+            related_animal_id=other["id"],
+        ),
+        headers=owner,
+    )
+    assert relink.status_code == 422, relink.text
+    assert relink.json()["detail"] == (
+        "A source-linked transaction cannot be moved to a different animal"
+    )
+    unchanged = await _source_transaction(client, owner, "HEALTH_EVENT")
+    assert unchanged["related_animal_id"] == animal["id"]
+    assert unchanged["voided_at"] is None
+
+
 async def test_sale_correction_respects_medicine_withdrawal(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     animal = await make_finance_animal(
@@ -925,6 +1150,216 @@ async def test_sale_correction_respects_medicine_withdrawal(client: httpx.AsyncC
     )
     assert blocked.status_code == 409, blocked.text
     assert "withdrawal" in blocked.json()["detail"].lower()
+
+
+async def _treat(
+    client: httpx.AsyncClient,
+    headers: dict,
+    animal_id: int,
+    event_date: date,
+    withdrawal_until: date,
+) -> None:
+    """Record a treatment whose medicine withdrawal ends on ``withdrawal_until``."""
+    resp = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "animal",
+            "animal_id": animal_id,
+            "type": "TREATMENT",
+            "date": event_date.isoformat(),
+            "withdrawal_until": withdrawal_until.isoformat(),
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+
+async def _sell(client: httpx.AsyncClient, headers: dict, animal_id: int, sale_date: date) -> None:
+    resp = await client.post(
+        f"/api/animals/{animal_id}/status",
+        json={"new_status": "SOLD", "date": sale_date.isoformat(), "sale_price": 5000},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def test_sale_correction_withdrawal_check_is_scoped_to_the_sold_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """A herdmate's live withdrawal must not block another animal's sale correction."""
+    owner = await owner_with_farm(client)
+    sold = await make_finance_animal(
+        client,
+        owner,
+        tag="SALE-CLEAN",
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    herdmate = await make_finance_animal(
+        client,
+        owner,
+        tag="HERDMATE",
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    await _treat(client, owner, herdmate["id"], today() - timedelta(days=3), today())
+    await _sell(client, owner, sold["id"], today())
+    booked = await _source_transaction(client, owner, "ANIMAL_SALE")
+    moved = today() - timedelta(days=1)
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=moved.isoformat(),
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    profile = await client.get(f"/api/animals/{sold['id']}", headers=owner)
+    assert profile.json()["animal"]["status_date"] == moved.isoformat()
+
+
+async def test_sale_correction_allows_a_date_after_the_withdrawal_expired(
+    client: httpx.AsyncClient,
+) -> None:
+    """An expired withdrawal window must not block a later sale date forever."""
+    owner = await owner_with_farm(client)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="SALE-EXPIRED",
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    await _treat(
+        client,
+        owner,
+        animal["id"],
+        today() - timedelta(days=20),
+        today() - timedelta(days=10),
+    )
+    await _sell(client, owner, animal["id"], today())
+    booked = await _source_transaction(client, owner, "ANIMAL_SALE")
+    moved = today() - timedelta(days=5)
+    corrected = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=moved.isoformat(),
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+        ),
+        headers=owner,
+    )
+    assert corrected.status_code == 201, corrected.text
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.json()["animal"]["status_date"] == moved.isoformat()
+
+
+async def test_sale_correction_is_blocked_on_the_last_withdrawal_day(
+    client: httpx.AsyncClient,
+) -> None:
+    """The withdrawal window is inclusive: its final day is still an illegal sale date."""
+    owner = await owner_with_farm(client)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="SALE-BOUNDARY",
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    last_day = today() - timedelta(days=5)
+    await _treat(client, owner, animal["id"], today() - timedelta(days=20), last_day)
+    await _sell(client, owner, animal["id"], today())
+    booked = await _source_transaction(client, owner, "ANIMAL_SALE")
+    blocked = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=last_day.isoformat(),
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+        ),
+        headers=owner,
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert blocked.json()["detail"] == (
+        f"Sale/cull is blocked by medicine withdrawal through {last_day.isoformat()}"
+    )
+    profile = await client.get(f"/api/animals/{animal['id']}", headers=owner)
+    assert profile.json()["animal"]["status_date"] == today().isoformat()
+
+
+async def test_sale_correction_chronology_failure_keeps_its_reason(
+    client: httpx.AsyncClient,
+) -> None:
+    """The purchase-date ValueError survives translation into the 422 detail."""
+    owner = await owner_with_farm(client)
+    purchased_on = today() - timedelta(days=10)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="SALE-CHRONO",
+        purchase_price=100.0,
+        purchase_date=purchased_on.isoformat(),
+    )
+    await _sell(client, owner, animal["id"], today())
+    booked = await _source_transaction(client, owner, "ANIMAL_SALE")
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=(purchased_on - timedelta(days=10)).isoformat(),
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == (
+        f"Sale date cannot predate {animal['tag_number']}'s recorded purchase date"
+    )
+
+
+async def test_sale_correction_before_a_recorded_move_names_the_blocking_fact(
+    client: httpx.AsyncClient,
+) -> None:
+    """The recorded-facts ValueError survives translation into the 422 detail."""
+    owner = await owner_with_farm(client)
+    animal = await make_finance_animal(
+        client,
+        owner,
+        tag="SALE-FACT-DETAIL",
+        purchase_price=100.0,
+        purchase_date=(today() - timedelta(days=30)).isoformat(),
+    )
+    moved_on = today() - timedelta(days=2)
+    async with get_sessionmaker()() as db:
+        db.add(
+            BucketMove(
+                animal_id=animal["id"],
+                from_bucket="FOUNDATION",
+                to_bucket="RESTING",
+                effective_date=moved_on,
+                reason="Imported lifecycle move",
+            )
+        )
+        await db.commit()
+    await _sell(client, owner, animal["id"], today())
+    booked = await _source_transaction(client, owner, "ANIMAL_SALE")
+    refused = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date=(moved_on - timedelta(days=1)).isoformat(),
+            type="INCOME",
+            category="ANIMAL_SALE",
+            amount=4500.0,
+        ),
+        headers=owner,
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == (
+        f"Status change cannot predate {animal['tag_number']}'s latest recorded "
+        f"lifecycle event on {moved_on.isoformat()}"
+    )
 
 
 async def test_status_and_sale_correction_cannot_predate_bucket_move(
@@ -1033,6 +1468,52 @@ async def test_zero_animal_purchase_batch_money_and_date_can_be_corrected(
     detail = await client.get(f"/api/purchases/{batch.json()['id']}", headers=owner)
     assert detail.json()["batch"]["total_price"] == 900.0
     assert detail.json()["batch"]["date"] == changed_date.isoformat()
+
+
+async def test_purchase_batch_correction_pins_the_year_2000_boundary(
+    client: httpx.AsyncClient,
+) -> None:
+    """2000-01-01 is the first legal batch date, and the refusal wording is exact."""
+    owner = await owner_with_farm(client)
+    batch = await client.post(
+        "/api/purchases/new",
+        json={
+            "date": today().isoformat(),
+            "count": 3,
+            "total_price": 1000.0,
+            "create_animals": False,
+        },
+        headers=owner,
+    )
+    assert batch.status_code == 201, batch.text
+    booked = await _source_transaction(client, owner, "PURCHASE_BATCH")
+    too_old = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date="1999-12-31",
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=900.0,
+        ),
+        headers=owner,
+    )
+    assert too_old.status_code == 422, too_old.text
+    assert too_old.json()["detail"] == "Purchase batch date must be year 2000 or later"
+
+    boundary = await client.post(
+        f"/api/finance/transactions/{booked['id']}/correct",
+        json=correction_payload(
+            date="2000-01-01",
+            type="EXPENSE",
+            category="ANIMAL_PURCHASE",
+            amount=900.0,
+        ),
+        headers=owner,
+    )
+    assert boundary.status_code == 201, boundary.text
+    detail = await client.get(f"/api/purchases/{batch.json()['id']}", headers=owner)
+    assert detail.json()["batch"]["date"] == "2000-01-01"
+    assert detail.json()["batch"]["total_price"] == 900.0
 
 
 async def test_reject_skip_clears_rejection_and_orders_by_skip_time(

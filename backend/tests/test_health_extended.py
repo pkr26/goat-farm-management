@@ -20,7 +20,9 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import httpx
 import pytest
+from sqlalchemy import text
 
+from app.db import get_sessionmaker
 from app.utils import add_months, today
 
 from .conftest import login, owner_with_farm
@@ -140,6 +142,15 @@ async def complete_quarantine_prerequisites(
         assert response.status_code == expected_status, response.text
 
 
+async def renumber_task(old_id: int, new_id: int) -> None:
+    """Move a task row onto an explicit primary key (int4-ceiling coverage)."""
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            text("UPDATE tasks SET id = :new WHERE id = :old"), {"new": new_id, "old": old_id}
+        )
+        await db.commit()
+
+
 async def transactions(client: httpx.AsyncClient, headers: dict) -> list[dict]:
     resp = await client.get("/api/finance", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -249,6 +260,70 @@ async def test_record_event_full_fields_roundtrip(client: httpx.AsyncClient) -> 
     listed = await list_events(client, headers)
     assert listed[0]["product_name"] == "Albendazole"
     assert listed[0]["animal_tag"] == animal["tag_number"]
+
+
+async def test_record_event_provenance_fields_roundtrip(client: httpx.AsyncClient) -> None:
+    """Every statutory provenance column the route forwards must round-trip.
+
+    Regression: the record_health_event call forwarded product_lot, expiry,
+    validity, certificate, official tag, administered_by and the isolation date
+    unasserted, so quietly storing NULL for any of them was invisible.
+    """
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="PROV-1")
+    event_date = today() - timedelta(days=2)
+    events = await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        date=iso(event_date),
+        type="VACCINE",
+        product_name="Raksha-PPR",
+        disease_target="PPR",
+        schedule_template_name="PPR",
+        next_due_date=iso(event_date + timedelta(days=365)),
+        next_due_authority="AHD circular 12/2026",
+        product_lot="LOT-7781",
+        product_manufactured_on=iso(event_date - timedelta(days=30)),
+        product_expires_on=iso(event_date + timedelta(days=400)),
+        vaccine_valid_until=iso(event_date + timedelta(days=390)),
+        certificate_number="CERT-55",
+        official_tag_number="IN-9001",
+        administered_by="Paravet Rao",
+        suspected_scheduled_disease=True,
+        authority_notified_at=iso(event_date),
+        isolation_started_at=iso(event_date),
+    )
+    event = events[0]
+    assert event["next_due_authority"] == "AHD circular 12/2026"
+    assert event["product_lot"] == "LOT-7781"
+    assert event["product_manufactured_on"] == iso(event_date - timedelta(days=30))
+    assert event["product_expires_on"] == iso(event_date + timedelta(days=400))
+    assert event["vaccine_valid_until"] == iso(event_date + timedelta(days=390))
+    assert event["certificate_number"] == "CERT-55"
+    assert event["official_tag_number"] == "IN-9001"
+    assert event["administered_by"] == "Paravet Rao"
+    assert event["authority_notified_at"] == iso(event_date)
+    assert event["isolation_started_at"] == iso(event_date)
+    listed = await list_events(client, headers)
+    assert listed[0]["certificate_number"] == "CERT-55"
+    assert listed[0]["isolation_started_at"] == iso(event_date)
+
+
+async def test_record_event_omitted_provenance_stays_null(client: httpx.AsyncClient) -> None:
+    """Omitted provenance persists as NULL — never as a fabricated literal."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="PROV-2")
+    events = await record_event(client, headers, animal_id=animal["id"], type="VACCINE")
+    event = events[0]
+    assert event["next_due_authority"] is None
+    assert event["product_lot"] is None
+    assert event["certificate_number"] is None
+    assert event["official_tag_number"] is None
+    assert event["administered_by"] is None
+    assert event["product_expires_on"] is None
+    assert event["vaccine_valid_until"] is None
+    assert event["isolation_started_at"] is None
 
 
 async def test_record_event_strips_whitespace(client: httpx.AsyncClient) -> None:
@@ -890,6 +965,9 @@ async def test_omitted_event_date_enforces_withdrawal_ceiling(
     )
     assert rejected.status_code == 422, rejected.text
     assert "730 days" in rejected.json()["detail"]
+    assert rejected.json()["detail"] == (
+        "withdrawal_until cannot be more than 730 days after the health event date"
+    )
 
     accepted = await post_event(
         client,
@@ -900,6 +978,97 @@ async def test_omitted_event_date_enforces_withdrawal_ceiling(
     )
     assert accepted.status_code == 201, accepted.text
     assert accepted.json()[0]["withdrawal_until"] == iso(farm_today + timedelta(days=730))
+
+
+async def test_next_due_date_equal_to_the_resolved_event_date_is_rejected(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The follow-up guard is `<=`: an equal date is a 422, not a DB abort."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers)
+    farm_today = date(2099, 1, 2)
+
+    def current_business_date(timezone_name: str) -> date:
+        assert timezone_name == "Asia/Kolkata"
+        return farm_today
+
+    monkeypatch.setattr("app.api.health.today", current_business_date)
+    monkeypatch.setattr("app.services.chronology.today", current_business_date)
+    response = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        next_due_date=iso(farm_today),
+        schedule_template_name="FMD",
+        next_due_authority="Farm veterinarian record",
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "next_due_date must be after the health event date"
+
+
+async def test_product_expiry_before_the_resolved_event_date_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """With `date` omitted the endpoint owns the product-expiry guard."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="EXPIRY-1")
+    response = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        product_expires_on=iso(today() - timedelta(days=1)),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "product expiry cannot predate the health event"
+    assert await list_events(client, headers) == []
+
+
+async def test_product_expiring_on_the_event_date_is_accepted(client: httpx.AsyncClient) -> None:
+    """A product expiring the day it is administered is legal (strict `<`)."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="EXPIRY-2")
+    events = await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        product_expires_on=iso(today()),
+    )
+    assert events[0]["product_expires_on"] == iso(today())
+
+
+async def test_withdrawal_until_before_the_resolved_event_date_is_rejected(
+    client: httpx.AsyncClient,
+) -> None:
+    """With `date` omitted the endpoint owns the withdrawal lower bound."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="WDRAW-1")
+    response = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        withdrawal_until=iso(today() - timedelta(days=1)),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "withdrawal_until cannot be before the health event date"
+    assert await list_events(client, headers) == []
+
+
+async def test_withdrawal_until_on_the_event_date_is_accepted(client: httpx.AsyncClient) -> None:
+    """A zero-day withdrawal ending on the treatment date is legal (strict `<`)."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="WDRAW-2")
+    events = await record_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        withdrawal_until=iso(today()),
+    )
+    assert events[0]["withdrawal_until"] == iso(today())
 
 
 async def test_selected_schedule_template_must_match_recorded_disease_target(
@@ -916,6 +1085,9 @@ async def test_selected_schedule_template_must_match_recorded_disease_target(
         disease_target="FMD",
     )
     assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "Disease target does not match the selected schedule template"
+    )
 
 
 async def test_event_task_id_boundaries_422(client: httpx.AsyncClient) -> None:
@@ -978,6 +1150,70 @@ async def test_event_completes_linked_deworming_task(client: httpx.AsyncClient) 
     assert batch[0]["open_tasks"] == 7  # 8 protocol duties minus the completed one
 
 
+async def test_linked_deworming_duty_validates_target_and_files_the_deworming_template(
+    client: httpx.AsyncClient,
+) -> None:
+    """A DEWORMING duty must supply its own category to the template helpers.
+
+    Regression: dropping `task.category` from target_matches_task /
+    template_name_for_task let a PPR-targeted event close the deworming duty
+    and filed the accepted event with no template and a blank target.
+    """
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=50, count=1)
+    deworm = next(t for t in detail["tasks"] if t["category"] == "DEWORMING")
+    wrong = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="DEWORMING",
+        disease_target="PPR",
+        task_id=deworm["id"],
+    )
+    assert wrong.status_code == 422, wrong.text
+    assert wrong.json()["detail"] == "Disease target does not match the linked task"
+
+    events = await record_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="DEWORMING",
+        product_name="Albendazole",
+        task_id=deworm["id"],
+    )
+    assert events[0]["schedule_template_name"] == "Deworming"
+    assert events[0]["disease_target"] == "Deworming"
+    refreshed = await get_batch(client, headers, detail["batch"]["id"])
+    assert next(t for t in refreshed["tasks"] if t["id"] == deworm["id"])["status"] == "DONE"
+
+
+async def test_deworming_duty_canonicalises_a_blank_disease_target(
+    client: httpx.AsyncClient,
+) -> None:
+    """A blank target on a linked deworming duty is back-filled as "Deworming".
+
+    Regression: canonical_target_for_task called without the task's category
+    fell through the vaccine alias scan and stored NULL on every event row.
+    """
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers)
+    deworm_task = next(t for t in detail["tasks"] if t["category"] == "DEWORMING")
+    events = await record_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        type="DEWORMING",
+        product_name="Albendazole",
+        task_id=deworm_task["id"],
+    )
+    assert [event["disease_target"] for event in events] == ["Deworming", "Deworming"]
+    refreshed = await get_batch(client, headers, detail["batch"]["id"])
+    assert next(t for t in refreshed["tasks"] if t["id"] == deworm_task["id"])["status"] == "DONE"
+
+
 async def test_linked_future_health_task_cannot_be_completed_early(
     client: httpx.AsyncClient,
 ) -> None:
@@ -997,11 +1233,65 @@ async def test_linked_future_health_task_cannot_be_completed_early(
     )
     assert response.status_code == 409, response.text
     assert "not due" in response.json()["detail"]
+    assert response.json()["detail"] == "This linked health duty is not due yet"
     refreshed = await get_batch(client, headers, batch["id"])
     assert (
         next(task for task in refreshed["tasks"] if task["id"] == future["id"])["status"]
         == "PENDING"
     )
+    assert await list_events(client, headers) == []
+
+
+async def test_a_linked_task_at_the_int32_ceiling_still_completes(
+    client: httpx.AsyncClient,
+) -> None:
+    """task_id == 2**31-1 is a legal int4 key: the ceiling guard is `<=`."""
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=12, count=1)
+    ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
+    ceiling_id = 2**31 - 1
+    await renumber_task(ppr_task["id"], ceiling_id)
+    response = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        expected_animal_ids=[detail["animals"][0]["id"]],
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=ceiling_id,
+    )
+    assert response.status_code == 201, response.text
+    refreshed = await get_batch(client, headers, detail["batch"]["id"])
+    assert next(t for t in refreshed["tasks"] if t["id"] == ceiling_id)["status"] == "DONE"
+
+
+async def test_a_linked_batch_task_at_the_int32_ceiling_still_rejects_a_subset(
+    client: httpx.AsyncClient,
+) -> None:
+    """The stronger linked-batch snapshot rule still applies at the int4 ceiling."""
+    headers = await owner_with_farm(client)
+    detail = await _backdated_batch_with_tasks(client, headers, days=12, count=2)
+    ppr_task = next(t for t in detail["tasks"] if "PPR" in t["title"])
+    ceiling_id = 2**31 - 1
+    await renumber_task(ppr_task["id"], ceiling_id)
+    subset = sorted(animal["id"] for animal in detail["animals"])[:1]
+    response = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=detail["batch"]["id"],
+        expected_animal_ids=subset,
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=ceiling_id,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == (
+        "Reviewed target snapshot does not match the linked batch's active quarantine animals"
+    )
+    refreshed = await get_batch(client, headers, detail["batch"]["id"])
+    assert next(t for t in refreshed["tasks"] if t["id"] == ceiling_id)["status"] == "PENDING"
     assert await list_events(client, headers) == []
 
 
@@ -1044,6 +1334,9 @@ async def test_health_event_chronology_and_manufacture_date_enforced(
         type="TREATMENT",
     )
     assert before_purchase.status_code == 422, before_purchase.text
+    assert before_purchase.json()["detail"] == (
+        f"Health event cannot predate {animal['tag_number']}'s recorded purchase date"
+    )
     after_manufacture = await post_event(
         client,
         headers,
@@ -1062,6 +1355,116 @@ async def test_health_event_chronology_and_manufacture_date_enforced(
         product_manufactured_on=iso(purchase_date - timedelta(days=30)),
     )
     assert accepted[0]["product_manufactured_on"] == iso(purchase_date - timedelta(days=30))
+
+
+async def test_health_event_predating_the_animal_names_the_event_and_the_animal(
+    client: httpx.AsyncClient,
+) -> None:
+    """The chronology label passed to the service is "Health event", verbatim."""
+    headers = await owner_with_farm(client)
+    animal = await make_animal(
+        client, headers, tag="CHRON-DOB", estimated_dob=iso(today() - timedelta(days=100))
+    )
+    response = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        date=iso(today() - timedelta(days=200)),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == (
+        "Health event cannot predate CHRON-DOB's recorded birth date"
+    )
+
+
+async def test_health_event_chronology_rejection_names_the_offending_date(
+    client: httpx.AsyncClient,
+) -> None:
+    """The 422 body must carry the ValueError text, not a collapsed placeholder.
+
+    Regression: `detail=str(exc)` degrading to a constant made every one of the
+    six date rejections in that try block indistinguishable to the operator.
+    """
+    headers = await owner_with_farm(client)
+    purchase_date = today() - timedelta(days=5)
+    animal = await make_animal(
+        client, headers, tag="CHRON-DETAIL", purchase_date=iso(purchase_date)
+    )
+    before_purchase = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        date=iso(purchase_date - timedelta(days=1)),
+    )
+    assert before_purchase.status_code == 422, before_purchase.text
+    assert before_purchase.json()["detail"] == (
+        "Health event cannot predate CHRON-DETAIL's recorded purchase date"
+    )
+    in_the_future = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        date=iso(today() + timedelta(days=1)),
+    )
+    assert in_the_future.status_code == 422, in_the_future.text
+    assert in_the_future.json()["detail"] == (
+        "health event date cannot be in the future for this farm"
+    )
+
+
+async def test_product_and_vaccine_window_messages_and_boundaries(
+    client: httpx.AsyncClient,
+) -> None:
+    """Both product windows are half-open, and each names its own field."""
+    headers = await owner_with_farm(client, "window@farm.in")
+    animal = await make_animal(client, headers, tag="WINDOW-1")
+
+    same_day_product = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        date=iso(today()),
+        product_manufactured_on=iso(today()),
+    )
+    assert same_day_product.status_code == 201, same_day_product.text
+
+    same_day_validity = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        date=iso(today()),
+        vaccine_valid_until=iso(today()),
+    )
+    assert same_day_validity.status_code == 201, same_day_validity.text
+
+    late_manufacture = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="TREATMENT",
+        date=iso(today() - timedelta(days=5)),
+        product_manufactured_on=iso(today() - timedelta(days=1)),
+    )
+    assert late_manufacture.status_code == 422, late_manufacture.text
+    assert late_manufacture.json()["detail"] == (
+        "product manufacture date cannot follow the health event"
+    )
+
+    lapsed_validity = await post_event(
+        client,
+        headers,
+        animal_id=animal["id"],
+        type="VACCINE",
+        date=iso(today()),
+        vaccine_valid_until=iso(today() - timedelta(days=1)),
+    )
+    assert lapsed_validity.status_code == 422, lapsed_validity.text
+    assert lapsed_validity.json()["detail"] == ("vaccine validity cannot predate the health event")
 
 
 async def test_sale_and_cull_blocked_during_medicine_withdrawal(
@@ -1128,6 +1531,35 @@ async def test_event_rejects_bucket_move_task_id(client: httpx.AsyncClient) -> N
     assert all(a["current_bucket"] == "QUARANTINE" for a in detail["animals"])
 
 
+@pytest.mark.parametrize("marker", ["footbath", "electrolyte"])
+async def test_a_non_health_task_never_reaches_the_linked_batch_rule(
+    client: httpx.AsyncClient, marker: str
+) -> None:
+    """A QUARANTINE/BUCKET_MOVE duty is not a health duty: 409, never a 422.
+
+    Regression: dropping the VACCINE/DEWORMING category filter from the linked
+    task metadata SELECT let a protocol duty from ANOTHER batch supply the
+    linked batch id, turning the compatibility 409 into a scope 422.
+    """
+    headers = await owner_with_farm(client)
+    first = await _backdated_batch_with_tasks(client, headers, days=9, count=2)
+    second = await _backdated_batch_with_tasks(client, headers, days=9, count=2)
+    other_task = next(t for t in first["tasks"] if marker in t["title"])
+    assert other_task["category"] in {"QUARANTINE", "BUCKET_MOVE"}
+    response = await post_event(
+        client,
+        headers,
+        scope="batch",
+        purchase_batch_id=second["batch"]["id"],
+        expected_animal_ids=sorted(animal["id"] for animal in second["animals"]),
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=other_task["id"],
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Linked health task is not pending or compatible"
+
+
 async def test_event_with_already_done_task_id_is_rejected(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     detail = await _backdated_batch_with_tasks(client, headers)
@@ -1142,6 +1574,7 @@ async def test_event_with_already_done_task_id_is_rejected(client: httpx.AsyncCl
     # Replaying a completed task cannot create a second unlinked health record.
     replay = await post_event(client, headers, **payload)
     assert replay.status_code == 409
+    assert replay.json()["detail"] == "Linked health task is not pending or compatible"
     assert len(events) == 2
     detail = await get_batch(client, headers, detail["batch"]["id"])
     task = next(t for t in detail["tasks"] if t["id"] == ppr_task["id"])
@@ -1155,6 +1588,25 @@ async def test_event_with_nonexistent_task_id_is_rejected(client: httpx.AsyncCli
         client, headers, animal_id=animal["id"], type="VACCINE", task_id=999999
     )
     assert response.status_code == 409
+    assert response.json()["detail"] == "Linked health task is not pending or compatible"
+
+
+async def test_task_id_above_the_int32_ceiling_is_a_409_not_a_500(
+    client: httpx.AsyncClient,
+) -> None:
+    """A task id above the int4 ceiling is unmatchable, not an unhandled 500.
+
+    Regression: the `task` sentinel degrading from None to a truthy placeholder
+    made `task.farm_id` explode for any task_id BoundedId admits but int4 cannot
+    hold, turning the documented 409 into an opaque 500.
+    """
+    headers = await owner_with_farm(client)
+    animal = await make_animal(client, headers, tag="OVF-1")
+    response = await post_event(
+        client, headers, animal_id=animal["id"], type="VACCINE", task_id=2**40
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Linked health task is not pending or compatible"
 
 
 async def test_event_task_closure_enforces_assignment(client: httpx.AsyncClient) -> None:
@@ -2140,6 +2592,37 @@ async def test_event_with_foreign_task_id_is_rejected(client: httpx.AsyncClient)
     assert task["status"] == "PENDING"  # A's duty untouched
 
 
+async def test_another_farms_task_id_never_reaches_the_linked_batch_rule(
+    client: httpx.AsyncClient,
+) -> None:
+    """A batch-scoped write must not learn anything about another farm's duty.
+
+    Regression: dropping `Task.farm_id == farm.id` from the linked-task metadata
+    SELECT let farm B's batch id flow into farm A's scope check, replacing the
+    compatibility 409 with a 422 that leaks the foreign duty's existence.
+    """
+    owner_a = await owner_with_farm(client, "xa@farm.in", "A Farm")
+    owner_b = await owner_with_farm(client, "xb@farm.in", "B Farm")
+    detail_a = await _backdated_batch_with_tasks(client, owner_a, days=9, count=2)
+    detail_b = await _backdated_batch_with_tasks(client, owner_b, days=9, count=2)
+    foreign_task = next(t for t in detail_b["tasks"] if "PPR" in t["title"])
+    response = await post_event(
+        client,
+        owner_a,
+        scope="batch",
+        purchase_batch_id=detail_a["batch"]["id"],
+        expected_animal_ids=sorted(animal["id"] for animal in detail_a["animals"]),
+        type="VACCINE",
+        product_name="PPR vaccine",
+        task_id=foreign_task["id"],
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Linked health task is not pending or compatible"
+    refreshed_b = await get_batch(client, owner_b, detail_b["batch"]["id"])
+    task_b = next(t for t in refreshed_b["tasks"] if t["id"] == foreign_task["id"])
+    assert task_b["status"] == "PENDING"
+
+
 # ---------------------------------------------------------------------------
 # RBAC — workers need health.* / purchases.* permissions
 # ---------------------------------------------------------------------------
@@ -2753,6 +3236,12 @@ async def test_tag_number_cannot_hijack_the_pre_kidding_vaccine_template(
         task_id=pre_kidding["id"],
     )
     assert recorded[0]["schedule_template_name"] == "ET + TT pre-kidding"
+    # ...and it is filed under THAT template id: the pre-kidding duty is not the
+    # annual ET programme item, whose schedule row must stay untouched.
+    schedule = await get_schedule(client, headers, doe["id"])
+    annual_et = row_by_name(schedule, "Enterotoxaemia (ET)")
+    assert annual_et["last_done"] is None
+    assert annual_et["status"] != "DONE"
 
 
 async def test_event_type_must_match_the_linked_task(client: httpx.AsyncClient) -> None:
@@ -2849,6 +3338,74 @@ async def test_batch_scoped_event_cannot_close_an_animal_linked_duty(
     )
     assert response.status_code == 422, response.text
     assert response.json()["detail"] == "Health event scope must match the linked animal"
+
+
+async def test_animal_scoped_event_cannot_close_another_animals_duty(
+    client: httpx.AsyncClient,
+) -> None:
+    """The linked-animal guard is a disjunction: right scope, wrong animal fails.
+
+    Regression: collapsing `scope != "animal" or animal_id != task.animal_id`
+    into `and` let a vaccine recorded against an unrelated bystander close a
+    doe's pre-kidding duty.
+    """
+    headers = await owner_with_farm(client)
+    doe = await make_animal(
+        client,
+        headers,
+        tag="PK-DOE",
+        date_of_birth=iso(today() - timedelta(days=800)),
+        weight_kg=26.0,
+        weight_date=iso(today() - timedelta(days=800)),
+        current_bucket="BREEDING",
+    )
+    buck = await make_animal(
+        client,
+        headers,
+        tag="PK-BUCK",
+        sex="M",
+        date_of_birth=iso(today() - timedelta(days=800)),
+        weight_kg=30.0,
+        weight_date=iso(today() - timedelta(days=800)),
+        current_bucket="BREEDING",
+    )
+    bystander = await make_animal(client, headers, tag="PK-OTHER")
+    created = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe["id"],
+            "buck_id": buck["id"],
+            "breeding_date": iso(today() - timedelta(days=120)),
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    confirmed = await client.post(
+        f"/api/breeding/{created.json()['id']}/ultrasound",
+        json={"pregnant": True, "kid_count": 1, "date": created.json()["ultrasound_date"]},
+        headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    tabs = await client.get("/api/tasks", headers=headers)
+    duties = tabs.json()["today"] + tabs.json()["overdue"] + tabs.json()["upcoming"]
+    pre_kidding = next(
+        t for t in duties if t["category"] == "VACCINE" and t["animal_id"] == doe["id"]
+    )
+    response = await post_event(
+        client,
+        headers,
+        scope="animal",
+        animal_id=bystander["id"],
+        type="VACCINE",
+        disease_target="ET + TT",
+        task_id=pre_kidding["id"],
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Health event scope must match the linked animal"
+    tabs = await client.get("/api/tasks", headers=headers)
+    duties = tabs.json()["today"] + tabs.json()["overdue"] + tabs.json()["upcoming"]
+    assert next(t for t in duties if t["id"] == pre_kidding["id"])["status"] == "PENDING"
+    assert await list_events(client, headers) == []
 
 
 async def test_linked_template_must_match_the_duty(client: httpx.AsyncClient) -> None:

@@ -14,9 +14,10 @@ import httpx
 import pytest
 from sqlalchemy.exc import DBAPIError
 
+from app.core.config import get_settings
 from app.db import get_sessionmaker
 from app.models import Transaction
-from app.schemas.common import MAX_PAGE_OFFSET
+from app.schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from app.utils import today
 
 from .conftest import owner_with_farm, register
@@ -84,6 +85,44 @@ async def test_simulation_compare_rejects_out_of_range_ids(client: httpx.AsyncCl
     assert "positive PostgreSQL integer" in response.json()["detail"]
 
 
+async def test_out_of_int32_purchase_batch_id_is_a_domain_conflict(
+    client: httpx.AsyncClient,
+) -> None:
+    """A batch-scope health write carrying a schema-valid but impossible batch
+    id stays the documented 409. `BoundedId` deliberately admits ids up to
+    2**62, so the writer's own int32 guard is what keeps the batch lookup away
+    from asyncpg — without it the id reaches `purchase_batches.id = $1::INTEGER`
+    and the driver's out-of-int32-range DataError becomes a 500."""
+    owner = await owner_with_farm(client)
+    batch = await client.post(
+        "/api/purchases/new",
+        json={"date": iso(today()), "supplier": "Kurnool Traders", "count": 2},
+        headers=owner,
+    )
+    assert batch.status_code == 201, batch.text
+    detail = await client.get(f"/api/purchases/{batch.json()['id']}", headers=owner)
+    assert detail.status_code == 200, detail.text
+    # The reviewed ids must be genuinely lockable, otherwise the request stops
+    # at the earlier snapshot check and never reaches the guarded batch lookup.
+    animal_ids = sorted(animal["id"] for animal in detail.json()["animals"])
+    assert len(animal_ids) == 2, detail.text
+    response = await client.post(
+        "/api/health/events",
+        json={
+            "scope": "batch",
+            "purchase_batch_id": MAX_INT32_ID + 1,
+            "expected_animal_ids": animal_ids,
+            "type": "VACCINE",
+        },
+        headers=owner,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "Reviewed target snapshot is stale"
+    events = await client.get("/api/health/events", headers=owner)
+    assert events.status_code == 200, events.text
+    assert events.json()["events"] == []  # nothing was dosed
+
+
 async def test_simulation_compare_and_request_target_are_bounded_before_parsing(
     client: httpx.AsyncClient,
 ) -> None:
@@ -101,6 +140,23 @@ async def test_simulation_compare_and_request_target_are_bounded_before_parsing(
         headers=owner,
     )
     assert target.status_code == 414, target.text
+    assert target.json() == {"detail": "Request target is too long"}
+
+
+async def test_over_long_request_target_keeps_the_standard_error_envelope(
+    client: httpx.AsyncClient,
+) -> None:
+    """The 414 emitted before routing carries the same `{"detail": ...}` body
+    every other handler emits — the SPA reads that key, so a null body or a
+    renamed/reworded key would silently swallow the error."""
+    owner = await owner_with_farm(client)
+    response = await client.get(
+        "/api/animals",
+        params={"q": "x" * (get_settings().max_request_target_bytes + 1)},
+        headers=owner,
+    )
+    assert response.status_code == 414, response.text
+    assert response.json() == {"detail": "Request target is too long"}
 
 
 async def test_max_calendar_month_filter_is_empty_not_500(client: httpx.AsyncClient) -> None:

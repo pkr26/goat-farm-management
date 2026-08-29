@@ -4,15 +4,19 @@ validation, docs gating, the GOATFARM_TEST_DB footgun guard, and direct
 coverage of seed_startup / backfill_task_assignments_batch (the lifespan path
 the httpx ASGI transport never triggers)."""
 
+import asyncio
 import importlib.util
+import json
+import logging
 import os
 import subprocess
 import sys
 from collections.abc import AsyncIterator
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import httpx
 import pytest
@@ -21,7 +25,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
 from sqlalchemy import delete, event, select, text, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.types import Message, Receive, Scope, Send
 
+import app.db as db_module
 import app.main as main_module
 import app.seed as seed_module
 from app.core.config import (
@@ -32,7 +39,12 @@ from app.core.config import (
     get_settings,
 )
 from app.db import get_engine, get_sessionmaker
-from app.main import create_app, lifespan
+from app.main import (
+    CORS_EXPOSE_HEADERS,
+    RequestBodyLimitMiddleware,
+    create_app,
+    lifespan,
+)
 from app.models import (
     BucketDefinition,
     Farm,
@@ -40,6 +52,7 @@ from app.models import (
     FeedInventory,
     FeedRecipe,
     FeedRecipeLine,
+    IngredientCategory,
     Role,
     Task,
     TaskCategory,
@@ -56,7 +69,10 @@ from app.seed import (
     VACCINE_TEMPLATES,
     backfill_task_assignments_batch,
     repair_legacy_data_batch,
+    repair_legacy_farms_batch,
     seed_default_roles,
+    seed_farm_inventory,
+    seed_new_farm,
     seed_reference_data,
     seed_startup,
 )
@@ -129,6 +145,35 @@ async def test_readyz_returns_documented_unavailable_body_when_pool_fails(
 
     assert resp.status_code == 503
     assert resp.json() == {"status": "unavailable"}
+
+
+async def test_readyz_logs_the_failure_reason_when_the_pool_is_down(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The 503 body says nothing about why: pin the one operator-facing ERROR
+    line — its exact text (what alert rules grep for) and its traceback."""
+
+    class UnavailableSession:
+        async def __aenter__(self) -> None:
+            raise RuntimeError("database unavailable")
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(main_module, "get_sessionmaker", lambda: UnavailableSession)
+    caplog.handler.addFilter(main_module._RequestIdFilter())
+
+    with caplog.at_level(logging.ERROR, logger="goatfarm"):
+        resp = await client.get("/readyz")
+
+    assert resp.status_code == 503
+    records = [r for r in caplog.records if r.name == "goatfarm" and r.levelno == logging.ERROR]
+    # Equality on the whole list also pins that the probe logs exactly once.
+    assert [r.getMessage() for r in records] == ["readiness probe failed"]
+    assert records[0].exc_info is not None
+    assert "RuntimeError: database unavailable" in caplog.text
 
 
 def test_probe_openapi_documents_success_and_readiness_failure_models() -> None:
@@ -239,6 +284,256 @@ async def test_oversized_chunked_body_is_rejected_while_streaming(
     )
     assert resp.status_code == 413
     assert resp.json() == {"detail": "Request body is too large"}
+
+
+# --- request body / target limit middleware (11-H2) --------------------------
+
+
+def _http_scope(
+    *,
+    method: str = "GET",
+    path: str = "/api/ping",
+    raw_path: bytes | None = None,
+    query_string: bytes = b"",
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> dict[str, Any]:
+    """Build a minimal ASGI http scope for driving the limit middleware directly.
+
+    httpx.ASGITransport only ever builds ASCII `type: "http"` scopes whose
+    raw_path mirrors the decoded path, so a hand-built scope is the only way to
+    exercise the raw_path/fallback/boundary arithmetic.
+    """
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("utf-8") if raw_path is None else raw_path,
+        "query_string": query_string,
+        "root_path": "",
+        "headers": list(headers or []),
+        "client": ("127.0.0.1", 5000),
+        "server": ("testserver", 80),
+    }
+
+
+async def _drive_body_limit(
+    scope: dict[str, Any],
+    *,
+    body: bytes = b"",
+    max_bytes: int = 1024,
+    max_target_bytes: int = 64,
+) -> tuple[int, bytes, int]:
+    """Run RequestBodyLimitMiddleware over one hand-built scope.
+
+    Returns (status, response body, downstream invocation count) so a test can
+    pin that the middleware answered *before* the app ever ran.
+    """
+    calls = 0
+    status = 0
+    chunks: list[bytes] = []
+
+    async def downstream(inner_scope: Scope, inner_receive: Receive, inner_send: Send) -> None:
+        nonlocal calls
+        calls += 1
+        await inner_receive()
+        await inner_send({"type": "http.response.start", "status": 200, "headers": []})
+        await inner_send({"type": "http.response.body", "body": b"downstream"})
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message: Message) -> None:
+        nonlocal status
+        if message["type"] == "http.response.start":
+            status = int(message["status"])
+        elif message["type"] == "http.response.body":
+            chunks.append(message.get("body", b""))
+
+    middleware = RequestBodyLimitMiddleware(
+        downstream, max_bytes=max_bytes, max_target_bytes=max_target_bytes
+    )
+    await middleware(scope, receive, send)
+    return status, b"".join(chunks), calls
+
+
+async def test_non_http_scope_is_forwarded_to_the_app_untouched() -> None:
+    """Lifespan (and any non-http) scope reaches the app with all three args intact."""
+    seen: list[tuple[str, Any]] = []
+
+    async def receive() -> Message:
+        return {"type": "lifespan.startup"}
+
+    async def send(message: Message) -> None:
+        seen.append(("send", message))
+
+    async def downstream(scope: Scope, inner_receive: Receive, inner_send: Send) -> None:
+        seen.append(("scope", scope["type"]))
+        message = await inner_receive()
+        seen.append(("receive", message["type"]))
+        await inner_send({"type": "lifespan.startup.complete"})
+
+    middleware = RequestBodyLimitMiddleware(downstream, max_bytes=1, max_target_bytes=1)
+    await middleware({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
+
+    assert seen == [
+        ("scope", "lifespan"),
+        ("receive", "lifespan.startup"),
+        ("send", {"type": "lifespan.startup.complete"}),
+    ]
+
+
+async def test_request_target_bound_measures_raw_path_not_decoded_path() -> None:
+    """A percent-encoded target must not escape the bound by decoding shorter."""
+    scope = _http_scope(raw_path=b"/" + b"%20" * 40, path="/" + " " * 40)
+
+    status, payload, calls = await _drive_body_limit(scope)
+
+    assert status == 414
+    assert json.loads(payload) == {"detail": "Request target is too long"}
+    assert calls == 0
+
+
+async def test_request_target_bound_holds_when_the_server_omits_raw_path() -> None:
+    """raw_path is optional in the ASGI scope; the decoded path still bounds the target."""
+    scope = _http_scope(path="/" + "x" * 100)
+    del scope["raw_path"]
+
+    status, payload, calls = await _drive_body_limit(scope)
+
+    assert status == 414
+    assert json.loads(payload) == {"detail": "Request target is too long"}
+    assert calls == 0
+
+
+async def test_request_target_exactly_at_the_limit_is_allowed() -> None:
+    """Accept side of the target frontier: path + '?' + query == the limit passes."""
+    scope = _http_scope(raw_path=b"/" + b"a" * 31, query_string=b"q=" + b"b" * 29)
+    assert len(scope["raw_path"]) + 1 + len(scope["query_string"]) == 64
+
+    status, payload, calls = await _drive_body_limit(scope)
+
+    assert (status, calls) == (200, 1)
+    assert payload == b"downstream"
+
+
+async def test_request_target_one_byte_over_the_limit_is_rejected() -> None:
+    """Reject side of the target frontier: one byte past the limit is a 414."""
+    scope = _http_scope(raw_path=b"/" + b"a" * 31, query_string=b"q=" + b"b" * 30)
+
+    status, payload, calls = await _drive_body_limit(scope)
+
+    assert (status, calls) == (414, 0)
+    assert json.loads(payload) == {"detail": "Request target is too long"}
+
+
+async def test_query_less_target_is_charged_no_separator_byte() -> None:
+    """No query string means no '?' byte is charged against the target bound."""
+    scope = _http_scope(raw_path=b"/" + b"a" * 63, query_string=b"")
+
+    status, payload, calls = await _drive_body_limit(scope)
+
+    assert (status, calls) == (200, 1)
+    assert payload == b"downstream"
+
+
+async def test_declared_content_length_short_circuits_before_the_app_runs() -> None:
+    """The Content-Length pre-check answers 413 without invoking the app at all."""
+    scope = _http_scope(method="POST", headers=[(b"content-length", b"999999")])
+
+    status, payload, calls = await _drive_body_limit(scope, body=b"{}")
+
+    assert status == 413
+    assert json.loads(payload) == {"detail": "Request body is too large"}
+    assert calls == 0
+
+
+async def test_content_length_header_lookup_is_case_insensitive() -> None:
+    """Header names are folded before the Content-Length lookup, not compared raw."""
+    scope = _http_scope(method="POST", headers=[(b"Content-Length", b"999999")])
+
+    status, payload, calls = await _drive_body_limit(scope, body=b"{}")
+
+    assert (status, calls) == (413, 0)
+    assert json.loads(payload) == {"detail": "Request body is too large"}
+
+
+async def test_declared_oversize_content_length_is_rejected_without_reading_body(
+    client: httpx.AsyncClient,
+) -> None:
+    """A small body with a lying Content-Length is refused by the header pre-check."""
+    limit = get_settings().max_request_body_bytes
+
+    resp = await client.post(
+        "/api/auth/login",
+        content=b'{"email":"a@b.in","password":"x"}',
+        headers={"content-type": "application/json", "content-length": str(limit + 1)},
+    )
+
+    assert resp.status_code == 413, resp.text
+    assert resp.json() == {"detail": "Request body is too large"}
+
+
+async def test_oversized_content_length_is_rejected_before_a_body_byte_is_read(
+    client: httpx.AsyncClient,
+) -> None:
+    """The declared-size 413 fires before the body stream is pulled even once."""
+    limit = get_settings().max_request_body_bytes
+    pulled: list[int] = []
+
+    async def body() -> AsyncIterator[bytes]:
+        pulled.append(1)
+        yield b"x" * (limit + 1)
+
+    resp = await client.post(
+        "/api/auth/login",
+        content=body(),
+        headers={"Content-Type": "application/json", "Content-Length": str(limit + 1)},
+    )
+
+    assert resp.status_code == 413, resp.text
+    assert resp.json() == {"detail": "Request body is too large"}
+    assert pulled == []
+
+
+@pytest.mark.parametrize("raw_length", ["abc", "-1"])
+async def test_malformed_content_length_is_rejected_with_400(
+    client: httpx.AsyncClient, raw_length: str
+) -> None:
+    """A non-integer or negative Content-Length is a framing error, not a 422/500."""
+    resp = await client.post(
+        "/api/auth/login",
+        content=b"{}",
+        headers={"Content-Type": "application/json", "Content-Length": raw_length},
+    )
+
+    assert resp.status_code == 400, resp.text
+    assert resp.json() == {"detail": "Invalid Content-Length"}
+
+
+async def test_body_exactly_at_the_limit_is_accepted(client: httpx.AsyncClient) -> None:
+    """Accept side of the body frontier: exactly max_request_body_bytes reaches the route."""
+    limit = get_settings().max_request_body_bytes
+
+    sized = await client.post(
+        "/api/auth/login",
+        content=b"x" * limit,
+        headers={"Content-Type": "application/json"},
+    )
+    assert sized.status_code == 422, sized.status_code
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"x" * (limit // 2)
+        yield b"y" * (limit - limit // 2)
+
+    streamed = await client.post(
+        "/api/auth/login",
+        content=body(),
+        headers={"Content-Type": "application/json"},
+    )
+    assert streamed.status_code == 422, streamed.status_code
 
 
 # --- production-boot safety (11-H3) ------------------------------------------
@@ -606,6 +901,36 @@ def test_suite_refuses_database_not_ending_in_test() -> None:
     assert "must name a throwaway database" in result.stderr + result.stdout
 
 
+def test_reset_engine_disposes_the_cached_engine_exactly_once() -> None:
+    """The hook conftest uses between event loops must actually drain the pool
+    (and stay a quiet no-op when nothing is cached), not silently skip it."""
+    disposed: list[int] = []
+
+    class FakeEngine:
+        async def dispose(self) -> None:
+            disposed.append(1)
+
+    previous_engine, previous_sessionmaker = db_module._engine, db_module._sessionmaker
+    try:
+        db_module._engine = FakeEngine()  # type: ignore[assignment]
+        db_module._sessionmaker = object()  # type: ignore[assignment]
+
+        db_module.reset_engine()
+
+        assert disposed == [1], "cached engine must be disposed exactly once"
+        assert db_module._engine is None
+        assert db_module._sessionmaker is None
+
+        # Nothing cached any more: a second reset is a no-op, never an
+        # AttributeError on None.
+        db_module.reset_engine()
+
+        assert disposed == [1], "no engine cached -> nothing to dispose"
+        assert db_module._engine is None
+    finally:
+        db_module._engine, db_module._sessionmaker = previous_engine, previous_sessionmaker
+
+
 # --- startup seeding / task backfill (10-H2) ----------------------------------
 
 
@@ -886,7 +1211,7 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
             category=TaskCategory.BUCKET_MOVE.value,
             auto_generated=True,
         )
-        # …and a manually created unassigned duty, which must be left alone.
+        # …and manually created unassigned duties, which must be left alone.
         manual = Task(
             farm_id=farm.id,
             title="Fix the fence",
@@ -894,7 +1219,17 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
             category=TaskCategory.OTHER.value,
             auto_generated=False,
         )
-        db.add_all([orphan_vaccine, orphan_move, manual])
+        # OTHER is absent from TASK_CATEGORY_ROLE_MAP, so it is unclaimable on
+        # category alone; only a MAPPED category can tell the `auto_generated`
+        # and `assigned_user_id` guards apart from a missing predicate.
+        manual_mapped = Task(
+            farm_id=farm.id,
+            title="Scrub the shed",
+            due_date=date(2026, 1, 13),
+            category=TaskCategory.CLEANING.value,
+            auto_generated=False,
+        )
+        db.add_all([orphan_vaccine, orphan_move, manual, manual_mapped])
         await db.commit()
         farm_id = farm.id
 
@@ -916,6 +1251,7 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
         assert tasks["PPR vaccine due"].assigned_role_id == roles["VET"]
         assert tasks["Move to FOUNDATION"].assigned_role_id == roles["MOVER"]
         assert tasks["Fix the fence"].assigned_role_id is None
+        assert tasks["Scrub the shed"].assigned_role_id is None
         vet_role_id = roles["VET"]
 
     # Idempotency: a second startup run creates no roles and reassigns nothing.
@@ -936,7 +1272,103 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
         assert task_after.assigned_role_id == vet_role_id
 
 
+async def test_task_backfill_converges_and_never_restamps_an_assigned_duty() -> None:
+    """A duty that already carries a role must never be re-claimed.
+
+    Both claim branches require `assigned_role_id IS NULL`. Without it — or
+    with the whole candidate predicate gone — every resolvable duty is
+    re-claimed, FOR UPDATE-locked and rewritten on every hourly pass, so the
+    worker never reports an empty batch. Worse, a personal duty whose role
+    deliberately differs from its assignee's current membership role (roles
+    are only cross-checked at create time, and memberships change afterwards)
+    is silently overwritten with that membership role.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="converge-owner@farm.in", password_hash="argon2-placeholder")
+        worker = User(email="converge-worker@farm.in", password_hash="argon2-placeholder")
+        db.add_all([owner, worker])
+        await db.flush()
+        farm = Farm(name="Converging Backfill Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        roles = {
+            role.code: role.id
+            for role in (await db.execute(select(Role).where(Role.farm_id == farm.id))).scalars()
+        }
+        db.add(FarmMembership(user_id=worker.id, farm_id=farm.id, role_id=roles["CLEANER"]))
+        await db.flush()
+        db.add_all(
+            [
+                Task(
+                    farm_id=farm.id,
+                    title="PPR vaccine due",
+                    due_date=date(2026, 1, 10),
+                    category=TaskCategory.VACCINE.value,
+                    auto_generated=True,
+                ),
+                Task(
+                    farm_id=farm.id,
+                    title="Move to FOUNDATION",
+                    due_date=date(2026, 1, 11),
+                    category=TaskCategory.BUCKET_MOVE.value,
+                    auto_generated=True,
+                ),
+            ]
+        )
+        # A legal PENDING personal duty whose role deliberately disagrees with
+        # the assignee's membership role: repair must leave it exactly as-is.
+        personal = Task(
+            farm_id=farm.id,
+            title="Escort the vet",
+            due_date=date(2026, 1, 12),
+            category=TaskCategory.OTHER.value,
+            status=TaskStatus.PENDING.value,
+            assigned_user_id=worker.id,
+            assigned_role_id=roles["VET"],
+        )
+        db.add(personal)
+        await db.commit()
+        personal_id, vet_role_id = personal.id, roles["VET"]
+
+    async with get_sessionmaker()() as db:
+        first = await repair_legacy_data_batch(db, farm_batch_size=10, task_batch_size=100)
+        await db.commit()
+    # Only the two orphan auto-generated duties are candidates.
+    assert first == (1, 2)
+
+    async with get_sessionmaker()() as db:
+        second = await repair_legacy_data_batch(db, farm_batch_size=10, task_batch_size=100)
+        await db.commit()
+    assert second == (0, 0)
+
+    async with get_sessionmaker()() as db:
+        untouched = await db.get(Task, personal_id)
+        assert untouched is not None
+        assert untouched.assigned_role_id == vet_role_id
+
+
 # --- legacy-repair worker robustness -----------------------------------------
+
+
+PRESET_ROLE_CODES = {preset["code"] for preset in ROLE_PRESETS}
+CANONICAL_INGREDIENTS = {ingredient for ingredient, _category in FARM_INGREDIENTS}
+
+
+async def _farm_role_codes(db: AsyncSession, farm_id: int) -> set[str | None]:
+    """Every role code a farm holds (custom roles read back as None)."""
+    return set((await db.execute(select(Role.code).where(Role.farm_id == farm_id))).scalars())
+
+
+async def _farm_ingredients(db: AsyncSession, farm_id: int) -> set[str]:
+    """Every feed-inventory ingredient name a farm holds."""
+    return set(
+        (
+            await db.execute(
+                select(FeedInventory.ingredient).where(FeedInventory.farm_id == farm_id)
+            )
+        ).scalars()
+    )
 
 
 async def test_preset_role_repair_survives_a_custom_role_holding_a_preset_name() -> None:
@@ -987,6 +1419,316 @@ async def test_preset_role_repair_survives_a_custom_role_holding_a_preset_name()
         farms, _tasks = await repair_legacy_data_batch(db, farm_batch_size=10, task_batch_size=100)
         await db.commit()
     assert farms == 0
+
+
+async def test_claim_predicates_are_scoped_per_farm() -> None:
+    """Both claim disjuncts must be correlated to the candidate farm itself.
+
+    Every other legacy fixture is missing BOTH its preset roles and its
+    inventory, so neither disjunct is ever the deciding one. An uncorrelated
+    role EXISTS reads "does ANY farm have this code" and an uncorrelated
+    inventory count sums the whole table, so as soon as one healthy tenant
+    exists the half-seeded ones are never claimed again — and stay broken.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="scoped-claim-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        seeded = Farm(name="Fully Seeded Farm", owner_id=owner.id)
+        roles_only = Farm(name="Roles Only Farm", owner_id=owner.id)
+        inventory_only = Farm(name="Inventory Only Farm", owner_id=owner.id)
+        db.add_all([seeded, roles_only, inventory_only])
+        await db.flush()
+        await seed_new_farm(db, seeded)
+        await seed_default_roles(db, roles_only.id)
+        await seed_farm_inventory(db, inventory_only.id)
+        await db.commit()
+        seeded_id, roles_only_id, inventory_only_id = seeded.id, roles_only.id, inventory_only.id
+
+    async with get_sessionmaker()() as db:
+        claimed = await repair_legacy_farms_batch(db, batch_size=10)
+        await db.commit()
+    # The healthy farm satisfies both disjuncts and must not be claimed.
+    assert claimed == 2
+
+    async with get_sessionmaker()() as db:
+        assert await _farm_role_codes(db, inventory_only_id) == PRESET_ROLE_CODES
+        assert await _farm_ingredients(db, roles_only_id) == CANONICAL_INGREDIENTS
+        assert await _farm_role_codes(db, seeded_id) == PRESET_ROLE_CODES
+        assert await _farm_ingredients(db, seeded_id) == CANONICAL_INGREDIENTS
+
+
+async def test_partially_seeded_role_set_is_completed() -> None:
+    """A farm holding SOME preset codes must be claimed and topped up.
+
+    The role probe asks per code ("is MOVER missing?"), not per farm ("has any
+    role"), and the snapshot read must return each row's real `code` — reading
+    it back as NULL makes every preset look missing, so the re-insert collides
+    with `uq_roles_farm_preset_code` and the savepoint silently drops the whole
+    tenant's repair.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="partial-roles-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Partial Roles Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        for code in ("MOVER", "VET"):
+            preset = next(item for item in ROLE_PRESETS if item["code"] == code)
+            db.add(Role(farm_id=farm.id, code=code, name=preset["name"], permissions="[]"))
+        await seed_farm_inventory(db, farm.id)
+        await db.commit()
+        farm_id = farm.id
+
+    async with get_sessionmaker()() as db:
+        claimed = await repair_legacy_farms_batch(db, batch_size=10)
+        await db.commit()
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        assert await _farm_role_codes(db, farm_id) == PRESET_ROLE_CODES
+        rows = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
+        # Exactly one row per preset: the two pre-existing ones were not
+        # duplicated and no preset was skipped by a rolled-back savepoint.
+        assert len(rows) == len(ROLE_PRESETS)
+
+
+async def test_tombstoned_preset_name_is_reused() -> None:
+    """`uq_roles_farm_active_name` is partial on `deleted_at IS NULL`, so a
+    retired role's display name is free again. Reading the tombstone as live
+    makes every legacy tenant that ever deleted a preset-named role receive a
+    permanently decorated "Veterinarian (VET)" instead of the plain name."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="tombstone-name-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Tombstoned Name Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        preset = next(item for item in ROLE_PRESETS if item["code"] == "VET")
+        db.add(
+            Role(
+                farm_id=farm.id,
+                code=None,
+                name=preset["name"],
+                permissions="[]",
+                deleted_at=utcnow() - timedelta(days=1),
+            )
+        )
+        await db.commit()
+        farm_id, preset_name = farm.id, preset["name"]
+
+    async with get_sessionmaker()() as db:
+        assert await repair_legacy_farms_batch(db, batch_size=10) == 1
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        vet = (
+            await db.execute(select(Role).where(Role.farm_id == farm_id, Role.code == "VET"))
+        ).scalar_one()
+        assert vet.name == preset_name
+
+
+async def test_only_canonical_ingredients_count_toward_the_claim() -> None:
+    """The inventory gate counts CANONICAL ingredients, not stock rows.
+
+    Farms seeded under an older FARM_INGREDIENTS list are exactly the
+    population this repair exists for: they hold a full complement of retired
+    ingredient rows and none of the current ones. Counting every row makes
+    them look complete, so they never receive a single canonical balance.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="custom-ingredient-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Custom Ingredient Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        legacy_names = {f"Legacy ingredient {index}" for index in range(len(FARM_INGREDIENTS))}
+        for ingredient in sorted(legacy_names):
+            db.add(
+                FeedInventory(
+                    farm_id=farm.id,
+                    ingredient=ingredient,
+                    category=IngredientCategory.CONCENTRATE.value,
+                    unit="kg",
+                    qty_on_hand=0.0,
+                    reorder_level=100.0,
+                )
+            )
+        await db.commit()
+        farm_id = farm.id
+
+    async with get_sessionmaker()() as db:
+        assert await repair_legacy_farms_batch(db, batch_size=10) == 1
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        # Retired rows are kept (they still carry stock) and every canonical
+        # ingredient is now present alongside them.
+        assert await _farm_ingredients(db, farm_id) == legacy_names | CANONICAL_INGREDIENTS
+
+
+async def test_only_the_claimed_batch_is_touched() -> None:
+    """`batch_size` bounds the whole repair unit, inventory included.
+
+    No other fixture has more claimable farms than the batch allows, so an
+    unbounded LIMIT and an unscoped inventory INSERT..SELECT both look
+    identical. The unclaimed farm must keep zero roles AND zero inventory
+    rows: writing it anyway takes FK locks on tenants this pass deliberately
+    did not claim.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="batch-bound-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        first = Farm(name="First Legacy Farm", owner_id=owner.id)
+        second = Farm(name="Second Legacy Farm", owner_id=owner.id)
+        db.add_all([first, second])
+        await db.commit()
+        first_id, second_id = first.id, second.id
+
+    async with get_sessionmaker()() as db:
+        claimed = await repair_legacy_farms_batch(db, batch_size=1)
+        await db.commit()
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        assert await _farm_role_codes(db, first_id) == PRESET_ROLE_CODES
+        assert await _farm_ingredients(db, first_id) == CANONICAL_INGREDIENTS
+        assert await _farm_role_codes(db, second_id) == set()
+        assert await _farm_ingredients(db, second_id) == set()
+
+
+async def test_locked_farm_is_skipped_not_waited_on() -> None:
+    """The maintenance batch must never block on a contended tenant row.
+
+    Farm creation and role edits already hold `farms FOR UPDATE`. Without SKIP
+    LOCKED the hourly worker parks on the first such row it meets, so a single
+    long-running tenant transaction stalls every other tenant's repair for as
+    long as it lives.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="skip-locked-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        locked = Farm(name="Locked Legacy Farm", owner_id=owner.id)
+        free = Farm(name="Free Legacy Farm", owner_id=owner.id)
+        db.add_all([locked, free])
+        await db.commit()
+        locked_id, free_id = locked.id, free.id
+
+    async with get_sessionmaker()() as holder:
+        held = (
+            await holder.execute(select(Farm.id).where(Farm.id == locked_id).with_for_update())
+        ).scalar_one()
+        assert held == locked_id
+        async with get_sessionmaker()() as db:
+            claimed = await asyncio.wait_for(
+                repair_legacy_farms_batch(db, batch_size=10), timeout=5
+            )
+            await db.commit()
+        await holder.rollback()
+
+    assert claimed == 1
+    async with get_sessionmaker()() as db:
+        assert await _farm_role_codes(db, free_id) == PRESET_ROLE_CODES
+        assert await _farm_role_codes(db, locked_id) == set()
+
+
+async def test_claim_statement_is_ordered_and_limited() -> None:
+    """Pin the claim query's shape, which state assertions cannot reach.
+
+    On a freshly truncated table heap order equals id order, so a dropped
+    ORDER BY still returns the lowest ids and no fixture can observe it. The
+    emitted statement is the only witness that a bounded pass is deterministic
+    about which tenants it repairs first — and that it skips locked rows.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="claim-shape-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        db.add(Farm(name="Shape Legacy Farm", owner_id=owner.id))
+        await db.commit()
+
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        async with get_sessionmaker()() as db:
+            assert await repair_legacy_farms_batch(db, batch_size=7) == 1
+            await db.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    claim = [sql for sql in statements if "FROM farms" in sql and "FOR UPDATE" in sql]
+    assert len(claim) == 1
+    assert "ORDER BY farms.id" in claim[0]
+    assert "LIMIT" in claim[0]
+    assert claim[0].rstrip().endswith("FOR UPDATE SKIP LOCKED")
+
+
+async def test_conflicting_role_insert_only_skips_that_tenant(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The per-farm savepoint is the only thing the operator ever sees.
+
+    `_free_preset_role_name` avoids collisions it can see, so the
+    `except IntegrityError` arm is only reachable when an external writer takes
+    a preset display name after the batch read its snapshot. Simulate that: the
+    poisoned tenant must roll back alone, every other tenant in the batch must
+    still be repaired, and the skip must be reported with the farm id — an
+    unformattable or id-less warning leaves a silently unrepaired tenant.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="savepoint-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        poisoned = Farm(name="Poisoned Savepoint Farm", owner_id=owner.id)
+        healthy = Farm(name="Healthy Savepoint Farm", owner_id=owner.id)
+        db.add_all([poisoned, healthy])
+        await db.flush()
+        preset = next(item for item in ROLE_PRESETS if item["code"] == "VET")
+        db.add(Role(farm_id=poisoned.id, code=None, name=preset["name"], permissions="[]"))
+        await db.commit()
+        poisoned_id, healthy_id = poisoned.id, healthy.id
+
+    def take_the_preset_name(preset_name: str, code: str, taken: set[str]) -> str:
+        return preset_name
+
+    monkeypatch.setattr(seed_module, "_free_preset_role_name", take_the_preset_name)
+
+    with caplog.at_level(logging.WARNING, logger="goatfarm.seed"):
+        async with get_sessionmaker()() as db:
+            claimed = await repair_legacy_farms_batch(db, batch_size=10)
+            await db.commit()
+
+    assert claimed == 2
+    async with get_sessionmaker()() as db:
+        assert await _farm_role_codes(db, healthy_id) == PRESET_ROLE_CODES
+        # Only the poisoned tenant's roles were rolled back…
+        assert await _farm_role_codes(db, poisoned_id) == {None}
+        # …and the inventory phase still ran for both.
+        assert await _farm_ingredients(db, healthy_id) == CANONICAL_INGREDIENTS
+        assert await _farm_ingredients(db, poisoned_id) == CANONICAL_INGREDIENTS
+
+    warnings = [record for record in caplog.records if record.name == "goatfarm.seed"]
+    assert [record.getMessage() for record in warnings] == [
+        f"legacy preset-role repair skipped farm_id={poisoned_id} (conflicting role row)"
+    ]
 
 
 async def test_task_backfill_skips_unresolvable_rows_without_starving_later_work() -> None:
@@ -1106,6 +1848,391 @@ async def test_task_backfill_share_locks_membership_role_snapshot() -> None:
         sql for sql in statements if "FROM farm_memberships" in sql and "FOR SHARE" in sql
     ]
     assert len(membership_reads) == 1
+
+
+async def test_task_backfill_claims_a_duty_only_for_its_own_live_category_preset() -> None:
+    """The preset probe must pair each category with ITS OWN live role code.
+
+    Every other fixture farm holds either all five presets or none, so a probe
+    that matched any category against any preset code — or that ignored
+    `deleted_at` — still found a live role and looked correct. A CLEANING duty
+    is repairable only by a live CLEANER on the same farm: claiming it on a
+    VET-only or tombstoned-CLEANER farm burns the pass on a row the writer
+    then cannot resolve, while refusing the live-CLEANER farm never repairs
+    the one duty that could be.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="category-preset-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        live = Farm(name="Live Cleaner Farm", owner_id=owner.id)
+        other_code = Farm(name="Vet Only Farm", owner_id=owner.id)
+        tombstoned = Farm(name="Retired Cleaner Farm", owner_id=owner.id)
+        db.add_all([live, other_code, tombstoned])
+        await db.flush()
+        cleaner_preset = next(item for item in ROLE_PRESETS if item["code"] == "CLEANER")
+        vet_preset = next(item for item in ROLE_PRESETS if item["code"] == "VET")
+        cleaner = Role(
+            farm_id=live.id,
+            code=cleaner_preset["code"],
+            name=cleaner_preset["name"],
+            permissions="[]",
+        )
+        db.add_all(
+            [
+                cleaner,
+                Role(
+                    farm_id=other_code.id,
+                    code=vet_preset["code"],
+                    name=vet_preset["name"],
+                    permissions="[]",
+                ),
+                Role(
+                    farm_id=tombstoned.id,
+                    code=cleaner_preset["code"],
+                    name=cleaner_preset["name"],
+                    permissions="[]",
+                    deleted_at=utcnow(),
+                ),
+            ]
+        )
+        duties = [
+            Task(
+                farm_id=farm.id,
+                title="Clean the pen",
+                due_date=date(2026, 1, 10),
+                category=TaskCategory.CLEANING.value,
+                auto_generated=True,
+            )
+            for farm in (live, other_code, tombstoned)
+        ]
+        db.add_all(duties)
+        await db.commit()
+        cleaner_id = cleaner.id
+        live_duty_id, other_duty_id, tombstoned_duty_id = (duty.id for duty in duties)
+
+    async with get_sessionmaker()() as db:
+        claimed = await backfill_task_assignments_batch(db, batch_size=10)
+        await db.commit()
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        repaired = await db.get(Task, live_duty_id)
+        assert repaired is not None and repaired.assigned_role_id == cleaner_id
+        for unresolved_id in (other_duty_id, tombstoned_duty_id):
+            unresolved = await db.get(Task, unresolved_id)
+            assert unresolved is not None and unresolved.assigned_role_id is None
+
+
+async def test_task_backfill_claims_at_most_batch_size_in_id_order() -> None:
+    """`batch_size` is the worker's per-pass budget, not a hint.
+
+    Every other fixture offers exactly one resolvable row to a one-row batch,
+    so an unbounded LIMIT is invisible. With three repairable duties the claim
+    must take (and FOR UPDATE lock) only the lowest-id one and leave the rest
+    for the next finite pass.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="batch-budget-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Batch Budget Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        duties = [
+            Task(
+                farm_id=farm.id,
+                title=f"Clean the pen {index}",
+                due_date=date(2026, 1, 10 + index),
+                category=TaskCategory.CLEANING.value,
+                auto_generated=True,
+            )
+            for index in range(3)
+        ]
+        db.add_all(duties)
+        await db.commit()
+        duty_ids = [duty.id for duty in duties]
+
+    async with get_sessionmaker()() as db:
+        claimed = await backfill_task_assignments_batch(db, batch_size=1)
+        await db.commit()
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        rows = list(
+            (
+                await db.execute(select(Task).where(Task.id.in_(duty_ids)).order_by(Task.id))
+            ).scalars()
+        )
+        assert [row.assigned_role_id is not None for row in rows] == [True, False, False]
+
+
+async def test_task_backfill_claim_is_ordered_bounded_and_skips_locked() -> None:
+    """Pin the claim query's shape, which state assertions cannot reach.
+
+    On a freshly truncated table heap order equals id order, so a dropped
+    ORDER BY still returns the lowest ids and no fixture can observe it. The
+    emitted statement is the only witness that each pass is ordered and
+    bounded; SKIP LOCKED is then pinned behaviourally — with a contended
+    lowest-id duty the worker must repair the next one instead of parking on
+    the lock (which a 250ms `lock_timeout` turns into a hard error).
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="claim-shape-duty-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        farm = Farm(name="Claim Shape Farm", owner_id=owner.id)
+        db.add(farm)
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        contended = Task(
+            farm_id=farm.id,
+            title="Clean the contended pen",
+            due_date=date(2026, 1, 10),
+            category=TaskCategory.CLEANING.value,
+            auto_generated=True,
+        )
+        db.add(contended)
+        await db.flush()  # it must be the deterministic lowest-ID candidate
+        free = Task(
+            farm_id=farm.id,
+            title="Clean the free pen",
+            due_date=date(2026, 1, 11),
+            category=TaskCategory.CLEANING.value,
+            auto_generated=True,
+        )
+        db.add(free)
+        await db.commit()
+        contended_id, free_id = contended.id, free.id
+
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    async with get_sessionmaker()() as holder:
+        held = (
+            await holder.execute(select(Task.id).where(Task.id == contended_id).with_for_update())
+        ).scalar_one()
+        assert held == contended_id
+        event.listen(engine, "before_cursor_execute", capture)
+        try:
+            async with get_sessionmaker()() as db:
+                await db.execute(text("SET LOCAL lock_timeout = '250ms'"))
+                claimed = await backfill_task_assignments_batch(db, batch_size=1)
+                await db.commit()
+        finally:
+            event.remove(engine, "before_cursor_execute", capture)
+        await holder.rollback()
+
+    assert claimed == 1
+    claim = [sql for sql in statements if "FROM tasks" in sql and "FOR UPDATE" in sql]
+    assert len(claim) == 1
+    assert "ORDER BY tasks.id" in claim[0]
+    assert "LIMIT" in claim[0]
+    assert claim[0].rstrip().endswith("FOR UPDATE SKIP LOCKED")
+
+    async with get_sessionmaker()() as db:
+        skipped = await db.get(Task, contended_id)
+        repaired = await db.get(Task, free_id)
+        assert skipped is not None and skipped.assigned_role_id is None
+        assert repaired is not None and repaired.assigned_role_id is not None
+
+
+async def test_task_backfill_share_locks_only_the_claimed_membership_pairs() -> None:
+    """The FOR SHARE snapshot read must be scoped to the claimed pairs.
+
+    Dropping the (farm_id, user_id) tuple predicate resolves the same roles —
+    the dict is looked up by pair — but takes a FOR SHARE lock on EVERY
+    membership row in the database, so one hourly maintenance batch stalls
+    every other tenant's membership and role writes.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="pair-scope-owner@farm.in", password_hash="argon2-placeholder")
+        worker = User(email="pair-scope-worker@farm.in", password_hash="argon2-placeholder")
+        stranger = User(email="pair-scope-stranger@farm.in", password_hash="argon2-placeholder")
+        db.add_all([owner, worker, stranger])
+        await db.flush()
+        farm = Farm(name="Pair Scope Farm", owner_id=owner.id)
+        unrelated = Farm(name="Unrelated Tenant Farm", owner_id=owner.id)
+        db.add_all([farm, unrelated])
+        await db.flush()
+        await seed_default_roles(db, farm.id)
+        await seed_default_roles(db, unrelated.id)
+        cleaner_id = (
+            await db.execute(select(Role.id).where(Role.farm_id == farm.id, Role.code == "CLEANER"))
+        ).scalar_one()
+        unrelated_role_id = (
+            await db.execute(
+                select(Role.id).where(Role.farm_id == unrelated.id, Role.code == "CLEANER")
+            )
+        ).scalar_one()
+        db.add(FarmMembership(user_id=worker.id, farm_id=farm.id, role_id=cleaner_id))
+        unrelated_membership = FarmMembership(
+            user_id=stranger.id, farm_id=unrelated.id, role_id=unrelated_role_id
+        )
+        db.add(unrelated_membership)
+        await db.flush()
+        db.add(
+            Task(
+                farm_id=farm.id,
+                title="Legacy personal cleaning",
+                due_date=date(2026, 1, 10),
+                category=TaskCategory.CLEANING.value,
+                status=TaskStatus.DONE.value,
+                assigned_user_id=worker.id,
+                assigned_role_id=None,
+                auto_generated=True,
+                completed_by_id=worker.id,
+                completed_at=utcnow(),
+            )
+        )
+        await db.commit()
+        unrelated_membership_id = unrelated_membership.id
+
+    statements: list[str] = []
+
+    def capture(
+        _conn: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: object,
+    ) -> None:
+        statements.append(statement)
+
+    engine = get_engine().sync_engine
+    async with get_sessionmaker()() as holder:
+        held = (
+            await holder.execute(
+                select(FarmMembership.id)
+                .where(FarmMembership.id == unrelated_membership_id)
+                .with_for_update()
+            )
+        ).scalar_one()
+        assert held == unrelated_membership_id
+        event.listen(engine, "before_cursor_execute", capture)
+        try:
+            async with get_sessionmaker()() as db:
+                await db.execute(text("SET LOCAL lock_timeout = '250ms'"))
+                claimed = await backfill_task_assignments_batch(db, batch_size=1)
+                await db.commit()
+        finally:
+            event.remove(engine, "before_cursor_execute", capture)
+        await holder.rollback()
+
+    assert claimed == 1
+    membership_reads = [
+        sql for sql in statements if "FROM farm_memberships" in sql and "FOR SHARE" in sql
+    ]
+    assert len(membership_reads) == 1
+    assert "(farm_memberships.farm_id, farm_memberships.user_id) IN" in membership_reads[0]
+
+
+async def test_task_backfill_reports_partial_resolution_and_never_stamps_a_dead_role(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A source that dies between the claim and the source read must not be used.
+
+    The claim locks tasks, not roles, and the engine runs READ COMMITTED, so a
+    role that satisfied the correlated eligibility probe can be tombstoned
+    before the batch reads it back. The duty must simply stay unclaimed-shaped
+    (role still NULL, eligible again later) rather than being stamped with a
+    defunct role, and the shortfall must be reported exactly once with the
+    real resolved/claimed counts.
+    """
+    async with get_sessionmaker()() as db:
+        owner = User(email="mid-batch-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        stable = Farm(name="Stable Preset Farm", owner_id=owner.id)
+        racing = Farm(name="Racing Preset Farm", owner_id=owner.id)
+        db.add_all([stable, racing])
+        await db.flush()
+        await seed_default_roles(db, stable.id)
+        cleaner_preset = next(item for item in ROLE_PRESETS if item["code"] == "CLEANER")
+        db.add(
+            Role(
+                farm_id=racing.id,
+                code=cleaner_preset["code"],
+                name=cleaner_preset["name"],
+                permissions="[]",
+            )
+        )
+        stable_duties = [
+            Task(
+                farm_id=stable.id,
+                title=f"Clean the stable pen {index}",
+                due_date=date(2026, 1, 10 + index),
+                category=TaskCategory.CLEANING.value,
+                auto_generated=True,
+            )
+            for index in range(2)
+        ]
+        racing_duty = Task(
+            farm_id=racing.id,
+            title="Clean the racing pen",
+            due_date=date(2026, 1, 12),
+            category=TaskCategory.CLEANING.value,
+            auto_generated=True,
+        )
+        db.add_all([*stable_duties, racing_duty])
+        await db.commit()
+        racing_id = racing.id
+        stable_cleaner_id = (
+            await db.execute(
+                select(Role.id).where(Role.farm_id == stable.id, Role.code == "CLEANER")
+            )
+        ).scalar_one()
+        stable_duty_ids = [duty.id for duty in stable_duties]
+        racing_duty_id = racing_duty.id
+
+    async with get_sessionmaker()() as db:
+        original_execute = db.execute
+        executed = 0
+
+        async def tombstone_after_the_claim(*args: Any, **kwargs: Any) -> Any:
+            """Soft-delete the racing farm's only source right after the claim."""
+            nonlocal executed
+            result = await original_execute(*args, **kwargs)
+            executed += 1
+            if executed == 1:
+                async with get_sessionmaker()() as racer:
+                    await racer.execute(
+                        update(Role)
+                        .where(Role.farm_id == racing_id, Role.code == "CLEANER")
+                        .values(deleted_at=utcnow())
+                    )
+                    await racer.commit()
+            return result
+
+        monkeypatch.setattr(db, "execute", tombstone_after_the_claim)
+        with caplog.at_level(logging.INFO, logger="goatfarm.seed"):
+            claimed = await backfill_task_assignments_batch(db, batch_size=10)
+        await db.commit()
+
+    assert claimed == 3
+    async with get_sessionmaker()() as db:
+        for duty_id in stable_duty_ids:
+            repaired = await db.get(Task, duty_id)
+            assert repaired is not None and repaired.assigned_role_id == stable_cleaner_id
+        unresolved = await db.get(Task, racing_duty_id)
+        assert unresolved is not None and unresolved.assigned_role_id is None
+
+    records = [record for record in caplog.records if record.name == "goatfarm.seed"]
+    assert [record.getMessage() for record in records] == [
+        "task role backfill resolved 2 of 3 claimed duties"
+    ]
 
 
 def test_superseded_unbatched_backfill_stays_deleted() -> None:
@@ -1326,3 +2453,79 @@ async def test_unhandled_error_does_not_reflect_untrusted_cors_origin() -> None:
 
     assert response.status_code == 500
     assert "Access-Control-Allow-Origin" not in response.headers
+
+
+async def test_unhandled_error_log_names_the_route_and_carries_the_traceback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An escaped 500 must stay diagnosable: the log line names the failing
+    method and path, and carries the exception itself, not just a bare label."""
+    app = create_app()
+
+    @app.post("/api/_boom-log")
+    async def boom() -> None:  # pragma: no cover - raises by design
+        raise RuntimeError("kaboom")
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    with caplog.at_level("ERROR", logger="goatfarm"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
+            response = await failing.post("/api/_boom-log")
+
+    assert response.status_code == 500
+    # Select on the template, so a degraded interpolation is caught rather than
+    # filtered out by the very text under test.
+    record = next(r for r in caplog.records if r.msg == "unhandled error on %s %s")
+    assert record.getMessage() == "unhandled error on POST /api/_boom-log"
+    assert record.exc_info is not None
+    assert record.exc_info[0] is RuntimeError
+    assert "kaboom" in caplog.text
+
+
+async def test_unhandled_error_cors_header_values_are_exact() -> None:
+    """Both header values the 500 path mints are parsed as structured fields by
+    browsers and caches, so nothing but exact equality pins them."""
+    app = create_app()
+
+    @app.get("/api/_boom-cors-exact")
+    async def boom() -> None:  # pragma: no cover - raises by design
+        raise RuntimeError("kaboom")
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
+        response = await failing.get(
+            "/api/_boom-cors-exact",
+            headers={"Origin": "http://localhost:3000"},
+        )
+
+    assert response.status_code == 500
+    assert response.headers["Access-Control-Expose-Headers"] == ", ".join(CORS_EXPOSE_HEADERS)
+    assert response.headers["Vary"] == "Origin"
+
+
+async def test_unhandled_error_mirrors_wildcard_cors_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wildcard arm of the 500 CORS mirror: with `["*"]` configured (legal
+    outside production) an SPA must still be able to read the opaque 500."""
+    monkeypatch.setenv("GOATFARM_CORS_ORIGINS", '["*"]')
+    get_settings.cache_clear()
+    try:
+        app = create_app()
+
+        @app.get("/api/_boom-wildcard")
+        async def boom() -> None:  # pragma: no cover - raises by design
+            raise RuntimeError("kaboom")
+
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as failing:
+            response = await failing.get(
+                "/api/_boom-wildcard",
+                headers={"Origin": "https://spa.example.test"},
+            )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 500
+    assert response.headers["Access-Control-Allow-Origin"] == "https://spa.example.test"
+    assert response.headers["Access-Control-Allow-Credentials"] == "true"
+    assert response.headers["Access-Control-Expose-Headers"] == ", ".join(CORS_EXPOSE_HEADERS)

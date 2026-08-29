@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 
 import httpx
@@ -518,3 +519,59 @@ async def test_cancelled_team_hash_keeps_owner_reservation_until_work_finishes(
     )
     assert retry.status_code == 201, retry.text
     assert hash_calls == 2
+
+
+async def test_team_password_throttle_logs_the_throttled_actor_id(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The sliding-budget 429 emits exactly one audit line naming the owner id."""
+    owner = await owner_with_farm(client, email="argon-throttle-log-owner@farm.in")
+    actor_id = (await client.get("/api/auth/me", headers=owner)).json()["id"]
+    team = (await client.get("/api/team", headers=owner)).json()
+    role_id = next(role["id"] for role in team["roles"] if role["code"] == "CLEANER")
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "auth_rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "auth_rate_limit_max_attempts", 1)
+    monkeypatch.setattr(settings, "auth_rate_limit_window_seconds", 300)
+    auth_limiter.clear()
+
+    async def fast_hash(password: str) -> str:
+        return f"prepared:{password}"
+
+    monkeypatch.setattr(team_api, "hash_password_async", fast_hash)
+    try:
+        first = await client.post(
+            "/api/team/workers",
+            json={
+                "email": "throttle-log-a@farm.in",
+                "password": "first-log-password",
+                "role_id": role_id,
+            },
+            headers=owner,
+        )
+        assert first.status_code == 201, first.text
+
+        with caplog.at_level(logging.INFO, logger="goatfarm.team"):
+            blocked = await client.post(
+                "/api/team/workers",
+                json={
+                    "email": "throttle-log-b@farm.in",
+                    "password": "second-log-password",
+                    "role_id": role_id,
+                },
+                headers=owner,
+            )
+        assert blocked.status_code == 429, blocked.text
+        assert blocked.json()["detail"] == team_api.TEAM_PASSWORD_WORK_LIMIT_REASON
+
+        # The refusal must be attributable to exactly one real owner id: the
+        # access log carries no principal, so this is the only attribution.
+        records = [record for record in caplog.records if record.name == "goatfarm.team"]
+        assert [record.getMessage() for record in records] == [
+            f"team password work throttled (actor_id={actor_id})"
+        ]
+    finally:
+        auth_limiter.clear()

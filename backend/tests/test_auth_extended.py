@@ -24,9 +24,10 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import Response
-from sqlalchemy import delete, event, func, select, update
+from sqlalchemy import delete, event, func, insert, select, text, update
 
 import app.api.auth as auth_api
+import app.deps as deps
 from app.core.config import Settings, get_settings
 from app.db import get_engine, get_sessionmaker
 from app.deps import deactivate_deleted_user_memberships, purge_expired_refresh_sessions
@@ -48,6 +49,9 @@ from app.utils import today
 from .conftest import OWNER_PW, login, owner_with_farm, register
 
 ALREADY_REGISTERED = "That email is already registered."
+HISTORY_CEILING_DETAIL = (
+    "Refresh-session history exceeds its repairable bound; contact an administrator."
+)
 MIN_LEN = get_settings().min_password_length
 COOKIE = get_settings().refresh_cookie_name
 
@@ -144,6 +148,44 @@ def set_refresh_cookie(client: httpx.AsyncClient, token: str) -> None:
     # ``test.local``. Match that browser scope so a rotated Set-Cookie replaces
     # this injected token instead of leaving two same-name Cookie pairs.
     client.cookies.set(COOKIE, token, domain="test.local", path="/")
+
+
+async def registered_user_id(email: str) -> int:
+    """The id of an already-registered user, for direct RefreshSession inserts."""
+    async with get_sessionmaker()() as db:
+        return (await db.execute(select(User.id).where(User.email == email))).scalar_one()
+
+
+async def refresh_session_jtis() -> set[str]:
+    """Every refresh-session jti currently stored."""
+    async with get_sessionmaker()() as db:
+        return set((await db.execute(select(RefreshSession.jti))).scalars())
+
+
+async def seed_refresh_history(user_id: int, family_id: str, count: int) -> None:
+    """Bulk-insert `count` live rows into one refresh family, in ascending id order.
+
+    Reaching the corrupted-history ceiling needs thousands of rows, so they go
+    in as chunked Core inserts rather than as ORM flushes.
+    """
+    now = datetime.now(UTC).replace(tzinfo=None)
+    rows = [
+        {
+            "user_id": user_id,
+            "jti": f"corrupt-{index:06d}",
+            "family_id": family_id,
+            "expires_at": now + timedelta(days=14),
+            "consumed_at": None,
+            "replacement_jti": None,
+            "revoked_at": None,
+            "created_at": now - timedelta(seconds=count - index),
+        }
+        for index in range(count)
+    ]
+    async with get_sessionmaker()() as db:
+        for start in range(0, len(rows), 1000):
+            await db.execute(insert(RefreshSession), rows[start : start + 1000])
+        await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -793,6 +835,220 @@ async def test_lowered_refresh_history_limit_compacts_on_next_rotation(
     assert after == 2
 
 
+async def test_rotation_compaction_keeps_newest_rows_not_arbitrary_rows(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compaction deletes the *oldest* overflow rows, in explicit id order.
+
+    The overflow slice is an OFFSET over an ordered SELECT; without that
+    ORDER BY the offset skips an arbitrary subset, so compaction throws away
+    the newest consumed rows and keeps stale ones. Row counts stay identical
+    either way, so only the retained identities can pin the ordering.
+    """
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 6)
+    await register(client, "rotation-order@farm.in")
+    user_id = await registered_user_id("rotation-order@farm.in")
+    presented = client.cookies.get(COOKIE)
+    assert presented
+    presented_claims = decode_refresh_claims(presented)
+    assert presented_claims is not None and presented_claims.family_id is not None
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    async with get_sessionmaker()() as db:
+        # Ten consumed predecessors, inserted oldest → newest so id order and
+        # jti order coincide; the cap of 6 leaves room for exactly four of them.
+        for index in range(10):
+            db.add(
+                RefreshSession(
+                    user_id=user_id,
+                    jti=f"old-{index}",
+                    family_id=presented_claims.family_id,
+                    expires_at=now + timedelta(days=1),
+                    created_at=now,
+                    consumed_at=now,
+                )
+            )
+        await db.commit()
+
+    rotated = await client.post("/api/auth/refresh")
+    assert rotated.status_code == 200, rotated.text
+    successor = client.cookies.get(COOKIE)
+    assert successor
+    successor_claims = decode_refresh_claims(successor)
+    assert successor_claims is not None
+
+    async with get_sessionmaker()() as db:
+        retained = set(
+            (
+                await db.execute(
+                    select(RefreshSession.jti).where(RefreshSession.user_id == user_id)
+                )
+            ).scalars()
+        )
+    assert retained == {
+        presented_claims.jti,
+        successor_claims.jti,
+        "old-9",
+        "old-8",
+        "old-7",
+        "old-6",
+    }
+
+
+async def test_rotation_compaction_is_scoped_to_the_rotating_user(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Compaction never deletes another account's row sharing a family id.
+
+    ``family_id`` is unconstrained text with no cross-user uniqueness, which
+    is exactly why the overflow SELECT is scoped by user_id. Dropping that
+    predicate makes one account's rotation a server-side logout of another.
+    """
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    await register(client, "victim-rotation@farm.in")
+    victim_id = await registered_user_id("victim-rotation@farm.in")
+    await register(client, "rotating-user@farm.in")
+    rotating_id = await registered_user_id("rotating-user@farm.in")
+    presented = client.cookies.get(COOKIE)
+    assert presented
+    presented_claims = decode_refresh_claims(presented)
+    assert presented_claims is not None and presented_claims.family_id is not None
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    async with get_sessionmaker()() as db:
+        db.add(
+            RefreshSession(
+                user_id=victim_id,
+                jti="bystander-rotation",
+                family_id=presented_claims.family_id,
+                expires_at=now + timedelta(days=1),
+                created_at=now,
+            )
+        )
+        await db.commit()
+
+    rotated = await client.post("/api/auth/refresh")
+    assert rotated.status_code == 200, rotated.text
+
+    async with get_sessionmaker()() as db:
+        assert (
+            await db.execute(
+                select(RefreshSession.user_id).where(RefreshSession.jti == "bystander-rotation")
+            )
+        ).scalar_one_or_none() == victim_id
+        rotating_jtis = set(
+            (
+                await db.execute(
+                    select(RefreshSession.jti).where(RefreshSession.user_id == rotating_id)
+                )
+            ).scalars()
+        )
+    assert presented_claims.jti in rotating_jtis
+
+
+async def test_rotation_compaction_never_evicts_another_family(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Rotating one family leaves the account's other families untouched.
+
+    The overflow SELECT is scoped to the rotating family; account-wide
+    compaction would delete the live row of every other device, and the next
+    refresh from those devices would take the ``session is None`` path and
+    revoke them instead of renewing.
+    """
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    await register(client, "family-local-compaction@farm.in")
+    other_family_token = client.cookies.get(COOKIE)
+    assert other_family_token
+    other_claims = decode_refresh_claims(other_family_token)
+    assert other_claims is not None
+    await login(client, "family-local-compaction@farm.in", OWNER_PW)
+    rotating_token = client.cookies.get(COOKIE)
+    assert rotating_token and rotating_token != other_family_token
+
+    rotated = await client.post("/api/auth/refresh")
+    assert rotated.status_code == 200, rotated.text
+
+    async with get_sessionmaker()() as db:
+        assert (
+            await db.execute(
+                select(RefreshSession.id).where(RefreshSession.jti == other_claims.jti)
+            )
+        ).scalar_one_or_none() is not None
+    set_refresh_cookie(client, other_family_token)
+    untouched = await client.post("/api/auth/refresh")
+    assert untouched.status_code == 200, untouched.text
+
+
+async def test_refresh_history_beyond_hard_ceiling_is_refused_not_compacted(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """History past the repairable bound is refused, never half-compacted.
+
+    Compaction deliberately loads one row more than the ceiling so manually
+    corrupted history is detected instead of silently trimmed. The refusal is
+    a clean 409 with its exact operator-facing detail — not a 500, not a 410,
+    and not a partial delete: every row survives for an administrator.
+    """
+    ceiling = auth_api.REFRESH_SESSION_HISTORY_HARD_CEILING
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    await register(client, "over-ceiling@farm.in")
+    presented = client.cookies.get(COOKIE)
+    assert presented
+    claims = decode_refresh_claims(presented)
+    assert claims is not None and claims.family_id is not None
+    await seed_refresh_history(claims.user_id, claims.family_id, ceiling + 1)
+
+    response = await client.post("/api/auth/refresh")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == HISTORY_CEILING_DETAIL
+    async with get_sessionmaker()() as db:
+        remaining = (
+            await db.execute(
+                select(func.count())
+                .select_from(RefreshSession)
+                .where(RefreshSession.user_id == claims.user_id)
+            )
+        ).scalar_one()
+    assert remaining == ceiling + 2  # refused and rolled back — nothing deleted
+
+
+async def test_refresh_history_exactly_at_hard_ceiling_still_compacts(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The repairable bound is inclusive: exactly the ceiling still compacts.
+
+    One row fewer than the refusal threshold is a repairable state, so the
+    rotation must succeed and compact down to the configured cap instead of
+    locking the account out of a history it can still fix by itself.
+    """
+    ceiling = auth_api.REFRESH_SESSION_HISTORY_HARD_CEILING
+    monkeypatch.setattr(get_settings(), "refresh_max_sessions_per_family", 2)
+    await register(client, "at-ceiling@farm.in")
+    presented = client.cookies.get(COOKIE)
+    assert presented
+    claims = decode_refresh_claims(presented)
+    assert claims is not None and claims.family_id is not None
+    await seed_refresh_history(claims.user_id, claims.family_id, ceiling)
+
+    response = await client.post("/api/auth/refresh")
+    assert response.status_code == 200, response.text
+    async with get_sessionmaker()() as db:
+        remaining = (
+            await db.execute(
+                select(func.count())
+                .select_from(RefreshSession)
+                .where(RefreshSession.user_id == claims.user_id)
+            )
+        ).scalar_one()
+    assert remaining == 2
+
+
 async def test_rotation_preserves_presented_row_when_wall_clock_moves_backward(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -929,6 +1185,110 @@ async def test_family_eviction_uses_issue_order_when_wall_clock_moves_backward(
     assert retained == {second_claims.family_id, third_claims.family_id}
 
 
+async def test_family_eviction_orders_by_session_id_not_family_id(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Families are ranked by newest session id, never by the family_id text.
+
+    Production family ids are uuid4 hex, so a ranking that collapsed onto the
+    family_id string would evict the newest logins roughly half the time —
+    silently signing the user out of the two devices they just used. The
+    seeded ids here make the two orders exact opposites, so the choice shows.
+    """
+    monkeypatch.setattr(get_settings(), "refresh_max_families_per_user", 3)
+    await register(client, "family-order@farm.in")
+    user_id = await registered_user_id("family-order@farm.in")
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    async with get_sessionmaker()() as db:
+        await db.execute(delete(RefreshSession).where(RefreshSession.user_id == user_id))
+        # Inserted oldest → newest, so session id ascends with issue order and
+        # family_id ascends with it: family_id order evicts the newest three.
+        for letter in "abcde":
+            db.add(
+                RefreshSession(
+                    user_id=user_id,
+                    jti=f"seed-{letter}",
+                    family_id=f"fam-{letter}",
+                    expires_at=now + timedelta(days=1),
+                    created_at=now,
+                )
+            )
+        await db.commit()
+
+    await login(client, "family-order@farm.in", OWNER_PW)
+    fresh = client.cookies.get(COOKIE)
+    assert fresh
+    fresh_claims = decode_refresh_claims(fresh)
+    assert fresh_claims is not None and fresh_claims.family_id is not None
+
+    async with get_sessionmaker()() as db:
+        retained = set(
+            (
+                await db.execute(
+                    select(RefreshSession.family_id).where(RefreshSession.user_id == user_id)
+                )
+            ).scalars()
+        )
+    assert retained == {"fam-e", "fam-d", fresh_claims.family_id}
+
+
+async def test_family_eviction_delete_is_scoped_to_the_evicting_user(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eviction never deletes another account's row sharing a family id.
+
+    ``family_id`` is unconstrained text with no cross-user uniqueness — the
+    migration and every revocation helper partition by (user_id, family_id)
+    for exactly that reason. An unscoped eviction DELETE would let one user's
+    login log a colliding stranger out server-side.
+    """
+    monkeypatch.setattr(get_settings(), "refresh_max_families_per_user", 1)
+    await register(client, "victim-family@farm.in")
+    victim_id = await registered_user_id("victim-family@farm.in")
+    await register(client, "evicting-family@farm.in")
+    evicting_id = await registered_user_id("evicting-family@farm.in")
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    async with get_sessionmaker()() as db:
+        await db.execute(
+            delete(RefreshSession).where(RefreshSession.user_id.in_([victim_id, evicting_id]))
+        )
+        db.add_all(
+            [
+                RefreshSession(
+                    user_id=evicting_id,
+                    jti="doomed",
+                    family_id="shared-family",
+                    expires_at=now + timedelta(days=1),
+                    created_at=now,
+                ),
+                RefreshSession(
+                    user_id=victim_id,
+                    jti="bystander",
+                    family_id="shared-family",
+                    expires_at=now + timedelta(days=1),
+                    created_at=now,
+                ),
+            ]
+        )
+        await db.commit()
+
+    await login(client, "evicting-family@farm.in", OWNER_PW)
+
+    async with get_sessionmaker()() as db:
+        assert (
+            await db.execute(select(RefreshSession.id).where(RefreshSession.jti == "doomed"))
+        ).scalar_one_or_none() is None
+        assert (
+            await db.execute(
+                select(RefreshSession.user_id).where(RefreshSession.jti == "bystander")
+            )
+        ).scalar_one_or_none() == victim_id
+
+
 async def test_expired_refresh_cleanup_is_ordered_and_strictly_batched(
     client: httpx.AsyncClient,
 ) -> None:
@@ -966,6 +1326,276 @@ async def test_expired_refresh_cleanup_is_ordered_and_strictly_batched(
         assert remaining == 4
         assert await purge_expired_refresh_sessions(db, batch_size=3) == 3
         await db.commit()
+
+
+async def test_expired_refresh_cleanup_reports_zero_when_nothing_expired(
+    client: httpx.AsyncClient,
+) -> None:
+    """An empty batch reports 0 removals, not a phantom one.
+
+    The bounded cleanup loop stops early on ``removed < batch_size`` and the
+    startup purge logs the count as a retention metric, so a purge that
+    claimed a removal it never made would spin empty rounds forever and make
+    the metric permanently non-zero on a healthy database.
+    """
+    await register(client, "nothing-to-purge@farm.in")
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=500) == 0
+
+
+async def test_expired_refresh_cleanup_never_deletes_live_sessions(
+    client: httpx.AsyncClient,
+) -> None:
+    """Retention only ever removes rows long past expiry.
+
+    The cutoff must be computed backward from now: a forward cutoff matches
+    every row, because the refresh TTL is far shorter than the retention
+    window. Each cleanup tick would then wipe the whole session table, force
+    every user to log in again, and charge their honest next refresh to the
+    invalid-token budgets.
+    """
+    await register(client, "live-session@farm.in")
+    user_id = await registered_user_id("live-session@farm.in")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                RefreshSession(
+                    user_id=user_id,
+                    jti="live-1",
+                    family_id="live",
+                    expires_at=now + timedelta(days=13),
+                    created_at=now,
+                ),
+                RefreshSession(
+                    user_id=user_id,
+                    jti="dead-1",
+                    family_id="dead",
+                    expires_at=now - timedelta(days=60),
+                    created_at=now - timedelta(days=74),
+                ),
+            ]
+        )
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=500) == 1
+        await db.commit()
+
+    remaining = await refresh_session_jtis()
+    assert "live-1" in remaining
+    assert "dead-1" not in remaining
+
+
+@pytest.mark.parametrize("bad", [0, -1, 10_001])
+async def test_expired_refresh_cleanup_rejects_out_of_range_batch_size(bad: int) -> None:
+    """The batch guard is closed on both sides and names its exact bounds.
+
+    It mirrors the pydantic bounds on ``refresh_session_cleanup_batch_size``,
+    so an unbounded batch never reaches the locking SELECT; the message is the
+    only diagnostic the startup purge surfaces before refusing to serve.
+    """
+    async with get_sessionmaker()() as db:
+        with pytest.raises(ValueError, match=r"^batch_size must be between 1 and 10000$"):
+            await purge_expired_refresh_sessions(db, batch_size=bad)
+
+
+@pytest.mark.parametrize("good", [1, 10_000])
+async def test_expired_refresh_cleanup_accepts_inclusive_batch_size_bounds(
+    client: httpx.AsyncClient, good: int
+) -> None:
+    """Both configurable extremes are legal batch sizes.
+
+    ``refresh_session_cleanup_batch_size`` validates as 1..10_000, so an
+    exclusive guard would turn either extreme into a ValueError inside
+    lifespan and stop a legally configured deployment from booting.
+    """
+    email = f"batch-bounds-{good}@farm.in"
+    await register(client, email)
+    user_id = await registered_user_id(email)
+    old = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=60)
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                RefreshSession(
+                    user_id=user_id,
+                    jti=f"bound-{good}-{index}",
+                    family_id="bounds",
+                    expires_at=old + timedelta(seconds=index),
+                    created_at=old,
+                )
+                for index in range(2)
+            ]
+        )
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=good) == min(good, 2)
+        await db.commit()
+
+
+async def test_expired_refresh_cleanup_window_is_thirty_days(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default retention window is exactly 30 days.
+
+    No caller ever passes ``older_than_days``, so a silently widened default
+    would retain dead rows past the stated policy with nothing to notice it.
+    """
+    await register(client, "retention-window@farm.in")
+    user_id = await registered_user_id("retention-window@farm.in")
+    frozen = datetime(2026, 6, 1, 12, 0, 0)
+    async with get_sessionmaker()() as db:
+        db.add(
+            RefreshSession(
+                user_id=user_id,
+                jti="w-30d12h",
+                family_id="window",
+                expires_at=frozen - timedelta(days=30, hours=12),
+                created_at=frozen - timedelta(days=44),
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setattr(deps, "utcnow", lambda: frozen)
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=500) == 1
+        await db.commit()
+    assert "w-30d12h" not in await refresh_session_jtis()
+
+
+async def test_expired_refresh_cleanup_retains_row_exactly_at_cutoff(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cutoff comparison is strict: a row expiring *at* it is retained.
+
+    Retention is a lower bound on how long a dead row is kept, so the
+    boundary row must survive this tick rather than be swept a moment early.
+    """
+    await register(client, "retention-cutoff@farm.in")
+    user_id = await registered_user_id("retention-cutoff@farm.in")
+    frozen = datetime(2026, 6, 1, 12, 0, 0)
+    async with get_sessionmaker()() as db:
+        db.add(
+            RefreshSession(
+                user_id=user_id,
+                jti="at-cutoff",
+                family_id="cutoff",
+                expires_at=frozen - timedelta(days=30),
+                created_at=frozen - timedelta(days=44),
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setattr(deps, "utcnow", lambda: frozen)
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=500) == 0
+    assert "at-cutoff" in await refresh_session_jtis()
+
+
+async def test_expired_refresh_cleanup_removes_oldest_expiry_first(
+    client: httpx.AsyncClient,
+) -> None:
+    """A partial batch removes the oldest expiry, never merely the lowest id.
+
+    The newer-expiry row is flushed first here so it takes the lower id: an
+    id-ordered batch would delete it and leave the 90-day-old row behind,
+    i.e. deletion order would stop tracking expiry order.
+    """
+    await register(client, "oldest-expiry-first@farm.in")
+    user_id = await registered_user_id("oldest-expiry-first@farm.in")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    async with get_sessionmaker()() as db:
+        db.add(
+            RefreshSession(
+                user_id=user_id,
+                jti="newer-expiry",
+                family_id="ordering",
+                expires_at=now - timedelta(days=31),
+                created_at=now - timedelta(days=45),
+            )
+        )
+        await db.flush()  # the newer expiry takes the lower id
+        db.add(
+            RefreshSession(
+                user_id=user_id,
+                jti="older-expiry",
+                family_id="ordering",
+                expires_at=now - timedelta(days=90),
+                created_at=now - timedelta(days=104),
+            )
+        )
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        assert await purge_expired_refresh_sessions(db, batch_size=1) == 1
+        await db.commit()
+
+    remaining = await refresh_session_jtis()
+    assert "older-expiry" not in remaining
+    assert "newer-expiry" in remaining
+
+
+async def test_expired_refresh_cleanup_batch_is_deterministic_when_expiries_tie(
+    client: httpx.AsyncClient,
+) -> None:
+    """Rows sharing an expiry are broken by id, under any query plan.
+
+    Without the explicit id tie-break the batch composition is whatever the
+    planner happens to emit: an index scan supplies id order for free, but a
+    sort plan does not, so the two are pinned here with index and bitmap
+    scans disabled.
+    """
+    await register(client, "tied-expiries@farm.in")
+    user_id = await registered_user_id("tied-expiries@farm.in")
+    same = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=60)
+    async with get_sessionmaker()() as db:
+        db.add_all(
+            [
+                RefreshSession(
+                    user_id=user_id,
+                    jti=f"tie-{index}",
+                    family_id="tie",
+                    expires_at=same,
+                    created_at=same,
+                )
+                for index in range(200)
+            ]
+        )
+        await db.commit()
+    async with get_sessionmaker()() as db:
+        # Scramble heap order so a sort plan cannot incidentally return id order.
+        await db.execute(text("UPDATE refresh_sessions SET family_id='tie-b' WHERE id % 2 = 0"))
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        ordered_ids = list(
+            (
+                await db.execute(
+                    select(RefreshSession.id)
+                    .where(RefreshSession.family_id.in_(["tie", "tie-b"]))
+                    .order_by(RefreshSession.id)
+                )
+            ).scalars()
+        )
+        assert len(ordered_ids) == 200
+        await db.execute(text("SET LOCAL enable_indexscan = off"))
+        await db.execute(text("SET LOCAL enable_bitmapscan = off"))
+        assert await purge_expired_refresh_sessions(db, batch_size=5) == 5
+        await db.commit()
+
+    async with get_sessionmaker()() as db:
+        survivors = set(
+            (
+                await db.execute(
+                    select(RefreshSession.id).where(RefreshSession.family_id.in_(["tie", "tie-b"]))
+                )
+            ).scalars()
+        )
+    assert not set(ordered_ids[:5]) & survivors
+    assert set(ordered_ids[5:]) == survivors
 
 
 async def test_immediate_refresh_replay_returns_exact_successor(
@@ -1359,6 +1989,49 @@ async def test_refresh_preverification_ceiling_skips_jwt_work(
     other = await client.post("/api/auth/refresh")
     assert other.status_code != 429, other.text
     assert decode_calls == 1
+
+
+@pytest.mark.usefixtures("rate_limit_on")
+async def test_absent_cookie_preverify_bucket_never_throttles_a_presented_cookie(
+    client: httpx.AsyncClient,
+) -> None:
+    """The absent-cookie sentinel owns a bucket no client can address.
+
+    The pre-verification budget is keyed on the presented cookie, so the
+    sentinel used when none was presented must not be a value a client could
+    actually send: otherwise a cookieless spray — no credential needed, and
+    the key is IP-agnostic, so any source address renews it every window —
+    429s whoever happens to present that value.
+    """
+    settings = get_settings()
+    limit = settings.auth_rate_limit_max_attempts
+    window = settings.auth_rate_limit_window_seconds
+    # The absent-cookie sentinel hashes the empty string, which no presented
+    # non-empty cookie can collide with.
+    assert auth_api._refresh_token_key(None) == hashlib.sha256(b"").hexdigest()
+    assert auth_api._refresh_token_key(None) == auth_api._refresh_token_key("")
+
+    client.cookies.clear()
+    for _ in range(limit):
+        assert (await client.post("/api/auth/refresh")).status_code == 401
+    client.cookies.clear()
+    exhausted = await client.post("/api/auth/refresh")
+    assert exhausted.status_code == 429, exhausted.text
+    assert auth_limiter.is_blocked(
+        auth_api.REFRESH_PREVERIFY_SCOPE,
+        auth_api._refresh_token_key(None),
+        limit,
+        window,
+    )
+
+    # Every one of these is judged on its own (empty) budget and reaches the
+    # decoder, so it fails as a bad token rather than as a throttled one.
+    for presented in ("XXXX", "None", "null", "0", "x"):
+        set_refresh_cookie(client, presented)
+        resp = await client.post("/api/auth/refresh")
+        assert resp.status_code == 401, (
+            f"cookie {presented!r} inherited the absent-cookie budget: {resp.text}"
+        )
 
 
 async def test_refresh_rejects_duplicate_same_name_cookies(

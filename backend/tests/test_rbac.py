@@ -8,9 +8,11 @@ expose (BucketMove / HealthEvent attribution, role rows) are checked in the
 database directly, mirroring the old suite's session assertions.
 """
 
+import logging
 from datetime import timedelta
 
 import httpx
+import pytest
 from sqlalchemy import func, select
 
 from app.db import get_sessionmaker
@@ -309,6 +311,30 @@ async def test_cleaner_dashboard_hides_the_breeding_programme(client: httpx.Asyn
     assert cleaner_dash["cull_candidates_total"] is None
     # Withheld sections, not a 403 — the cleaner's own page still works.
     assert cleaner_dash["total_active"] == owner_dash["total_active"]
+
+
+async def test_rbac_denial_emits_an_identifiable_audit_log_record(
+    client: httpx.AsyncClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Denials must stay observable: exactly one goatfarm.deps INFO record per
+    denial, carrying the "RBAC denial" marker and the exact missing code.
+
+    Pins the audit line against regressions that keep the 403 identical while
+    dropping the permission code, the greppable prefix, or the record itself.
+    """
+    owner = await owner_with_farm(client)
+    mover, _ = await worker_headers(client, owner, "MOVER", "auditlog@farm.in")
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="goatfarm.deps"):
+        resp = await client.get("/api/finance", headers=mover)
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Missing permission: finance.view"
+
+    records = [record for record in caplog.records if record.name == "goatfarm.deps"]
+    assert len(records) == 1, [record.getMessage() for record in records]
+    assert records[0].levelno == logging.INFO
+    assert records[0].getMessage() == "RBAC denial: missing permission finance.view"
 
 
 # ---------------------------------------------------------------------------

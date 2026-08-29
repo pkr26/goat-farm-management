@@ -18,7 +18,9 @@ from datetime import date, datetime, timedelta
 from itertools import pairwise
 
 import httpx
+from sqlalchemy import select
 
+from app.db import get_sessionmaker
 from app.models import (
     SHIFT_SPLIT,
     Animal,
@@ -31,6 +33,9 @@ from app.models import (
     FeedingShift,
     PurchaseBatch,
     Sex,
+    Task,
+    TaskCategory,
+    TaskStatus,
     WeightRecord,
     conception_rate,
     expected_kidding_date,
@@ -38,7 +43,7 @@ from app.models import (
     quarantine_schedule,
 )
 from app.services import recipe_for_animal
-from app.utils import today
+from app.utils import today, utcnow
 
 from .conftest import owner_with_farm
 
@@ -567,6 +572,75 @@ async def test_weaning_completion_moves_kids_by_sex(client: httpx.AsyncClient) -
     assert female["current_bucket"] == "FEMALE_KIDS"
     doe_after = await get_animal(client, headers, doe["id"])
     assert doe_after["current_bucket"] == "RESTING"
+
+
+async def test_final_kid_death_leaves_a_closed_weaning_duty_alone(
+    client: httpx.AsyncClient,
+) -> None:
+    """Replanning after the last kid dies may only touch PENDING weaning duties.
+
+    The replan loop rewrites every row it is handed to SKIPPED without
+    re-checking the status, so the PENDING filter in the helper query is its
+    only guard: dropping it silently un-completes an already-DONE legacy
+    weaning row (breeding_record_id NULL, due_date == kidding + 60d) that the
+    due-date fallback also matches.
+    """
+    headers = await owner_with_farm(client)
+    breeding_date = today() - timedelta(days=160)
+    doe, _buck, br = await make_bred_doe(client, headers, breeding_date)
+    br = await submit_ultrasound(client, headers, br["id"], pregnant=True, kid_count=1)
+    kidding_date = date.fromisoformat(br["expected_kidding_date"])
+    record = await record_kidding(
+        client,
+        headers,
+        br,
+        kidding_date,
+        [{"tag": "K-601", "sex": "F", "birth_weight": 2.5, "status": "ALIVE"}],
+    )
+    kid_id = record["kids"][0]["animal_id"]
+
+    # A pre-link legacy duty for this dam: no breeding link, day-60 due date
+    # (so the fallback matches it), and already closed as DONE.
+    async with get_sessionmaker()() as db:
+        legacy = Task(
+            farm_id=int(headers["X-Farm-Id"]),
+            title="Legacy weaning plan",
+            due_date=kidding_date + timedelta(days=60),
+            category=TaskCategory.WEANING.value,
+            animal_id=doe["id"],
+            breeding_record_id=None,
+            auto_generated=True,
+            status=TaskStatus.DONE.value,
+            completed_at=utcnow(),
+        )
+        db.add(legacy)
+        await db.commit()
+        legacy_id = legacy.id
+
+    resp = await client.post(
+        f"/api/animals/{kid_id}/status", json={"new_status": "DEAD"}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with get_sessionmaker()() as db:
+        stored = await db.get(Task, legacy_id)
+        assert stored is not None
+        assert stored.status == TaskStatus.DONE.value
+        assert stored.skip_reason is None
+        assert stored.skipped_at is None
+        # …while the live duty for this litter is the one the replan cancels,
+        # proving the replan path really ran against this dam.
+        linked = (
+            await db.execute(
+                select(Task.status, Task.skip_reason).where(
+                    Task.breeding_record_id == br["id"],
+                    Task.category == TaskCategory.WEANING.value,
+                )
+            )
+        ).all()
+    assert [tuple(row) for row in linked] == [
+        (TaskStatus.SKIPPED.value, "Final surviving kid died; weaning no longer applies")
+    ]
 
 
 async def test_purchase_batch_sex_defaults_female_and_male_stays_out_of_doe_lists(

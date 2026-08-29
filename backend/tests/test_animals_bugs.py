@@ -12,9 +12,11 @@ from datetime import timedelta
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
+from app.api.animals import _unique_constraint_name
 from app.db import get_sessionmaker
-from app.models import KidEntry
+from app.models import Animal, KidEntry
 from app.utils import today
 
 from .conftest import owner_with_farm
@@ -30,6 +32,35 @@ from .test_breeding_extended import (
     make_doe,
     place_health_hold,
 )
+
+
+async def _animals_view_only_viewer(
+    client: httpx.AsyncClient, owner: dict, email: str, name: str
+) -> dict:
+    """Headers for a worker on a role granting only `animals.view`."""
+    role = await client.post(
+        "/api/team/roles",
+        json={"name": name, "permissions": ["animals.view"]},
+        headers=owner,
+    )
+    assert role.status_code == 201, role.text
+    worker = await client.post(
+        "/api/team/workers",
+        json={
+            "name": name,
+            "email": email,
+            "password": WORKER_PW,
+            "role_id": role.json()["id"],
+        },
+        headers=owner,
+    )
+    assert worker.status_code == 201, worker.text
+    login = await client.post("/api/auth/login", json={"email": email, "password": WORKER_PW})
+    assert login.status_code == 200, login.text
+    return {
+        "Authorization": f"Bearer {login.json()['access_token']}",
+        "X-Farm-Id": owner["X-Farm-Id"],
+    }
 
 
 async def _make_animal(client: httpx.AsyncClient, headers: dict, tag: str = "A-001") -> dict:
@@ -228,6 +259,47 @@ async def test_explicit_animal_tag_conflicting_with_stillborn_is_a_400(
     )
     assert conflict.status_code == 400, conflict.text
     assert conflict.json()["detail"] == "Tag 'STILL-TAKEN' already exists on this farm."
+
+
+def _asyncpg_shaped(message: str, constraint: str | None) -> IntegrityError:
+    """The exact chain SQLAlchemy's asyncpg adapter produces.
+
+    level 0 sqlalchemy.exc.IntegrityError (.orig == __cause__ == __context__)
+    -> level 1 adapter DBAPI error (__cause__ == __context__)
+    -> level 2 native asyncpg error, which alone carries ``constraint_name``.
+    """
+    native = Exception(message)
+    native.constraint_name = constraint  # type: ignore[attr-defined]
+    dbapi = Exception(f"<class 'asyncpg.exceptions.NotNullViolationError'>: {message}")
+    dbapi.__cause__ = native
+    dbapi.__context__ = native
+    exc = IntegrityError("INSERT INTO animals ...", {}, dbapi)
+    exc.__cause__ = dbapi
+    exc.__context__ = dbapi
+    return exc
+
+
+def test_unique_constraint_name_returns_none_for_unnamed_violation() -> None:
+    """A 23502 NOT NULL violation names no constraint: return None, never raise.
+
+    create_animal re-raises such an IntegrityError unchanged, so the bounded
+    cause walk must stop at the end of the chain instead of dereferencing None
+    and demoting the DB error to an AttributeError inside the except block.
+    """
+    exc = _asyncpg_shaped(
+        'null value in column "sex" of relation "animals" violates not-null constraint',
+        None,
+    )
+    assert _unique_constraint_name(exc) is None
+
+
+def test_unique_constraint_name_reads_the_native_cause() -> None:
+    """The trigger-raised 23505 carries its name only on the native cause."""
+    exc = _asyncpg_shaped(
+        "animal tag conflicts with a stillborn tag in this farm",
+        "uq_stillborn_tag_farm_namespace",
+    )
+    assert _unique_constraint_name(exc) == "uq_stillborn_tag_farm_namespace"
 
 
 async def _complete_weaning_task(client: httpx.AsyncClient, headers: dict, dam_id: int) -> None:
@@ -429,5 +501,69 @@ async def test_restriction_version_redacted_without_health_view(
     # safely, but the episode counter no longer leaks hold history.
     assert redacted["movement_restricted"] is True
     assert redacted["restriction_version"] == 0
+    assert redacted["suspected_scheduled_disease"] is False
+    assert redacted["restriction_reason"] is None
+
+
+# FIXED — regression test
+# animal_out's fail-closed breeding shield blanks cull_candidate for callers
+# without breeding.view: the flag is a breeding-programme verdict (services
+# raise it after two consecutive FAILED cycles), the same secret the cull
+# dashboard withholds from restricted roles. It must read exactly False —
+# AnimalOut types cull_candidate as a required bool, so neither the raw True
+# nor a null is an acceptable redaction for the generated client.
+async def test_cull_candidate_redacted_without_breeding_view(client: httpx.AsyncClient) -> None:
+    owner = await owner_with_farm(client)
+    animal = await _make_animal(client, owner, tag="CULL-REDACT")
+    async with get_sessionmaker()() as db:
+        row = await db.get(Animal, animal["id"])
+        assert row is not None
+        row.cull_candidate = True
+        await db.commit()
+    assert (await get_animal(client, owner, animal["id"]))["cull_candidate"] is True
+
+    viewer = await _animals_view_only_viewer(
+        client, owner, "cull-reader@farm.in", "Cull Candidate Reader"
+    )
+
+    redacted = await get_animal(client, viewer, animal["id"])
+    assert redacted["cull_candidate"] is False
+    listing = await client.get("/api/animals", headers=viewer)
+    assert listing.status_code == 200, listing.text
+    listed = listing.json()["animals"]
+    assert [entry["tag_number"] for entry in listed] == ["CULL-REDACT"]
+    assert [entry["cull_candidate"] for entry in listed] == [False]
+
+
+# FIXED — regression test
+# The health shield reports the EFFECTIVE operational hold to callers without
+# health.view: movement_restricted OR suspected_scheduled_disease, because the
+# move guards refuse on either. A plain regulatory hold (movement_restricted
+# with no disease suspicion) must therefore still read True — reporting False
+# would tell the mover the animal is free while POST /api/animals/{id}/move
+# keeps refusing it. Only the *reason* is withheld.
+async def test_general_movement_hold_stays_visible_without_health_view(
+    client: httpx.AsyncClient,
+) -> None:
+    owner = await owner_with_farm(client)
+    animal = await _make_animal(client, owner, tag="GENERAL-HOLD")
+    async with get_sessionmaker()() as db:
+        row = await db.get(Animal, animal["id"])
+        assert row is not None
+        # A general hold with no scheduled-disease suspicion: the only shape
+        # that separates the effective-hold OR from an AND.
+        row.movement_restricted = True
+        row.restriction_reason = "Regulatory movement hold"
+        await db.commit()
+    owner_view = await get_animal(client, owner, animal["id"])
+    assert owner_view["movement_restricted"] is True
+    assert owner_view["suspected_scheduled_disease"] is False
+
+    viewer = await _animals_view_only_viewer(
+        client, owner, "hold-reader@farm.in", "Movement Hold Reader"
+    )
+
+    redacted = await get_animal(client, viewer, animal["id"])
+    assert redacted["movement_restricted"] is True
     assert redacted["suspected_scheduled_disease"] is False
     assert redacted["restriction_reason"] is None

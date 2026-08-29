@@ -568,6 +568,35 @@ def test_latest_weight_kg_none_when_no_records_and_no_birth_weight() -> None:
     assert make_animal_object(weight_records=[], birth_weight=None).latest_weight_kg is None
 
 
+def test_latest_weight_kg_on_picks_latest_record_and_breaks_date_ties_by_id() -> None:
+    """The as-of lookup orders by (date, id or 0), exactly like the SQL it mirrors."""
+    older = WeightRecord(date=today() - timedelta(days=30), weight_kg=20.0)
+    newer = WeightRecord(date=today() - timedelta(days=5), weight_kg=24.0)
+    animal = make_animal_object(weight_records=[older, newer])
+    assert animal.latest_weight_kg_on(today()) == 24.0
+    assert animal.latest_weight_kg_on(today() - timedelta(days=10)) == 20.0
+
+    unsaved = WeightRecord(date=today(), weight_kg=30.0)  # id stays None
+    saved = WeightRecord(date=today(), weight_kg=25.0)
+    saved.id = 1
+    tied = make_animal_object(weight_records=[unsaved, saved])
+    assert tied.latest_weight_kg_on(today()) == 25.0
+
+
+def test_latest_weight_kg_on_birth_weight_fallback_respects_the_reference_date() -> None:
+    """Birth weight only counts from the birth date on; an unknown DOB still counts."""
+    dob = today() - timedelta(days=100)
+    animal = make_animal_object(weight_records=[], birth_weight=2.6, date_of_birth=dob)
+    assert animal.latest_weight_kg_on(today()) == 2.6
+    assert animal.latest_weight_kg_on(dob) == 2.6
+    assert animal.latest_weight_kg_on(dob - timedelta(days=1)) is None
+
+    unknown = make_animal_object(
+        weight_records=[], birth_weight=2.6, date_of_birth=None, estimated_dob=None
+    )
+    assert unknown.latest_weight_kg_on(today()) == 2.6
+
+
 def test_last_bucket_move_none_without_moves() -> None:
     assert make_animal_object(bucket_moves=[]).last_bucket_move is None
 
@@ -753,6 +782,62 @@ def test_is_breeding_ready_after_failed_breeding() -> None:
     assert animal.is_breeding_ready is True
 
 
+@pytest.mark.parametrize("flag", ["movement_restricted", "suspected_scheduled_disease"])
+def test_breeding_predicates_fail_closed_under_a_movement_hold(flag: str) -> None:
+    """Either hold alone disqualifies an otherwise-ready doe — neither may be ignored."""
+    animal = make_animal_object(**{flag: True})
+    assert animal.is_breeding_ready is False
+    assert animal.is_breeding_eligible is False
+
+
+def test_is_breeding_eligible_rejects_male() -> None:
+    """Re-service eligibility keeps the same sex guard as first-service readiness."""
+    assert make_animal_object(sex=Sex.M.value).is_breeding_eligible is False
+
+
+@pytest.mark.parametrize("status", ["SOLD", "DEAD", "CULLED"])
+def test_is_breeding_eligible_requires_active_status(status: str) -> None:
+    """A sold/dead/culled doe is never eligible, whatever her age and weight."""
+    assert make_animal_object(status=status).is_breeding_eligible is False
+
+
+def test_is_breeding_eligible_age_exactly_10_months() -> None:
+    """10 months is inclusive: the minimum breeding age passes, not just exceeds."""
+    assert make_animal_object(date_of_birth=add_months(today(), -10)).is_breeding_eligible is True
+
+
+def test_is_breeding_eligible_age_one_day_short_of_10_months() -> None:
+    """One day under the age floor fails; the conjunction may not degrade to an or."""
+    dob = add_months(today(), -10) + timedelta(days=1)
+    assert make_animal_object(date_of_birth=dob).is_breeding_eligible is False
+
+
+def test_is_breeding_eligible_unknown_age() -> None:
+    """No DOB and no estimate means eligibility fails closed rather than crashing."""
+    animal = make_animal_object(date_of_birth=None, estimated_dob=None)
+    assert animal.is_breeding_eligible is False
+
+
+def test_is_breeding_eligible_weight_exactly_22kg() -> None:
+    """22 kg is inclusive: the minimum breeding weight passes, not just exceeds."""
+    animal = make_animal_object(weight_records=[WeightRecord(date=today(), weight_kg=22.0)])
+    assert animal.is_breeding_eligible is True
+
+
+def test_is_breeding_eligible_weight_just_below_22kg() -> None:
+    """A hair under the weight floor fails, even with age and status satisfied."""
+    animal = make_animal_object(weight_records=[WeightRecord(date=today(), weight_kg=21.99)])
+    assert animal.is_breeding_eligible is False
+
+
+def test_is_breeding_eligible_rejects_pregnant_doe() -> None:
+    """A confirmed-pregnant doe is not re-serviceable, however mature she is."""
+    animal = make_animal_object(
+        breedings_as_doe=[make_breeding_object(BreedingOutcome.CONFIRMED_PREGNANT.value)]
+    )
+    assert animal.is_breeding_eligible is False
+
+
 @pytest.mark.parametrize(
     ("tag", "name", "expected"),
     [
@@ -864,6 +949,12 @@ def test_quarantine_schedule_missing_supplier_falls_back() -> None:
     assert all("[Purchase #7]" in str(item["title"]) for item in schedule)
 
 
+def test_quarantine_schedule_blank_supplier_falls_back() -> None:
+    """A whitespace-only supplier collapses to the same 'Purchase' label, cased exactly."""
+    schedule = quarantine_schedule(_batch(supplier="   "))
+    assert all(str(item["title"]).startswith("[Purchase #7] ") for item in schedule)
+
+
 def test_quarantine_schedule_truncates_only_supplier_to_task_title_capacity() -> None:
     batch = _batch(supplier="S" * 120)
     batch.id = 2_147_483_647
@@ -871,6 +962,15 @@ def test_quarantine_schedule_truncates_only_supplier_to_task_title_capacity() ->
     assert all(len(item["title"]) <= 200 for item in schedule)
     assert all(f"#{batch.id}]" in item["title"] for item in schedule)
     assert schedule[0]["title"].endswith(QUARANTINE_PROTOCOL[0][2])
+
+
+def test_quarantine_schedule_truncated_supplier_keeps_no_trailing_space() -> None:
+    """Cutting a 120-char supplier at a space must not leave it before the batch id."""
+    batch = _batch(supplier="A" * 112 + " " + "B" * 7)
+    batch.id = 2_147_483_647
+    schedule = quarantine_schedule(batch)
+    assert schedule[0]["title"].startswith(f"[{'A' * 112} #2147483647] ")
+    assert all(f"  #{batch.id}]" not in item["title"] for item in schedule)
 
 
 def test_quarantine_schedule_final_step_releases_to_foundation() -> None:
