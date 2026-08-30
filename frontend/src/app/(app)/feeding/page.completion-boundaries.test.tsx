@@ -570,7 +570,7 @@ describe("FeedingPage ration editor branches", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 3 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 3.0 kg/head for BREEDING."),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 

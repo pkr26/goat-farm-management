@@ -102,17 +102,19 @@ const txnSchema = z.object({
     .min(1, "Date is required")
     .refine((s) => s <= localToday(), "Date can't be in the future"),
   type: z.enum([TransactionInType.INCOME, TransactionInType.EXPENSE]),
+  // Derived from the generated enum so a new contract category is accepted
+  // the moment the selects offer it (was a hand-copied list — L24).
   category: z.enum([
-    "ANIMAL_SALE",
-    "ANIMAL_PURCHASE",
-    "FEED",
-    "MEDICINE",
-    "VET",
-    "LABOUR",
-    "EQUIPMENT",
-    "MILK",
-    "MANURE",
-    "OTHER",
+    TransactionInCategory.ANIMAL_SALE,
+    TransactionInCategory.ANIMAL_PURCHASE,
+    TransactionInCategory.FEED,
+    TransactionInCategory.MEDICINE,
+    TransactionInCategory.VET,
+    TransactionInCategory.LABOUR,
+    TransactionInCategory.EQUIPMENT,
+    TransactionInCategory.MILK,
+    TransactionInCategory.MANURE,
+    TransactionInCategory.OTHER,
   ]),
   amount: z.coerce
     .number()
@@ -207,6 +209,7 @@ function CorrectionDialog({
   const correctionFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
   const [consequenceConfirmed, setConsequenceConfirmed] = useState(false);
+  const [consequenceHint, setConsequenceHint] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -231,12 +234,18 @@ function CorrectionDialog({
   const animalId = useWatch({ control, name: "related_animal_id" });
   const isFeedPurchase = transaction.source_type === "FEED_PURCHASE";
   async function submit(values: CorrectionValues) {
-    if (!consequenceConfirmed) return;
+    // The button is disabled, but Enter in any input still submits the form —
+    // answer the silent no-op with the reason (L24).
+    if (!consequenceConfirmed) {
+      setConsequenceHint("Confirm the consequence checkbox before recording the correction.");
+      return;
+    }
+    setConsequenceHint(null);
     await correctionFlight.run(async () => {
       onPendingChange(true);
       setFormError(null);
       try {
-        const correctionPayload: TransactionCorrectionIn & { feed_quantity_kg?: number } = {
+        const correctionPayload: TransactionCorrectionIn = {
           date: values.date,
           type: values.type,
           category: values.category,
@@ -288,6 +297,11 @@ function CorrectionDialog({
           {formError && (
             <p role="alert" className="text-sm text-destructive">
               {formError}
+            </p>
+          )}
+          {consequenceHint && (
+            <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">
+              {consequenceHint}
             </p>
           )}
           <div className="grid gap-3 sm:grid-cols-2">
@@ -865,7 +879,7 @@ export default function FinancePage() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={correctionPending || ledgerSettling}
+                          disabled={correctionPending || ledgerSettling || query.isFetching}
                           onClick={() => setCorrecting(t)}
                         >
                           Correct

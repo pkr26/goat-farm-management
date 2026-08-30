@@ -109,10 +109,24 @@ export function formatFarmDateTime(iso: string | null | undefined): string {
   return `${parts.day}-${parts.month}-${parts.year} ${parts.hour}:${parts.minute}`;
 }
 
-/** YYYY-MM-DD `days` after `iso` (both YYYY-MM-DD), timezone-safe. */
+/** YYYY-MM-DD `days` after `iso` (both YYYY-MM-DD), timezone-safe.
+ *
+ * Degrades instead of throwing: callers feed it backend-supplied dates, and a
+ * malformed value used to escape as `RangeError: Invalid time value` from
+ * `toISOString()` — including from inside render-path `useMemo` calls. Invalid
+ * input returns the input unchanged; years past 9999 are formatted manually
+ * because `toISOString()` switches to an expanded `+10000-…` spelling whose
+ * first ten characters are no longer a date. */
 export function addDays(iso: string, days: number): string {
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d) || Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  const year = String(date.getUTCFullYear()).padStart(4, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 const MONTHS = [

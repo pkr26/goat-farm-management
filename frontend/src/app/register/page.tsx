@@ -24,6 +24,7 @@ import { useAuth } from "@/lib/auth-context";
 import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
+
 const registerSchema = z.object({
   name: z.string().max(120).optional(),
   email: z

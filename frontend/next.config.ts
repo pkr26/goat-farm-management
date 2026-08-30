@@ -17,8 +17,11 @@ const SECURITY_HEADERS = [
 
 /** Production Content-Security-Policy. script-src keeps 'unsafe-inline'
  *  because the App Router streams its RSC/hydration payload in inline
- *  <script> tags and we don't run nonce middleware yet — tightening to
- *  nonces is the documented next step. Everything else is 'self'. */
+ *  <script> tags and Next 16 does not propagate a request-header nonce to
+ *  those bootstrap scripts in the standalone server (verified by build +
+ *  smoke test during this audit's nonce attempt — a nonce policy would block
+ *  hydration outright). Nonce/hash CSP needs deeper framework support; every
+ *  other directive here is enforced. */
 const PRODUCTION_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",

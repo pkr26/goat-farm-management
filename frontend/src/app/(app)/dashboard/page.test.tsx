@@ -746,7 +746,7 @@ describe("DashboardPage — loading, error and permission states", () => {
     // Move suggestions carry animal identity and the exact latest weight, so
     // the API withholds them without animals.view too.
     expect(
-      screen.getByText("Move suggestions require animal access."),
+      screen.getByText("Move suggestions require animal and breeding access."),
     ).toBeInTheDocument();
     expect(screen.queryByText("G-077 · Lakshmi")).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();

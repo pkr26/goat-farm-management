@@ -30,6 +30,7 @@ import {
 } from "@/lib/permission-navigation";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
+
 const farmSchema = z.object({
   name: z
     .string()
@@ -43,6 +44,7 @@ const farmSchema = z.object({
     .optional(),
   timezone: z
     .string()
+    .trim()
     .min(1, "Timezone is required")
     .max(64, "Timezone must be at most 64 characters")
     // Do not use Intl as an IANA validator here: browser tzdata can lag the

@@ -21,3 +21,8 @@ export function formatPersistedKg(value: number): string {
 export function isPersistableNonnegativeMoney(value: number): boolean {
   return Number.isFinite(value) && (value === 0 || value >= MIN_PERSISTED_MONEY);
 }
+
+/** Same rule for optional weights stored at 3-decimal precision (kg). */
+export function isPersistableNonnegativeWeight(value: number): boolean {
+  return Number.isFinite(value) && (value === 0 || value >= MIN_PERSISTED_KG);
+}

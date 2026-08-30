@@ -21,13 +21,18 @@ export function PaginationControls({
    * the page they describe is no longer the one being requested. */
   disabled?: boolean;
 }) {
-  if (total <= 0) return null;
-  const last = Math.min(offset + limit, total);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  // The component is also a trust boundary: URL-derived state has reached it
+  // as NaN/negative/fractional values in the wild. Sanitize instead of
+  // rendering "Showing NaN–NaN" (L8).
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 1;
+  const safeOffset = Number.isFinite(offset) ? Math.max(0, Math.trunc(offset)) : 0;
+  const last = Math.min(safeOffset + safeLimit, total);
   // A parent can hold an offset past the end of the list — the data shrank
   // under it (deletion/filter) or a stale offset was carried over. Clamp the
   // range start to the end so the label can never invert into "Showing 91–5
   // of 5"; Previous stays enabled, so the user can page back to real rows.
-  const first = Math.min(offset + 1, last);
+  const first = Math.min(safeOffset + 1, last);
   return (
     <nav
       aria-label={`${label} pagination`}
@@ -42,8 +47,8 @@ export function PaginationControls({
           type="button"
           variant="outline"
           size="sm"
-          disabled={disabled || offset === 0}
-          onClick={() => onOffsetChange(Math.max(0, offset - limit))}
+          disabled={disabled || safeOffset === 0}
+          onClick={() => onOffsetChange(Math.max(0, safeOffset - safeLimit))}
         >
           Previous
         </Button>
@@ -51,8 +56,8 @@ export function PaginationControls({
           type="button"
           variant="outline"
           size="sm"
-          disabled={disabled || offset + limit >= total}
-          onClick={() => onOffsetChange(offset + limit)}
+          disabled={disabled || safeOffset + safeLimit >= total}
+          onClick={() => onOffsetChange(safeOffset + safeLimit)}
         >
           Next
         </Button>

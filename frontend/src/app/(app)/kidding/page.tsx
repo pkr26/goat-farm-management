@@ -50,7 +50,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
 import { addDays, farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
@@ -88,8 +88,9 @@ const MAX_KIDS = 10;
 const KIDDING_HISTORY_LIMIT = 50;
 const DUE_LIST_LIMIT = 25;
 /** Mirrors backend/app/models/constants.py — record_kidding() rejects a
- * gestation shorter than this outright. */
+ * gestation outside this window outright. */
 const MIN_GESTATION_DAYS = 100;
+const MAX_GESTATION_DAYS = 200;
 
 const kidSchema = z.object({
   tag: z.string().max(50, "Max 50 characters").optional(),
@@ -137,13 +138,20 @@ type KiddingValues = z.infer<typeof kiddingSchema>;
  * layered on per record: record_kidding() rejects both a gestation below
  * MIN_GESTATION_DAYS and a delivery predating its own confirmation scan.
  * Catching them here saves the operator from entering every kid row first. */
-function kiddingSchemaFor(earliestDate: string) {
+function kiddingSchemaFor(earliestDate: string, latestDate: string) {
   return kiddingSchema.superRefine((values, ctx) => {
     if (values.date && values.date < earliestDate) {
       ctx.addIssue({
         code: "custom",
         path: ["date"],
         message: `Kidding date cannot be before ${formatDate(earliestDate)}`,
+      });
+    }
+    if (values.date && values.date > latestDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["date"],
+        message: `Kidding date cannot be after ${formatDate(latestDate)} (gestation over ${MAX_GESTATION_DAYS} days)`,
       });
     }
   });
@@ -165,16 +173,18 @@ function RecordKiddingDialog({
   const mutation = useCreateKiddingApiKiddingPost();
   const createFlight = useSingleFlight();
   const [formError, setFormError] = useState<string | null>(null);
-  const earliestKiddingDate = useMemo(() => {
+  const [earliestKiddingDate, latestKiddingDate] = useMemo(() => {
     const minGestationDate = addDays(breeding.breeding_date, MIN_GESTATION_DAYS);
-    return breeding.ultrasound_result_date &&
-      breeding.ultrasound_result_date > minGestationDate
-      ? breeding.ultrasound_result_date
-      : minGestationDate;
+    const earliest =
+      breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate
+        ? breeding.ultrasound_result_date
+        : minGestationDate;
+    const maxGestationDate = addDays(breeding.breeding_date, MAX_GESTATION_DAYS);
+    return [earliest, maxGestationDate < localToday() ? maxGestationDate : localToday()];
   }, [breeding.breeding_date, breeding.ultrasound_result_date]);
   const resolver = useMemo(
-    () => zodResolver(kiddingSchemaFor(earliestKiddingDate)),
-    [earliestKiddingDate],
+    () => zodResolver(kiddingSchemaFor(earliestKiddingDate, latestKiddingDate)),
+    [earliestKiddingDate, latestKiddingDate],
   );
   const {
     control,
@@ -198,6 +208,7 @@ function RecordKiddingDialog({
   async function onSubmit(values: KiddingValues) {
     await createFlight.run(async () => {
       setFormError(null);
+      const requestFarmEpoch = farmScopeEpochValue();
       try {
         await mutation.mutateAsync({
           data: {
@@ -216,6 +227,7 @@ function RecordKiddingDialog({
             })),
           },
         });
+        if (farmScopeEpochValue() !== requestFarmEpoch) return;
         toast.success("Kidding recorded.");
         onClose();
         onSaved();
@@ -257,7 +269,7 @@ function RecordKiddingDialog({
                 type="date"
                 disabled={isSubmitting || createFlight.pending}
                 min={earliestKiddingDate}
-                max={localToday()}
+                max={latestKiddingDate}
                 aria-invalid={Boolean(errors.date) || undefined}
                 aria-describedby={errors.date ? "kidding-date-error" : undefined}
                 {...register("date")}
@@ -501,6 +513,10 @@ function RecordKiddingDialog({
             )}
             <p className="text-xs text-muted-foreground" aria-live="polite">
               {fields.length} kid{fields.length === 1 ? "" : "s"} listed
+              {breeding.kid_count_detected !== null &&
+                breeding.kid_count_detected !== undefined &&
+                breeding.kid_count_detected !== fields.length &&
+                ` — ultrasound detected ${breeding.kid_count_detected}. Reconcile the difference or note the reason.`}
             </p>
           </fieldset>
 
@@ -553,7 +569,7 @@ function KidsCell({
           ) : (
             (kid.tag ?? "kid")
           )}{" "}
-          ({kid.sex}, {kid.status.toLowerCase()})
+          ({kid.sex === "F" ? "Female" : "Male"}, {kid.status.toLowerCase()})
         </span>
       ))}
     </span>
@@ -618,6 +634,14 @@ function KiddingPageContent() {
       ? requestedRecord
       : null;
   const activeRecord = recordFor ?? deepLinkedRecord;
+  // A deep link that resolved to a pregnancy that can no longer be recorded
+  // used to vanish silently; keep the operator informed until cleared (L18).
+  const staleDeepLink =
+    canManage &&
+    requestedBreedingId !== null &&
+    dismissedPrefillId !== requestedBreedingId &&
+    requestedRecord !== undefined &&
+    (requestedRecord.outcome !== "CONFIRMED_PREGNANT" || requestedRecord.has_kidding);
 
   useEffect(() => {
     // Scope dismissal to one continuous URL intent. Query-only navigation can
@@ -685,7 +709,7 @@ function KiddingPageContent() {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
-  // "Xd late" compares against the backend's UTC today, not local (7-5).
+  // "Xd late" compares against the active farm's calendar day.
   const today = farmToday();
 
   function recordButton(r: BreedingRecordOut) {
@@ -713,6 +737,24 @@ function KiddingPageContent() {
         <p role="status" className="text-sm text-muted-foreground">
           Updating kidding queues…
         </p>
+      )}
+
+      {staleDeepLink && requestedRecord && (
+        <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
+            {requestedRecord.has_kidding
+              ? `Pregnancy #${requestedBreedingId} already has a kidding recorded.`
+              : `Pregnancy #${requestedBreedingId} is no longer confirmed pregnant — no kidding to record.`}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setDismissedPrefillId(requestedBreedingId)}
+          >
+            Clear link
+          </Button>
+        </div>
       )}
 
       {prefillRecordQuery.isError && (
@@ -744,6 +786,13 @@ function KiddingPageContent() {
           description={`${payload.overdue_total} overdue pregnancies in the full queue.`}
         >
           <Table className="min-w-[560px]">
+            <TableHeader className="sr-only">
+              <TableRow>
+                <th scope="col">Doe</th>
+                <th scope="col">Was due</th>
+                <th scope="col">Record kidding</th>
+              </TableRow>
+            </TableHeader>
             <TableBody>
               {payload.overdue.map((r) => (
                 <TableRow key={r.id}>

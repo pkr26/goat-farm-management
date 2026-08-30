@@ -55,6 +55,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -1046,8 +1047,12 @@ function HealthPageContent() {
                       e.animal_tag
                     ) : e.purchase_batch_id ? (
                       `batch #${e.purchase_batch_id}`
-                    ) : (
+                    ) : e.animal_id !== null ? (
                       `#${e.animal_id}`
+                    ) : (
+                      // Animal-scoped rows keep #id; reaching this branch with
+                      // every id null means the event targeted a whole bucket.
+                      <span className="text-muted-foreground">bucket-wide</span>
                     )}
                   </TableCell>
                   <TableCell>{e.product_name ?? "—"}</TableCell>
@@ -1066,6 +1071,13 @@ function HealthPageContent() {
                           </span>
                         )}
                       </span>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell className="max-w-48">
+                    {e.notes ? (
+                      <span title={e.notes} className="block truncate">{e.notes}</span>
                     ) : (
                       "—"
                     )}
@@ -1452,6 +1464,18 @@ function HealthPageContent() {
                   longer a pending health duty. Record the event without it.
                 </p>
               )}
+              {(() => {
+                const linkedTask = linkableHealthTasks.find(
+                  (t) => String(t.id) === wTaskId,
+                );
+                if (!linkedTask || linkedTask.due_date <= localToday()) return null;
+                return (
+                  <p role="status" className="sm:col-span-2 text-sm text-amber-700 dark:text-amber-300">
+                    Duty #{linkedTask.id} is not due until {formatDate(linkedTask.due_date)} — the
+                    server rejects an event dated before then.
+                  </p>
+                );
+              })()}
               {canViewTasks && linkableHealthTasks.length > 0 && (
                 <div className="space-y-1.5">
                   <Label htmlFor="event-task">Linked duty (completes it)</Label>
@@ -1705,8 +1729,9 @@ function HealthPageContent() {
             </details>
             <div className="space-y-1.5">
               <Label htmlFor="notes">Notes</Label>
-              <Input
+              <Textarea
                 id="notes"
+                rows={2}
                 maxLength={MAX_HEALTH_EVENT_NOTES}
                 aria-invalid={Boolean(errors.notes) || undefined}
                 aria-describedby={errors.notes ? "health-notes-error" : undefined}

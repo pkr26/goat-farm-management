@@ -98,8 +98,12 @@ export function AnimalPicker({
   // caller does not provide its own revision key, include a canonical form of
   // the IDs so two differently filtered pickers cannot reuse each other's
   // pages. Sorting also makes equivalent sets share a cache entry.
-  const resolvedEligibilityKey = eligibilityKey ??
-    (eligibleIds ? [...eligibleIds].sort((left, right) => left - right) : "all-active");
+  const resolvedEligibilityKey = useMemo(
+    () =>
+      eligibilityKey ??
+      (eligibleIds ? [...eligibleIds].sort((left, right) => left - right) : "all-active"),
+    [eligibilityKey, eligibleIds],
+  );
   const selectedAnimalId = /^\d+$/.test(value) ? Number(value) : null;
   const selectedAnimalQuery = useAnimalProfileApiAnimalsAnimalIdGet(
     selectedAnimalId ?? 0,

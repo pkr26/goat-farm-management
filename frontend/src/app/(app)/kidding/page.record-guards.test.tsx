@@ -340,7 +340,7 @@ describe("KiddingPage branches", () => {
     const row = screen.getByText("big twins").closest("tr")!;
 
     expect(within(row).getAllByRole("cell")[3].textContent).toBe(
-      "G-101 (F, alive), kid (M, stillborn)",
+      "G-101 (Female, alive), kid (Male, stillborn)",
     );
   });
 
@@ -572,13 +572,13 @@ describe("KiddingPage branches", () => {
 
   it("counts the listed kid rows as they are added and removed", async () => {
     const { user, dialog } = await openDialog();
-    expect(within(dialog).getByText("2 kids listed")).toBeInTheDocument();
+    expect(within(dialog).getByText(new RegExp("2 kids listed"))).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Remove kid 2" }));
-    expect(within(dialog).getByText("1 kid listed")).toBeInTheDocument();
+    expect(within(dialog).getByText(new RegExp("1 kid listed"))).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Add kid" }));
-    expect(within(dialog).getByText("2 kids listed")).toBeInTheDocument();
+    expect(within(dialog).getByText(new RegExp("2 kids listed"))).toBeInTheDocument();
   });
 
   it("flags only the fields that failed validation as invalid", async () => {

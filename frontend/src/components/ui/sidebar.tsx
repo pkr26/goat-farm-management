@@ -97,10 +97,10 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state. SameSite=Lax + no
-      // Secure so it works over http://localhost during dev; in prod
-      // everything is https and the browser upgrades the flag context.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax`
+      // Persist the sidebar state. SameSite=Lax; Secure is added only in
+      // production so the plain-http dev server still receives the cookie.
+      const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}; SameSite=Lax${secure}`
     },
     [setOpenProp]
   )

@@ -5,7 +5,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -62,6 +61,7 @@ import {
   MIN_PERSISTED_KG,
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
+import { FeedingNav } from "@/components/feeding-nav";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -117,31 +117,6 @@ function mutationError(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
 }
 
-function FeedingNav({ active }: { active: string }) {
-  const tabs = [
-    { href: "/feeding", label: "Today's plan" },
-    { href: "/feeding/recipes", label: "Recipes" },
-    { href: "/feeding/inventory", label: "Inventory" },
-  ];
-  return (
-    <nav className="flex flex-wrap gap-1 border-b text-sm">
-      {tabs.map((t) => (
-        <Link
-          key={t.href}
-          href={t.href}
-          className={
-            t.label === active
-              ? "-mb-px border-b-2 border-primary px-3 py-2 font-medium text-foreground"
-              : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
-          }
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
-
 const settingSchema = z.object({
   daily_kg_per_head: z.coerce
     .number()
@@ -192,7 +167,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
           },
         });
         const stored = quantizePersistedKg(values.daily_kg_per_head);
-        toast.success(`Saved ${stored} kg/head for ${line.bucket}.`);
+        toast.success(`Saved ${formatPersistedKg(stored)} kg/head for ${line.bucket}.`);
         reset({ daily_kg_per_head: stored });
         invalidateFarmData(queryClient);
         setOpen(false);
@@ -263,19 +238,25 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
 }
 
 const dispenseSchema = z.object({
+  // Derived from the generated enums so a new contract bucket/shift is
+  // accepted the moment the selects offer it (was hand-copied — L20).
   bucket: z.enum([
-    "QUARANTINE",
-    "FOUNDATION",
-    "BREEDING",
-    "PREGNANCY_EARLY",
-    "PREGNANCY_LATE",
-    "DELIVERY",
-    "RECOVERY",
-    "RESTING",
-    "MALE_KIDS",
-    "FEMALE_KIDS",
+    DispenseInBucket.QUARANTINE,
+    DispenseInBucket.FOUNDATION,
+    DispenseInBucket.BREEDING,
+    DispenseInBucket.PREGNANCY_EARLY,
+    DispenseInBucket.PREGNANCY_LATE,
+    DispenseInBucket.DELIVERY,
+    DispenseInBucket.RECOVERY,
+    DispenseInBucket.RESTING,
+    DispenseInBucket.MALE_KIDS,
+    DispenseInBucket.FEMALE_KIDS,
   ]),
-  shift: z.enum(["MORNING", "AFTERNOON", "NIGHT"]),
+  shift: z.enum([
+    DispenseInShift.MORNING,
+    DispenseInShift.AFTERNOON,
+    DispenseInShift.NIGHT,
+  ]),
   recipe_code: z.string().min(1, "Pick a recipe"),
   qty_kg: z.coerce
     .number()
@@ -314,7 +295,13 @@ export default function FeedingPage() {
       limit: historyLimit,
       offset: historyOffset,
     },
-    { query: { enabled: allowed && !invalidHistoryRange } },
+    {
+      query: {
+        enabled: allowed && !invalidHistoryRange,
+        // Keep the previous page rendered while an offset/date change settles.
+        placeholderData: (previous) => previous,
+      },
+    },
   );
   const history =
     historyQuery.data?.status === 200 ? historyQuery.data.data : undefined;
@@ -392,9 +379,14 @@ export default function FeedingPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load the feeding plan."}
-        </p>
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load the feeding plan."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry feeding plan
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -467,7 +459,7 @@ export default function FeedingPage() {
         }
       />
 
-      <FeedingNav active="Today's plan" />
+      <FeedingNav active="plan" />
 
       {canManage && recipesQuery.isError && (
         <div
@@ -710,6 +702,11 @@ export default function FeedingPage() {
         {!invalidHistoryRange && historyQuery.isLoading && (
           <p className="py-6 text-center text-sm text-muted-foreground">Loading history…</p>
         )}
+        {!invalidHistoryRange && historyQuery.isPlaceholderData && (
+          <p role="status" className="py-2 text-sm text-muted-foreground">
+            Updating dispensing history…
+          </p>
+        )}
         {!invalidHistoryRange && historyQuery.isError && (
           <p role="alert" className="py-3 text-sm text-destructive">
             {historyQuery.error instanceof ApiError
@@ -756,6 +753,7 @@ export default function FeedingPage() {
               offset={history.offset}
               onOffsetChange={setHistoryOffset}
               label="dispensing records"
+              disabled={historyQuery.isPlaceholderData}
             />
           </>
         )}

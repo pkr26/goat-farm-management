@@ -137,8 +137,8 @@ describe("ReportsPage", () => {
 
     expect(summaryValue("Females (active)")).toHaveTextContent("30");
     expect(summaryValue("Males (active)")).toHaveTextContent("17");
-    expect(summaryValue("SOLD (all time)")).toHaveTextContent("8");
-    expect(summaryValue("DEAD (all time)")).toHaveTextContent("3");
+    expect(summaryValue("Sold (all time)")).toHaveTextContent("8");
+    expect(summaryValue("Dead (all time)")).toHaveTextContent("3");
   });
 
   it("renders breeding performance percentages and counts", async () => {
@@ -166,7 +166,7 @@ describe("ReportsPage", () => {
     expect(within(row).getByText("1")).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "G-021 · Kali" })).toHaveAttribute(
       "href",
-      "/animals/21",
+      "/animals/21?returnTo=%2Freports",
     );
   });
 

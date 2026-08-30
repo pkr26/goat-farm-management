@@ -19,11 +19,7 @@ import {
 import Link from "next/link";
 
 import { useDashboardApiDashboardGet } from "@/api/generated/endpoints";
-import type {
-  AnimalIdentityOut,
-  DashboardWeightOut,
-  TaskOut,
-} from "@/api/generated/models";
+import type { AnimalIdentityOut, TaskOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -49,14 +45,6 @@ import { usePermissions } from "@/lib/use-permissions";
 function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
 }
-
-// The backend's purpose-specific recent-weight DTO now carries identity and
-// a permission-filtered note. Generated clients are intentionally refreshed
-// only after all schema work freezes, so bridge that additive contract here.
-type RecentWeight = DashboardWeightOut & {
-  animal: AnimalIdentityOut;
-  notes: string | null;
-};
 
 /** Whole days from `from` to `to` (both YYYY-MM-DD), timezone-safe. */
 function daysBetween(from: string, to: string): number {
@@ -124,6 +112,11 @@ export default function DashboardPage() {
   // sentinel alone would render stale privileged rows after a revocation.
   const breedingWithheld = payload?.cull_candidates_total === null || !canViewBreeding;
   const animalsWithheld = payload?.recent_weights_total === null || !canViewAnimals;
+  // The contract withholds suggestions (derived from breeding readiness or an
+  // open pregnancy) without breeding.view — the same sentence that governs
+  // kiddings and cull candidates — AND without animals.view (identity +
+  // weights). Gate on either so a withheld section can never read as the
+  // factual "No suggestions." (M-1).
 
   if (permsLoading) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -157,11 +150,13 @@ export default function DashboardPage() {
   }
 
   const farm = farms.find((f) => f.id === farmId);
-  // Comparisons against server due dates use the backend's UTC today (7-5).
+  const suggestionsWithheld = animalsWithheld || breedingWithheld;
+  // Comparisons against server due dates use the active farm's calendar day
+  // (farmToday), not the browser's local date.
   const today = farmToday();
   const taskTotal = payload.todays_tasks_total + payload.overdue_tasks_total;
   const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
-  const recentWeights = payload.recent_weights as RecentWeight[];
+  const recentWeights = payload.recent_weights;
   const hasBoundedPreview =
     payload.todays_tasks.length < payload.todays_tasks_total ||
     payload.overdue_tasks.length < payload.overdue_tasks_total ||
@@ -220,7 +215,10 @@ export default function DashboardPage() {
           }
         >
           <Table>
-            <TableBody>
+            <TableHeader className="sr-only">
+                <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Open</th></TableRow>
+              </TableHeader>
+              <TableBody>
               {payload.overdue_tasks.map((t) => (
                 <TableRow key={t.id} className="bg-red-50/60 dark:bg-red-950/20">
                   <TableCell>
@@ -275,6 +273,9 @@ export default function DashboardPage() {
             />
           ) : (
             <Table>
+              <TableHeader className="sr-only">
+                <TableRow><th scope="col">Task</th><th scope="col">Open</th></TableRow>
+              </TableHeader>
               <TableBody>
                 {payload.todays_tasks.map((t) => (
                   <TableRow key={t.id}>
@@ -328,6 +329,9 @@ export default function DashboardPage() {
             <EmptyState icon={Baby} title="None." className="py-8" />
           ) : (
             <Table>
+              <TableHeader className="sr-only">
+                <TableRow><th scope="col">Doe</th><th scope="col">Due</th><th scope="col">Record</th></TableRow>
+              </TableHeader>
               <TableBody>
                 {payload.kiddings_due.map((r) => (
                   <TableRow key={r.id}>
@@ -399,10 +403,21 @@ export default function DashboardPage() {
             <EmptyState icon={ScanLine} title="None." className="py-8" />
           ) : (
             <Table>
+              <TableHeader className="sr-only">
+                <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Record result</th></TableRow>
+              </TableHeader>
               <TableBody>
                 {payload.ultrasounds_due.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell>{formatDate(t.due_date)}</TableCell>
+                    <TableCell>
+                      {formatDate(t.due_date)}
+                      {t.due_date < today && (
+                        <span className="text-destructive">
+                          {" "}
+                          ({daysBetween(t.due_date, today)}d late)
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell>{t.title}</TableCell>
                     <TableCell className="text-right">
                       <TaskLink
@@ -425,12 +440,13 @@ export default function DashboardPage() {
           )}
         </DataTableCard>
 
-        {/* Suggestions carry animal identity and the exact latest weight, so
-            the API withholds them without animals.view. Say so rather than
-            claiming the herd has nothing ready to move. */}
+        {/* Suggestions carry animal identity, the exact latest weight AND a
+            breeding-programme judgement, so the API withholds them without
+            either animals.view or breeding.view. Say so rather than claiming
+            the herd has nothing ready to move (M-1). */}
         <DataTableCard
           title={
-            !animalsWithheld ? `Ready to move (${payload.suggestions_total})` : "Ready to move"
+            !suggestionsWithheld ? `Ready to move (${payload.suggestions_total})` : "Ready to move"
           }
           actions={canViewAnimals ? (
             <Link
@@ -442,16 +458,19 @@ export default function DashboardPage() {
           ) : undefined}
           contentClassName="space-y-3"
         >
-          {animalsWithheld ? (
+          {suggestionsWithheld ? (
             <EmptyState
               icon={MoveRight}
-              title="Move suggestions require animal access."
-              description="Ask an admin to grant animals.view to see which animals are ready to move."
+              title="Move suggestions require animal and breeding access."
+              description="Ask an admin to grant animals.view and breeding.view to see which animals are ready to move."
             />
           ) : payload.suggestions.length === 0 ? (
             <EmptyState icon={MoveRight} title="No suggestions." className="py-8" />
           ) : (
             <Table>
+              <TableHeader className="sr-only">
+                <TableRow><th scope="col">Animal</th><th scope="col">Reason</th><th scope="col">Move to</th></TableRow>
+              </TableHeader>
               <TableBody>
                 {payload.suggestions.map((s) => (
                   <TableRow key={s.animal.id}>
@@ -476,7 +495,7 @@ export default function DashboardPage() {
               </TableBody>
             </Table>
           )}
-          {!animalsWithheld && payload.suggestions.length < payload.suggestions_total && (
+          {!suggestionsWithheld && payload.suggestions.length < payload.suggestions_total && (
             <p className="text-sm text-muted-foreground">
               Showing {payload.suggestions.length} of {payload.suggestions_total} move suggestions.
             </p>

@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 
+
 export default function RootPage() {
   const { user, farmId, loading } = useAuth();
   const permissions = usePermissions();

@@ -809,7 +809,7 @@ describe("protected mutation idempotency transport", () => {
     fetchMock.mockRejectedValue(new TypeError("offline"));
 
     expect(
-      await catchError(apiFetch("/api/kidding", { method: "POST", body: "{}" })),
+      await catchError(apiFetch("/api/breeding/9/ultrasound", { method: "POST", body: "{}" })),
     ).toBeInstanceOf(TypeError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(requestKey(fetchMock.mock.calls[0]?.[1])).toBeNull();
@@ -817,8 +817,8 @@ describe("protected mutation idempotency transport", () => {
     fetchMock.mockReset();
     fetchMock.mockImplementation(async () => jsonResponse(201, { id: 1 }));
     await Promise.all([
-      apiFetch("/api/kidding", { method: "POST", body: "{}" }),
-      apiFetch("/api/kidding", { method: "POST", body: "{}" }),
+      apiFetch("/api/breeding/9/ultrasound", { method: "POST", body: "{}" }),
+      apiFetch("/api/breeding/9/ultrasound", { method: "POST", body: "{}" }),
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.every(([, init]) => requestKey(init) === null)).toBe(true);

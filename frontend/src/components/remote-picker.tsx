@@ -5,6 +5,7 @@ import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api-client";
 import {
   Dialog,
   DialogContent,
@@ -335,9 +336,8 @@ function RemotePickerDialog({
     } else {
       nextIndex = currentIndex < 0 || currentIndex === options.length - 1 ? 0 : currentIndex + 1;
     }
-    options.forEach((option, index) => {
-      option.tabIndex = index === nextIndex ? 0 : -1;
-    });
+    // Focus drives the roving cursor; tabIndex itself stays React-controlled
+    // (imperative mutation drifted from the rendered state — L17).
     options[nextIndex]?.focus();
   }
 
@@ -403,7 +403,9 @@ function RemotePickerDialog({
         ) : results.isError && !results.data && !awaitingCurrentTerm ? (
           <div className="space-y-2 p-3">
             <p role="alert" className="text-sm text-destructive">
-              Could not load options.
+              {results.error instanceof ApiError
+                ? results.error.detail
+                : "Could not load options."}
             </p>
             <Button type="button" size="sm" variant="outline" onClick={() => void results.refetch()}>
               Try again

@@ -728,12 +728,10 @@ describe("RemotePicker", () => {
     expect(first).toHaveFocus();
     expect(fireEvent.keyDown(listbox, { key: "ArrowUp" })).toBe(false);
     expect(third).toHaveFocus();
-    expect(first).toHaveAttribute("tabindex", "-1");
-    expect(third).toHaveAttribute("tabindex", "0");
+    // tabIndex stays React-controlled (the selected/first option is the tab
+    // stop); roving focus moves via .focus() alone, never DOM mutation.
     await user.keyboard("{ArrowDown}");
     expect(first).toHaveFocus();
-    expect(first).toHaveAttribute("tabindex", "0");
-    expect(third).toHaveAttribute("tabindex", "-1");
     await user.keyboard("{ArrowDown}");
     expect(second).toHaveFocus();
     await user.keyboard("{ArrowUp}");

@@ -181,6 +181,13 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     path === "/api/team/workers" ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||
+    // Pregnancy/kidding creation auto-creates tasks and (for kidding) animals,
+    // so an ambiguous replay duplicates durable stock. The contract does not
+    // yet declare an Idempotency-Key for these routes; client-side this still
+    // dedupes concurrent submits and reuses one key across the automatic
+    // network retry. Server-side dedup needs the backend param (tracked).
+    path === "/api/breeding" ||
+    path === "/api/kidding" ||
     path === "/api/feeding/dispense" ||
     path === "/api/feeding/mix" ||
     /^\/api\/feeding\/inventory\/\d+\/add$/.test(path)

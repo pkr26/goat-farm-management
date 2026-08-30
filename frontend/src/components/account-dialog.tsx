@@ -303,7 +303,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Label htmlFor="account-current-password">Current password for password change</Label>
             <Input
               id="account-current-password"
-              type="password"
+              type="password" maxLength={128}
               autoComplete="current-password"
               aria-invalid={Boolean(errors.current_password) || undefined}
               aria-describedby={errors.current_password ? "account-current-password-error" : undefined}
@@ -319,7 +319,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Label htmlFor="account-new-password">New password</Label>
             <Input
               id="account-new-password"
-              type="password"
+              type="password" maxLength={128}
               autoComplete="new-password"
               aria-invalid={Boolean(errors.new_password) || undefined}
               aria-describedby={errors.new_password ? "account-new-password-error" : undefined}
@@ -335,7 +335,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
             <Label htmlFor="account-confirm-password">Confirm new password</Label>
             <Input
               id="account-confirm-password"
-              type="password"
+              type="password" maxLength={128}
               autoComplete="new-password"
               aria-invalid={Boolean(errors.confirm_password) || undefined}
               aria-describedby={errors.confirm_password ? "account-confirm-password-error" : undefined}
@@ -395,7 +395,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                 <Label htmlFor="account-delete-password">Current password to delete account</Label>
                 <Input
                   id="account-delete-password"
-                  type="password"
+                  type="password" maxLength={128}
                   disabled={activeAction !== null}
                   autoComplete="current-password"
                   value={deletePassword}

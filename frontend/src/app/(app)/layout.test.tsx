@@ -17,7 +17,9 @@ import { useAuth } from "@/lib/auth-context";
 import { permissionsHandler, server, TEST_USER } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
-import AppLayout from "./layout";
+// The server wrapper only reads the sidebar cookie; every behavioural
+// assertion targets the client shell it renders.
+import { AppLayoutClient as AppLayout } from "./app-layout-client";
 
 const { pushMock, replaceMock, navState } = vi.hoisted(() => ({
   pushMock: vi.fn(),
@@ -106,7 +108,7 @@ function LayoutMountedAfterBootstrap() {
   const { loading } = useAuth();
   return loading ? null : (
     <StrictMode>
-      <AppLayout>{null}</AppLayout>
+      <AppLayout defaultOpen={true}>{null}</AppLayout>
     </StrictMode>
   );
 }
@@ -123,7 +125,7 @@ describe("AppLayout — header", () => {
 
   it("renders brand, active farm name, switch-farm link and the user's name", async () => {
     renderWithProviders(
-      <AppLayout>
+      <AppLayout defaultOpen={true}>
         <p>page body</p>
       </AppLayout>,
     );
@@ -143,7 +145,7 @@ describe("AppLayout — header", () => {
   it("includes the current detail route and query in the switch-farm return state", async () => {
     navState.pathname = "/tasks";
     navState.search = "?tab=overdue";
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByRole("link", { name: "switch farm" })).toHaveAttribute(
       "href",
@@ -187,7 +189,7 @@ describe("AppLayout — header", () => {
     );
     const user = userEvent.setup();
     renderWithProviders(
-      <AppLayout>
+      <AppLayout defaultOpen={true}>
         <FarmScopedDraft />
       </AppLayout>,
     );
@@ -212,7 +214,7 @@ describe("AppLayout — header", () => {
       ),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByText(TEST_USER.email)).toBeInTheDocument();
   });
@@ -240,7 +242,7 @@ describe("AppLayout — header", () => {
       ),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByText("Selected Farm")).toBeInTheDocument();
     expect(screen.queryByText("First Farm")).not.toBeInTheDocument();
@@ -256,7 +258,7 @@ describe("AppLayout — header", () => {
     );
 
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
     expect(localStorage.getItem("goatfarm.farmId")).toBe("1");
 
@@ -271,7 +273,7 @@ describe("AppLayout — header", () => {
     server.use(http.post("/api/auth/logout", () => HttpResponse.error()));
 
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Logout" }));
@@ -288,7 +290,7 @@ describe("AppLayout — header", () => {
       }),
     );
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -314,7 +316,7 @@ describe("AppLayout — header", () => {
       }),
     );
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -353,7 +355,7 @@ describe("AppLayout — header", () => {
       .spyOn(HTMLAnchorElement.prototype, "click")
       .mockImplementation(() => undefined);
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -381,7 +383,7 @@ describe("AppLayout — header", () => {
       }),
     );
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -425,7 +427,7 @@ describe("AppLayout — header", () => {
       http.post("/api/auth/logout", () => new HttpResponse(null, { status: 204 })),
     );
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -446,7 +448,7 @@ describe("AppLayout — header", () => {
 
   it("shows the signed-in name and email in the account dialog", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
     await user.click(screen.getByRole("button", { name: "Account" }));
@@ -467,7 +469,7 @@ describe("AppLayout — permission-gated nav", () => {
   });
 
   it("shows all 13 nav items to the farm owner (full catalog)", async () => {
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
     await waitFor(() => expect(navLinks()).toHaveLength(13));
@@ -479,7 +481,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("shows only the permitted subset to a restricted worker", async () => {
     server.use(permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]));
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(3));
     expect(screen.getByRole("link", { name: "Dashboard" })).toBeInTheDocument();
@@ -493,7 +495,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("points the brand at the first permitted page instead of a forbidden dashboard", async () => {
     server.use(permissionsHandler(["health.view"]));
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(
       await screen.findByRole("link", { name: "GoatFarm — go to Health" }),
@@ -518,7 +520,7 @@ describe("AppLayout — permission-gated nav", () => {
       ]),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(11));
     expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument();
@@ -527,7 +529,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("shows no nav items at all when the user holds no permissions", async () => {
     server.use(permissionsHandler([]));
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
     // Let the permissions query settle (it resolves to an empty set).
@@ -542,7 +544,7 @@ describe("AppLayout — permission-gated nav", () => {
       http.get("/api/auth/permissions", () => new Promise<Response>(() => {})),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByText("Test Goat Farm")).toBeInTheDocument();
     expect(navLinks()).toHaveLength(0);
@@ -555,7 +557,7 @@ describe("AppLayout — permission-gated nav", () => {
       ),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(
       await screen.findByText("Could not load your permissions — refresh the page to try again."),
@@ -566,7 +568,7 @@ describe("AppLayout — permission-gated nav", () => {
   });
 
   it("nav links point at their module routes", async () => {
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(13));
     const expected: Record<string, string> = {
@@ -590,7 +592,7 @@ describe("AppLayout — permission-gated nav", () => {
   });
 
   it("highlights the nav item matching the current path", async () => {
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(13));
     // usePathname is mocked to /dashboard.
@@ -604,7 +606,7 @@ describe("AppLayout — permission-gated nav", () => {
 
   it("highlights nested module routes but not similarly prefixed siblings", async () => {
     navState.pathname = "/animals/42";
-    const { unmount } = renderWithProviders(<AppLayout>{null}</AppLayout>);
+    const { unmount } = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByRole("link", { name: "Animals" })).toHaveAttribute(
       "data-active",
@@ -612,7 +614,7 @@ describe("AppLayout — permission-gated nav", () => {
 
     unmount();
     navState.pathname = "/animals-archive";
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByRole("link", { name: "Animals" })).not.toHaveAttribute(
       "data-active",
@@ -621,7 +623,7 @@ describe("AppLayout — permission-gated nav", () => {
 
   it("files every nav item under its own labelled group", async () => {
     navState.pathname = "/dashboard";
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(13));
     // The group heading is the only thing that explains why Health and
@@ -646,7 +648,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("keeps a group heading only while the worker can reach something under it", async () => {
     server.use(permissionsHandler(["dashboard.view", "animals.view", "tasks.view"]));
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(3));
     expect(navGroupItems("Overview")).toEqual(["Dashboard"]);
@@ -659,7 +661,7 @@ describe("AppLayout — permission-gated nav", () => {
   });
 
   it("keeps the permissions-failure notice out of a healthy sidebar", async () => {
-    const { unmount } = renderWithProviders(<AppLayout>{null}</AppLayout>);
+    const { unmount } = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(13));
     expect(
@@ -670,7 +672,7 @@ describe("AppLayout — permission-gated nav", () => {
     // refresh the page would send them round a loop that changes nothing.
     unmount();
     server.use(permissionsHandler([]));
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByRole("link", { name: "GoatFarm — go to access status" });
     expect(
@@ -700,7 +702,7 @@ describe("AppLayout — loading and no-farm states", () => {
       ),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByRole("nav")).not.toBeInTheDocument();
@@ -739,7 +741,7 @@ describe("AppLayout — loading and no-farm states", () => {
       removeEventListener: vi.fn(),
     }));
     try {
-      renderWithProviders(<AppLayout>{null}</AppLayout>);
+      renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
       await screen.findByText("Test Goat Farm");
 
       await user.click(screen.getByRole("button", { name: /toggle sidebar/i }));
@@ -761,7 +763,7 @@ describe("AppLayout — loading and no-farm states", () => {
   });
 
   it("never sends a session that already has an active farm to /farm-select", async () => {
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(navLinks()).toHaveLength(13));
     // The farm gate is the only navigation this shell performs; bouncing a
@@ -782,7 +784,7 @@ describe("AppLayout — loading and no-farm states", () => {
       }),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Loading…");
 
     // Settled signal, not a wall-clock sleep: the request is on the wire and
@@ -802,7 +804,7 @@ describe("AppLayout — loading and no-farm states", () => {
       http.post("/api/auth/refresh", () => new HttpResponse(null, { status: 401 })),
     );
 
-    renderWithProviders(<AppLayout>{null}</AppLayout>);
+    renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
     // No user means no farm either, but /farm-select would be a dead end for

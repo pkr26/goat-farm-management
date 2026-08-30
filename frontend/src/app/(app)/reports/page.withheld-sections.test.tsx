@@ -174,8 +174,8 @@ describe("ReportsPage branches", () => {
     expect(summaryValue("Stillborn rate")).not.toHaveTextContent("10%");
     // The clinical statuses the API dropped from status_counts stay in the
     // table, labelled, instead of vanishing.
-    expect(summaryValue("DEAD (all time)")).toHaveTextContent("Requires health access");
-    expect(summaryValue("CULLED (all time)")).toHaveTextContent("Requires health access");
+    expect(summaryValue("Dead (all time)")).toHaveTextContent("Requires health access");
+    expect(summaryValue("Culled (all time)")).toHaveTextContent("Requires health access");
     // An empty monthly breakdown is withheld here, not "no deaths".
     expect(screen.queryByText("No deaths recorded.")).not.toBeInTheDocument();
   });
@@ -190,18 +190,18 @@ describe("ReportsPage branches", () => {
     expect(summaryValue("Stillborn rate")).toHaveTextContent("Requires health access");
     // DEAD is present in status_counts, so it is already rendered with its
     // count — the withheld filler must not duplicate the row.
-    expect(screen.getAllByText("DEAD (all time)")).toHaveLength(1);
-    expect(summaryValue("DEAD (all time)")).toHaveTextContent("3");
+    expect(screen.getAllByText("Dead (all time)")).toHaveLength(1);
+    expect(summaryValue("Dead (all time)")).toHaveTextContent("3");
     // CULLED is the one the payload omitted.
-    expect(summaryValue("CULLED (all time)")).toHaveTextContent("Requires health access");
+    expect(summaryValue("Culled (all time)")).toHaveTextContent("Requires health access");
   });
 
   it("adds no withheld clinical rows when the health figures are present", async () => {
     await renderLoaded();
 
     expect(summaryValue("Stillborn rate")).toHaveTextContent("10%");
-    expect(screen.queryByText("DEAD (all time)")).not.toBeInTheDocument();
-    expect(screen.queryByText("CULLED (all time)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dead (all time)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Culled (all time)")).not.toBeInTheDocument();
     expect(screen.queryByText(/Requires health access/)).not.toBeInTheDocument();
   });
 
@@ -292,7 +292,7 @@ describe("ReportsPage branches", () => {
 
     expect(within(cullCell()).getByRole("link", { name: "G-022" })).toHaveAttribute(
       "href",
-      "/animals/22",
+      "/animals/22?returnTo=%2Freports",
     );
   });
 });

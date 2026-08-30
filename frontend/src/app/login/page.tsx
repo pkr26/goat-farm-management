@@ -3,8 +3,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { HeartPulse, PawPrint, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -22,8 +22,12 @@ import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { LoginIn, PermissionsOut, TokenOut } from "@/api/generated/models";
-import { firstPermittedPathFromList } from "@/lib/permission-navigation";
+import {
+  firstPermittedPathFromList,
+  permittedAppPathFromList,
+} from "@/lib/permission-navigation";
 import { useSingleFlight } from "@/lib/use-single-flight";
+
 
 const loginSchema = z.object({
   email: z
@@ -56,8 +60,9 @@ const FEATURES = [
   },
 ];
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn } = useAuth();
   const [serverError, setServerError] = useState<string | null>(null);
   const mounted = useRef(true);
@@ -91,7 +96,14 @@ export default function LoginPage() {
         try {
           const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
           if (!mounted.current || authSessionEpochValue() !== signedInEpoch) return;
-          router.push(firstPermittedPathFromList(permissions.permissions));
+          // A session-expiry deep link keeps its destination: the farm-switch
+          // variant of the validator demotes record ids the new farm cannot
+          // own, exactly as /farm-select does (L1).
+          const requested = permittedAppPathFromList(
+            searchParams.get("returnTo"),
+            permissions.permissions,
+          );
+          router.push(requested ?? firstPermittedPathFromList(permissions.permissions));
         } catch {
           // A user with no farm has no permissions context yet; farm selection
           // is also the safe recovery path for a transient discovery failure.
@@ -233,5 +245,13 @@ export default function LoginPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

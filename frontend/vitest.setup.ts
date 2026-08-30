@@ -10,7 +10,10 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
-  localStorage.clear();
+  // Node >= 25 ships an experimental host localStorage that shadows the
+  // jsdom realm's (and is unavailable without a flag); guard so the suite
+  // stays runnable on current Node versions (audit N-1).
+  localStorage?.clear?.();
 });
 
 afterAll(() => server.close());

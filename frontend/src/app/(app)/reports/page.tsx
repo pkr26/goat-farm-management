@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import { useReportsApiDashboardReportsGet } from "@/api/generated/endpoints";
 import type { AnimalIdentityOut } from "@/api/generated/models";
+import { Button } from "@/components/ui/button";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** v1's Animal.display_name: tag plus optional name. */
@@ -26,9 +28,16 @@ function animalName(a: AnimalIdentityOut): string {
   return a.tag_number + (a.name ? ` · ${a.name}` : "");
 }
 
-/** Percentages arrive as 0–100 numbers; null means "not enough data". */
+/** Percentages arrive as 0–100 numbers; null means "not enough data".
+ * One decimal — raw floats rendered "33.33333333333333". */
 function pct(value: number | null): string {
-  return value === null ? "—" : `${value}%`;
+  return value === null ? "—" : `${Math.round(value * 10) / 10}%`;
+}
+
+/** Enum key → sentence case for status rows ("DEAD" → "Dead"). */
+function humanizeStatus(status: string): string {
+  const spaced = status.replaceAll("_", " ").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 /** Clinical outcomes: the API leaves these out of `status_counts` for viewers
@@ -78,9 +87,14 @@ export default function ReportsPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load the reports."}
-        </p>
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load the reports."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry reports
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -141,7 +155,11 @@ export default function ReportsPage() {
             <SummaryRow label="Females (active)" value={payload.sex_counts.F ?? 0} />
             <SummaryRow label="Males (active)" value={payload.sex_counts.M ?? 0} />
             {Object.entries(payload.status_counts).map(([status, count]) => (
-              <SummaryRow key={status} label={`${status} (all time)`} value={count} />
+              <SummaryRow
+                  key={status}
+                  label={`${humanizeStatus(status)} (all time)`}
+                  value={count}
+                />
             ))}
             {/* Keep the withheld clinical rows visible as withheld instead of
                 letting them vanish silently from the table. */}
@@ -151,7 +169,7 @@ export default function ReportsPage() {
               ).map((status) => (
                 <SummaryRow
                   key={status}
-                  label={`${status} (all time)`}
+                  label={`${humanizeStatus(status)} (all time)`}
                   value={<Withheld permission="health" />}
                 />
               ))}
@@ -210,7 +228,7 @@ export default function ReportsPage() {
                       canViewAnimals ? (
                         <Link
                           key={a.id}
-                          href={`/animals/${a.id}`}
+                          href={withReturnTo(`/animals/${a.id}`, "/reports")}
                           className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
                         >
                           {animalName(a)}

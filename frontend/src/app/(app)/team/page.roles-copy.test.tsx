@@ -247,7 +247,7 @@ describe("TeamPage worker rows", () => {
     expect(roleless).not.toHaveAttribute("data-placeholder");
   });
 
-  it("confirms a role change and refetches the team without re-reading permissions", async () => {
+  it("refetches the team AND this session's permissions after a role change", async () => {
     let permissionCalls = 0;
     let teamCalls = 0;
     server.use(
@@ -275,14 +275,13 @@ describe("TeamPage worker rows", () => {
     );
 
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Role updated."));
-    // Only the team snapshot is stale after a role change; invalidating the
-    // whole cache would re-fetch this session's permissions on every edit.
+    // A role edit can change the EDITOR's own grants, so both the team
+    // snapshot and /api/auth/permissions refresh (stale-permission UI, M-5).
     await waitFor(() => expect(teamCalls).toBeGreaterThan(teamCallsBefore));
-    expect(permissionCalls).toBe(permissionCallsBefore);
+    await waitFor(() => expect(permissionCalls).toBeGreaterThan(permissionCallsBefore));
   });
 
   it("names the worker state each status toast reports", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.put("/api/team/workers/:membershipId/status", () =>
         HttpResponse.json({ ...MEMBER_RAVI, is_active: false }),
@@ -293,6 +292,10 @@ describe("TeamPage worker rows", () => {
 
     await user.click(
       within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Deactivate" }),
+    );
+    const deactivation = await screen.findByRole("dialog");
+    await user.click(
+      within(deactivation).getByRole("button", { name: "Deactivate worker" }),
     );
     await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Worker deactivated."));
 
@@ -978,7 +981,6 @@ describe("TeamPage role cards copy", () => {
 
   it("toasts a deleted role and a rejected deletion", async () => {
     let deleteCalls = 0;
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.delete("/api/team/roles/:roleId", () => {
         deleteCalls += 1;
@@ -992,6 +994,8 @@ describe("TeamPage role cards copy", () => {
     const card = roleCard("Helper");
 
     await user.click(within(card).getByRole("button", { name: "Delete" }));
+    const confirmation = await screen.findByRole("dialog");
+    await user.click(within(confirmation).getByRole("button", { name: "Delete role" }));
 
     expect(await within(card).findByRole("alert")).toHaveTextContent(
       "role is referenced by an invite",

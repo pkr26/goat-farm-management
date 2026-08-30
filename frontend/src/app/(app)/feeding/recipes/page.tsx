@@ -4,12 +4,14 @@
  * (parity with v1 feeding/recipes.html). Mixing batches lives on the inventory page. */
 
 import { Wheat } from "lucide-react";
-import Link from "next/link";
+
+import { EmptyState } from "@/components/empty-state";
 
 import { useListRecipesApiFeedingRecipesGet } from "@/api/generated/endpoints";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -20,32 +22,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { FeedingNav } from "@/components/feeding-nav";
 import { usePermissions } from "@/lib/use-permissions";
-
-function FeedingNav({ active }: { active: string }) {
-  const tabs = [
-    { href: "/feeding", label: "Today's plan" },
-    { href: "/feeding/recipes", label: "Recipes" },
-    { href: "/feeding/inventory", label: "Inventory" },
-  ];
-  return (
-    <nav className="flex flex-wrap gap-1 border-b text-sm">
-      {tabs.map((t) => (
-        <Link
-          key={t.href}
-          href={t.href}
-          className={
-            t.label === active
-              ? "-mb-px border-b-2 border-primary px-3 py-2 font-medium text-foreground"
-              : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
-          }
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
 
 export default function RecipesPage() {
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
@@ -70,9 +48,14 @@ export default function RecipesPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load recipes."}
-        </p>
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load recipes."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry recipes
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -85,7 +68,15 @@ export default function RecipesPage() {
         description="Total mixed ration formulas and the bucket each one feeds."
       />
 
-      <FeedingNav active="Recipes" />
+      <FeedingNav active="recipes" />
+
+      {payload.recipes.length === 0 && (
+        <EmptyState
+          icon={Wheat}
+          title="No recipes configured."
+          description="The recipe catalog is provisioned by the farm's feed setup; contact an administrator."
+        />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         {payload.recipes.map((recipe) => (

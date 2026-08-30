@@ -10,11 +10,34 @@
 
 import { ApiError, apiFetchEnvelope } from "@/lib/api-client";
 
+/**
+ * Orval's generated getUrl serializes a `null` param as the literal string
+ * "null" (`?bucket=null`), which the backend treats as a real (never-matching)
+ * filter value. Orval 8 exposes no paramsSerializer hook, so the mutator
+ * strips literal "null" values here instead — everything except `q`, the one
+ * free-text search param where "null" is a legitimate operator query (M-7).
+ */
+const FREE_TEXT_QUERY_PARAMS = new Set(["q"]);
+
+function stripNullQueryValues(url: string): string {
+  const queryStart = url.indexOf("?");
+  if (queryStart === -1) return url;
+  const params = new URLSearchParams(url.slice(queryStart + 1));
+  let changed = false;
+  for (const [key, value] of [...params.entries()]) {
+    if (value === "null" && !FREE_TEXT_QUERY_PARAMS.has(key)) {
+      params.delete(key);
+      changed = true;
+    }
+  }
+  return changed ? `${url.slice(0, queryStart)}?${params.toString()}` : url;
+}
+
 export const customInstance = async <T>(
   url: string,
   options?: RequestInit,
 ): Promise<T> => {
-  return (await apiFetchEnvelope(url, options)) as T;
+  return (await apiFetchEnvelope(stripNullQueryValues(url), options)) as T;
 };
 
 /** apiResponse maps every non-2xx body (including FastAPI validation errors)

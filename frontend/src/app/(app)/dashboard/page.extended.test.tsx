@@ -435,7 +435,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
     await screen.findByRole("heading", { name: /Dashboard/ });
 
     expect(
-      screen.getByText("Move suggestions require animal access."),
+      screen.getByText("Move suggestions require animal and breeding access."),
     ).toBeInTheDocument();
     expect(screen.getByText("Ready to move")).toBeInTheDocument();
     expect(screen.queryByText("Ready to move (2)")).not.toBeInTheDocument();
@@ -452,7 +452,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
     await screen.findByRole("heading", { name: /Dashboard/ });
 
     expect(
-      screen.getByText("Move suggestions require animal access."),
+      screen.getByText("Move suggestions require animal and breeding access."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Showing 2 of 9 move suggestions/)).not.toBeInTheDocument();
   });

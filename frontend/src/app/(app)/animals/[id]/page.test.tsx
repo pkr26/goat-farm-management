@@ -762,7 +762,7 @@ describe("AnimalProfilePage", () => {
       expect(screen.getByText("Breeding history (1)")).toBeInTheDocument();
       expect(
         screen.getByRole("link", { name: "Breeding record #55" }),
-      ).toHaveAttribute("href", "/breeding");
+      ).toHaveAttribute("href", "/breeding?returnTo=%2Fanimals%2F1");
     });
   });
 

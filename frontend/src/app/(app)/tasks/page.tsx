@@ -690,7 +690,14 @@ function TasksPageContent() {
       completed_limit: TASK_PAGE_SIZE,
       completed_offset: offsets.completed,
     },
-    { query: { enabled: allowed } },
+    {
+      query: {
+        enabled: allowed,
+        // The key embeds five tab offsets; without the previous payload a
+        // page turn unmounted the whole board into "Loading…" (M-12).
+        placeholderData: (previous) => previous,
+      },
+    },
   );
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
@@ -753,6 +760,18 @@ function TasksPageContent() {
     router.replace(normalizedUrl);
     return () => window.clearTimeout(handle);
   }, [offsets, paramsKey, pathname, payload, router, tab]);
+
+  // A deep-linked tab the user cannot view (e.g. ?tab=awaiting without
+  // tasks.verify) falls back visually to "today"; rewrite the URL to the tab
+  // actually shown so reloads and shared links agree with the screen.
+  useEffect(() => {
+    if (!payload) return;
+    const canonical =
+      validTaskTab(tab) && (tab !== "awaiting" || canVerify) ? tab : "today";
+    if (tab === canonical) return;
+    router.replace(taskListUrl({ pathname, paramsKey, tab: canonical, offsets }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payload, tab, canVerify]);
 
   const teamQuery = useTeamPageApiTeamGet({
     query: { enabled: canCreate && canSeeTeam && open },
@@ -875,8 +894,8 @@ function TasksPageContent() {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
-  // Comparisons use the backend's UTC today, not the browser's local date
-  // (off-by-one in the IST 00:00–05:30 window,).
+  // Comparisons use the active farm's calendar day, not the browser's local
+  // date (avoids the IST 00:00–05:30 off-by-one window).
   const today = farmToday();
   const visibleTabs: {
     value: TaskTab;
@@ -941,6 +960,7 @@ function TasksPageContent() {
   // A deep-linked tab may not exist for this user (e.g. ?tab=awaiting
   // without tasks.verify) — fall back to "today".
   const activeTab = visibleTabs.some((t) => t.value === tab) ? tab : "today";
+  const boardSettling = query.isPlaceholderData;
 
   return (
     <div className="space-y-6">
@@ -962,6 +982,11 @@ function TasksPageContent() {
         }
       />
 
+      {boardSettling && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Updating the duty board…
+        </p>
+      )}
       <Tabs value={activeTab} onValueChange={(v) => changeTab(v as TaskTab)}>
         <TabsList className="max-w-full justify-start overflow-x-auto">
           {visibleTabs.map((t) => (
@@ -995,6 +1020,7 @@ function TasksPageContent() {
               offset={t.offset}
               onOffsetChange={(nextOffset) => changeOffset(t.value, nextOffset)}
               label={t.paginationLabel}
+              disabled={boardSettling}
             />
           </TabsContent>
         ))}

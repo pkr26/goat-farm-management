@@ -6,7 +6,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Package, TriangleAlert } from "lucide-react";
-import Link from "next/link";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -57,33 +56,9 @@ import {
   MIN_PERSISTED_KG,
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
+import { FeedingNav } from "@/components/feeding-nav";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-
-function FeedingNav({ active }: { active: string }) {
-  const tabs = [
-    { href: "/feeding", label: "Today's plan" },
-    { href: "/feeding/recipes", label: "Recipes" },
-    { href: "/feeding/inventory", label: "Inventory" },
-  ];
-  return (
-    <nav className="flex flex-wrap gap-1 border-b text-sm">
-      {tabs.map((t) => (
-        <Link
-          key={t.href}
-          href={t.href}
-          className={
-            t.label === active
-              ? "-mb-px border-b-2 border-primary px-3 py-2 font-medium text-foreground"
-              : "-mb-px border-b-2 border-transparent px-3 py-2 text-muted-foreground hover:text-foreground"
-          }
-        >
-          {t.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
 
 function mutationError(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
@@ -205,9 +180,15 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
               type="number"
               step="0.001"
               min="0.0005"
+              aria-invalid={Boolean(errors.qty_kg) || undefined}
+              aria-describedby={errors.qty_kg ? `qty-${item.id}-error` : undefined}
               {...register("qty_kg")}
             />
-            {errors.qty_kg && <p className="text-sm text-destructive">{errors.qty_kg.message}</p>}
+            {errors.qty_kg && (
+              <p id={`qty-${item.id}-error`} role="alert" className="text-sm text-destructive">
+                {errors.qty_kg.message}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`price-${item.id}`}>Price per kg (₹, optional)</Label>
@@ -216,10 +197,16 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
               type="number"
               step="0.01"
               min="0"
+              max="1000000000"
+              inputMode="decimal"
+              aria-invalid={Boolean(errors.price_per_kg) || undefined}
+              aria-describedby={errors.price_per_kg ? `price-${item.id}-error` : undefined}
               {...register("price_per_kg")}
             />
             {errors.price_per_kg && (
-              <p className="text-sm text-destructive">{errors.price_per_kg.message}</p>
+              <p id={`price-${item.id}-error`} role="alert" className="text-sm text-destructive">
+                {errors.price_per_kg.message}
+              </p>
             )}
           </div>
           <DialogFooter>
@@ -378,8 +365,22 @@ function MixBatchDialog() {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="batches">Batches (1–50, each 100 kg)</Label>
-            <Input id="batches" type="number" step="1" min="1" max="50" {...register("batches")} />
-            {errors.batches && <p className="text-sm text-destructive">{errors.batches.message}</p>}
+            <Input
+              id="batches"
+              type="number"
+              step="1"
+              min="1"
+              max="50"
+              inputMode="numeric"
+              aria-invalid={Boolean(errors.batches) || undefined}
+              aria-describedby={errors.batches ? "mix-batches-error" : undefined}
+              {...register("batches")}
+            />
+            {errors.batches && (
+              <p id="mix-batches-error" role="alert" className="text-sm text-destructive">
+                {errors.batches.message}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -427,14 +428,7 @@ export default function InventoryPage() {
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
-  if (query.isLoading || !items) {
-    if (query.isError) {
-      return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load feed inventory."}
-        </p>
-      );
-    }
+  if (query.isLoading && !items) {
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
@@ -446,10 +440,23 @@ export default function InventoryPage() {
         actions={canManage && <MixBatchDialog />}
       />
 
-      <FeedingNav active="Inventory" />
+      <FeedingNav active="inventory" />
 
       <DataTableCard title="Stock on hand">
-        {items.length === 0 ? (
+        {query.isError ? (
+          <div role="alert" className="space-y-3">
+            <p className="text-sm text-destructive">
+              {query.error instanceof ApiError
+                ? query.error.detail
+                : "Could not load feed inventory."}
+            </p>
+            <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+              Retry inventory
+            </Button>
+          </div>
+        ) : items === undefined ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
+        ) : items.length === 0 ? (
           <EmptyState
             icon={Package}
             title="No feed inventory items yet."

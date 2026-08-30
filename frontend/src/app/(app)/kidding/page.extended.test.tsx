@@ -403,9 +403,9 @@ describe("KiddingPage", () => {
     expect(within(row).getByText("ASSISTED")).toBeInTheDocument();
     const kidLink = within(row).getByRole("link", { name: "G-101" });
     expect(kidLink).toHaveAttribute("href", "/animals/55");
-    expect(within(row).getByText(/\(F, alive\)/)).toBeInTheDocument();
+    expect(within(row).getByText(/\(Female, alive\)/)).toBeInTheDocument();
     // Kid without an animal record: plain text fallback tag.
-    expect(within(row).getByText(/kid\s*\(M, stillborn\)/)).toBeInTheDocument();
+    expect(within(row).getByText(/kid\s*\(Male, stillborn\)/)).toBeInTheDocument();
   });
 
   it("renders a dash in the kids cell when a kidding has no kids", async () => {

@@ -59,7 +59,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
@@ -183,6 +183,7 @@ function NewBreedingDialog({
   async function onSubmit(values: BreedingValues) {
     await createFlight.run(async () => {
       setFormError(null);
+      const requestFarmEpoch = farmScopeEpochValue();
       try {
         await createMutation.mutateAsync({
           data: {
@@ -191,6 +192,9 @@ function NewBreedingDialog({
             breeding_date: values.breeding_date,
           },
         });
+        // The write belongs to the farm it was addressed to; the completion
+        // must not toast/close/invalidate on a different farm's UI (M-2).
+        if (farmScopeEpochValue() !== requestFarmEpoch) return;
         toast.success("Breeding saved.");
         reset(breedingDefaults());
         // Clear the lifted labels alongside the form values, or the next
@@ -392,6 +396,7 @@ function UltrasoundDialog({
     saveLock.current = true;
     setSaving(true);
     setFormError(null);
+    const requestFarmEpoch = farmScopeEpochValue();
     try {
       await mutation.mutateAsync({
         recordId: record.id,
@@ -401,6 +406,7 @@ function UltrasoundDialog({
           kid_count: pregnant ? Number(kidCount) : null,
         },
       });
+      if (farmScopeEpochValue() !== requestFarmEpoch) return;
       toast.success("Ultrasound result saved.");
       onClose();
       onSaved();
@@ -559,6 +565,7 @@ function PregnancyLossDialog({
     if (lossDateError || notesError) return;
     await saveFlight.run(async () => {
       setFormError(null);
+      const requestFarmEpoch = farmScopeEpochValue();
       try {
         await mutation.mutateAsync({
           recordId: record.id,
@@ -568,6 +575,7 @@ function PregnancyLossDialog({
             notes: notes.trim() || null,
           },
         });
+        if (farmScopeEpochValue() !== requestFarmEpoch) return;
         toast.success("Pregnancy loss recorded.");
         onClose();
         onSaved();
@@ -737,6 +745,16 @@ function BreedingPageContent() {
       ? requestedRecord
       : null;
   const activeUltrasound = ultrasoundFor ?? deepLinkedUltrasound;
+  // A deep link that resolved to a record which is no longer PENDING used to
+  // vanish silently; keep the operator informed until they clear it (L18).
+  const staleDeepLink =
+    canManage &&
+    requestedUltrasoundId !== null &&
+    dismissedPrefillId !== requestedUltrasoundId &&
+    !lossFor &&
+    !newOpen &&
+    requestedRecord !== undefined &&
+    requestedRecord.outcome !== "PENDING";
 
   useEffect(() => {
     // Dismissal belongs to one continuous URL intent, not to this page's
@@ -798,6 +816,24 @@ function BreedingPageContent() {
           ) : undefined
         }
       />
+
+      {staleDeepLink && requestedRecord && (
+        <div role="status" className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
+            Ultrasound record #{requestedUltrasoundId} (
+            {requestedRecord.outcome.replace(/_/g, " ").toLowerCase()}) is not awaiting a
+            result — nothing to record.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setDismissedPrefillId(requestedUltrasoundId)}
+          >
+            Clear link
+          </Button>
+        </div>
+      )}
 
       {prefillRecordQuery.isError && (
         <div className="flex flex-wrap items-center gap-2" role="alert">

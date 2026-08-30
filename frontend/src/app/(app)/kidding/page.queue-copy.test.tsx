@@ -251,7 +251,7 @@ describe("KiddingPage copy and field wiring", () => {
   it("spells out how late each overdue pregnancy is", async () => {
     await renderLoaded();
 
-    const row = within(card(/Overdue \(past expected date/)).getAllByRole("row")[0];
+    const row = within(card(/Overdue \(past expected date/)).getAllByRole("row")[1];
     expect(within(row).getAllByRole("cell")[1]).toHaveTextContent(
       /^was due \d{1,2} [A-Z][a-z]{2} \d{4} \(5d late\)$/,
     );
@@ -348,7 +348,7 @@ describe("KiddingPage copy and field wiring", () => {
 
     const row = within(card("Recent kiddings")).getAllByRole("row")[1];
     const kidsCell = within(row).getAllByRole("cell")[3];
-    expect(kidsCell).toHaveTextContent(/^G-101 \(F, alive\), kid \(M, died\)$/);
+    expect(kidsCell).toHaveTextContent(/^G-101 \(Female, alive\), kid \(Male, died\)$/);
     expect(within(kidsCell).getByRole("link", { name: "kid" })).toHaveAttribute(
       "href",
       "/animals/56",
@@ -437,11 +437,12 @@ describe("KiddingPage copy and field wiring", () => {
     expect(within(dialog).getByText("2 kids listed")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Add kid" }));
-    expect(within(dialog).getByText("3 kids listed")).toBeInTheDocument();
+    // Three listed vs two detected: the reconciliation note is appended.
+    expect(within(dialog).getByText(new RegExp("3 kids listed"))).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Remove kid 3" }));
     await user.click(within(dialog).getByRole("button", { name: "Remove kid 2" }));
-    expect(within(dialog).getByText("1 kid listed")).toBeInTheDocument();
+    expect(within(dialog).getByText(new RegExp("1 kid listed"))).toBeInTheDocument();
   });
 
   it("ties every field message to its own control for screen readers", async () => {

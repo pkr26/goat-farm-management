@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, ShoppingCart } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -257,6 +257,9 @@ export default function PurchasesPage() {
 
   const [open, setOpen] = useState(false);
   const [pendingBatch, setPendingBatch] = useState<BatchValues | null>(null);
+  /** Open/submit cycle fence: a late success must not close/reset a dialog
+   *  the operator has since reopened and re-filled (finance addAttempt). */
+  const createAttempt = useRef(0);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 50;
@@ -293,6 +296,7 @@ export default function PurchasesPage() {
 
   async function createBatch(values: BatchValues) {
     await createFlight.run(async () => {
+      const attempt = ++createAttempt.current;
       try {
         await createMutation.mutateAsync({
           data: {
@@ -309,6 +313,7 @@ export default function PurchasesPage() {
         });
         toast.success("Purchase batch created.");
         invalidateFarmData(queryClient);
+        if (createAttempt.current !== attempt) return;
         setOpen(false);
         setPendingBatch(null);
         reset({
@@ -318,6 +323,7 @@ export default function PurchasesPage() {
           create_animals: true,
         });
       } catch (err) {
+        if (createAttempt.current !== attempt) return;
         toast.error(mutationError(err));
       }
     });
@@ -339,9 +345,14 @@ export default function PurchasesPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load purchase batches."}
-        </p>
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load purchase batches."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry batches
+          </Button>
+        </div>
       );
     }
     return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
@@ -456,6 +467,8 @@ export default function PurchasesPage() {
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
+          // Dismissal supersedes any in-flight continuation for this session.
+          if (!nextOpen) createAttempt.current += 1;
           setOpen(nextOpen);
           if (!nextOpen) setPendingBatch(null);
         }}
@@ -533,29 +546,61 @@ export default function PurchasesPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="date">Date *</Label>
-                <Input id="date" type="date" max={localToday()} {...register("date")} />
-                {errors.date && <p className="text-sm text-destructive">{errors.date.message}</p>}
+                <Input
+                  id="date"
+                  type="date"
+                  max={localToday()}
+                  aria-invalid={Boolean(errors.date) || undefined}
+                  aria-describedby={errors.date ? "purchase-date-error" : undefined}
+                  {...register("date")}
+                />
+                {errors.date && (
+                  <p id="purchase-date-error" role="alert" className="text-sm text-destructive">
+                    {errors.date.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="supplier">Supplier</Label>
-                <Input id="supplier" maxLength={120} {...register("supplier")} />
+                <Input
+                  id="supplier"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.supplier) || undefined}
+                  aria-describedby={errors.supplier ? "purchase-supplier-error" : undefined}
+                  {...register("supplier")}
+                />
                 {errors.supplier && (
-                  <p className="text-sm text-destructive">{errors.supplier.message}</p>
+                  <p id="purchase-supplier-error" role="alert" className="text-sm text-destructive">
+                    {errors.supplier.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="count">Count *</Label>
-                <Input id="count" type="number" min="1" max="1000" {...register("count")} />
-                {errors.count && <p className="text-sm text-destructive">{errors.count.message}</p>}
+                <Input
+                  id="count"
+                  type="number"
+                  min="1"
+                  max="1000"
+                  inputMode="numeric"
+                  aria-invalid={Boolean(errors.count) || undefined}
+                  aria-describedby={errors.count ? "purchase-count-error" : undefined}
+                  {...register("count")}
+                />
+                {errors.count && (
+                  <p id="purchase-count-error" role="alert" className="text-sm text-destructive">
+                    {errors.count.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
-                <Label>Sex *</Label>
+                <Label htmlFor="purchase-sex">Sex *</Label>
                 <Controller
                   control={control}
                   name="sex"
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange} items={SEX_ITEMS}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger id="purchase-sex" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -582,7 +627,9 @@ export default function PurchasesPage() {
                   even across February.
                 </p>
                 {errors.avg_age_months && (
-                  <p className="text-sm text-destructive">{errors.avg_age_months.message}</p>
+                  <p role="alert" className="text-sm text-destructive">
+                    {errors.avg_age_months.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -596,7 +643,9 @@ export default function PurchasesPage() {
                   {...register("avg_weight_kg")}
                 />
                 {errors.avg_weight_kg && (
-                  <p className="text-sm text-destructive">{errors.avg_weight_kg.message}</p>
+                  <p role="alert" className="text-sm text-destructive">
+                    {errors.avg_weight_kg.message}
+                  </p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -609,7 +658,9 @@ export default function PurchasesPage() {
                   {...register("total_price")}
                 />
                 {errors.total_price && (
-                  <p className="text-sm text-destructive">{errors.total_price.message}</p>
+                  <p role="alert" className="text-sm text-destructive">
+                    {errors.total_price.message}
+                  </p>
                 )}
               </div>
             </div>

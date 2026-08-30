@@ -10,6 +10,7 @@ import { useBucketsBoardApiBucketsGet } from "@/api/generated/endpoints";
 import type { BucketBoardRow } from "@/api/generated/models";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -21,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { safeAppPath } from "@/lib/utils";
 import { usePermissions } from "@/lib/use-permissions";
 
 /** The per-head ration is a setting the operator typed and will check against
@@ -87,7 +89,15 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
           <p className="mt-3 text-sm text-muted-foreground">
             Showing {row.animals.length} of {row.animals_total} animals.{" "}
             {canViewAnimals ? (
-              <Link href={row.animals_page_path} className="text-primary underline">
+              <Link
+                href={
+                  // Backend-supplied path: validate before it reaches a Link
+                  // (defense-in-depth — L11), falling back to the plain filter.
+                  safeAppPath(row.animals_page_path) ??
+                  `/animals?bucket=${encodeURIComponent(row.bucket)}`
+                }
+                className="text-primary underline"
+              >
                 View the full bucket register
               </Link>
             ) : (
@@ -133,9 +143,14 @@ export default function BucketsPage() {
       {query.isLoading ? (
         <p className="py-10 text-center text-muted-foreground">Loading…</p>
       ) : query.isError ? (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load buckets."}
-        </p>
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load buckets."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry buckets
+          </Button>
+        </div>
       ) : !rows || rows.length === 0 ? (
         <EmptyState
           icon={Layers}

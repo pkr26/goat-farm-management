@@ -139,6 +139,17 @@ function workerRow(email: string): HTMLElement {
   return row as HTMLElement;
 }
 
+/** Deactivation and role deletion confirm through an inline dialog now
+ * (window.confirm is gone): open it via the trigger, then click its confirm. */
+async function confirmDialog(
+  user: ReturnType<typeof userEvent.setup>,
+  confirmName: string,
+) {
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: confirmName }));
+  return dialog;
+}
+
 async function renderLoaded() {
   const rendered = renderWithProviders(<TeamPage />);
   expect(await screen.findByText(MEMBER_RAVI.email)).toBeInTheDocument();
@@ -189,7 +200,6 @@ describe("TeamPage workers table", () => {
   });
 
   it("PUTs the desired inactive state and refetches the team", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     let toggleCalls = 0;
     let toggledId: string | null = null;
     let getCalls = 0;
@@ -212,10 +222,9 @@ describe("TeamPage workers table", () => {
     await user.click(
       within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Deactivate" }),
     );
+    expect(await screen.findByText("Deactivate Ravi Kumar?")).toBeInTheDocument();
+    await confirmDialog(user, "Deactivate worker");
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Deactivate Ravi Kumar? They will immediately lose farm access.",
-    );
     await waitFor(() => expect(toggleCalls).toBe(1));
     expect(toggledId).toBe("2");
     await waitFor(() => expect(getCalls).toBeGreaterThan(callsBefore));
@@ -320,7 +329,6 @@ describe("TeamPage workers table", () => {
   });
 
   it("does not open password reset while a row status change is in flight", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let releaseStatus!: () => void;
     let markStatusStarted!: () => void;
     const statusStarted = new Promise<void>((resolve) => {
@@ -341,6 +349,7 @@ describe("TeamPage workers table", () => {
     const row = workerRow(MEMBER_RAVI.email);
 
     await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    await confirmDialog(user, "Deactivate worker");
     await statusStarted;
     const reset = within(row).getByRole("button", { name: "Reset password" });
     expect(reset).toBeDisabled();
@@ -355,7 +364,6 @@ describe("TeamPage workers table", () => {
   });
 
   it("keeps every row action locked until the status refetch becomes authoritative", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let getCalls = 0;
     let announceRefresh: (() => void) | undefined;
     let releaseRefresh: (() => void) | undefined;
@@ -391,6 +399,7 @@ describe("TeamPage workers table", () => {
     const row = workerRow(MEMBER_RAVI.email);
 
     await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    await confirmDialog(user, "Deactivate worker");
     await refreshStarted;
 
     // The PUT has completed, but the row still renders its old ACTIVE snapshot.
@@ -447,7 +456,6 @@ describe("TeamPage workers table", () => {
   });
 
   it("rejects role and reset events delivered after a status action claims the row", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let roleCalls = 0;
     let releaseStatus!: () => void;
     let markStatusStarted!: () => void;
@@ -474,15 +482,17 @@ describe("TeamPage workers table", () => {
     const deactivate = within(row).getByRole("button", { name: "Deactivate" });
     const reset = within(row).getByRole("button", { name: "Reset password" });
 
-    await user.click(within(row).getByRole("combobox"));
-    const helperOption = await screen.findByRole("option", { name: /Helper/ });
-
-    // All three events are delivered before React can paint disabled controls.
-    // The ref acquired by the first event is the functional authority here.
-    act(() => {
-      deactivate.click();
+    // Confirming the deactivation claims the row's lock; the competing reset
+    // click is delivered in the same React task as the confirmation, before
+    // disabled props can paint. The ref must remain the authority.
+    await user.click(deactivate);
+    const dialog = await screen.findByRole("dialog");
+    const confirmDeactivate = within(dialog).getByRole("button", {
+      name: "Deactivate worker",
+    });
+    await act(async () => {
+      confirmDeactivate.click();
       reset.click();
-      helperOption.click();
     });
 
     await statusStarted;
@@ -495,7 +505,6 @@ describe("TeamPage workers table", () => {
   });
 
   it("retries the same desired worker state instead of inverting it", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const bodies: unknown[] = [];
     let releaseRetry!: () => void;
     let markRetryStarted!: () => void;
@@ -521,6 +530,7 @@ describe("TeamPage workers table", () => {
     await renderLoaded();
     const row = workerRow(MEMBER_RAVI.email);
     await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    await confirmDialog(user, "Deactivate worker");
     expect(await within(row).findByRole("alert")).toHaveTextContent("response was interrupted");
     await user.click(within(row).getByRole("button", { name: "Retry deactivate" }));
     await retryStarted;
@@ -1063,36 +1073,30 @@ describe("TeamPage role cards", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const user = userEvent.setup();
     await renderLoaded();
 
     await user.click(within(cardOf("Unused")).getByRole("button", { name: "Delete" }));
-    expect(window.confirm).toHaveBeenCalledWith('Delete role "Unused"?');
+    const dialog = await screen.findByRole("dialog");
+    expect(screen.getByText('Delete role "Unused"?')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(deleteCalls).toBe(0);
   });
 
-  it("rechecks the preset/member guard if a disabled delete is invoked imperatively", async () => {
-    let deleteCalls = 0;
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
-    server.use(
-      http.delete("/api/team/roles/:roleId", () => {
-        deleteCalls += 1;
-        return new HttpResponse(null, { status: 204 });
-      }),
-    );
+  it("keeps a preset delete inert: no confirmation dialog, and the hint says why", async () => {
     await renderLoaded();
     const presetDelete = within(cardOf("Manager")).getByRole("button", { name: "Delete" });
     expect(presetDelete).toBeDisabled();
+    expect(presetDelete).toHaveAttribute("title", "Preset roles can't be deleted.");
 
-    // The handler itself owns this policy too; bypassing the HTML disabled
-    // attribute must still stop before confirmation or a request.
-    (presetDelete as HTMLButtonElement).disabled = false;
-    presetDelete.click();
-
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(deleteCalls).toBe(0);
+    // Even an imperative click (bypassing the disabled attribute) must not
+    // open the confirmation — the destructive flow stays unreachable.
+    fireEvent.click(presetDelete);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
 
   it("claims delete synchronously against a second delete and edit event", async () => {
     let deleteCalls = 0;
@@ -1104,7 +1108,6 @@ describe("TeamPage role cards", () => {
     const deleteGate = new Promise<void>((resolve) => {
       releaseDelete = resolve;
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.delete("/api/team/roles/:roleId", async () => {
         deleteCalls += 1;
@@ -1113,23 +1116,25 @@ describe("TeamPage role cards", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
+    const user = userEvent.setup();
     await renderLoaded();
     const card = cardOf("Unused");
     const deleteButton = within(card).getByRole("button", { name: "Delete" });
     const editButton = within(card).getByRole("button", { name: "Edit" });
 
-    // React has not painted mutation pending state between these events. The
-    // ref must be sufficient to reject both competing operations.
+    // The confirmation click claims the delete lock synchronously; the
+    // competing edit arrives in the same React task, before disabled props
+    // can paint, and must be rejected by the ref alone.
+    await user.click(deleteButton);
+    const dialog = await screen.findByRole("dialog");
+    const confirmDelete = within(dialog).getByRole("button", { name: "Delete role" });
     act(() => {
-      deleteButton.click();
-      deleteButton.click();
+      confirmDelete.click();
       editButton.click();
     });
 
     await deleteStarted;
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(deleteCalls).toBe(1);
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await act(async () => {
       releaseDelete();
@@ -1151,12 +1156,12 @@ describe("TeamPage role cards", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded();
     const callsBefore = getCalls;
 
     await user.click(within(cardOf("Unused")).getByRole("button", { name: "Delete" }));
+    await confirmDialog(user, "Delete role");
 
     await waitFor(() => expect(deleteCalls).toBe(1));
     expect(deletedId).toBe("12");
@@ -1188,12 +1193,12 @@ describe("TeamPage role cards", () => {
       }),
       http.delete("/api/team/roles/:roleId", () => new HttpResponse(null, { status: 204 })),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded();
     const card = cardOf("Unused");
 
     await user.click(within(card).getByRole("button", { name: "Delete" }));
+    await confirmDialog(user, "Delete role");
     await refreshStarted;
 
     const edit = within(card).getByRole("button", { name: "Edit" });
@@ -1226,7 +1231,6 @@ describe("TeamPage role cards", () => {
     const deleteRetryGate = new Promise<void>((resolve) => {
       releaseDeleteRetry = resolve;
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.get("/api/team", async () => {
         getCalls += 1;
@@ -1249,6 +1253,7 @@ describe("TeamPage role cards", () => {
     const { queryClient } = await renderLoaded();
     const card = cardOf("Unused");
     await user.click(within(card).getByRole("button", { name: "Delete" }));
+    await confirmDialog(user, "Delete role");
 
     expect(await within(card).findByRole("alert")).toHaveTextContent("role changed concurrently");
     const retry = within(card).getByRole("button", { name: "Retry delete role" });
@@ -1684,7 +1689,6 @@ describe("TeamPage global team-snapshot authority", () => {
     const refreshGate = new Promise<void>((resolve) => {
       releaseRefresh = resolve;
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.get("/api/team", async () => {
         getCalls += 1;
@@ -1742,9 +1746,11 @@ describe("TeamPage global team-snapshot authority", () => {
     expect(roleCalls).toBe(0);
     expect(statusCalls).toBe(0);
     expect(deleteCalls).toBe(0);
-    expect(confirmSpy).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Waiting for the latest team data");
+    // The deactivation/delete triggers only opened (unconfirmed) dialogs —
+    // no request escaped while the replacement GET held authority.
+    expect(
+      await screen.findByText("Waiting for the latest team data… actions will be available when it finishes."),
+    ).toBeInTheDocument();
 
     await act(async () => {
       releaseRefresh();
@@ -1780,7 +1786,6 @@ describe("TeamPage global team-snapshot authority", () => {
   });
 
   it("stays locked when a second mutation cancels and replaces the first invalidation GET", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let getCalls = 0;
     let releaseDelete!: () => void;
     let announceDeleteStarted!: () => void;
@@ -1846,15 +1851,34 @@ describe("TeamPage global team-snapshot authority", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
+    const user = userEvent.setup();
     await renderLoaded();
     const ravi = workerRow(MEMBER_RAVI.email);
     const unused = roleCard(ROLE_UNUSED.name);
 
-    // Both handlers claim their mutations before React can paint the global
-    // authority lock. The status write finishes first and starts GET #2.
+    // Open both confirmation dialogs before anything claims a lock, then
+    // deliver both confirmations inside one React task: the PUT is ungated and
+    // immediately starts GET #2, while the gated DELETE still holds its claim.
+    await user.click(within(ravi).getByRole("button", { name: "Deactivate" }));
+    const deactivateDialog = await screen.findByRole("dialog");
+    const confirmDeactivate = within(deactivateDialog).getByRole("button", {
+      name: "Deactivate worker",
+    });
+    // The deactivation dialog's backdrop covers the page; address the delete
+    // trigger imperatively (an unconfirmed dialog claims nothing). The open
+    // modal marks the background aria-hidden, so the query needs hidden:true.
+    fireEvent.click(
+      within(unused).getByRole("button", { name: "Delete", hidden: true }),
+    );
+    const deleteDialog = await screen.findByRole("dialog", {
+      name: 'Delete role "Unused"?',
+      hidden: true,
+    });
+    const confirmDelete = within(deleteDialog).getByRole("button", { name: "Delete role" });
+
     act(() => {
-      within(ravi).getByRole("button", { name: "Deactivate" }).click();
-      within(unused).getByRole("button", { name: "Delete" }).click();
+      confirmDelete.click();
+      confirmDeactivate.click();
     });
     await deleteStarted;
     await firstRefreshStarted;
@@ -1892,7 +1916,6 @@ describe("TeamPage global team-snapshot authority", () => {
   });
 
   it("keeps stale team data visible but all mutations disabled after a refresh failure", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let getCalls = 0;
     let failRefresh = true;
     server.use(
@@ -1921,6 +1944,7 @@ describe("TeamPage global team-snapshot authority", () => {
     await user.click(
       within(workerRow(MEMBER_RAVI.email)).getByRole("button", { name: "Deactivate" }),
     );
+    await confirmDialog(user, "Deactivate worker");
 
     const banner = await screen.findByRole("alert");
     expect(banner).toHaveTextContent(

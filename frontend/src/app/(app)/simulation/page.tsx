@@ -568,6 +568,19 @@ function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.detail : fallback;
 }
 
+/** Heavy runs get a long transport budget (see api-client), but an abort is
+ *  still possible: say what actually happened instead of a generic failure —
+ *  the server may still be computing (M-6). */
+function runErrorMessage(err: unknown, fallback: string): string {
+  // AbortSignal.timeout() rejects with a TimeoutError DOMException — that is
+  // our own budget expiring. A bare AbortError is a transport-level failure
+  // (undici aborts dropped connections) and must keep the generic fallback.
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return "The simulation run timed out on the connection — the server may still be computing. Try again with fewer Monte Carlo runs or less analysis enabled.";
+  }
+  return errorMessage(err, fallback);
+}
+
 /** Ratio with a fixed precision; non-finite (e.g. BCR = inf) or null → "—". */
 function formatRatio(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
@@ -1536,7 +1549,7 @@ export default function SimulationPage() {
             source: "Current editor assumptions",
           });
       } catch (err) {
-        const message = errorMessage(err, "Simulation failed");
+        const message = runErrorMessage(err, "Simulation failed");
         setRunError(message);
         toast.error(message);
       }
@@ -1562,7 +1575,7 @@ export default function SimulationPage() {
             source: `Saved scenario “${scenario.name}”`,
           });
       } catch (err) {
-        const message = errorMessage(err, "Scenario run failed");
+        const message = runErrorMessage(err, "Scenario run failed");
         setRunError(message);
         toast.error(message);
       } finally {

@@ -35,7 +35,11 @@ interface HealthTargetPickerProps {
 function healthAnimalOption(animal: HealthAnimalOptionOut): RemotePickerOption {
   return {
     value: String(animal.id),
-    label: `${animal.tag_number}${animal.name ? ` · ${animal.name}` : ""} — ${animal.current_bucket}`,
+    label:
+      `${animal.tag_number}${animal.name ? ` · ${animal.name}` : ""} — ${animal.current_bucket}` +
+      // A restricted animal stays selectable (the write is not forbidden),
+      // but the operator must see the hold before choosing it (L16).
+      (animal.movement_restricted ? " — movement restricted" : ""),
   };
 }
 

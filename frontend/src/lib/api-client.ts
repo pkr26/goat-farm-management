@@ -469,6 +469,11 @@ function extractDetail(body: unknown, fallback: string): string {
  *  takes seconds, and abandoning a write that may already have committed is
  *  worse than waiting. */
 const REQUEST_TIMEOUT_MS = 60_000;
+/** Monte-Carlo + sensitivity + optimization runs legitimately exceed the
+ *  shared budget; aborting at 60 s stranded heavy runs client-side while the
+ *  server kept computing. Server-bound compute gets a longer leash (M-6). */
+const SIMULATION_RUN_TIMEOUT_MS = 300_000;
+const SIMULATION_RUN_PATH = /^\/api\/simulation\/(run|scenarios\/\d+\/run)$/;
 const REFRESH_COOKIE_POST_ROUTES = new Set([
   "/api/auth/register",
   "/api/auth/login",
@@ -536,7 +541,11 @@ async function rawFetch(
     // Start an internally owned request timeout only after a queued cookie
     // mutation acquires its lock. Otherwise most of its budget could expire
     // while another tab is legitimately finishing the preceding response.
-    const signal = init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const requestPathname = path.split(/[?#]/, 1)[0];
+    const timeoutMs = SIMULATION_RUN_PATH.test(requestPathname)
+      ? SIMULATION_RUN_TIMEOUT_MS
+      : REQUEST_TIMEOUT_MS;
+    const signal = init.signal ?? AbortSignal.timeout(timeoutMs);
     return fetch(path, { ...init, headers, credentials: "include", signal });
   };
   if (!cookieMutation) return execute();

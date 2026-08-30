@@ -215,7 +215,6 @@ describe("TeamPage worker row branches", () => {
   });
 
   it("claims every control in the row in the same tick a status change starts", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.put("/api/team/workers/:membershipId/status", () =>
         HttpResponse.json({ ...MEMBER_RAVI, is_active: false }),
@@ -227,8 +226,11 @@ describe("TeamPage worker row branches", () => {
     const reset = within(row).getByRole("button", { name: "Reset password" });
 
     // Mutation pending state only reaches React a microtask later, so the
-    // row's own settling flag is what locks the paint on this very tick.
+    // row's own settling flag is what locks the paint on this very tick. The
+    // confirmation click is what claims the row now (destruction is dialog-gated).
     fireEvent.click(deactivate);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Deactivate worker" }));
 
     expect(deactivate).toBeDisabled();
     expect(reset).toBeDisabled();
@@ -263,7 +265,6 @@ describe("TeamPage worker row branches", () => {
   });
 
   it("does not ask for confirmation again when a failed deactivation is retried", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const bodies: unknown[] = [];
     server.use(
       http.put("/api/team/workers/:membershipId/status", async ({ request }) => {
@@ -278,12 +279,15 @@ describe("TeamPage worker row branches", () => {
     const row = workerRow(MEMBER_RAVI.email);
 
     await user.click(within(row).getByRole("button", { name: "Deactivate" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Deactivate worker" }));
     expect(await within(row).findByRole("alert")).toHaveTextContent("status service unavailable");
     await user.click(within(row).getByRole("button", { name: "Retry deactivate" }));
 
     await waitFor(() => expect(bodies).toHaveLength(2));
-    // The intent was already confirmed once; the retry must not re-prompt.
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    // The intent was already confirmed once; the retry must not re-prompt
+    // (the confirmation dialog never reopens for a retry).
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("retries the recorded status intent even after the snapshot flips the worker", async () => {
@@ -842,7 +846,6 @@ describe("TeamPage role card and page state branches", () => {
   });
 
   it("refuses a delete retry once the refreshed role has workers again", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     let deleteCalls = 0;
     let payload: Record<string, unknown> = TEAM_PAYLOAD;
     server.use(
@@ -856,9 +859,10 @@ describe("TeamPage role card and page state branches", () => {
     const { queryClient } = await renderLoaded();
 
     await user.click(within(roleCard(ROLE_SPARE.name)).getByRole("button", { name: "Delete" }));
+    const confirmDialog = await screen.findByRole("dialog");
+    await user.click(within(confirmDialog).getByRole("button", { name: "Delete role" }));
     const card = roleCard(ROLE_SPARE.name);
     expect(await within(card).findByRole("alert")).toHaveTextContent("role changed concurrently");
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
 
     // A worker is assigned to the role while the failure is still on screen.
     payload = {
@@ -879,12 +883,10 @@ describe("TeamPage role card and page state branches", () => {
     // re-check it against the refreshed snapshot.
     await user.click(within(card).getByRole("button", { name: "Retry delete role" }));
 
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
     expect(deleteCalls).toBe(1);
   });
 
   it("claims the role card in the same tick a delete starts", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.delete("/api/team/roles/:roleId", () => new HttpResponse(null, { status: 204 })),
     );
@@ -893,6 +895,8 @@ describe("TeamPage role card and page state branches", () => {
     const edit = within(card).getByRole("button", { name: "Edit" });
 
     fireEvent.click(within(card).getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete role" }));
 
     expect(edit).toBeDisabled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

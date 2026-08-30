@@ -60,6 +60,9 @@ import { ApiError } from "@/lib/api-client";
 import { farmToday } from "@/lib/format";
 import {
   isPersistableNonnegativeMoney,
+  isPersistableNonnegativeWeight,
+  MIN_PERSISTED_KG,
+  MIN_PERSISTED_KG_MESSAGE,
   MIN_PERSISTED_MONEY_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -121,6 +124,9 @@ const STATUS_FILTER_ITEMS: Record<string, string> = {
   ...Object.fromEntries(Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => [s, s])),
 };
 
+/** Zero is meaningful for optional weights; anything smaller rounds away. */
+const MIN_PERSISTED_WEIGHT_MESSAGE = "Weight must be 0 kg or at least 0.0005 kg";
+
 const optNum = (schema: z.ZodNumber) =>
   z.preprocess(
     (v) => (v === "" || v === null || v === undefined ? undefined : Number(v)),
@@ -161,7 +167,13 @@ const createSchema = z
       .optional()
       .refine((value) => !value || value <= localToday(), "Date can't be in the future"),
     birth_type: z.enum([...BIRTH_TYPES] as [string, ...string[]]).optional(),
-    birth_weight: optNum(z.number().nonnegative().max(1000, "At most 1000 kg")),
+    birth_weight: optNum(
+      z
+        .number()
+        .nonnegative()
+        .max(1000, "At most 1000 kg")
+        .refine(isPersistableNonnegativeWeight, MIN_PERSISTED_WEIGHT_MESSAGE),
+    ),
     purchase_date: z
       .string()
       .optional()
@@ -174,7 +186,13 @@ const createSchema = z
         .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
     ),
     seller_name: z.string().max(120).optional(),
-    weight_kg: optNum(z.number().positive().max(1000, "At most 1000 kg")),
+    weight_kg: optNum(
+      z
+        .number()
+        .positive()
+        .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
+        .max(1000, "At most 1000 kg"),
+    ),
     weight_date: z
       .string()
       .optional()
@@ -352,24 +370,24 @@ function CreateAnimalDialog({
         await createMut.mutateAsync({
           data: {
             tag_number: values.tag_number?.trim() || undefined,
-            name: emptyToNull(values.name),
+            name: values.name?.trim() || null,
             sex: values.sex,
             source: values.source,
             current_bucket:
               values.source === AnimalCreateInSource.PURCHASED
                 ? AnimalCreateInCurrentBucket.QUARANTINE
                 : (values.current_bucket as AnimalCreateInCurrentBucket),
-            breed: values.breed || "Osmanabadi",
+            breed: values.breed?.trim() || "Osmanabadi",
             date_of_birth: emptyToNull(values.date_of_birth),
             estimated_dob: emptyToNull(values.estimated_dob),
             birth_type: (values.birth_type || null) as AnimalCreateInBirthType,
             birth_weight: values.birth_weight ?? null,
             purchase_date: emptyToNull(values.purchase_date),
             purchase_price: values.purchase_price ?? null,
-            seller_name: emptyToNull(values.seller_name),
+            seller_name: values.seller_name?.trim() || null,
             weight_kg: values.weight_kg ?? null,
             weight_date: emptyToNull(values.weight_date),
-            notes: emptyToNull(values.notes),
+            notes: values.notes?.trim() || null,
             historical_import_reason:
               values.source === AnimalCreateInSource.BORN
                 ? values.historical_import_reason.trim() || null
@@ -403,15 +421,31 @@ function CreateAnimalDialog({
               <Input
                 id="tag_number"
                 placeholder="Auto-generated if left blank (e.g. G-7KP2D)"
+                maxLength={50}
+                aria-invalid={Boolean(errors.tag_number) || undefined}
+                aria-describedby={errors.tag_number ? "create-tag-error" : undefined}
                 {...register("tag_number")}
               />
               {errors.tag_number && (
-                <p className="text-sm text-destructive">{errors.tag_number.message}</p>
+                <p id="create-tag-error" role="alert" className="text-sm text-destructive">
+                  {errors.tag_number.message}
+                </p>
               )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="name">Name</Label>
-              <Input id="name" {...register("name")} />
+              <Input
+                id="name"
+                maxLength={80}
+                aria-invalid={Boolean(errors.name) || undefined}
+                aria-describedby={errors.name ? "create-name-error" : undefined}
+                {...register("name")}
+              />
+              {errors.name && (
+                <p id="create-name-error" role="alert" className="text-sm text-destructive">
+                  {errors.name.message}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="animal-sex">Sex *</Label>
@@ -491,7 +525,9 @@ function CreateAnimalDialog({
                 />
               )}
               {errors.current_bucket && (
-                <p className="text-sm text-destructive">{errors.current_bucket.message}</p>
+                <p role="alert" className="text-sm text-destructive">
+                  {errors.current_bucket.message}
+                </p>
               )}
               {source === AnimalCreateInSource.BORN &&
                 currentBucket === AnimalCreateInCurrentBucket.BREEDING && (
@@ -504,7 +540,18 @@ function CreateAnimalDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="breed">Breed</Label>
-              <Input id="breed" {...register("breed")} />
+              <Input
+                id="breed"
+                maxLength={60}
+                aria-invalid={Boolean(errors.breed) || undefined}
+                aria-describedby={errors.breed ? "create-breed-error" : undefined}
+                {...register("breed")}
+              />
+              {errors.breed && (
+                <p id="create-breed-error" role="alert" className="text-sm text-destructive">
+                  {errors.breed.message}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date_of_birth">Date of birth</Label>
@@ -515,7 +562,7 @@ function CreateAnimalDialog({
                 {...register("date_of_birth")}
               />
               {errors.date_of_birth && (
-                <p className="text-sm text-destructive">{errors.date_of_birth.message}</p>
+                <p role="alert" className="text-sm text-destructive">{errors.date_of_birth.message}</p>
               )}
             </div>
             <div className="space-y-1.5">
@@ -527,7 +574,7 @@ function CreateAnimalDialog({
                 {...register("estimated_dob")}
               />
               {errors.estimated_dob && (
-                <p className="text-sm text-destructive">{errors.estimated_dob.message}</p>
+                <p role="alert" className="text-sm text-destructive">{errors.estimated_dob.message}</p>
               )}
             </div>
             {source === AnimalCreateInSource.BORN && (
@@ -578,20 +625,28 @@ function CreateAnimalDialog({
                     id="birth_weight"
                     type="number"
                     step="0.01"
-                    min="0"
+                    min="0.0005"
                     {...register("birth_weight")}
                   />
                   {errors.birth_weight && (
-                    <p className="text-sm text-destructive">{errors.birth_weight.message}</p>
+                    <p role="alert" className="text-sm text-destructive">{errors.birth_weight.message}</p>
                   )}
                 </div>
               </>
             )}
             <div className="space-y-1.5">
               <Label htmlFor="weight_kg">Entry weight (kg)</Label>
-              <Input id="weight_kg" type="number" step="0.01" min="0" {...register("weight_kg")} />
+              <Input
+                id="weight_kg"
+                type="number"
+                step="0.01"
+                min="0.0005"
+                aria-invalid={Boolean(errors.weight_kg) || undefined}
+                aria-describedby={errors.weight_kg ? "create-weight-error" : undefined}
+                {...register("weight_kg")}
+              />
               {errors.weight_kg && (
-                <p className="text-sm text-destructive">{errors.weight_kg.message}</p>
+                <p role="alert" className="text-sm text-destructive">{errors.weight_kg.message}</p>
               )}
             </div>
             {source === AnimalCreateInSource.BORN && (
@@ -604,7 +659,7 @@ function CreateAnimalDialog({
                   {...register("weight_date")}
                 />
                 {errors.weight_date && (
-                  <p className="text-sm text-destructive">{errors.weight_date.message}</p>
+                  <p role="alert" className="text-sm text-destructive">{errors.weight_date.message}</p>
                 )}
               </div>
             )}
@@ -621,7 +676,7 @@ function CreateAnimalDialog({
                   {...register("purchase_date")}
                 />
                 {errors.purchase_date && (
-                  <p className="text-sm text-destructive">{errors.purchase_date.message}</p>
+                  <p role="alert" className="text-sm text-destructive">{errors.purchase_date.message}</p>
                 )}
               </div>
               <div className="space-y-1.5">
@@ -634,12 +689,23 @@ function CreateAnimalDialog({
                   {...register("purchase_price")}
                 />
                 {errors.purchase_price && (
-                  <p className="text-sm text-destructive">{errors.purchase_price.message}</p>
+                  <p role="alert" className="text-sm text-destructive">{errors.purchase_price.message}</p>
                 )}
               </div>
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="seller_name">Seller name</Label>
-                <Input id="seller_name" {...register("seller_name")} />
+                <Input
+                  id="seller_name"
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.seller_name) || undefined}
+                  aria-describedby={errors.seller_name ? "create-seller-error" : undefined}
+                  {...register("seller_name")}
+                />
+                {errors.seller_name && (
+                  <p id="create-seller-error" role="alert" className="text-sm text-destructive">
+                    {errors.seller_name.message}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -1082,9 +1148,14 @@ function AnimalsPageContent() {
           Updating animals…
         </p>
       ) : query.isError ? (
-        <p className="text-sm text-destructive">
-          {query.error instanceof ApiError ? query.error.detail : "Could not load animals."}
-        </p>
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">
+            {query.error instanceof ApiError ? query.error.detail : "Could not load animals."}
+          </p>
+          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+            Retry animals
+          </Button>
+        </div>
       ) : pageOutOfRange ? (
         <p role="status" className="py-10 text-center text-muted-foreground">
           Returning to the last available page…

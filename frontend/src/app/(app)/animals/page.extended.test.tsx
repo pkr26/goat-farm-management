@@ -521,7 +521,12 @@ describe("AnimalsPage extended", () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openCreateDialog(user);
-      await user.type(within(dialog).getByLabelText(/tag number/i), "X".repeat(51));
+      // The input's maxLength=50 makes typing 51 chars impossible; an
+      // overlong value can now only arrive programmatically (paste APIs,
+      // autofill), which must still be caught and announced.
+      const tag = within(dialog).getByLabelText(/tag number/i);
+      await user.type(tag, "X".repeat(50));
+      fireEvent.change(tag, { target: { value: "X".repeat(51) } });
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
       expect(
         await within(dialog).findByText(/expected string to have <=50 characters/),

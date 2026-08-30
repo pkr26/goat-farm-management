@@ -143,9 +143,9 @@ async function pickOption(user: User, trigger: HTMLElement, name: string | RegEx
   await user.click(await screen.findByRole("option", { name }));
 }
 
-/** Last column of an event row: "Traceability & holds". */
+/** "Traceability & holds" — cell 10 since the Notes column landed before it. */
 function traceabilityCell(row: HTMLElement): HTMLElement {
-  return within(row).getAllByRole("cell")[9];
+  return within(row).getAllByRole("cell")[10];
 }
 
 describe("HealthPage traceability cell and event targets", () => {

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 
 import {
+  getPermissionsApiAuthPermissionsGetQueryKey,
   getTeamPageApiTeamGetQueryKey,
   useChangeRoleApiTeamWorkersMembershipIdRolePost,
   useCreateRoleApiTeamRolesPost,
@@ -73,7 +74,16 @@ function mutationError(err: unknown): string {
 
 function useInvalidateTeam() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: getTeamPageApiTeamGetQueryKey() });
+  return () => {
+    queryClient.invalidateQueries({ queryKey: getTeamPageApiTeamGetQueryKey() });
+    // A role edit can change the EDITOR's own grants (including their own
+    // membership row); /api/auth/permissions is deliberately excluded from
+    // invalidateFarmData, so refresh it explicitly or elevated buttons stay
+    // live on stale grants (M-5).
+    queryClient.invalidateQueries({
+      queryKey: getPermissionsApiAuthPermissionsGetQueryKey(),
+    });
+  };
 }
 
 const workerSchema = z.object({
@@ -208,14 +218,12 @@ function WorkerRow({
     }
   }
 
+  const [confirmDeactivateOpen, setConfirmDeactivateOpen] = useState(false);
+
   async function setWorkerActive(desiredActive: boolean, confirmDeactivation = true) {
     if (!authority.canStart() || actionLock.current !== null) return;
-    if (
-      !desiredActive &&
-      m.is_active &&
-      confirmDeactivation &&
-      !window.confirm(`Deactivate ${m.name ?? m.email}? They will immediately lose farm access.`)
-    ) {
+    if (!desiredActive && m.is_active && confirmDeactivation) {
+      setConfirmDeactivateOpen(true);
       return;
     }
     actionLock.current = "status";
@@ -358,6 +366,42 @@ function WorkerRow({
             </div>
           )}
         </div>
+        <Dialog
+          open={confirmDeactivateOpen}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen && actionLock.current === "status") return;
+            setConfirmDeactivateOpen(nextOpen);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Deactivate {m.name ?? m.email}?</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              They will immediately lose access to this farm. The membership and its audit
+              history are retained and can be reactivated later.
+            </p>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setConfirmDeactivateOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmDeactivateOpen(false);
+                  void setWorkerActive(false, false);
+                }}
+              >
+                Deactivate worker
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {actionError?.action === "status" && (
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <span role="alert" className="text-xs text-destructive">
@@ -933,6 +977,7 @@ function RoleCard({
   const deleteLock = useRef(false);
   const [deleteSettling, setDeleteSettling] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const memberCount = role.member_count ?? 0;
   const managerRole = role.permissions.includes("team.manage");
   const scopeHint = !canManageRole
@@ -948,7 +993,6 @@ function RoleCard({
 
   async function deleteRole() {
     if (!authority.canStart() || deleteLock.current || deleteHint !== undefined) return;
-    if (!window.confirm(`Delete role "${role.name}"?`)) return;
     deleteLock.current = true;
     setDeleteSettling(true);
     setDeleteError(null);
@@ -1023,12 +1067,43 @@ function RoleCard({
               deleteMutation.isPending
             }
             title={deleteHint}
-            onClick={() => void deleteRole()}
+            onClick={() => setConfirmDeleteOpen(true)}
           >
             Delete
           </Button>
         </div>
       </div>
+      <Dialog
+        open={confirmDeleteOpen}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && (deleteLock.current || deleteMutation.isPending)) return;
+          setConfirmDeleteOpen(nextOpen);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete role &quot;{role.name}&quot;?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Workers holding only this role lose their assignment. The action cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setConfirmDeleteOpen(false);
+                void deleteRole();
+              }}
+            >
+              Delete role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {deleteError && (
         <div className="flex flex-wrap items-center gap-2">
           <span role="alert" className="text-xs text-destructive">

@@ -42,7 +42,7 @@ export default defineConfig({
   webServer: [
     {
       command: process.env.CI
-        ? "pnpm build && cp -R .next/static .next/standalone/.next/static && HOSTNAME=127.0.0.1 PORT=3000 node .next/standalone/server.js"
+        ? "pnpm build && cp -R .next/static .next/standalone/.next/static && ([ -d public ] && cp -R public .next/standalone/public || true) && HOSTNAME=127.0.0.1 PORT=3000 node .next/standalone/server.js"
         : "pnpm dev",
       cwd: ".",
       url: "http://localhost:3000/login",

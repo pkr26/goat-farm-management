@@ -60,7 +60,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
 import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
-import { permittedAppPath } from "@/lib/permission-navigation";
+import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import {
   isPersistableNonnegativeMoney,
   MIN_PERSISTED_MONEY_MESSAGE,
@@ -174,7 +174,15 @@ function AddWeightDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        // Cancelling discards the abandoned draft instead of resurfacing it
+        // on the next open (L10).
+        if (!nextOpen) reset();
+        setOpen(nextOpen);
+      }}
+    >
       <Button
         size="sm"
         variant="outline"
@@ -316,7 +324,13 @@ function MoveBucketDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) reset();
+        setOpen(nextOpen);
+      }}
+    >
       <Button
         size="sm"
         variant="outline"
@@ -559,7 +573,13 @@ function StatusDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) reset();
+        setOpen(nextOpen);
+      }}
+    >
       <Button
         size="sm"
         variant="destructive"
@@ -1150,7 +1170,7 @@ function ProfileBody({
             <Detail label="Sex">{a.sex === "F" ? "Female" : "Male"}</Detail>
             <Detail label="Breed">{a.breed}</Detail>
             <Detail label="Bucket">{a.current_bucket.replace(/_/g, " ")}</Detail>
-            <Detail label="Days in bucket">{a.days_in_current_bucket ?? 0}</Detail>
+            <Detail label="Days in bucket">{a.days_in_current_bucket ?? "—"}</Detail>
             <Detail label="Date of birth">
               {a.date_of_birth
                 ? formatDate(a.date_of_birth)
@@ -1421,7 +1441,10 @@ function ProfileBody({
               <ul className="divide-y">
                 {profile.breedings.map((recordId) => (
                   <li key={recordId} className="py-2">
-                    <Link href="/breeding" className="text-primary underline">
+                    <Link
+                      href={withReturnTo("/breeding", `/animals/${a.id}`)}
+                      className="text-primary underline"
+                    >
                       Breeding record #{recordId}
                     </Link>
                   </li>
