@@ -706,8 +706,15 @@ function BreedingPageContent() {
   const limit = 50;
   const query = useBreedingListApiBreedingGet(
     { limit, offset },
-    { query: { enabled: allowed } },
+    {
+      query: {
+        enabled: allowed,
+        // Keep the previous page rendered while a page turn settles (M-12).
+        placeholderData: (previous) => previous,
+      },
+    },
   );
+  const listSettling = query.isPlaceholderData;
   const payload = query.data?.status === 200 ? query.data.data : undefined;
   const candidateAvailability = payload?.candidate_availability ?? null;
   const pagedPrefillRecord = payload?.records.find(
@@ -970,12 +977,18 @@ function BreedingPageContent() {
               ))}
             </TableBody>
           </Table>
+          {listSettling && (
+            <p role="status" className="pt-3 text-sm text-muted-foreground">
+              Updating breeding records…
+            </p>
+          )}
           <PaginationControls
             total={payload.total}
             limit={payload.limit}
             offset={payload.offset}
             onOffsetChange={setOffset}
             label="breeding records"
+            disabled={listSettling}
           />
         </DataTableCard>
       )}

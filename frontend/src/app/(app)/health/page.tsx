@@ -386,8 +386,16 @@ function HealthPageContent() {
 
   const eventsQuery = useListEventsApiHealthEventsGet(
     { limit: eventLimit, offset: eventOffset },
-    { query: { enabled: allowed } },
+    {
+      query: {
+        enabled: allowed,
+        // The offset lives in the query key; keep the previous page rendered
+        // while a page turn settles instead of blanking the whole log (M-12).
+        placeholderData: (previous) => previous,
+      },
+    },
   );
+  const eventsSettling = eventsQuery.isPlaceholderData;
   const eventPayload = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
 
   const [open, setOpen] = useState(false);
@@ -1127,12 +1135,18 @@ function HealthPageContent() {
             </TableBody>
           </Table>
         )}
+        {eventsSettling && (
+          <p role="status" className="pt-3 text-sm text-muted-foreground">
+            Updating health events…
+          </p>
+        )}
         <PaginationControls
           total={eventPayload.total}
           limit={eventPayload.limit}
           offset={eventPayload.offset}
           onOffsetChange={setEventOffset}
           label="health events"
+          disabled={eventsSettling}
         />
       </DataTableCard>
 

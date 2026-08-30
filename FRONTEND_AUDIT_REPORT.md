@@ -351,3 +351,18 @@ L1 login honours `?returnTo=` via `permittedAppPathFromList` · L2 farm timezone
 Upstream `main` advanced by two mutation-hardening commits (~48k lines of new tests) while this remediation was in flight. After rebasing, 33 of their new tests pinned the pre-fix behaviors changed here and were migrated to the new intended behavior (health traceability column index, team confirm-dialog flows, permissions-refetch expectation, reports labels/links, kidding humanized cells + reconciliation note, dashboard withheld copy, feeding toast formatting, simulation run fallbacks). One real regression in the fixes was caught and corrected during integration: the simulation timeout message now keys on `TimeoutError` only (undici surfaces dropped connections as `AbortError`, which must keep the generic fallback), and the scenario-run path keeps its own "Scenario run failed" copy.
 
 **Combined-tree status:** `tsc` clean · `eslint` clean · **3,117/3,122 tests pass** across 146 files. The 5 deltas: 2 load-flakes (health extended suite-init, farm-select persistence — both 100% green in isolation, the documented NEW-3 family) and **3 pre-existing upstream failures in `idempotent-request.persistence.test.ts` that fail identically on pristine `origin/main`** in this Node-26 environment (their `Storage.prototype` spies; CI's Node 24 may pass them) — untouched deliberately.
+
+---
+
+## Part IV — Independent verification audit (same day, post-push)
+
+Five read-only subagents independently re-verified every claimed fix against the code at `7aa6709`, plus a live run of the adversarial suite.
+
+**Result: 57/59 checks verified FIXED** (Agent A 12/12 primitives/config · Agent B 9/10 races · Agent C 10/10 validation · Agent D 13/14 UX/a11y · Agent E 12/12 adversarial+CSP, suite run 251/251 green). The verification caught two real gaps where Part III had overclaimed:
+
+1. **M-12 partial** — `placeholderData` had landed on tasks + feeding history only; the health events log, breeding list, purchases list, and purchases batch-detail dialog were still missing it.
+2. **L15 partial** — the health Notes **column body** existed but the header row lacked the `Notes` `<th>` (10 headers vs 11 cells).
+
+**Both closed in this pass** (plus `Updating…` status lines and `disabled={isPlaceholderData}` pagination guards on all four surfaces, matching the tasks-page pattern). Post-fix verification: `tsc` clean, `eslint` clean, affected suites 711/711, adversarial 251/251, full suite **3,190/3,197** — the 7 deltas are the 3 documented pre-existing upstream persistence tests plus 4 load flakes (health×3, simulation×1) that are 100% green in isolation and reproducibly fail only under full-suite parallelism (the NEW-3 family). One cosmetic note from verification: adv-A2's negative toast assertion is `waitFor`-wrapped and therefore weakly timed; harmless, noted for a future tightening.
+
+**Final disposition of all findings: fixed and independently verified, except:** M-9 (attempted, reverted with build evidence — framework-blocked), M-6 remainder + server-side L13 + M-8 (backend work), and the 8 documented deferrals in Part III.

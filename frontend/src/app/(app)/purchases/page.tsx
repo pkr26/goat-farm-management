@@ -137,8 +137,16 @@ function BatchDetailDialog({
   const query = useBatchDetailApiPurchasesBatchIdGet(
     batchId ?? 0,
     { animals_limit: ANIMALS_LIMIT, animals_offset: animalsOffset },
-    { query: { enabled: batchId !== null } },
+    {
+      query: {
+        enabled: batchId !== null,
+        // The animals offset lives in the key; keep the previous page while a
+        // page turn inside the dialog settles (M-12).
+        placeholderData: (previous) => previous,
+      },
+    },
   );
+  const detailSettling = query.isPlaceholderData;
   const detail = query.data?.status === 200 ? query.data.data : undefined;
   const openTasks = (detail?.tasks ?? []).filter((t) => t.status === "PENDING");
 
@@ -210,6 +218,7 @@ function BatchDetailDialog({
                   offset={detail.animals_offset}
                   onOffsetChange={setAnimalsOffset}
                   label="animals"
+                  disabled={detailSettling}
                 />
               </section>
 
@@ -266,8 +275,15 @@ export default function PurchasesPage() {
 
   const query = useListBatchesApiPurchasesGet(
     { limit, offset },
-    { query: { enabled: allowed } },
+    {
+      query: {
+        enabled: allowed,
+        // Keep the previous page rendered while a page turn settles (M-12).
+        placeholderData: (previous) => previous,
+      },
+    },
   );
+  const listSettling = query.isPlaceholderData;
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   const createMutation = useCreateBatchApiPurchasesNewPost();
@@ -445,12 +461,18 @@ export default function PurchasesPage() {
               ))}
             </TableBody>
           </Table>
+          {listSettling && (
+            <p role="status" className="pt-3 text-sm text-muted-foreground">
+              Updating purchase batches…
+            </p>
+          )}
           <PaginationControls
             total={payload.total}
             limit={payload.limit}
             offset={payload.offset}
             onOffsetChange={setOffset}
             label="purchase batches"
+            disabled={listSettling}
           />
         </DataTableCard>
       )}
