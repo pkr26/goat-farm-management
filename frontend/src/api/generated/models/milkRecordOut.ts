@@ -15,4 +15,10 @@ export interface MilkRecordOut {
   notes: string | null;
   created_at: string;
   animal_tag?: string | null;
+  original_litres?: number | null;
+  original_fat_pct?: number | null;
+  original_notes?: string | null;
+  original_recorded_by_id?: number | null;
+  corrected_at?: string | null;
+  correction_reason?: string | null;
 }

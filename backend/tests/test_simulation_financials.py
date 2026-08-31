@@ -34,6 +34,7 @@ from app.simulation import (
     MonthlyRow,
     SimulationAssumptions,
     amortization_schedule,
+    cultivated_green_supply_kg,
     finance,
     npv,
     run_monte_carlo,
@@ -217,8 +218,9 @@ def test_terminal_balance_charged_in_final_month() -> None:
 
 
 def test_terminal_balance_reaches_annual_pl_and_dscr() -> None:
-    """The balloon lands in the final year's debt_service/principal, so DSCR
-    prices it in (9-5: it used to be invisible to the P&L and DSCR)."""
+    """The balloon lands in the final year's debt_service/principal (9-5: it
+    used to be invisible to the P&L), while DSCR — an operating-coverage
+    ratio — excludes it (a refinancing event, not an operating failure)."""
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
         finance=FinanceAssumptions(loan_term_months=120, moratorium_months=12),
@@ -233,12 +235,11 @@ def test_terminal_balance_reaches_annual_pl_and_dscr() -> None:
     assert final_year.principal == pytest.approx(scheduled_principal + balance_at_24)
     # The interest+principal decomposition identity survives the balloon.
     assert final_year.debt_service == pytest.approx(final_year.interest + final_year.principal)
-    # DSCR of the terminal year reflects the balloon — materially below the
-    # figure that would exclude it (0.19 vs a reported 1.20 without it).
-    assert res.metrics.dscr_per_year[-1] == pytest.approx(
-        final_year.ebitda / final_year.debt_service
-    )
-    assert res.metrics.dscr_per_year[-1] < final_year.ebitda / scheduled_payment
+    # DSCR covers only the scheduled operating debt service — materially ABOVE
+    # the balloon-inclusive ratio (1.06 vs 0.11 with the balloon wrongly
+    # charged as an operating payment).
+    assert res.metrics.dscr_per_year[-1] == pytest.approx(final_year.ebitda / scheduled_payment)
+    assert res.metrics.dscr_per_year[-1] > final_year.ebitda / final_year.debt_service
 
 
 def test_terminal_balance_reaches_npv_and_cumulative_cash() -> None:
@@ -343,7 +344,7 @@ def test_starting_growers_without_a_chain_are_kept_not_deleted() -> None:
     breakdown = res.project_cost_breakdown
     assert breakdown.projected_peak_head >= 61.0
     assert breakdown.capacity_places == pytest.approx(breakdown.projected_peak_head * 1.10)
-    assert breakdown.shed_cost == pytest.approx(breakdown.capacity_places * 4500.0)
+    assert breakdown.shed_cost == pytest.approx(breakdown.capacity_places * 6000.0)
 
 
 def test_starting_growers_match_the_one_slot_chain_at_the_boundary() -> None:
@@ -612,8 +613,16 @@ def test_break_even_price_never_exceeds_the_public_schema_ceiling() -> None:
     a.herd.does = 1
     a.herd.bucks = 1
     a.herd.max_breeding_does = 1
+    # Revenue capacity for the extreme price to bite on: without the male
+    # growers the ceiling cannot lift NPV to zero at MAX_MONEY labour and the
+    # search (correctly) reports None instead — that branch is pinned in
+    # test_simulation_engine.py.
+    a.herd.male_growers = 250
     a.costs.labour_per_month = MAX_MONEY
     a.costs.misc_overhead_per_month = MAX_MONEY
+    # Zero acres: charging the default 3-acre crop at Rs 1e6/kg would add
+    # Rs 6e9/month of cultivation cost that no price ceiling can recover.
+    a.feed.cultivated_fodder_acres = 0.0
     a.feed.green_price_per_kg = 1_000_000.0
     a.feed.dry_price_per_kg = 1_000_000.0
     a.feed.concentrate_price_per_kg = 1_000_000.0
@@ -941,6 +950,10 @@ def test_feed_dm_conservation_identity() -> None:
     # The identity is against base prices; the calibrated default now grows
     # feed prices 4%/yr, which this physical-to-cost check must not mix in.
     a.feed.annual_feed_price_growth_rate = 0.0
+    # Zero cultivation keeps this a pure purchase identity: the engine charges
+    # home-grown fodder on what is GROWN (see the grown-crop test below), a
+    # quantity the monthly row does not publish.
+    a.feed.cultivated_fodder_acres = 0.0
     res = run_simulation(a, with_break_even=False)
     feed = a.feed
     for row in res.months:
@@ -962,15 +975,22 @@ def test_feed_dm_conservation_identity() -> None:
         )
 
 
-def test_full_grazing_means_zero_feed_cost() -> None:
+def test_full_grazing_means_zero_purchased_feed_but_the_grown_crop_is_still_costed() -> None:
+    """Grazing the whole ration removes every purchased kilogram — but the
+    cultivated crop is charged on what is GROWN: seed, irrigation and labour
+    are spent on the whole crop whether or not the herd eats it."""
     a = toy()
     a.feed.grazing_dm_fraction = 1.0
+    a.feed.annual_feed_price_growth_rate = 0.0
     res = run_simulation(a, with_break_even=False)
+    grown_as_fed_kg = cultivated_green_supply_kg(a.feed) / a.feed.green_dm_pct
     for row in res.months:
-        assert row.feed_cost == 0.0
         assert row.feed_green_kg == 0.0
         assert row.feed_dry_kg == 0.0
         assert row.feed_concentrate_kg == 0.0
+        assert row.feed_purchased_green_kg == 0.0
+        # The flat monthly cost of growing the 3-acre default crop.
+        assert row.feed_cost == pytest.approx(grown_as_fed_kg * a.feed.green_price_per_kg)
     assert res.feed_summary.fodder_deficit_months == 0
     assert res.feed_summary.land_requirement_acres == 0.0
 
@@ -988,6 +1008,13 @@ def test_zero_price_zero_cost_run_is_all_zero() -> None:
     a.costs.misc_overhead_per_month = 0.0
     a.costs.shed_cost_per_animal_place = 0.0
     a.costs.equipment_cost_per_animal = 0.0
+    # Feed too: the default 3-acre fodder plot is a real cultivation cost even
+    # with no animals to eat it.
+    a.feed.cultivated_fodder_acres = 0.0
+    a.feed.green_price_per_kg = 0.0
+    a.feed.purchased_green_price_per_kg = 0.0
+    a.feed.dry_price_per_kg = 0.0
+    a.feed.concentrate_price_per_kg = 0.0
     a.finance.loan_fraction_of_project_cost = 0.0
     a.finance.working_capital_months = 0
     res = run_simulation(a, with_break_even=False)
@@ -1018,11 +1045,14 @@ def test_calendar_wraps_across_year_boundary() -> None:
 
 def test_eid_uplift_follows_calendar_not_simulation_month() -> None:
     """Start 2026-12, Eid in calendar month 1: the uplift hits simulation
-    month 2, verified with a scheduled young-stock sale that month."""
+    month 2, verified with a scheduled young-stock sale that month. The
+    explicit empty festival list clears the auto Bakrid calendar so the
+    legacy recurring calendar-month fallback is the active pricing rule."""
 
     def revenue_with_eid(eid_month: int) -> float:
         a = toy(male_weaners=10)
         a.meta = MetaAssumptions(horizon_months=12, start_year_month="2026-12")
+        a.sales.festival_sale_months = []
         a.sales.eid_month = eid_month
         a.sales.eid_price_uplift = 0.30
         a.events = [HerdEventAssumptions(month=2, kind="sale", animal_class="male_weaner", count=5)]
@@ -1353,8 +1383,10 @@ class TestScheduledSaleUsesRealPoolWeight:
             return float(match.group(1).replace(",", ""))
 
         # Month 9's grower chain still holds the young foundation cohort;
-        # by month 21 it has filled out with older promoted animals. Pricing
+        # by month 18 it has filled out with older promoted animals (the
+        # decelerating calibrated weight curve compresses the spread, so the
+        # gap is ~10%, not the ~25% of the old straight-line curve). Pricing
         # every draw at one fixed mid-class age made these identical.
         early = event_price(9)
-        mature = event_price(21)
+        mature = event_price(18)
         assert mature > early * 1.05, f"per-head {mature} should clearly exceed {early}"

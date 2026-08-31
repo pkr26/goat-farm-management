@@ -8,8 +8,9 @@
  * hand-copied literal lists, and diff them against the generated enums —
  * the drift fails HERE, not in a farmer's dialog.
  *
- * (Finance/feeding/tasks/health carry hand-copied lists; health's event types
- * are already derived — each case documents which style it is.)
+ * (Feeding/tasks/health carry hand-copied lists; health's event types and
+ * finance's transaction categories are derived — each case documents which
+ * style it is.)
  */
 
 import { readFileSync } from "node:fs";
@@ -22,7 +23,6 @@ import {
   DispenseInShift,
   HealthEventInType,
   TaskCreateInCategory,
-  TransactionInCategory,
 } from "@/api/generated/models";
 
 const APP = join(import.meta.dirname, "..", "..", "app", "(app)");
@@ -46,9 +46,12 @@ function zodEnumLiterals(source: string, anchor: string): string[] {
 }
 
 describe("ADV C4: hand-copied zod enums must equal the generated contract", () => {
-  it("finance: txn category list === TransactionInCategory", () => {
-    const literals = zodEnumLiterals(pageSource("finance/page.tsx"), "category: z.enum([");
-    expect(new Set(literals)).toEqual(new Set(Object.values(TransactionInCategory)));
+  it("finance: txn category schema derives from TransactionInCategory", () => {
+    // z.nativeEnum consumes the generated object itself, so a contract regen
+    // flows into the schema with no literal list left to drift.
+    expect(pageSource("finance/page.tsx")).toContain(
+      "category: z.nativeEnum(TransactionInCategory)",
+    );
   });
 
   it("finance: correction schema inherits the same list (extends txnSchema)", () => {

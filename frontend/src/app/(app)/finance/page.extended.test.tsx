@@ -689,7 +689,7 @@ describe("FinancePage correction dialog", () => {
     ).toBeInTheDocument();
   });
 
-  it("rejects a correction amount above the ₹1,000,000,000 cap", async () => {
+  it("rejects a correction amount above the ₹1,00,00,00,000 cap", async () => {
     const { user, dialog } = await openCorrection();
     await confirmCorrection(user, dialog);
     const amount = within(dialog).getByLabelText("Amount (₹) *");
@@ -698,7 +698,7 @@ describe("FinancePage correction dialog", () => {
     await user.type(within(dialog).getByLabelText("Correction reason *"), "Fix amount");
     await user.click(within(dialog).getByRole("button", { name: "Record correction" }));
 
-    expect(await within(dialog).findByText("Amount cannot exceed ₹1,000,000,000")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Amount cannot exceed ₹1,00,00,00,000")).toBeInTheDocument();
     expect(correctionCalls).toBe(0);
   });
 
@@ -848,13 +848,13 @@ describe("FinancePage new-transaction dialog", () => {
     expect(postCalls).toBe(0);
   });
 
-  it("rejects an amount above the ₹1,000,000,000 cap", async () => {
+  it("rejects an amount above the ₹1,00,00,00,000 cap", async () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Amount/), "1000000001");
     await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));
 
-    expect(await within(dialog).findByText("Amount cannot exceed ₹1,000,000,000"))
+    expect(await within(dialog).findByText("Amount cannot exceed ₹1,00,00,00,000"))
       .toBeInTheDocument();
     expect(postCalls).toBe(0);
   });

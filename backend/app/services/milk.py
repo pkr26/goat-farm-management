@@ -3,6 +3,11 @@
 One reading per animal, business date and milking shift. Re-submitting the
 same milking replaces the reading (upsert under the animal's row lock) so the
 parlour can correct a fat test or a mis-keyed yield without double-counting.
+Unlike finance's void-and-replace corrections, the replacement must keep the
+same row — the (animal, date, shift) unique constraint is what prevents a
+corrected milking from being counted twice — so a correction states its
+reason and freezes the first submitted reading in the original_* audit
+columns instead of spawning a second row.
 """
 
 from __future__ import annotations
@@ -13,13 +18,27 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Animal, AnimalStatus, Farm, MilkRecord
-from ..utils import today
+from ..models import Animal, Farm, MilkRecord
+from ..utils import today, utcnow
 
 
 def _litres_quantum(value: float) -> float:
     """Round to the column's 0.001-litre precision."""
     return round(float(value), 3)
+
+
+def _litre_weighted_fat_pct() -> Any:
+    """sum(litres x fat%) / sum(litres) over the fat-tested milk only.
+
+    A plain AVG(fat_pct) weighs a 2 L evening sample as much as a 10 L
+    morning milking; procurement pays for the fat solids shipped, so the
+    herd (and per-animal) fat level must be weighted by the litres that were
+    actually measured. Rows without a fat reading contribute to neither sum.
+    """
+    tested = MilkRecord.fat_pct.isnot(None)
+    return func.sum(MilkRecord.litres * MilkRecord.fat_pct).filter(tested) / func.sum(
+        MilkRecord.litres
+    ).filter(tested)
 
 
 async def record_milk(
@@ -32,12 +51,19 @@ async def record_milk(
     fat_pct: float | None,
     notes: str | None,
     created_by_id: int | None = None,
+    correction_reason: str | None = None,
 ) -> MilkRecord:
     """Insert or replace the (animal, date, shift) reading.
 
     The animal row is already locked by the caller (the API loads it FOR
     UPDATE while verifying it belongs to this farm), which serializes two
     parlour submits racing on the same milking.
+
+    Replacing an existing reading is a correction and must say why. The
+    pre-edit values are stashed into the original_* audit columns only when
+    they are still NULL, so the FIRST reading stays visible across a chain
+    of corrections while corrected_at / correction_reason / created_by_id
+    always describe the latest one.
     """
     existing = (
         await db.execute(
@@ -49,11 +75,23 @@ async def record_milk(
         )
     ).scalar_one_or_none()
     clean_notes = (notes or "").strip() or None
+    clean_reason = (correction_reason or "").strip() or None
     if existing is not None:
+        if clean_reason is None:
+            raise ValueError(
+                "This milking is already recorded; correcting it requires a correction_reason"
+            )
+        if existing.original_litres is None:
+            existing.original_litres = existing.litres
+            existing.original_fat_pct = existing.fat_pct
+            existing.original_notes = existing.notes
+            existing.original_recorded_by_id = existing.created_by_id
         existing.litres = _litres_quantum(litres)
         existing.fat_pct = fat_pct
         existing.notes = clean_notes
         existing.created_by_id = created_by_id
+        existing.corrected_at = utcnow()
+        existing.correction_reason = clean_reason
         await db.flush()
         return existing
     record = MilkRecord(
@@ -122,8 +160,13 @@ async def milk_summary(
     *,
     days: int,
     animal_id: int | None,
-) -> tuple[list[Any], list[Any], float, float | None]:
-    """Herd daily totals and per-animal averages over the last N days."""
+) -> tuple[list[Any], list[Any], float, float | None, int]:
+    """Herd daily totals and per-animal averages over the last N days.
+
+    The per-animal list is capped at 200 rows (the summary is a parlour
+    board, not an export); the window's true animal count rides along on
+    every row so callers can tell a complete herd from a truncated one.
+    """
     reference = today(farm.timezone)
     window_start = reference - timedelta(days=days - 1)
     filters = [
@@ -139,7 +182,7 @@ async def milk_summary(
                 MilkRecord.date.label("date"),
                 func.sum(MilkRecord.litres).label("litres"),
                 func.count(func.distinct(MilkRecord.animal_id)).label("recorded_animals"),
-                func.avg(MilkRecord.fat_pct).label("avg_fat_pct"),
+                _litre_weighted_fat_pct().label("avg_fat_pct"),
             )
             .where(*filters)
             .group_by(MilkRecord.date)
@@ -162,7 +205,10 @@ async def milk_summary(
                 Animal.tag_number.label("animal_tag"),
                 func.sum(MilkRecord.litres).label("total_litres"),
                 func.count(func.distinct(MilkRecord.date)).label("days_recorded"),
-                func.avg(MilkRecord.fat_pct).label("avg_fat_pct"),
+                _litre_weighted_fat_pct().label("avg_fat_pct"),
+                # Window over the grouped rows (before LIMIT): the count of
+                # animals with records in the window, not just the page.
+                func.count().over().label("animals_total"),
             )
             .where(*animal_filters)
             .group_by(MilkRecord.animal_id, Animal.tag_number)
@@ -174,7 +220,7 @@ async def milk_summary(
         await db.execute(
             select(
                 func.coalesce(func.sum(MilkRecord.litres), 0.0),
-                func.avg(MilkRecord.fat_pct),
+                _litre_weighted_fat_pct(),
             ).where(*filters)
         )
     ).one()
@@ -183,19 +229,5 @@ async def milk_summary(
         list(animals),
         float(herd[0]),
         (float(herd[1]) if herd[1] is not None else None),
-    )
-
-
-async def milking_herd_count(db: AsyncSession, farm: Farm) -> int:
-    """Active female animals in the milking-side buckets (dairy context)."""
-    return int(
-        (
-            await db.execute(
-                select(func.count(Animal.id)).where(
-                    Animal.farm_id == farm.id,
-                    Animal.status == AnimalStatus.ACTIVE.value,
-                    Animal.sex == "F",
-                )
-            )
-        ).scalar_one()
+        (int(animals[0].animals_total) if animals else 0),
     )

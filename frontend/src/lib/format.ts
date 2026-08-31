@@ -24,6 +24,13 @@ export function formatMoney(value: number | null | undefined): string {
   return `${negative ? "-" : ""}₹${grouped}${fracPart === "00" ? "" : "." + fracPart}`;
 }
 
+/** Whole litres with Indian digit grouping (30,000); non-finite → "—". */
+export function formatLitres(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : Math.round(value).toLocaleString("en-IN");
+}
+
 /** YYYY-MM-DD of today in UTC. Retained for UTC-specific utilities/tests;
  * business dates should use farmToday() so they follow the selected farm. */
 export function utcToday(): string {

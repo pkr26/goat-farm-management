@@ -73,10 +73,10 @@ def _scaled_weights(factor: float, birth_weight: float) -> list[float]:
 def osmanabadi(system: System = "stall_fed") -> SimulationAssumptions:
     """Osmanabadi (default): meat breed, no saleable milk, 50 does + 2 bucks.
 
-    Beyond the base defaults (which already carry the Telangana 2025-26 price
-    and cost calibration), the preset fills in the Bakrid festival months for
-    the run's own horizon so the largest price event of the year is priced
-    from month 1 instead of being a toggle nobody finds.
+    The base defaults already carry the Telangana 2025-26 price and cost
+    calibration, auto-fill the Bakrid festival months for the run's own
+    horizon, and hold males finishing near a festival for the festival sale —
+    the largest price event of the year is priced from month 1.
     """
     a = SimulationAssumptions()
     a.sales.festival_sale_months = bakrid_festival_months(
@@ -221,12 +221,17 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
     """Murrah buffalo dairy (Navipet, Telangana): milk production, not meat.
 
     Calibrated to 2025-26 Telangana figures: second-lactation in-milk Murrahs
-    ₹1.0-1.4 lakh (Hyderabad/Karnal trade), 1,800-2,200 L per 305-day
-    lactation (ICAR/NDRI), ~46-49% per-AI conception in field conditions,
-    ~310-day gestation, procurement ~₹840-865/kg fat (Vijaya/Sangam 2025-26),
-    concentrate ₹24-32/kg, cull buffaloes ~₹180-200/kg live, sheds
-    ₹30-50k/animal place, 1 worker per ~20 head. Breeding is AI-first (sexed
-    semen for the first two services), so no sire herd is carried.
+    ₹1.0-1.4 lakh (Hyderabad/Karnal trade), ~2,100 L per 305-day lactation
+    (CIRB breed standard 2,000 kg; NDRI first lactation 1,750-1,850; elite
+    recorded herds 2,600+ — 2,100 sits mid-range for purchased proven
+    animals), ~46-49% per-AI conception in field conditions, ~310-day
+    gestation, procurement ~₹840-865/kg fat (Vijaya/Sangam 2025-26) blended
+    with direct sales at ₹900, concentrate ₹24-32/kg, cull buffaloes
+    ~₹145-170/kg live (₹300-320/kg carcass at export plants), sheds
+    ₹30-50k/animal place, 1 worker per ~20 head. Breeding is AI-first — sexed
+    semen for the first two services of each attempt (88-91% female births at
+    an ~8-15pp conception penalty) with a 3-service repeat-breeder cull — so
+    no sire herd is carried.
     """
     a = SimulationAssumptions(
         herd=HerdAssumptions(
@@ -244,14 +249,25 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             foundation_flock_state="mixed",
         ),
         reproduction=ReproductionAssumptions(
-            conception_rate=0.45,  # per AI, field conditions
+            conception_rate=0.45,  # per conventional AI, field conditions
             gestation_months=10,  # ~310 days
             lactation_months=10,  # 305-day lactation
             months_open_before_breeding=2,  # first AI at ~60 days post-calving
             litter_size=1.0,  # single calf
-            sex_ratio_female=0.65,  # sexed semen for the first two services
+            # AI policy: sexed semen for the first two services of each
+            # breeding attempt (90% female births, ~15% conception penalty),
+            # conventional semen after; failures past the third service are
+            # repeat-breeder culls.
+            sex_ratio_female=0.5,
+            sexed_semen_services=2,
+            sexed_female_fraction=0.90,
+            sexed_conception_multiplier=0.85,
+            max_services_before_cull=3,
             stillbirth_rate=0.03,
-            age_at_first_breeding_months=22,  # heifers at 340 kg / 22-24 months
+            # Heifers bred at ~345 kg / 24 months (intensively reared; CIRB
+            # field AFC averages ~43 months — this herd breeds early on
+            # purpose with calf-starter and heifer rearing).
+            age_at_first_breeding_months=24,
         ),
         mortality=MortalityAssumptions(
             kid_pre_weaning=0.10,  # organized Murrah farms ~8%, field higher
@@ -260,36 +276,47 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             adult=0.025,
         ),
         culling=CullingAssumptions(
-            doe_cull_rate_annual=0.18,  # cull discipline: ~5-6 lactation herd life
+            # Voluntary/age culls ONLY: the 3-service repeat-breeder rule above
+            # already removes ~17%/yr at the modelled conception rates, and this
+            # residual ~5% brings TOTAL disposal to ~21%/yr — a ~4.8-lactation
+            # herd life, matching the "5-6 lactation" discipline real Murrah
+            # farms run. (A flat 18% here on top of the service rule was a
+            # one-third-per-year churn that liquidated the herd economics.)
+            doe_cull_rate_annual=0.05,
             max_doe_age_months=132,
             buck_rotation_years=3,
             buck_doe_ratio=100,  # effectively unconstrained (AI)
         ),
         growth=GrowthAssumptions(
-            birth_weight_kg=34.0,  # Murrah calf 30-40 kg
+            # CIRB recorded calf weights: males 31.7 kg, females 30 kg.
+            birth_weight_kg=31.0,
             adult_weight_doe_kg=520.0,  # mature Murrah female ~500-550 kg
             adult_weight_buck_kg=600.0,
-            # Murrah heifer growth: ~34 kg birth, ~215 kg yearling, reaching
-            # 340 kg breeding weight at ~22 months (NDRI growth studies).
-            weight_by_age_months=[34.0 + 15.1 * m for m in range(13)],
+            # Murrah heifer growth: ~31 kg birth, ~215 kg yearling, ~345 kg at
+            # the 24-month breeding age, adult ~520 kg reached around 40
+            # months (NDRI growth studies; the old 24-month maturation put
+            # heifers ~25-30% above recorded weights).
+            weight_by_age_months=[31.0 + 15.3 * m for m in range(13)],
+            adult_weight_age_months=40,
+            young_male_weight_premium=0.05,
             sale_age_months=14,  # retained male calves grown for meat
         ),
         sales=SalesAssumptions(
-            meat_price_per_kg=190.0,  # buffalo live/cull market ₹180-200/kg
-            cull_doe_price_per_kg=190.0,
-            cull_buck_price_per_kg=200.0,
+            meat_price_per_kg=160.0,  # buffalo live/cull market ₹145-170/kg
+            cull_doe_price_per_kg=160.0,
+            cull_buck_price_per_kg=170.0,
             monthly_meat_price_multipliers=[1.0] * 12,
             annual_livestock_price_growth_rate=0.05,
             festival_sale_months=[],
-            milk_price_per_litre=55.0,  # fallback per-litre price
-            # In-milk second-lactation purchases (12+ L/day at peak) give
-            # ~2,200-2,800 L over a 305-day lactation (ICAR recorded herds
-            # 2,605 ± 40 kg; field 1,500-2,000 kg). 2,400 with the Wood curve
-            # below averages ~7.9 L/day in milk.
-            lactation_milk_litres=2400.0,
+            milk_price_per_litre=58.0,  # fallback ≈ procurement ₹850/kg fat @ 6.8%
+            # In-milk second-lactation purchases give ~2,100 L over a 305-day
+            # lactation (CIRB breed standard 2,000 kg; NDRI 1,750-1,850 first
+            # lactation; elite recorded herds 2,600+). 2,100 with the Wood
+            # curve below averages ~6.9 L/day in milk.
+            lactation_milk_litres=2100.0,
             # Wood lactation curve peaking at day 65 of lactation (published
-            # Murrah/river-buffalo Wood fits peak day 57-73): ~7.2 L/day in the
-            # first month, peak ~11.6 L/day around month 3, ~7.9 L/day average
+            # Murrah/river-buffalo Wood fits peak day 57-73): ~6.3 L/day in the
+            # first month, peak ~10.2 L/day around month 3, ~6.9 L/day average
             # over the 305-day lactation.
             milk_curve_shape="wood",
             milk_peak_day=65.0,
@@ -297,11 +324,11 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             # default blends Phase A cooperative supply with early Phase B
             # bulk sales to schools/restaurants at better-than-procurement
             # rates (direct consumer sale realises ₹80-110/L).
-            milk_price_per_kg_fat=950.0,
+            milk_price_per_kg_fat=900.0,
             milk_fat_pct=6.8,
             milk_persistency_monthly=0.93,  # recorded Murrah persistency ~89-93%
-            # Telangana yield seasonality: summer (Mar-Jun) heat-stress trough,
-            # winter peak.
+            # Telangana yield seasonality: summer (Apr-Jul) heat-stress
+            # trough, winter peak.
             monthly_milk_yield_multipliers=[
                 1.05,
                 1.06,
@@ -333,7 +360,7 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             ],
             annual_milk_price_growth_rate=0.05,
             male_calf_sell_at_birth_fraction=0.9,  # sexed-semen strategy
-            male_calf_price_per_head=2500.0,  # week-old bull calf ₹2,000-3,000
+            male_calf_price_per_head=1600.0,  # week-old bull calf ₹1,200-1,800
             manure_income_per_adult_per_year=3500.0,  # biogas slurry + gas savings
         ),
         feed=FeedAssumptions(
@@ -359,8 +386,15 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             dry_price_per_kg=5.0,  # paddy straw ₹4-6/kg
             concentrate_price_per_kg=26.0,  # blended buffalo feed ₹24-32/kg
             annual_feed_price_growth_rate=0.06,  # maize/ethanol structural driver
-            cultivated_fodder_acres=10.0,  # the Navipet site plan
-            fodder_yield_t_dm_per_acre_year=5.0,  # ~25 t/acre fresh maize fodder
+            # A 60-head unit growing to ~90-100 milking buffalo needs ~300 t
+            # green DM/yr. Single-cut maize at 5 t DM/acre would require 60
+            # acres; a multi-cut napier/BMR-sorghum fodder plot yields 8-16 t
+            # DM/acre/yr (TNAU: 40-80 t/ha green), so 25 acres covers ~80% of
+            # the need at home cost and the rest is bought in the lean months.
+            # The old 10-acre plan priced ~85% of every green kilogram at the
+            # ₹2.5/kg market rate — feed alone then exceeded milk revenue.
+            cultivated_fodder_acres=25.0,
+            fodder_yield_t_dm_per_acre_year=10.0,
         ),
         costs=CostsAssumptions(
             vet_per_animal_per_year=2000.0,  # private retainer + vaccines
@@ -378,7 +412,12 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             interest_rate_annual=0.09,  # agri term lending
             loan_term_months=120,
             moratorium_months=12,
-            subsidy_fraction=0.02,  # DEDS ceiling ₹8.25 L on a ₹2+ cr project
+            # NPDD/AHIDF-style support shows up as interest subvention in
+            # practice; a small capital-subsidy fraction (2%) stays as a
+            # conservative placeholder. (The old citation — DEDS — was
+            # discontinued ~2020-21 and its ₹8.25 L ceiling never applied to
+            # the milch-animal component of a unit this size anyway.)
+            subsidy_fraction=0.02,
             working_capital_months=6,  # milk revenue from month 1
         ),
         risk=RiskAssumptions(

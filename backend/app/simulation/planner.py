@@ -30,8 +30,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .assumptions import MAX_HEAD, HerdEventAssumptions, SimulationAssumptions
-from .engine import _run_core
+from .assumptions import (
+    MAX_HEAD,
+    HerdEventAssumptions,
+    MortalityAssumptions,
+    SimulationAssumptions,
+)
+from .engine import _run_core, monthly_mortality_rate
 from .montecarlo import _apply_draws, _correlated_draws, _event_shock_path
 from .results import EventFill
 
@@ -62,16 +67,23 @@ _PURCHASE_BACKED_CLASSES = {
 
 # Latest age (months) an animal of each class can be at sale time and still
 # belong to that class. Kids span 0-2, weaners 3-5; growers (handled in the
-# function, as their ceiling is sale_age - 1) span 6..sale_age-1.
+# function) span 6..ceiling-1 — the ceiling is the sex's graduation age:
+# sale_age for males, age_at_first_breeding for females (a female grower
+# stays in the pool until she joins the doe herd, past the male sale age).
 _CLASS_MAX_AGE = {"kid": 2, "weaner": 5}
 # Age (months) at which an animal enters each class: kid 0, weaner 3, grower 6.
 _CLASS_ENTRY_AGE = {"kid": 0, "weaner": 3, "grower": 6}
 
 
-def _class_max_age(animal_class: str, sale_age_months: int) -> int:
+def _class_max_age(animal_class: str, sale_age_months: int, first_breeding_months: int) -> int:
     base = animal_class.rsplit("_", maxsplit=1)[-1]
     if base == "grower":
-        return max(sale_age_months - 1, 6)
+        ceiling = (
+            first_breeding_months
+            if animal_class.startswith("female")
+            else max(sale_age_months, 6)
+        )
+        return max(ceiling - 1, 6)
     return _CLASS_MAX_AGE[base]
 
 
@@ -219,6 +231,21 @@ def _kidding_interval_months(assumptions: SimulationAssumptions) -> int:
     return r.gestation_months + r.lactation_months + r.months_open_before_breeding
 
 
+def _survival_to_event_age(mort: MortalityAssumptions, completed_age_months: int) -> float:
+    """Birth-to-event survival for a kid aged ``completed_age_months`` months
+    at the moment of a start-of-month sale event (one monthly mortality
+    exposure per month lived, split by the class each month belongs to:
+    kid phase months 0-2, weaner 3-5, grower 6+)."""
+    kid_months = min(completed_age_months + 1, 3)
+    weaner_months = min(max(completed_age_months - 2, 0), 3)
+    grower_months = max(completed_age_months - 5, 0)
+    return (
+        math.pow(1.0 - mort.kid_pre_weaning, kid_months / 3.0)
+        * math.pow(1.0 - mort.kid_post_weaning, weaner_months / 3.0)
+        * math.pow(1.0 - mort.grower, grower_months / 12.0)
+    )
+
+
 def _marginal_kids_per_doe(
     assumptions: SimulationAssumptions,
     target: SaleTarget,
@@ -226,56 +253,114 @@ def _marginal_kids_per_doe(
 ) -> float:
     """Expected head of ``target.animal_class`` one bought doe adds by month T.
 
-    Conservative by construction: only kiddings whose offspring are still
-    young enough to sit in the class at T are counted, each contributing
-    ``litter x sex share x birth-to-class survival``. Conception rate is
-    omitted while kid mortality is charged at a full-year fraction; at the
-    default biology these nearly cancel (measured ~6% under the engine's own
-    marginal supply). Any residual error is corrected by the next forward
-    pass in ``close_gaps``.
+    A compact monthly mirror of the engine's dam pipeline for a purchased doe:
+    settle → monthly service with conception retries → kidding at
+    ``purchase + settling + gestation`` → lactation + open period → next
+    service, with the engine's adult mortality and (post-grace) rate cull
+    applied month by month — and her retained daughters join the service pool
+    at first-breeding age, their kids counting too (by a late target month
+    the granddaughter generation dominates the young-stock pool). A birth in
+    month B stands at completed age T-B-1 at a month-T sale event (events run
+    before the month's aging step), so the class window is
+    [T - class_max_age - 1, T - entry_age - 1] and each in-window birth
+    contributes litter × sex share × birth-to-event survival. Accuracy:
+    within ~2% on near targets, conservative (0.76-0.90x) on far windows
+    where the daughter generations' exact attrition dominates; sire service
+    capacity is also not modelled. ``close_gaps`` re-runs the engine forward,
+    which applies all of this exactly and converges regardless of the seed.
     """
     sale_age = assumptions.growth.sale_age_months
-    class_max_age = _class_max_age(target.animal_class, sale_age)
-    # A kid born in month b is aged (T - b) at sale month T and belongs to the
-    # class while 0 <= T-b <= class_max_age (kids/weaners) or 6 <= T-b <= A-1
-    # (growers, who are still pre-sale-age).
-    earliest_birth = target.month - class_max_age
-    # The engine's event draw sees the end of month T-1, where an animal born
-    # in month B stands at age T-1-B. It is still in the class while that age
-    # is <= class_max_age, i.e. B >= T-1-class_max_age... but it must also
-    # have ENTERED the class by then (age >= entry age): B <= T-1-entry_age.
-    # Kids: born T-3..T; weaners: T-5..T-3; growers: T-A+1..T-6.
-    latest_birth = target.month - _CLASS_ENTRY_AGE[target.animal_class.rsplit("_", maxsplit=1)[-1]]
+    class_max_age = _class_max_age(
+        target.animal_class, sale_age, assumptions.reproduction.age_at_first_breeding_months
+    )
+    entry_age = _CLASS_ENTRY_AGE[target.animal_class.rsplit("_", maxsplit=1)[-1]]
+    earliest_birth = target.month - class_max_age - 1
+    latest_birth = target.month - entry_age - 1
     if latest_birth < earliest_birth:
         return 0.0
-    first_kidding = (
-        purchase_month
-        + assumptions.herd.purchased_doe_settling_months
-        + 1
-        + assumptions.reproduction.gestation_months
-    )
-    kiddings = 0
-    kidding_month = first_kidding
-    interval = _kidding_interval_months(assumptions)
-    while kidding_month <= latest_birth:
-        if kidding_month >= earliest_birth:
-            kiddings += 1
-        kidding_month += interval
-    if kiddings == 0:
-        return 0.0
-    mort = assumptions.mortality
-    age_at_sale_years = class_max_age / 12.0
-    survival = (
-        (1.0 - mort.kid_pre_weaning)
-        * (1.0 - mort.kid_post_weaning)
-        * math.pow(1.0 - mort.grower, max(0.0, age_at_sale_years - 0.5))
-    )
     r = assumptions.reproduction
+    mort = assumptions.mortality
+    cull = assumptions.culling
+    herd = assumptions.herd
+    s_adult = 1.0 - monthly_mortality_rate(mort.adult)
+    monthly_cull = 1.0 - monthly_mortality_rate(cull.doe_cull_rate_annual)
+
+    first_service = purchase_month + herd.purchased_doe_settling_months
+    # Dams ready for service, by month (expected mass of one bought doe).
+    ready: dict[int, float] = {first_service: 1.0}
+    # Dams due to kid, by month.
+    kidding: dict[int, float] = {}
+    # Kidding mass by month (the offspring supply this function returns from).
+    births_by_month: dict[int, float] = {}
+    # Home-bred daughters reaching breeding age, by month: a purchased doe's
+    # contribution includes her daughters' kids (the engine's grower pool at
+    # a late target month is largely the granddaughter generation — the
+    # first home-bred daughters kid as early as purchase + gestation + afb).
+    daughters: dict[int, float] = {}
+
+    def _attrition(month_index: int) -> float:
+        # Adult mortality always; the rate cull only from the engine's
+        # foundation-year grace month 13 onward. The dam's own max-age cull
+        # is deliberately NOT modelled: the engine's later-wave kidding
+        # calendar is not a fixed interval (lactation/waiting slotting
+        # shifts it by a month between waves), and any fixed cutoff here
+        # mis-anchor whole waves. ``close_gaps`` re-runs the engine forward,
+        # which applies every cull exactly.
+        factor = s_adult
+        if month_index >= 13:
+            factor *= monthly_cull
+        return factor
+
+    afb = r.age_at_first_breeding_months
+    female_per_birth = r.litter_size * (1.0 - r.stillbirth_rate) * r.sex_ratio_female
+    # Survival of a female kid from birth to first-breeding age (kid and
+    # weaner phases in full, grower months pro-rated).
+    survival_to_afb = _survival_to_event_age(mort, afb - 1)
+
+    last_month = latest_birth + 1  # one past: births land before the window closes
+    for month_index in range(first_service, max(last_month, first_service) + 1):
+        daughter_mass = daughters.pop(month_index, 0.0)
+        if daughter_mass > 0.0:
+            ready[month_index] = ready.get(month_index, 0.0) + daughter_mass
+        if month_index in ready:
+            dam_mass = ready.pop(month_index)
+            conceived = dam_mass * r.conception_rate
+            kidding[month_index + r.gestation_months] = (
+                kidding.get(month_index + r.gestation_months, 0.0) + conceived
+            )
+            remaining = dam_mass - conceived
+            if remaining > 1e-12:
+                ready[month_index + 1] = ready.get(month_index + 1, 0.0) + remaining
+        if month_index in kidding:
+            dam_mass = kidding.pop(month_index)
+            births_by_month[month_index] = dam_mass
+            # Meat-mode cycle: kidding → lactation → open period → service.
+            next_service = month_index + r.lactation_months + r.months_open_before_breeding
+            ready[next_service] = ready.get(next_service, 0.0) + dam_mass
+            # Her retained daughters join the service pool at breeding age.
+            graduation = month_index + afb
+            if graduation <= last_month:
+                daughters[graduation] = (
+                    daughters.get(graduation, 0.0)
+                    + dam_mass
+                    * female_per_birth
+                    * survival_to_afb
+                    * herd.female_retention_fraction
+                )
+        for pool in (ready, kidding, daughters):
+            for key in pool:
+                pool[key] *= _attrition(month_index)
+
     female_share = (
         r.sex_ratio_female if target.animal_class.startswith("female") else 1.0 - r.sex_ratio_female
     )
-    per_kidding = r.litter_size * (1.0 - r.stillbirth_rate) * female_share
-    return kiddings * per_kidding * survival
+    per_birth = r.litter_size * (1.0 - r.stillbirth_rate) * female_share
+    head = 0.0
+    for birth_month, dam_mass in births_by_month.items():
+        if earliest_birth <= birth_month <= latest_birth:
+            completed_age = target.month - birth_month - 1
+            head += dam_mass * per_birth * _survival_to_event_age(mort, completed_age)
+    return head
 
 
 def _purchase_month_for(target: SaleTarget, assumptions: SimulationAssumptions) -> int:
@@ -285,7 +370,9 @@ def _purchase_month_for(target: SaleTarget, assumptions: SimulationAssumptions) 
     plus one month of slack for the breeding cycle.
     """
     sale_age = assumptions.growth.sale_age_months
-    class_max_age = _class_max_age(target.animal_class, sale_age)
+    class_max_age = _class_max_age(
+        target.animal_class, sale_age, assumptions.reproduction.age_at_first_breeding_months
+    )
     lead = (
         class_max_age
         + assumptions.reproduction.gestation_months

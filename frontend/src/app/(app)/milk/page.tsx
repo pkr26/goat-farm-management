@@ -1,6 +1,7 @@
 "use client";
 
-/** Milk yields: today's parlour log, herd trend and per-buffalo averages. */
+/** Milk yields: today's parlour log, herd trend and per-animal averages.
+ *  Dairy module — hidden outright for meat farms, whose milk APIs 4xx. */
 
 import { useQueryClient } from "@tanstack/react-query";
 import { ChartColumn, Droplets, Milk, Plus, RefreshCw } from "lucide-react";
@@ -13,6 +14,7 @@ import {
 } from "@/api/generated/endpoints";
 import type { MilkRecordIn } from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,10 +43,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { farmToday } from "@/lib/format";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { farmToday, formatLitres } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { useFarmType } from "@/hooks/use-farm-type";
 import { toast } from "sonner";
 
 const SHIFTS = ["MORNING", "AFTERNOON", "NIGHT"] as const;
@@ -64,6 +68,7 @@ function shiftTime(shift: string): string {
 
 export default function MilkPage() {
   const { can, loading, isError } = usePermissions();
+  const vocabulary = farmVocabulary(useFarmType());
   const queryClient = useQueryClient();
   const [animalId, setAnimalId] = useState("");
   const [shift, setShift] = useState<(typeof SHIFTS)[number]>("MORNING");
@@ -73,16 +78,21 @@ export default function MilkPage() {
   const submit = useSingleFlight();
 
   const allowed = can("milk.view");
+  // The parlour is a dairy module: a meat farm holds milk.view through the
+  // owner role but has no milk data (and its milk APIs reject the farm type),
+  // so neither the queries nor the copy below apply. Hide proactively rather
+  // than waiting on the backend's 4xx.
+  const parlourEnabled = allowed && vocabulary.dairy;
   const canRecord = can("milk.manage");
   const today = farmToday();
 
   const summary = useMilkSummaryEndpointApiMilkSummaryGet(
     { days: SUMMARY_WINDOW_DAYS },
-    { query: { enabled: allowed } },
+    { query: { enabled: parlourEnabled } },
   );
   const listing = useMilkListApiMilkGet(
     { limit: 50, date_from: today },
-    { query: { enabled: allowed } },
+    { query: { enabled: parlourEnabled } },
   );
   const addRecord = useAddMilkRecordApiMilkNewPost();
 
@@ -96,7 +106,7 @@ export default function MilkPage() {
     setFormError(null);
     const parsedLitres = Number(litres);
     if (!animalId) {
-      setFormError("Pick the buffalo this reading belongs to.");
+      setFormError(`Pick the ${vocabulary.femaleAdult} this reading belongs to.`);
       return;
     }
     if (!Number.isFinite(parsedLitres) || parsedLitres <= 0 || parsedLitres > 100) {
@@ -105,7 +115,7 @@ export default function MilkPage() {
     }
     const parsedFat = fatPct.trim() === "" ? undefined : Number(fatPct);
     if (parsedFat !== undefined && (!Number.isFinite(parsedFat) || parsedFat < 3 || parsedFat > 12)) {
-      setFormError("Fat % runs 3–12 for buffalo milk.");
+      setFormError(`Fat % runs 3–12 for ${vocabulary.species} milk.`);
       return;
     }
     const payload: MilkRecordIn = {
@@ -138,12 +148,24 @@ export default function MilkPage() {
   if (!allowed) {
     return <p className="p-6 text-muted-foreground">You do not have permission to view milk records.</p>;
   }
+  if (!vocabulary.dairy) {
+    return (
+      <EmptyState
+        icon={Milk}
+        title="Milk recording is for dairy farms."
+        description="This farm is a meat herd, so there is no parlour log here. Milk yields are recorded on dairy farms."
+      />
+    );
+  }
+
+  const femaleAdultLabel =
+    vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="Milk"
-        description="Per-buffalo yields by milking shift, herd daily totals and 30-day averages."
+        description={`${femaleAdultLabel} yields by milking shift, herd daily totals and ${SUMMARY_WINDOW_DAYS}-day averages.`}
         actions={
           <Button
             variant="outline"
@@ -164,21 +186,21 @@ export default function MilkPage() {
           value={todayTotal ? `${todayTotal.litres.toFixed(1)} L` : "0 L"}
           hint={
             todayTotal
-              ? `${todayTotal.recorded_animals} buffalo milked${todayTotal.avg_fat_pct != null ? ` · ${todayTotal.avg_fat_pct.toFixed(1)}% fat` : ""}`
+              ? `${todayTotal.recorded_animals} ${vocabulary.species} milked${todayTotal.avg_fat_pct != null ? ` · ${todayTotal.avg_fat_pct.toFixed(1)}% fat` : ""}`
               : "No readings yet today"
           }
         />
         <StatCard
           icon={ChartColumn}
           label={`${SUMMARY_WINDOW_DAYS}-day total`}
-          value={summaryData ? `${summaryData.total_litres.toFixed(0)} L` : "—"}
-          hint={summaryData ? `${summaryData.avg_daily_litres.toFixed(0)} L/day average` : undefined}
+          value={summaryData ? `${formatLitres(summaryData.total_litres)} L` : "—"}
+          hint={summaryData ? `${formatLitres(summaryData.avg_daily_litres)} L/day average` : undefined}
         />
         <StatCard
           icon={Droplets}
           label="Average fat"
           value={summaryData?.avg_fat_pct != null ? `${summaryData.avg_fat_pct.toFixed(1)}%` : "—"}
-          hint="Murrah benchmark 6.5–7.5%"
+          hint={`${vocabulary.typeLabel} benchmark 6.5–7.5%`}
         />
       </div>
 
@@ -187,19 +209,19 @@ export default function MilkPage() {
           <CardHeader>
             <CardTitle>Record a milking</CardTitle>
             <CardDescription>
-              Re-entering the same buffalo, date and shift replaces the reading.
+              Re-entering the same {vocabulary.femaleAdult}, date and shift replaces the reading.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <div className="space-y-1.5 lg:col-span-2">
-                <Label htmlFor="milk-animal">Buffalo</Label>
+                <Label htmlFor="milk-animal">{femaleAdultLabel}</Label>
                 <AnimalPicker
                   id="milk-animal"
                   value={animalId}
                   onValueChange={setAnimalId}
-                  placeholder="Pick a buffalo…"
-                  dialogTitle="Pick the buffalo milked"
+                  placeholder={`Pick a ${vocabulary.femaleAdult}…`}
+                  dialogTitle={`Pick the ${vocabulary.femaleAdult} milked`}
                   labelVariant="bucket"
                 />
               </div>
@@ -264,7 +286,7 @@ export default function MilkPage() {
       <Card>
         <CardHeader>
           <CardTitle>Today&apos;s readings</CardTitle>
-          <CardDescription>Newest first; a buffalo appears once per shift.</CardDescription>
+          <CardDescription>Newest first; a {vocabulary.femaleAdult} appears once per shift.</CardDescription>
         </CardHeader>
         <CardContent>
           {listing.isError ? (
@@ -281,7 +303,7 @@ export default function MilkPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Buffalo</TableHead>
+                  <TableHead>{femaleAdultLabel}</TableHead>
                   <TableHead>Shift</TableHead>
                   <TableHead className="text-right tabular-nums">Litres</TableHead>
                   <TableHead className="text-right tabular-nums">Fat %</TableHead>
@@ -308,7 +330,9 @@ export default function MilkPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Per-buffalo averages ({SUMMARY_WINDOW_DAYS} days)</CardTitle>
+          <CardTitle>
+            Per-{vocabulary.femaleAdult} averages ({SUMMARY_WINDOW_DAYS} days)
+          </CardTitle>
           <CardDescription>Top 200 by total yield — the cull-review league.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -327,7 +351,7 @@ export default function MilkPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Buffalo</TableHead>
+                  <TableHead>{femaleAdultLabel}</TableHead>
                   <TableHead className="text-right tabular-nums">Days milked</TableHead>
                   <TableHead className="text-right tabular-nums">Total L</TableHead>
                   <TableHead className="text-right tabular-nums">Avg L/day</TableHead>
@@ -340,7 +364,7 @@ export default function MilkPage() {
                     <TableCell className="font-medium">{animal.animal_tag}</TableCell>
                     <TableCell className="text-right tabular-nums">{animal.days_recorded}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {animal.total_litres.toFixed(0)}
+                      {formatLitres(animal.total_litres)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {animal.avg_daily_litres.toFixed(1)}

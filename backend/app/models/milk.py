@@ -3,7 +3,8 @@
 One row per animal, business date and milking shift. Dairy operations measure
 per-buffalo yield at every milking; the aggregate of a day's rows is the
 herd's production, while sales are booked as MILK-category finance
-transactions (optionally carrying litres + ₹/litre provenance).
+transactions (optionally carrying litres + ₹/litre, or fat-based procurement
+provenance).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -76,5 +78,20 @@ class MilkRecord(Base):
     notes: Mapped[str | None] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+    # Correction audit. Finance corrects by voiding and replacing a row; milk
+    # cannot — the (animal, date, shift) unique constraint would let a
+    # replacement double-count a milking — so the one row is edited in place
+    # and the FIRST submitted reading is frozen here. Later corrections keep
+    # the stored originals (only the current columns move) so a chain of
+    # corrections still shows what the parlour originally booked.
+    original_litres: Mapped[float | None] = mapped_column(Numeric(10, 3, asdecimal=False))
+    original_fat_pct: Mapped[float | None] = mapped_column(Numeric(4, 2, asdecimal=False))
+    original_notes: Mapped[str | None] = mapped_column(Text)
+    original_recorded_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", name="fk_milk_records_original_recorded_by")
+    )
+    corrected_at: Mapped[datetime | None]
+    correction_reason: Mapped[str | None] = mapped_column(Text)
 
     animal: Mapped[Animal] = relationship(foreign_keys=[animal_id])

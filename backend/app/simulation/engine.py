@@ -28,11 +28,29 @@ Documented model approximations:
   explicit ``price_per_head`` is given.
 - Conception is constrained by the available sire service capacity
   (``bucks * buck_doe_ratio``). A zero-buck herd cannot conceive, and an
-  undersupplied battery serves a proportional share of ready does.
+  undersupplied battery serves a proportional share of ready does. Open does
+  carry a per-attempt service counter: the first
+  ``reproduction.sexed_semen_services`` services use sexed semen (higher
+  female fraction, conception penalty), and a doe failing
+  ``reproduction.max_services_before_cull`` consecutive services is culled as
+  a repeat breeder (0 disables both policies).
 - Weaning is modelled at month 3 (the kid class spans ages 0-2) versus the
-  operational system's day 60, and the default meat sale age is 12 months
-  versus the farm's 8-9 month marketing — the projection weans and sells
-  systematically later than live records enforce.
+  operational system's day-60 wean task — a documented monthly-resolution
+  approximation; the default meat sale age is 10 months (Navipet marketing).
+  Kid and weaner mortality are whole-phase rates spread over their three
+  monthly slots; grower and adult mortality are annual rates compounded
+  monthly. Young males carry ``growth.young_male_weight_premium`` over the
+  female curve; with ``sales.festival_hold_months`` > 0, males finishing
+  within that window before a festival month are held and sold in the
+  festival month at the festival price.
+- In dairy mode culls (rate-based, max-age and repeat-breeder) leave the
+  breeding pools immediately but keep milking and eating until their
+  lactation overlay dries off (a "finishing pen" of marked animals); cull
+  revenue books when they dry off, so removing a doe no longer deletes her
+  remaining lactation. The lactation overlay itself runs the full
+  ``lactation_months`` regardless of conception date, so the dry period
+  floats with conception luck (field-typical for buffalo: ~3-5 months versus
+  the 60-90 day optimum the ops module schedules).
 - Shed/equipment capacity follows ``costs.capacity_basis`` and defaults to the
   projected physical peak plus a configurable reserve.
 - Cull removals (rate-based and max-age) are taken proportionally from all doe
@@ -43,7 +61,8 @@ Documented model approximations:
 - Straight-line depreciation, optional tax-loss carry-forward and recoverable
   terminal livestock/facility/working-capital values are explicit. When the
   loan term outlives the horizon, the balance still owed is charged in the
-  final month as extra principal.
+  final month as extra principal; DSCR excludes that balloon (a refinancing
+  event, not an operating-coverage failure).
 """
 
 import hashlib
@@ -101,18 +120,42 @@ def monthly_mortality_rate(annual_fraction: float) -> float:
     return 1.0 - math.pow(1.0 - annual_fraction, 1.0 / 12.0)
 
 
+def phase_monthly_mortality_rate(phase_fraction: float, phase_months: int) -> float:
+    """Convert a whole-phase mortality fraction to the monthly rate that
+    removes exactly ``phase_fraction`` over ``phase_months`` exposures.
+
+    Kid and weaner mortality are quoted per crop in the literature (5-15%
+    pre-weaning stall-fed); converting them as annual rates made a documented
+    10% remove only 2.6% of a 3-month kid class.
+    """
+    if phase_months <= 0:
+        return 0.0
+    return 1.0 - math.pow(1.0 - phase_fraction, 1.0 / phase_months)
+
+
 def weight_at_age(age_months: int, growth: GrowthAssumptions, adult_weight_kg: float) -> float:
     """Live weight (kg) at a given age: table for 0-12 m, then a linear approach
-    to the adult weight, reached at 24 months."""
+    to the adult weight, reached at ``growth.adult_weight_age_months``."""
     table = growth.weight_by_age_months
     if age_months <= 0:
         return growth.birth_weight_kg
-    if age_months >= 24:
+    adult_age = growth.adult_weight_age_months
+    if age_months >= adult_age:
         return adult_weight_kg
     if age_months < len(table):
         return table[age_months]
-    frac = (age_months - 12) / 12.0
+    frac = (age_months - 12) / (adult_age - 12)
     return table[12] + frac * (adult_weight_kg - table[12])
+
+
+def male_weight_at_age(age_months: int, growth: GrowthAssumptions, adult_weight_kg: float) -> float:
+    """Live weight of a young male: the female curve plus the documented
+    young-male weight premium (males run ~10-20% heavier in goats, ~5% in
+    buffalo calves); adult bucks are priced by their explicit adult weight."""
+    weight = weight_at_age(age_months, growth, adult_weight_kg)
+    if age_months < growth.adult_weight_age_months:
+        return weight * (1.0 + growth.young_male_weight_premium)
+    return weight
 
 
 @dataclass
@@ -264,6 +307,8 @@ def _pool_avg_weight(
     growth: GrowthAssumptions,
     adult_weight_kg: float,
     fallback_age: int,
+    *,
+    male: bool = False,
 ) -> float:
     """Mean live weight of an age-indexed pool, for pricing a proportional draw.
 
@@ -273,14 +318,16 @@ def _pool_avg_weight(
     organically by promotions has whatever distribution the run produced, and a
     grower chain spans up to 24 monthly slots. ``pool`` is indexed from
     ``base_age``; an empty pool has no composition to average, so it keeps the
-    placement age (nothing is drawn from it anyway).
+    placement age (nothing is drawn from it anyway). ``male`` applies the
+    young-male weight premium to the per-slot weights.
     """
+    weight_fn = male_weight_at_age if male else weight_at_age
     total = sum(pool)
     if total <= 0.0:
-        return weight_at_age(fallback_age, growth, adult_weight_kg)
+        return weight_fn(fallback_age, growth, adult_weight_kg)
     return (
         sum(
-            count * weight_at_age(base_age + offset, growth, adult_weight_kg)
+            count * weight_fn(base_age + offset, growth, adult_weight_kg)
             for offset, count in enumerate(pool)
         )
         / total
@@ -326,6 +373,14 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     doe_w = g.adult_weight_doe_kg
     buck_w = g.adult_weight_buck_kg
 
+    # Open-ready does partitioned by failed services this breeding attempt:
+    # svc[i] holds does with i consecutive failures. The first
+    # ``sexed_semen_services`` buckets serve on sexed semen (conception
+    # penalty, female-biased births); with ``max_services_before_cull`` set,
+    # a failure from the last bucket is a repeat-breeder cull. A single
+    # bucket with both policies off reproduces the legacy scalar pool.
+    n_service_buckets = max(r.sexed_semen_services, r.max_services_before_cull, 1)
+
     # --- initial cohorts (foundation stock placed mid-class, see module docstring)
     f_kid = [0.0, float(a.herd.female_kids), 0.0]  # ages 0..2
     f_weaner = [0.0, float(a.herd.female_weaners), 0.0]  # ages 3..5
@@ -353,12 +408,23 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         m_boundary_grower = float(a.herd.male_growers)
 
     open_waiting = [0.0] * r.months_open_before_breeding
-    open_ready = float(a.herd.does)
+    svc = [0.0] * n_service_buckets
+    svc[0] = float(a.herd.does)
     # Bought-in adult does spend their settling months here before service
     # (transport stress, new ration, pecking order — see HerdAssumptions).
     settling = [0.0] * a.herd.purchased_doe_settling_months
     preg = [0.0] * r.gestation_months
+    # Female fraction of each gestation cohort's births (sexed-semen services
+    # conceive female-biased calves). Shifts in lockstep with ``preg``.
+    preg_female_fraction = [r.sex_ratio_female] * r.gestation_months
     lact = [0.0] * r.lactation_months
+    # Dairy finishing pen: culled does marked to leave at dry-off. Parallel
+    # to ``lact`` (same month-in-milk indexing); head here are no longer in
+    # the breeding pools but still milk, eat and die until the overlay ends.
+    finishing = [0.0] * r.lactation_months
+    # Males held for a festival sale: age (months) -> head. They keep
+    # growing, eat the grower ration and face grower mortality.
+    held_males: dict[int, float] = {}
     if a.herd.foundation_flock_state == "mixed" and a.herd.does > 0:
         # Realistic purchased flock: does spread uniformly across the whole
         # reproductive cycle (open-ready slot + waiting + gestation + lactation
@@ -376,7 +442,8 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             # double-counting every doe at her first simulated calving.
             n_slots = 1 + len(open_waiting) + len(preg)
             per_slot = float(a.herd.does) / n_slots
-            open_ready = per_slot
+            svc = [0.0] * n_service_buckets
+            svc[0] = per_slot
             open_waiting = [per_slot] * len(open_waiting)
             preg = [per_slot] * len(preg)
             lact = [0.0] * len(lact)
@@ -391,7 +458,8 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         else:
             n_slots = 1 + len(open_waiting) + len(preg) + len(lact)
             per_slot = float(a.herd.does) / n_slots
-            open_ready = per_slot
+            svc = [0.0] * n_service_buckets
+            svc[0] = per_slot
             open_waiting = [per_slot] * len(open_waiting)
             preg = [per_slot] * len(preg)
             lact = [per_slot] * len(lact)
@@ -441,10 +509,12 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             + sum(m_grower)
             + f_boundary_grower
             + m_boundary_grower
-            + open_ready
+            + sum(held_males.values())
+            + sum(svc)
             + sum(open_waiting)
             + sum(settling)
             + sum(preg)
+            + sum(finishing)
             + (0.0 if dairy_mode else sum(lact))
             + bucks
         )
@@ -465,6 +535,26 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     f_grower_mid_age = 6 + (afb - 6) // 2
     m_grower_mid_age = 6 + (sale_age - 6) // 2
 
+    festival_months = set(sales.festival_sale_months or ())
+
+    def _calendar_month_of(simulation_month: int) -> int:
+        return (start_month - 1 + (simulation_month - 1)) % 12 + 1
+
+    def _is_festival_month(simulation_month: int) -> bool:
+        """Whether the Bakrid uplift is active in this simulation month
+        (mirrors meat_price_for_month's festival determination)."""
+        if festival_months:
+            return simulation_month in festival_months
+        return sales.eid_month > 0 and _calendar_month_of(simulation_month) == sales.eid_month
+
+    def _months_until_next_festival(from_month: int) -> int:
+        """1-based months from ``from_month`` to the next festival month, or a
+        large sentinel when none is near (used by the hold-for-festival rule)."""
+        for delta in range(0, 13):
+            if _is_festival_month(from_month + delta):
+                return delta
+        return 10**9
+
     records: list[_MonthRecord] = []
     fodder_stock_kg_dm = feed.initial_fodder_stock_kg_dm
 
@@ -482,6 +572,63 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     # both feed demand and early-lactation revenue.
     milk_yield_curve = curve_from_assumptions(sales, r.lactation_months)
 
+    # Unconditional binding for _cull_does's nonlocal accumulators (the loop
+    # resets them monthly; the declaration needs a definite enclosing-scope
+    # binding at definition time).
+    culls_head = cull_revenue = 0.0
+
+    def _cull_does(count: float, cull_price: float) -> None:
+        """Remove ``count`` breeding does, proportionally across the doe state
+        pools. The parallel ``doe_ages`` ledger is NOT touched: every caller
+        owns its own age accounting (the max-age caller has already shifted
+        the overflow cohort out, the rate-cull caller scales the ledger by the
+        same factor it passed in) — scaling here as well double-deflated the
+        ledger by (P-X)*X/P on every max-age cull and under-culled later waves.
+
+        Meat mode: the animals leave now and cull head/revenue book this
+        month. Dairy mode: a real dairy culls at dry-off, not mid-lactation —
+        the does leave the breeding pools immediately (no further service) but
+        keep milking and eating in the finishing pen until their lactation
+        overlay ends, and the cull books the month they dry off. Without this,
+        every rate-cull deleted the tail of the culled doe's lactation and
+        silently dropped ~11% of herd milk.
+        """
+        nonlocal svc, open_waiting, settling, preg, finishing, lact
+        nonlocal culls_head, cull_revenue
+        if count <= 0.0:
+            return
+        pool_total = (
+            sum(svc)
+            + sum(open_waiting)
+            + sum(settling)
+            + sum(preg)
+            + (0.0 if dairy_mode else sum(lact))
+        )
+        if pool_total <= 0.0:
+            return
+        # Never remove (or book) more head than the pools actually hold: a
+        # stale age ledger could otherwise ask for a larger cull than the
+        # live pool, wiping the pools while crediting phantom finishing head.
+        count = min(count, pool_total)
+        factor = max(0.0, 1.0 - count / pool_total)
+        svc = _scale(svc, factor)
+        open_waiting = _scale(open_waiting, factor)
+        settling = _scale(settling, factor)
+        preg = _scale(preg, factor)
+        if dairy_mode:
+            lact_total = sum(lact)
+            if lact_total > 0.0:
+                for stage in range(len(finishing)):
+                    finishing[stage] += count * lact[stage] / lact_total
+            else:
+                # Nothing left to finish: she leaves this month.
+                culls_head += count
+                cull_revenue += count * cull_price * doe_w
+        else:
+            lact = _scale(lact, factor)
+            culls_head += count
+            cull_revenue += count * cull_price * doe_w
+
     for month in range(1, a.meta.horizon_months + 1):
         shock_index = month - 1
         calendar_month = (start_month - 1 + (month - 1)) % 12 + 1
@@ -497,7 +644,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         if settling:
             settling_out = settling[-1]
             settling = [0.0, *settling[:-1]]
-            open_ready += settling_out
+            svc[0] += settling_out
         # Bucks bought via a scheduled event this month, tracked separately so
         # the rotation cull below (step 6) can spare them — see that step.
         bucks_purchased_this_month = 0.0
@@ -510,20 +657,27 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             shock_multiplier=shocks.meat_price[shock_index],
         )
         livestock_growth = other_revenue_growth(sales, month)
-        cull_doe_price = sales.cull_doe_price_per_kg * livestock_growth
-        cull_buck_price = sales.cull_buck_price_per_kg * livestock_growth
+        # Cull prices ride the same market risk as meat prices: a crash that
+        # only marked down finished stock left spent animals unrealistically
+        # insulated (cull realizations are a material revenue line).
+        meat_market_shock = shocks.meat_price[shock_index]
+        cull_doe_price = sales.cull_doe_price_per_kg * livestock_growth * meat_market_shock
+        cull_buck_price = sales.cull_buck_price_per_kg * livestock_growth * meat_market_shock
         doe_purchase_price = a.herd.doe_purchase_price * livestock_growth
         buck_purchase_price = a.herd.buck_purchase_price * livestock_growth
 
-        # Shock multipliers operate on annual biological rates and are clamped
-        # below one before conversion to a monthly compounding survival rate.
+        # Shock multipliers operate on biological rates and are clamped below
+        # one before conversion to monthly survival rates. Kid and weaner
+        # rates are whole-phase (3-month class) fractions: the phase converter
+        # makes a documented 10% pre-weaning loss remove 10% of the crop,
+        # where the annual converter realized only 2.6%.
         kid_mortality_shock = shocks.kid_mortality[shock_index]
         adult_mortality_shock = shocks.adult_mortality[shock_index]
-        s_kid = 1.0 - monthly_mortality_rate(
-            min(0.999999, mort.kid_pre_weaning * kid_mortality_shock)
+        s_kid = 1.0 - phase_monthly_mortality_rate(
+            min(0.999999, mort.kid_pre_weaning * kid_mortality_shock), 3
         )
-        s_weaner = 1.0 - monthly_mortality_rate(
-            min(0.999999, mort.kid_post_weaning * kid_mortality_shock)
+        s_weaner = 1.0 - phase_monthly_mortality_rate(
+            min(0.999999, mort.kid_post_weaning * kid_mortality_shock), 3
         )
         s_grower = 1.0 - monthly_mortality_rate(min(0.999999, mort.grower * adult_mortality_shock))
         s_adult = 1.0 - monthly_mortality_rate(min(0.999999, mort.adult * adult_mortality_shock))
@@ -544,7 +698,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     if settling:
                         settling[0] += n
                     else:
-                        open_ready += n
+                        svc[0] += n
                     _add_purchased_does(n)
                     default_price = doe_purchase_price
                 elif event.animal_class == "buck":
@@ -556,13 +710,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     default_price = weight_at_age(1, g, doe_w) * meat_price
                 elif event.animal_class == "male_kid":
                     m_kid[1] += n
-                    default_price = weight_at_age(1, g, doe_w) * meat_price
+                    default_price = male_weight_at_age(1, g, buck_w) * meat_price
                 elif event.animal_class == "female_weaner":
                     f_weaner[1] += n  # mid-class (age 4)
                     default_price = weight_at_age(4, g, doe_w) * meat_price
                 elif event.animal_class == "male_weaner":
                     m_weaner[1] += n
-                    default_price = weight_at_age(4, g, doe_w) * meat_price
+                    default_price = male_weight_at_age(4, g, buck_w) * meat_price
                 elif event.animal_class == "female_grower":
                     if f_grower:
                         default_price = weight_at_age(f_grower_mid_age, g, doe_w) * meat_price
@@ -576,7 +730,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                         f_boundary_grower += n
                 else:  # male_grower
                     if m_grower:
-                        default_price = weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
+                        default_price = male_weight_at_age(m_grower_mid_age, g, buck_w) * meat_price
                         m_grower[len(m_grower) // 2] += n  # mid-class
                     else:
                         # sale_age == 6: this is market-ready stock. Keep it at
@@ -584,7 +738,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                         # grower sale can address it; otherwise normal
                         # graduation sells it this month. Value both sides at
                         # the same sale-age weight.
-                        default_price = weight_at_age(sale_age, g, buck_w) * meat_price
+                        default_price = male_weight_at_age(sale_age, g, buck_w) * meat_price
                         m_boundary_grower += n
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 purchases_head += n
@@ -608,19 +762,21 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 requested = event.count
                 if event.animal_class == "doe":
                     available = (
-                        open_ready
+                        sum(svc)
                         + sum(open_waiting)
                         + sum(settling)
                         + sum(preg)
+                        + sum(finishing)
                         + (0.0 if dairy_mode else sum(lact))
                     )
                     take = min(requested, available)
                     if take > 0.0:
                         factor = 1.0 - take / available
-                        open_ready *= factor
+                        svc = _scale(svc, factor)
                         open_waiting = _scale(open_waiting, factor)
                         settling = _scale(settling, factor)
                         preg = _scale(preg, factor)
+                        finishing = _scale(finishing, factor)
                         lact = _scale(lact, factor)
                         doe_ages = _scale(doe_ages, factor)
                     default_price = cull_doe_price * doe_w
@@ -633,7 +789,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     take = _draw(f_kid, requested)
                     default_price = avg_kg * meat_price
                 elif event.animal_class == "male_kid":
-                    avg_kg = _pool_avg_weight(m_kid, 0, g, doe_w, 1)
+                    avg_kg = _pool_avg_weight(m_kid, 0, g, buck_w, 1, male=True)
                     take = _draw(m_kid, requested)
                     default_price = avg_kg * meat_price
                 elif event.animal_class == "female_weaner":
@@ -641,7 +797,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     take = _draw(f_weaner, requested)
                     default_price = avg_kg * meat_price
                 elif event.animal_class == "male_weaner":
-                    avg_kg = _pool_avg_weight(m_weaner, 3, g, doe_w, 4)
+                    avg_kg = _pool_avg_weight(m_weaner, 3, g, buck_w, 4, male=True)
                     take = _draw(m_weaner, requested)
                     default_price = avg_kg * meat_price
                 elif event.animal_class == "female_grower":
@@ -653,12 +809,26 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                         f_boundary_grower -= take
                     default_price = avg_kg * meat_price
                 else:  # male_grower
-                    avg_kg = _pool_avg_weight(m_grower, 6, g, buck_w, m_grower_mid_age)
+                    avg_kg = _pool_avg_weight(m_grower, 6, g, buck_w, m_grower_mid_age, male=True)
                     if m_grower:
                         take = _draw(m_grower, requested)
                     else:
                         take = min(requested, m_boundary_grower)
                         m_boundary_grower -= take
+                    # Held-for-festival males are the same class of animal: an
+                    # ordered grower sale draws them after the chain (and after
+                    # the boundary stock when the chain is empty — a sale_age
+                    # of 6 leaves the chain empty but the holding pen full).
+                    if take < requested and held_males:
+                        remaining = requested - take
+                        held_total = sum(held_males.values())
+                        extra = min(remaining, held_total)
+                        if extra > 0.0:
+                            held_factor = 1.0 - extra / held_total
+                            held_males = {
+                                age: count * held_factor for age, count in held_males.items()
+                            }
+                            take += extra
                     default_price = avg_kg * meat_price
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 revenue = take * price
@@ -690,6 +860,17 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             physical_peak_head = max(physical_peak_head, _physical_head())
 
         # --- 1. young-stock aging and graduations ---------------------------
+        # Festival month: everything held for the festival is sold now, at
+        # each cohort's current age, at the festival-inclusive price.
+        if held_males and _is_festival_month(month):
+            for age, count in held_males.items():
+                sales_head += count
+                sales_revenue += count * male_weight_at_age(age, g, buck_w) * meat_price
+            held_males = {}
+        # Held cohorts age with the month; they eat and risk death like any
+        # grower (mortality is applied in step 5 alongside the grower pools).
+        held_males = {age + 1: count for age, count in held_males.items()}
+
         f_kid_out = f_kid[2]
         f_kid = [0.0, f_kid[0], f_kid[1]]
         f_wea_out = f_weaner[2]
@@ -718,63 +899,82 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # event purchase they bypass the retention cap when they land, and the
         # cap re-asserts itself at the next graduation.
         does_before = (
-            open_ready + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
+            sum(svc) + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
         )
         retained = f_gro_out * a.herd.female_retention_fraction
         if a.herd.max_breeding_does > 0:
             retained = min(retained, max(0.0, a.herd.max_breeding_does - does_before))
         f_surplus_sold = f_gro_out - retained
-        open_ready += retained
+        svc[0] += retained
         doe_ages[afb] += retained
         if f_surplus_sold > 0.0:
             sales_head += f_surplus_sold
             sales_revenue += f_surplus_sold * weight_at_age(afb, g, doe_w) * meat_price
 
-        # Males exit the grower chain at sale age and are sold for meat.
+        # Males exit the grower chain at sale age. With festival holding on,
+        # a male finishing within the hold window of a festival month is held
+        # (growing, eating, mortal) and sold in the festival month instead —
+        # Telangana herds are managed to finish into Bakrid.
         if m_gro_out > 0.0:
-            sales_head += m_gro_out
-            sales_revenue += m_gro_out * weight_at_age(sale_age, g, buck_w) * meat_price
+            if (
+                sales.festival_hold_months > 0
+                and not _is_festival_month(month)
+                and 1 <= _months_until_next_festival(month) <= sales.festival_hold_months
+            ):
+                held_males[sale_age] = held_males.get(sale_age, 0.0) + m_gro_out
+            else:
+                sales_head += m_gro_out
+                sales_revenue += m_gro_out * male_weight_at_age(sale_age, g, buck_w) * meat_price
 
         # --- 2. lactation progression; open does become ready again ---------
         if dairy_mode:
             # ``lact`` is the milking-status overlay: stage L is dried off and
             # leaves the overlay; the doe herself stays wherever she is in the
-            # reproductive state pools.
+            # reproductive state pools. The finishing pen advances with it, and
+            # a finished doe's cull finally books the month she dries off.
+            dried_culls = finishing[-1]
             lact = [0.0, *lact[:-1]]
+            finishing = [0.0, *finishing[:-1]]
+            if dried_culls > 0.0:
+                culls_head += dried_culls
+                cull_revenue += dried_culls * cull_doe_price * doe_w
             if open_waiting:
                 waiting_out = open_waiting[-1]
                 open_waiting = [0.0, *open_waiting[:-1]]
-                open_ready += waiting_out
+                svc[0] += waiting_out
         else:
             lact_out = lact[-1]
             lact = [0.0, *lact[:-1]]
             if open_waiting:
                 waiting_out = open_waiting[-1]
                 open_waiting = [lact_out, *open_waiting[:-1]]
-                open_ready += waiting_out
+                svc[0] += waiting_out
             else:
-                open_ready += lact_out
+                svc[0] += lact_out
 
         # --- 3. pregnancy progression and kidding ---------------------------
         kidding_does = preg[-1]
+        kidding_female_fraction = preg_female_fraction[-1]
         preg = [0.0, *preg[:-1]]
+        preg_female_fraction = [r.sex_ratio_female, *preg_female_fraction[:-1]]
         if dairy_mode and kidding_does > 0.0:
             # Fresh dams start their voluntary waiting period in the month
             # they calve (the original block below credits lact[0]).
             if open_waiting:
                 open_waiting[0] += kidding_does
             else:
-                open_ready += kidding_does
+                svc[0] += kidding_does
         if kidding_does > 0.0:
             effective_litter_size = min(4.0, r.litter_size * shocks.litter_size[shock_index])
             born = kidding_does * effective_litter_size * (1.0 - r.stillbirth_rate)
             births += born
-            f_born = born * r.sex_ratio_female
+            f_born = born * kidding_female_fraction
             f_kid[0] += f_born
             m_born = born - f_born
-            # Dairy policy: a configured fraction of male births (the sexed-
-            # semen strategy makes this most of them) is sold in the first week
-            # at a flat head price instead of growing on for meat.
+            # Dairy policy: a configured fraction of male births is sold in
+            # the first week at a flat head price instead of growing on for
+            # meat (under a sexed-semen strategy the few male calves are the
+            # ones conceived on later, conventional services).
             if sales.male_calf_price_per_head > 0.0 and m_born > 0.0:
                 m_sold_at_birth = m_born * sales.male_calf_sell_at_birth_fraction
                 if m_sold_at_birth > 0.0:
@@ -788,7 +988,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # Automatic sire procurement is a pre-service policy. Buying the needed
         # bucks after breeding made an under-supplied flock lose a full cycle
         # even though the same month's accounts said replacement sires arrived.
-        does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+        does_now = sum(svc) + sum(open_waiting) + sum(preg) + sum(lact)
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
@@ -801,16 +1001,90 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # turns the buck:doe ratio into a biological constraint rather than a
         # purchase-policy annotation. A dairy run with no sire battery and no
         # auto-purchase is an AI programme: service is technician-limited, not
-        # buck-limited, so capacity is unconstrained.
+        # buck-limited, so capacity is unconstrained. Service capacity is
+        # shared proportionally across the failed-service buckets; each bucket
+        # conceives at its own rate (sexed-semen services carry the documented
+        # conception penalty) and its conceptions carry that service's female
+        # fraction through gestation.
+        ready_total = sum(svc)
+        # Pre-service breeding-pool size, for proportional doe-age-ledger
+        # scaling when repeat breeders are culled below.
+        breeding_pool_before = ready_total + sum(open_waiting) + sum(settling) + sum(preg)
         if dairy_mode and bucks <= 0.0 and not a.herd.auto_purchase_bucks:
-            service_capacity = open_ready
+            service_capacity = ready_total
         else:
             service_capacity = bucks * cull.buck_doe_ratio
-        served_does = min(open_ready, service_capacity)
-        effective_conception = min(1.0, r.conception_rate * shocks.conception[shock_index])
-        conceived = served_does * effective_conception
-        preg[0] += conceived
-        open_ready -= conceived
+        served_total = min(ready_total, service_capacity)
+        base_conception = min(1.0, r.conception_rate * shocks.conception[shock_index])
+        sexed_services = r.sexed_semen_services
+        new_svc = [0.0] * n_service_buckets
+        conceived_sexed = 0.0
+        conceived_conventional = 0.0
+        repeat_culls = 0.0
+        if served_total > 0.0 and ready_total > 0.0:
+            service_share = served_total / ready_total
+            for bucket, count in enumerate(svc):
+                if count <= 0.0:
+                    continue
+                served = count * service_share
+                unserved = count - served
+                sexed = bucket < sexed_services
+                rate = base_conception * (r.sexed_conception_multiplier if sexed else 1.0)
+                conceived = served * rate
+                failed = served - conceived
+                if sexed:
+                    conceived_sexed += conceived
+                else:
+                    conceived_conventional += conceived
+                if bucket + 1 < n_service_buckets:
+                    new_svc[bucket + 1] += failed
+                elif r.max_services_before_cull > 0:
+                    # Failed the final permitted service: repeat breeder.
+                    repeat_culls += failed
+                else:
+                    new_svc[bucket] += failed
+                # Does the battery could not serve stay ready in their bucket:
+                # an unserved doe neither conceived, nor failed a service, nor
+                # was culled — silently dropping her broke the mass-balance
+                # identity for every undersupplied sire battery.
+                new_svc[bucket] += unserved
+        else:
+            # Nobody was served (zero service capacity): the pool stands as is.
+            new_svc = svc
+        svc = new_svc
+        conceived = conceived_sexed + conceived_conventional
+        if conceived > 0.0:
+            preg[0] += conceived
+            preg_female_fraction[0] = (
+                conceived_sexed * r.sexed_female_fraction
+                + conceived_conventional * r.sex_ratio_female
+            ) / conceived
+        if repeat_culls > 0.0:
+            # Repeat breeders already left the service buckets in this step;
+            # only route them to the finishing pen (dairy) or book the cull
+            # (meat). Calling _cull_does here would remove them from the
+            # waiting/pregnant pools a second time — a monthly head leak that
+            # hollowed out gestation and collapsed calvings. The parallel
+            # doe_ages ledger must lose them too: leaving the age cohorts
+            # untouched inflated the ledger so later max-age overflows
+            # exceeded the live pool, wiped it via _cull_does's clamp and
+            # booked phantom finishing head.
+            breeding_total_before = breeding_pool_before
+            if breeding_total_before > 0.0:
+                doe_ages = _scale(
+                    doe_ages, max(0.0, 1.0 - repeat_culls / breeding_total_before)
+                )
+            if dairy_mode:
+                lact_total = sum(lact)
+                if lact_total > 0.0:
+                    for stage in range(len(finishing)):
+                        finishing[stage] += repeat_culls * lact[stage] / lact_total
+                else:
+                    culls_head += repeat_culls
+                    cull_revenue += repeat_culls * cull_doe_price * doe_w
+            else:
+                culls_head += repeat_culls
+                cull_revenue += repeat_culls * cull_doe_price * doe_w
 
         # Births and pre-service sire purchases both happen before mortality.
         # The end-of-month row cannot reconstruct this physical high-water mark.
@@ -825,35 +1099,40 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         f_weaner, m_weaner = _scale(f_weaner, s_weaner), _scale(m_weaner, s_weaner)
         deaths += pre - sum(f_weaner) - sum(m_weaner)
 
-        pre = sum(f_grower) + sum(m_grower)
+        pre = sum(f_grower) + sum(m_grower) + sum(held_males.values())
         f_grower, m_grower = _scale(f_grower, s_grower), _scale(m_grower, s_grower)
-        deaths += pre - sum(f_grower) - sum(m_grower)
+        held_males = {age: count * s_grower for age, count in held_males.items()}
+        deaths += pre - sum(f_grower) - sum(m_grower) - sum(held_males.values())
 
         # Doe pools and the parallel doe_ages array represent the same animals,
         # so only the pools (+ settling does + bucks) enter the death count.
-        # In dairy mode ``lact`` is an overlay of the same does, so it is
-        # scaled for attribution but never counted as extra animals.
+        # In dairy mode ``lact`` is an overlay of the same does (breeding
+        # pools + the finishing pen), so it is scaled for attribution but
+        # never counted as extra animals.
         pre = (
-            open_ready
+            sum(svc)
             + sum(open_waiting)
             + sum(settling)
             + sum(preg)
+            + sum(finishing)
             + (0.0 if dairy_mode else sum(lact))
             + bucks
         )
-        open_ready *= s_adult
+        svc = _scale(svc, s_adult)
         open_waiting = _scale(open_waiting, s_adult)
         settling = _scale(settling, s_adult)
         preg = _scale(preg, s_adult)
+        finishing = _scale(finishing, s_adult)
         lact = _scale(lact, s_adult)
         bucks *= s_adult
         bucks_purchased_this_month *= s_adult
         doe_ages = _scale(doe_ages, s_adult)
         deaths += pre - (
-            open_ready
+            sum(svc)
             + sum(open_waiting)
             + sum(settling)
             + sum(preg)
+            + sum(finishing)
             + (0.0 if dairy_mode else sum(lact))
             + bucks
         )
@@ -863,46 +1142,24 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         overflow = doe_ages[-1]
         doe_ages = [0.0, *doe_ages[:-1]]
         if overflow > 0.0:
-            does_now = (
-                open_ready
-                + sum(open_waiting)
-                + sum(settling)
-                + sum(preg)
-                + (0.0 if dairy_mode else sum(lact))
-            )
-            if does_now > 0.0:
-                factor = 1.0 - min(1.0, overflow / does_now)
-                open_ready *= factor
-                open_waiting = _scale(open_waiting, factor)
-                settling = _scale(settling, factor)
-                preg = _scale(preg, factor)
-                lact = _scale(lact, factor)
-            culls_head += overflow
-            cull_revenue += overflow * cull_doe_price * doe_w
+            _cull_does(overflow, cull_doe_price)
 
         # Rate-based doe cull, applied from month 13 (foundation-year grace).
         # The annual fraction compounds monthly like every other annual rate in
         # the model (a plain rate/12 removed only 18.3% of the does for a
-        # documented 20% policy, and 64.8% for a "cull everything" 1.0).
+        # documented 20% policy, and 64.8% for a "cull everything" 1.0). The
+        # doe-ages ledger scales by the same factor (the cull base and the
+        # ledger describe the same animals).
         if month >= 13:
             does_now = (
-                open_ready
+                sum(svc)
                 + sum(open_waiting)
                 + sum(settling)
                 + sum(preg)
                 + (0.0 if dairy_mode else sum(lact))
             )
-            culled = does_now * monthly_cull_rate
-            if culled > 0.0:
-                factor = 1.0 - monthly_cull_rate
-                open_ready *= factor
-                open_waiting = _scale(open_waiting, factor)
-                settling = _scale(settling, factor)
-                preg = _scale(preg, factor)
-                lact = _scale(lact, factor)
-                doe_ages = _scale(doe_ages, factor)
-                culls_head += culled
-                cull_revenue += culled * cull_doe_price * doe_w
+            _cull_does(does_now * monthly_cull_rate, cull_doe_price)
+            doe_ages = _scale(doe_ages, 1.0 - monthly_cull_rate)
 
         # Buck rotation: cull the standing sire battery, then re-staff per
         # ratio. Cull-then-restaff is one atomic policy — the wholesale cull
@@ -926,7 +1183,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             cull_revenue += cull_pool * cull_buck_price * buck_w
             bucks -= cull_pool
         does_now = (
-            open_ready
+            sum(svc)
             + sum(open_waiting)
             + sum(settling)
             + sum(preg)
@@ -944,21 +1201,25 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # --- 7. feed, opex and revenue accounting ---------------------------
         # Settling does are open does for every account: maintenance ration,
         # manure, insurance value and the head count. Only service is denied.
-        open_total = open_ready + sum(open_waiting) + sum(settling)
+        open_total = sum(svc) + sum(open_waiting) + sum(settling)
         preg_total = sum(preg)
         lact_total = sum(lact)
+        finishing_total = sum(finishing)
         f_kid_total, m_kid_total = sum(f_kid), sum(m_kid)
         f_wea_total, m_wea_total = sum(f_weaner), sum(m_weaner)
         f_gro_total, m_gro_total = sum(f_grower), sum(m_grower)
+        held_total = sum(held_males.values())
         if dairy_mode:
             # ``lact`` is a milking overlay of the same does: the distinct
-            # animals are the state pools; the overlay partitions them into
-            # milking (lactation ration) and dry (pregnant/close-up ration,
-            # settling does on maintenance).
+            # animals are the state pools plus the finishing pen; the overlay
+            # partitions them into milking (lactation ration) and dry
+            # (pregnant/close-up ration, settling does on maintenance).
             does_state_total = open_total + preg_total
-            milking_does = min(lact_total, does_state_total)
+            milking_does = min(lact_total, does_state_total + finishing_total)
             settling_total = sum(settling)
-            dry_does = max(0.0, does_state_total - milking_does - settling_total)
+            dry_does = max(
+                0.0, does_state_total + finishing_total - milking_does - settling_total
+            )
             total_herd = (
                 f_kid_total
                 + m_kid_total
@@ -966,7 +1227,9 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 + m_wea_total
                 + f_gro_total
                 + m_gro_total
+                + held_total
                 + does_state_total
+                + finishing_total
                 + bucks
             )
         else:
@@ -980,6 +1243,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 + m_wea_total
                 + f_gro_total
                 + m_gro_total
+                + held_total
                 + open_total
                 + preg_total
                 + lact_total
@@ -990,25 +1254,43 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             [
                 *[
                     class_feed(
-                        f_count + m_count,
+                        f_count,
                         weight_at_age(age, g, doe_w),
                         feed.dmi_kid_creep,
                         feed.concentrate_share_kid_creep,
                         feed,
                     )
-                    for age, (f_count, m_count) in enumerate(zip(f_kid, m_kid, strict=True))
+                    for age, f_count in enumerate(f_kid)
                 ],
                 *[
                     class_feed(
-                        f_count + m_count,
+                        m_count,
+                        male_weight_at_age(age, g, buck_w),
+                        feed.dmi_kid_creep,
+                        feed.concentrate_share_kid_creep,
+                        feed,
+                    )
+                    for age, m_count in enumerate(m_kid)
+                ],
+                *[
+                    class_feed(
+                        f_count,
                         weight_at_age(age, g, doe_w),
                         feed.dmi_weaner,
                         feed.concentrate_share_weaner,
                         feed,
                     )
-                    for age, (f_count, m_count) in enumerate(
-                        zip(f_weaner, m_weaner, strict=True), start=3
+                    for age, f_count in enumerate(f_weaner, start=3)
+                ],
+                *[
+                    class_feed(
+                        m_count,
+                        male_weight_at_age(age, g, buck_w),
+                        feed.dmi_weaner,
+                        feed.concentrate_share_weaner,
+                        feed,
                     )
+                    for age, m_count in enumerate(m_weaner, start=3)
                 ],
                 *[
                     class_feed(
@@ -1023,7 +1305,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 *[
                     class_feed(
                         count,
-                        weight_at_age(age, g, buck_w),
+                        male_weight_at_age(age, g, buck_w),
                         feed.dmi_grower,
                         feed.concentrate_share_grower,
                         feed,
@@ -1083,6 +1365,18 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     ]
                 ),
                 class_feed(bucks, buck_w, feed.dmi_buck, feed.concentrate_share_buck, feed),
+                *[
+                    # Held-for-festival males eat the grower ration while they
+                    # finish into the festival month.
+                    class_feed(
+                        count,
+                        male_weight_at_age(age, g, buck_w),
+                        feed.dmi_grower,
+                        feed.concentrate_share_grower,
+                        feed,
+                    )
+                    for age, count in held_males.items()
+                ],
             ]
         )
 
@@ -1156,8 +1450,14 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             * (shocks.milk_yield[shock_index] if shocks.milk_yield else 1.0)
         )
         milk_revenue = milk_litres_month * milk_price_month
+        # Manure and insurance cover every adult doe on the place, including
+        # the finishing pen (they are still eating and producing).
+        all_does_now = does_now + finishing_total
         manure_revenue = (
-            (does_now + bucks) * sales.manure_income_per_adult_per_year * livestock_growth / 12.0
+            (all_does_now + bucks)
+            * sales.manure_income_per_adult_per_year
+            * livestock_growth
+            / 12.0
         )
         operating_cost_growth = (
             annual_growth_multiplier(costs.operating_cost_growth_rate_annual, month)
@@ -1173,25 +1473,27 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             else 0.0
         )
         young_value_kg = (
-            sum(
-                (f_count + m_count) * weight_at_age(age, g, doe_w)
-                for age, (f_count, m_count) in enumerate(zip(f_kid, m_kid, strict=True))
+            sum(f_count * weight_at_age(age, g, doe_w) for age, f_count in enumerate(f_kid))
+            + sum(m_count * male_weight_at_age(age, g, buck_w) for age, m_count in enumerate(m_kid))
+            + sum(
+                f_count * weight_at_age(age, g, doe_w)
+                for age, f_count in enumerate(f_weaner, start=3)
             )
             + sum(
-                (f_count + m_count) * weight_at_age(age, g, doe_w)
-                for age, (f_count, m_count) in enumerate(
-                    zip(f_weaner, m_weaner, strict=True), start=3
-                )
+                m_count * male_weight_at_age(age, g, buck_w)
+                for age, m_count in enumerate(m_weaner, start=3)
             )
             + sum(
                 count * weight_at_age(age, g, doe_w) for age, count in enumerate(f_grower, start=6)
             )
             + sum(
-                count * weight_at_age(age, g, buck_w) for age, count in enumerate(m_grower, start=6)
+                count * male_weight_at_age(age, g, buck_w)
+                for age, count in enumerate(m_grower, start=6)
             )
+            + sum(count * male_weight_at_age(age, g, buck_w) for age, count in held_males.items())
         )
         stock_value = (
-            does_now * doe_purchase_price
+            all_does_now * doe_purchase_price
             + bucks * buck_purchase_price
             # Young stock insured at this month's market value (Eid uplift included).
             + young_value_kg * meat_price
@@ -1557,10 +1859,24 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         ],
     ]
 
-    dscr_per_year = [
-        ((row.ebitda - row.tax) / row.debt_service) if row.debt_service > 0.0 else 0.0
-        for row in annual_pl
-    ]
+    # DSCR measures operating coverage of debt service. When the loan term
+    # outlives the horizon, the closing balance charged in the final month is
+    # a refinancing event, not an operating failure — including it collapsed
+    # the final year's ratio (0.9 → 0.2 in a term-180 run) and overstated
+    # prob_dscr_below_one. The balloon stays in debt service, cash flow and
+    # NPV; DSCR alone excludes it.
+    horizon_year = (horizon + 11) // 12
+
+    def _operating_debt_service(row: AnnualPLRow) -> float:
+        debt = row.debt_service
+        if row.year == horizon_year:
+            debt -= terminal_balance
+        return max(debt, 0.0)
+
+    dscr_per_year = []
+    for row in annual_pl:
+        op_debt = _operating_debt_service(row)
+        dscr_per_year.append(((row.ebitda - row.tax) / op_debt) if op_debt > 0.0 else 0.0)
     active_dscr = [
         value for value, row in zip(dscr_per_year, annual_pl, strict=True) if row.debt_service > 0.0
     ]

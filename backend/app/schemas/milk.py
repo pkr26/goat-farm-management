@@ -20,6 +20,10 @@ class MilkRecordIn(StrictInputModel):
     # biology. The DB CHECK mirrors these bounds.
     fat_pct: float | None = Field(default=None, ge=3, le=12)
     notes: PostgresText | None = Field(default=None, max_length=255)
+    # Required when this submission replaces an already-recorded milking: the
+    # correction is written beside the frozen original reading, so a silent
+    # re-keying can never overwrite parlour history without a stated reason.
+    correction_reason: PostgresText | None = Field(default=None, max_length=255)
 
 
 class MilkRecordOut(BaseModel):
@@ -34,6 +38,15 @@ class MilkRecordOut(BaseModel):
     notes: str | None
     created_at: datetime
     animal_tag: str | None = None
+    # Correction audit: the first submitted reading (kept across repeated
+    # corrections) and the latest correction's reason/time. All None while
+    # the row has never been corrected.
+    original_litres: float | None = None
+    original_fat_pct: float | None = None
+    original_notes: str | None = None
+    original_recorded_by_id: int | None = None
+    corrected_at: datetime | None = None
+    correction_reason: str | None = None
 
 
 class MilkListOut(BaseModel):
@@ -49,6 +62,7 @@ class MilkDayTotalOut(BaseModel):
     date: date
     litres: float
     recorded_animals: int
+    # Litre-weighted mean over the fat-tested milk of that day.
     avg_fat_pct: float | None
 
 
@@ -58,6 +72,7 @@ class MilkAnimalSummaryOut(BaseModel):
     total_litres: float
     avg_daily_litres: float
     days_recorded: int
+    # Litre-weighted mean over the animal's fat-tested milk in the window.
     avg_fat_pct: float | None
 
 
@@ -69,4 +84,8 @@ class MilkSummaryOut(BaseModel):
     avg_daily_litres: float
     avg_fat_pct: float | None
     daily: list[MilkDayTotalOut]
+    # Per-animal rows are capped (the parlour board renders a bounded list);
+    # this is every animal with records in the window so callers can tell a
+    # complete herd from a truncated one.
+    animals_total: int
     animals: list[MilkAnimalSummaryOut]

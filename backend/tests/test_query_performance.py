@@ -604,7 +604,7 @@ async def test_finance_totals_ignore_filters(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     for payload in (
         {"type": "INCOME", "category": "ANIMAL_SALE", "amount": 9000.0},
-        {"type": "INCOME", "category": "MILK", "amount": 500.5},
+        {"type": "INCOME", "category": "MANURE", "amount": 500.5},
         {"type": "EXPENSE", "category": "FEED", "amount": 1200.25},
     ):
         resp = await client.post(

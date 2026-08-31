@@ -319,6 +319,9 @@ async def test_zero_flow_run_serializes_null_bcr_irr(client: httpx.AsyncClient) 
         "equipment_cost_per_animal": 0,
     }
     assumptions["finance"] |= {"loan_fraction_of_project_cost": 0, "working_capital_months": 0}
+    # The default now grows fodder (3 acres): cultivation is charged on what
+    # is GROWN, so a zero-flow run must zero the acreage too.
+    assumptions["feed"] |= {"cultivated_fodder_acres": 0}
     resp = await client.post(
         "/api/simulation/run", json={"assumptions": assumptions}, headers=headers
     )

@@ -25,6 +25,23 @@ def _pct(fraction: float) -> str:
     return f"{fraction * 100:.1f}%"
 
 
+def _inr_per_kg(value: float) -> str:
+    """₹ per kg with Indian digit grouping (e.g. ₹1,23,456/kg), matching the
+    money formatter the frontend renders these narratives with."""
+    digits = f"{abs(value):.0f}"
+    sign = "-" if value < 0 else ""
+    if len(digits) <= 3:
+        return f"{sign}₹{digits}/kg"
+    head, tail = digits[:-3], digits[-3:]
+    groups: list[str] = []
+    while len(head) > 2:
+        groups.append(head[-2:])
+        head = head[:-2]
+    if head:
+        groups.append(head)
+    return f"{sign}₹{','.join([*reversed(groups), tail])}/kg"
+
+
 def _share(part: float, total: float) -> str:
     """'part of total' as a percentage string; '—' when total is zero."""
     return _pct(part / total) if total > 0.0 else "—"
@@ -172,12 +189,15 @@ def build_metric_explanations(
         f"Net present value: every month's net cash flow, including the recoverable closing "
         f"assets of {_inr(m.terminal_value)}, is discounted to today at "
         f"{_pct(fin.discount_rate_annual)} per year, and the {_inr(m.equity)} equity outflow "
-        f"is subtracted. "
+        f"is subtracted. These are levered, equity-holder flows — debt service is a cost and "
+        f"only your share of the project is invested — so the figure measures the return on "
+        f"your equity, not the whole project's unlevered return. "
     )
     if m.npv > 0.0:
         npv_text = (
             f"{npv_method}A positive NPV of {_inr(m.npv)} means the project creates that much "
-            f"wealth over and above a {_pct(fin.discount_rate_annual)} annual return."
+            f"wealth for the equity holder over and above a {_pct(fin.discount_rate_annual)} "
+            f"annual return."
         )
     elif m.npv == 0.0:
         npv_text = (
@@ -250,8 +270,10 @@ def build_metric_explanations(
                 f"Present value of gross operating revenue plus terminal recovery divided by "
                 f"the present value of equity, operating cost, tax and debt service: {m.bcr:.2f}. "
                 f"Above 1.0 the project earns more than it costs (at the "
-                f"{_pct(fin.discount_rate_annual)} discount rate); use your lender's own "
-                f"required threshold for approval."
+                f"{_pct(fin.discount_rate_annual)} discount rate). This is an equity-holder "
+                f"ratio (the loan is a cost, not a benefit), so it runs lower than the "
+                f"total-investment BCR a lender computes and cannot be compared directly "
+                f"with a bank's customary 1.5 benchmark."
                 if m.bcr is not None
                 else "Benefit-cost ratio is undefined because the project has no "
                 "discounted costs at all (e.g. a fully subsidised, immediately "
@@ -412,6 +434,14 @@ def build_metric_explanations(
             ),
         ]
     )
+    # Payback is undiscounted, and when it lands in the final month it is
+    # usually the terminal recovery (herd + facilities + working capital)
+    # closing the gap — say so, or a lifetime of losses reads as "paid back".
+    terminal_driven = (
+        m.payback_month == a.meta.horizon_months
+        and m.payback_month > 1
+        and result.months[m.payback_month - 2].cumulative_cash_flow < 0.0
+    )
     out.append(
         MetricExplanation(
             key="payback_month",
@@ -419,11 +449,22 @@ def build_metric_explanations(
             explanation=(
                 f"Cumulative cash flow first covers your {_inr(m.equity)} equity in "
                 f"{_year_of(m.payback_month)}."
+                + (
+                    " Recovery arrives only in the final month, and it is the terminal "
+                    f"value of the closing assets ({_inr(m.terminal_value)}) — not operating "
+                    "cash — that closes the gap: this is a payback by liquidation."
+                    if terminal_driven
+                    else ""
+                )
                 if m.payback_month is not None
                 else f"Cumulative cash flow never covers your {_inr(m.equity)} equity within "
                 f"the {a.meta.horizon_months}-month horizon."
             ),
-            figures={"payback_month": m.payback_month, "equity": m.equity},
+            figures={
+                "payback_month": m.payback_month,
+                "equity": m.equity,
+                "terminal_driven": 1.0 if terminal_driven else 0.0,
+            },
         )
     )
     be = m.break_even_meat_price_per_kg
@@ -450,17 +491,17 @@ def build_metric_explanations(
     elif assumed <= 0.0:
         margin = None
         be_text = (
-            f"Meat must rise to ₹{be:,.0f}/kg for the project to break even; the current "
+            f"Meat must rise to {_inr_per_kg(be)} for the project to break even; the current "
             "assumption is ₹0/kg, so a percentage safety margin is not defined."
         )
     else:
         margin = (assumed - be) / assumed
         be_text = (
-            f"Meat can fall to ₹{be:,.0f}/kg before the project's NPV turns negative. "
-            f"Your assumed price is ₹{assumed:,.0f}/kg — a safety margin of {_pct(margin)}."
+            f"Meat can fall to {_inr_per_kg(be)} before the project's NPV turns negative. "
+            f"Your assumed price is {_inr_per_kg(assumed)} — a safety margin of {_pct(margin)}."
             if margin >= 0.0
-            else f"Meat must rise to ₹{be:,.0f}/kg for the project to break even; your "
-            f"assumed price of ₹{assumed:,.0f}/kg is {_pct(-margin)} too low."
+            else f"Meat must rise to {_inr_per_kg(be)} for the project to break even; your "
+            f"assumed price of {_inr_per_kg(assumed)} is {_pct(-margin)} too low."
         )
     out.append(
         MetricExplanation(
@@ -813,7 +854,10 @@ def build_narrative_report(
             f"averages {_inr(mc.npv_mean)} "
             f"with a 90% range of {_inr(mc.npv_p5)} to {_inr(mc.npv_p95)}. The project "
             f"loses money in {_pct(mc.prob_npv_negative)} of runs and runs short of operating "
-            f"cash in {_pct(mc.prob_liquidity_shortfall)}."
+            f"cash in {_pct(mc.prob_liquidity_shortfall)}. Every risk path also draws disease, "
+            f"drought and market-crash events, so this distribution sits below the headline "
+            f"(no-disaster) figures — compare runs against each other, not against the "
+            f"deterministic base case."
         )
         risk_figures.update(
             {

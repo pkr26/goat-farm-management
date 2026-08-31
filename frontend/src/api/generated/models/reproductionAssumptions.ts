@@ -49,4 +49,24 @@ export interface ReproductionAssumptions {
      * @maximum 0.5
      */
   stillbirth_rate?: number;
+  /**
+     * @minimum 0
+     * @maximum 6
+     */
+  sexed_semen_services?: number;
+  /**
+     * @minimum 0.5
+     * @maximum 1
+     */
+  sexed_female_fraction?: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  sexed_conception_multiplier?: number;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  max_services_before_cull?: number;
 }

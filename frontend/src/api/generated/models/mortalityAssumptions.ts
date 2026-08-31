@@ -6,7 +6,17 @@
  */
 
 /**
- * Annual mortality fractions per class (converted to monthly compounding rates).
+ * Mortality fractions per class.
+ *
+ * ``kid_pre_weaning`` and ``kid_post_weaning`` are WHOLE-PHASE rates: the
+ * fraction of a crop lost across the entire 3-month kid (0-2 m) / weaner
+ * (3-5 m) class, which is how the literature quotes them (5-15% pre-weaning
+ * stall-fed; NABARD bankable models use 15%). The engine spreads each rate
+ * over exactly its three monthly slots, so a documented 10% removes 10% of
+ * the crop — not the 2.6% an annual-rate conversion over three months
+ * realized. ``grower`` and ``adult`` are ANNUAL rates (compounded monthly):
+ * those classes have breed-dependent, open-ended durations, and survivors
+ * stay in them indefinitely.
  */
 export interface MortalityAssumptions {
   /**

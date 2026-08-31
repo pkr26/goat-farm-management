@@ -24,10 +24,24 @@ from ..models import (
     WeightRecord,
 )
 from ..schemas.simulation import CalibrationEvidence, FarmCalibrationOut
-from ..simulation.assumptions import MAX_MONEY, MAX_WEIGHT_KG, SimulationAssumptions
+from ..simulation.assumptions import (
+    MAX_MONEY,
+    MAX_WEIGHT_KG,
+    SimulationAssumptions,
+    _normalized_seasonality,
+)
 from ..simulation.defaults import System, get_preset
 from ..simulation.engine import _ceil_head_ratio
+from ..simulation.market import BAKRID_DATES_BY_YEAR, bakrid_festival_months
 from ..utils import add_months, today
+
+
+def _is_bakrid_month(observed: date) -> bool:
+    """Whether a sale date's (year, month) contains Bakrid per the embedded
+    lunar calendar — used to deflate festival-premium observations back to the
+    plain market level the engine's uplift will re-apply."""
+    festival_month = BAKRID_DATES_BY_YEAR.get(observed.year)
+    return festival_month is not None and festival_month[0] == observed.month
 
 type CalibrationValue = int | float | list[float]
 _MAX_HISTORY_ROWS = 20_000
@@ -189,6 +203,14 @@ async def calibrate_farm_assumptions(
     period_start = add_months(reference_date, -lookback_months)
     assumptions = get_preset(breed, system).model_copy(deep=True)
     assumptions.meta.start_year_month = reference_date.strftime("%Y-%m")
+    if assumptions.sales.festival_sale_months:
+        # The preset fills the Bakrid calendar for its own default start; the
+        # calibrated run starts today, so re-anchor the lunar months or the
+        # uplift keeps firing on the preset's Gregorian months (observed as
+        # festival indices landing months away from any actual Bakrid).
+        assumptions.sales.festival_sale_months = bakrid_festival_months(
+            assumptions.meta.start_year_month, assumptions.meta.horizon_months
+        )
     evidence: list[CalibrationEvidence] = []
     warnings: list[str] = []
 
@@ -523,10 +545,20 @@ async def calibrate_farm_assumptions(
             "kidding_records/kid_entries",
         )
         gestation_days = [(kidding - breeding).days for kidding, breeding in kidding_meta.values()]
-        valid_gestations = [days for days in gestation_days if 90 <= days <= 220]
+        # Species-aware plausibility window: the old 90-220-day filter with a
+        # 7-month cap could never calibrate a buffalo (~310-day gestation) and
+        # silently kept the preset value instead.
+        dairy_species = assumptions.sales.lactation_milk_litres > 0.0
+        gestation_lo_days, gestation_hi_days = (280, 345) if dairy_species else (90, 220)
+        gestation_cap_months = 12 if dairy_species else 7
+        valid_gestations = [
+            days for days in gestation_days if gestation_lo_days <= days <= gestation_hi_days
+        ]
         if valid_gestations:
             previous_gestation = assumptions.reproduction.gestation_months
-            calibrated_gestation = min(7, max(1, round(median(valid_gestations) / 30.44)))
+            calibrated_gestation = min(
+                gestation_cap_months, max(1, round(median(valid_gestations) / 30.44))
+            )
             assumptions.reproduction.gestation_months = calibrated_gestation
             record(
                 "reproduction.gestation_months",
@@ -801,34 +833,60 @@ async def calibrate_farm_assumptions(
             )
     if len(sale_prices_per_kg) >= 5:
         sale_previous = assumptions.sales.meat_price_per_kg
-        sale_calibrated = min(MAX_MONEY, median([price for _sold_on, price in sale_prices_per_kg]))
+        # Observed Bakrid-month prices already embed the festival premium the
+        # engine will re-apply through festival_sale_months — deflate those
+        # observations back to the plain market level before deriving the
+        # base price and the seasonal curve, or the premium counts twice.
+        # Only when the run will actually apply festival pricing (a dairy
+        # preset carries an explicit empty festival list and would never
+        # re-add the premium — deflating it there just biased the base price
+        # down ~26% on Bakrid-month observations for nothing).
+        festival_active = bool(assumptions.sales.festival_sale_months) or (
+            assumptions.sales.eid_month > 0
+        )
+        festival_deflator = 1.0 / (1.0 + assumptions.sales.eid_price_uplift)
+
+        def _deflated(sold_on: date, price: float) -> float:
+            if festival_active and _is_bakrid_month(sold_on):
+                return price * festival_deflator
+            return price
+
+        deflated_prices = [
+            (sold_on, _deflated(sold_on, price)) for sold_on, price in sale_prices_per_kg
+        ]
+        sale_calibrated = min(MAX_MONEY, median([price for _sold_on, price in deflated_prices]))
         assumptions.sales.meat_price_per_kg = sale_calibrated
         record(
             "sales.meat_price_per_kg",
             sale_previous,
             sale_calibrated,
             len(sale_prices_per_kg),
-            "Median sale amount divided by latest pre-sale recorded live weight",
+            "Median sale amount divided by latest pre-sale recorded live weight "
+            "(Bakrid-month observations deflated to the plain market level when "
+            "festival pricing will re-apply the premium)",
             "animals/weight_records",
         )
         by_month: dict[int, list[float]] = defaultdict(list)
-        for sold_on, price in sale_prices_per_kg:
+        for sold_on, price in deflated_prices:
             by_month[sold_on.month].append(price)
         if len(sale_prices_per_kg) >= 12 and len(by_month) >= 4 and sale_calibrated > 0.0:
             previous_curve = list(assumptions.sales.monthly_meat_price_multipliers)
-            curve = [
-                _clamp(median(by_month[month]) / sale_calibrated, 0.25, 4.0)
-                if month in by_month
-                else 1.0
+            raw_curve = [
+                median(by_month[month]) / sale_calibrated if month in by_month else 1.0
                 for month in range(1, 13)
             ]
+            # Renormalise to mean exactly 1.0: the base price is the annual
+            # mean, and a curve averaging 0.9 silently redefines it as a
+            # peak-month price (the same fix the schema default factory makes).
+            curve = _normalized_seasonality([_clamp(value, 0.25, 4.0) for value in raw_curve])
             assumptions.sales.monthly_meat_price_multipliers = curve
             record(
                 "sales.monthly_meat_price_multipliers",
                 previous_curve,
                 curve,
                 len(sale_prices_per_kg),
-                "Calendar-month median live-weight price divided by overall median",
+                "Calendar-month median live-weight price divided by overall median "
+                "(festival-deflated, renormalised to mean 1.0)",
                 "animals/weight_records",
             )
     for values, field_name in (

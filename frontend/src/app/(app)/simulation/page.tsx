@@ -116,7 +116,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { formatFarmDateTime, formatMoney } from "@/lib/format";
+import { formatFarmDateTime, formatLitres, formatMoney } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -175,11 +175,15 @@ const INTEGER_FIELDS = new Set([
   "reproduction.lactation_months",
   "reproduction.months_open_before_breeding",
   "reproduction.age_at_first_breeding_months",
+  "reproduction.sexed_semen_services",
+  "reproduction.max_services_before_cull",
   "culling.max_doe_age_months",
   "culling.buck_rotation_years",
   "culling.buck_doe_ratio",
   "growth.sale_age_months",
+  "growth.adult_weight_age_months",
   "sales.eid_month",
+  "sales.festival_hold_months",
   "costs.labour_per_head_threshold",
   "costs.planned_capacity_head",
   "costs.shed_useful_life_years",
@@ -209,20 +213,32 @@ const FIELD_BOUNDS: Record<
   "reproduction.litter_size": { min: 0.5, max: 4 },
   "reproduction.age_at_first_breeding_months": { min: 6, max: 30 },
   "reproduction.stillbirth_rate": { min: 0, max: 0.5 },
+  // Sexed-semen dairy levers. They arrive with the next contract regen; the
+  // record is plain, so listing them now costs nothing and the bounds are
+  // ready the moment the defaults payload starts carrying the keys.
+  "reproduction.sexed_semen_services": { min: 0, max: 6 },
+  "reproduction.sexed_female_fraction": { min: 0.5, max: 1 },
+  "reproduction.sexed_conception_multiplier": { exclusiveMin: 0, max: 1 },
+  "reproduction.max_services_before_cull": { min: 0, max: 12 },
   "culling.max_doe_age_months": { min: 36, max: 180 },
   "culling.buck_rotation_years": { min: 1, max: 10 },
   "culling.buck_doe_ratio": { min: 1, max: 100 },
   "growth.birth_weight_kg": { exclusiveMin: 0, max: 1000 },
   "growth.adult_weight_doe_kg": { exclusiveMin: 0, max: 1000 },
   "growth.adult_weight_buck_kg": { exclusiveMin: 0, max: 1000 },
+  "growth.adult_weight_age_months": { min: 13, max: 120 },
+  "growth.young_male_weight_premium": { min: 0, max: 0.5 },
   "growth.sale_age_months": { min: 6, max: 24 },
   "sales.eid_month": { min: 0, max: 12 },
+  "sales.festival_hold_months": { min: 0, max: 12 },
   "sales.eid_price_uplift": { min: 0, max: 2 },
   "sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },
   "sales.selling_cost_fraction": { min: 0, max: 0.5 },
   "sales.lactation_milk_litres": { min: 0, max: 100_000 },
   "sales.milk_fat_pct": { min: 0, max: 12 },
   "sales.milk_price_per_kg_fat": { min: 0, max: 100_000 },
+  "sales.milk_persistency_monthly": { min: 0.5, max: 1 },
+  "sales.milk_peak_day": { min: 1, max: 365 },
   "sales.male_calf_price_per_head": { min: 0, max: 1_000_000 },
   // The sales money heuristic below only matches "price"/"income", so this is
   // the one money field on the form that would otherwise reach the API with no
@@ -268,6 +284,7 @@ const FIELD_BOUNDS: Record<
   "risk.disease_adult_mortality_multiplier": { min: 1, max: 20 },
   "risk.disease_kid_mortality_multiplier": { min: 1, max: 20 },
   "risk.disease_conception_multiplier": { exclusiveMin: 0, max: 1 },
+  "risk.disease_milk_yield_multiplier": { exclusiveMin: 0, max: 1 },
   "risk.drought_probability_annual": { min: 0, max: 1 },
   "risk.drought_duration_months": { min: 1, max: 24 },
   "risk.drought_fodder_yield_multiplier": { exclusiveMin: 0, max: 1 },
@@ -302,6 +319,13 @@ const FIELD_UNITS: Record<string, string> = {
   // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
   // heuristic chain's trailing `ratio` test would otherwise caption it one.
   "culling.buck_doe_ratio": "does per buck",
+  // Sexed-semen dairy levers (next contract regen — see FIELD_BOUNDS).
+  "reproduction.sexed_semen_services": "services",
+  "reproduction.sexed_female_fraction": "%",
+  "reproduction.sexed_conception_multiplier": "×",
+  "reproduction.max_services_before_cull": "services; 0 = off",
+  "growth.young_male_weight_premium": "%",
+  "sales.festival_hold_months": "months; 0 = sell at finish",
   "optimization.maximum_project_cost": "₹",
   "optimization.maximum_funding_gap": "₹",
   // Fractions and multipliers whose names also contain a money or duration
@@ -315,6 +339,7 @@ const FIELD_UNITS: Record<string, string> = {
   "sales.milk_price_per_kg_fat": "₹/kg fat",
   "sales.milk_price_per_litre": "₹/litre",
   "sales.milk_persistency_monthly": "fraction of prior month",
+  "sales.milk_peak_day": "days into lactation",
   "sales.annual_milk_price_growth_rate": "fraction",
   "sales.male_calf_sell_at_birth_fraction": "fraction",
   "sales.male_calf_price_per_head": "₹/head",
@@ -330,6 +355,7 @@ const FIELD_UNITS: Record<string, string> = {
   "risk.disease_adult_mortality_multiplier": "multiplier",
   "risk.disease_kid_mortality_multiplier": "multiplier",
   "risk.disease_conception_multiplier": "multiplier",
+  "risk.disease_milk_yield_multiplier": "multiplier",
   "risk.drought_fodder_yield_multiplier": "multiplier",
   "risk.drought_feed_price_multiplier": "multiplier",
   "risk.market_crash_price_multiplier": "multiplier",
@@ -577,15 +603,18 @@ function formatFigure(key: string, value: number | string): string {
   // Fraction- and duration-shaped keys are settled first: the money pattern
   // matches on substrings ("loan", "subsidy"), so loan_fraction (0.85),
   // subsidy_fraction (0.0) and loan_term_months (72) would render as rupees.
-  if (/_fraction$|_margin$/.test(key) || /rate|irr|percent|pct|prob/i.test(key))
+  // festival_uplift is the backend's 0-1 share of the same uplift its
+  // narrative already spells as a percentage.
+  if (/_fraction$|_margin$|_uplift$/.test(key) || /rate|irr|percent|pct|prob/i.test(key))
     return formatPercent(value);
   const isDuration = /_months?$|_years$|_runs$/.test(key);
   // terminal_value, tax_total and *_profit_total are rupee figures that share
   // no substring with the money vocabulary above; without them the explain
-  // dialog printed a bare 150000 next to "Livestock ₹1,00,000".
+  // dialog printed a bare 150000 next to "Livestock ₹1,00,000". total_opex
+  // and ebitda_total are the same kind of money total.
   if (
     !isDuration &&
-    /cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash|terminal_value|tax_total|profit/i.test(
+    /cost|price|amount|npv|equity|loan|subsidy|capital|shed|equipment|stock|revenue|cash|terminal_value|tax_total|profit|opex|ebitda/i.test(
       key,
     )
   )
@@ -634,13 +663,6 @@ function formatHead(value: number | null | undefined): string {
   return value === null || value === undefined || !Number.isFinite(value)
     ? "—"
     : value.toFixed(1);
-}
-
-/** Daily tank volumes: whole litres, Indian digit grouping. */
-function formatLitres(value: number | null | undefined): string {
-  return value === null || value === undefined || !Number.isFinite(value)
-    ? "—"
-    : Math.round(value).toLocaleString("en-IN");
 }
 
 function formatCalibrationValue(value: CalibrationEvidence["calibrated_value"]): string {
@@ -3456,7 +3478,11 @@ export default function SimulationPage() {
           <EmptyState
             icon={Target}
             title="No sale targets"
-            description="Plan 12–24 months ahead: a goat sold in month T was born around T−10 and conceived around T−15."
+            description={
+              isDairyScenario
+                ? "Plan 12–24 months ahead. The sale planner is primarily a meat-herd tool — on a dairy it fits cull and surplus-animal sales, while milk income follows the lactation curve."
+                : "Plan 12–24 months ahead: a goat sold in month T was born around T−10 and conceived around T−15."
+            }
           />
         ) : (
           <Table>

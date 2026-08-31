@@ -9,9 +9,13 @@
  * Live-weight curve and sale-age policy.
  *
  * ``weight_by_age_months`` gives live weight (kg) at ages 0..12 months; from
- * month 13 the curve approaches the adult weight linearly, reaching it at 24
- * months. Default table is an Osmanabadi stall-fed curve (2.5 kg birth weight,
- * ~2 kg/month pre-yearling gain) per ICAR/NBAGR breed descriptors.
+ * month 13 the curve approaches the adult weight linearly, reaching it at
+ * ``adult_weight_age_months``. The default table is a decelerating Osmanabadi
+ * stall-fed curve anchored on recorded field weights — fast pre-weaning gain
+ * on dam's milk (~3.2 kg/mo to ~12 kg at 3 m), then slowing to a ~20.5 kg
+ * yearling (ICAR-AICRP/NARI field unit: 12.1 kg @ 3 m, 17.0 @ 6 m; Raskar
+ * 2018 semi-intensive yearling 19.6 kg) — NOT the old flat 2 kg/month line
+ * that under-weighted kids ~30% and over-weighted yearlings ~25-35%.
  */
 export interface GrowthAssumptions {
   /**
@@ -36,6 +40,16 @@ export interface GrowthAssumptions {
      * @items.exclusiveMinimum 0
      */
   weight_by_age_months?: number[];
+  /**
+     * @minimum 13
+     * @maximum 120
+     */
+  adult_weight_age_months?: number;
+  /**
+     * @minimum 0
+     * @maximum 0.5
+     */
+  young_male_weight_premium?: number;
   /**
      * @minimum 6
      * @maximum 24

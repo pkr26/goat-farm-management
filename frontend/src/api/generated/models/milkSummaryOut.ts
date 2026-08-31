@@ -16,5 +16,6 @@ export interface MilkSummaryOut {
   avg_daily_litres: number;
   avg_fat_pct: number | null;
   daily: MilkDayTotalOut[];
+  animals_total: number;
   animals: MilkAnimalSummaryOut[];
 }

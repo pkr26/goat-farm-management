@@ -33,7 +33,7 @@ from app.models import (
 )
 from app.utils import add_months, today, utcnow
 
-from .conftest import owner_with_farm, register
+from .conftest import create_farm, owner_with_farm, register
 
 WORKER_PW = "workerpass123"
 
@@ -80,6 +80,12 @@ async def add_txn(client: httpx.AsyncClient, headers: dict, **overrides: object)
     resp = await client.post("/api/finance/new", json=txn_payload(**overrides), headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+async def dairy_owner(client: httpx.AsyncClient, email: str = "finance-dairy@farm.in") -> dict:
+    """A buffalo dairy farm: the only farm type that may book MILK rows."""
+    headers = await register(client, email)
+    return await create_farm(client, headers, "Dairy Ledger Farm", farm_type="BUFFALO_DAIRY")
 
 
 def correction_payload(**overrides: object) -> dict:
@@ -290,7 +296,9 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, role_id: int, e
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("category", ALL_CATEGORIES)
 async def test_create_income_every_category(client: httpx.AsyncClient, category: str) -> None:
-    owner = await owner_with_farm(client)
+    # A dairy farm: MILK income is gated to buffalo dairies, and this suite
+    # must keep proving all ten enum categories book as income somewhere.
+    owner = await dairy_owner(client)
     txn = await add_txn(client, owner, type="INCOME", category=category, amount=500.0)
     assert txn["type"] == "INCOME"
     assert txn["category"] == category
@@ -300,7 +308,7 @@ async def test_create_income_every_category(client: httpx.AsyncClient, category:
 
 @pytest.mark.parametrize("category", ALL_CATEGORIES)
 async def test_create_expense_every_category(client: httpx.AsyncClient, category: str) -> None:
-    owner = await owner_with_farm(client)
+    owner = await dairy_owner(client)
     txn = await add_txn(client, owner, type="EXPENSE", category=category, amount=750.5)
     assert txn["type"] == "EXPENSE"
     assert txn["category"] == category
@@ -1412,7 +1420,7 @@ async def test_correction_cannot_recategorise_a_sale_as_milk_income(
     resp = await client.post(
         f"/api/finance/transactions/{booked['id']}/correct",
         json=correction_payload(
-            type="INCOME", category="MILK", amount=4500.0, reason="Recategorise"
+            type="INCOME", category="MANURE", amount=4500.0, reason="Recategorise"
         ),
         headers=owner,
     )
@@ -1951,7 +1959,8 @@ async def test_health_event_date_correction_is_refused(client: httpx.AsyncClient
 async def test_totals_hand_computed(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     await add_txn(client, owner, type="INCOME", category="ANIMAL_SALE", amount=1000.0)
-    await add_txn(client, owner, type="INCOME", category="MILK", amount=2500.75)
+    # MANURE, not MILK: a goat (meat) farm cannot book dairy income.
+    await add_txn(client, owner, type="INCOME", category="MANURE", amount=2500.75)
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=499.25)
     await add_txn(client, owner, type="EXPENSE", category="VET", amount=1.0)
     data = await get_finance(client, owner)
@@ -1975,9 +1984,9 @@ async def test_totals_ignore_month_filter(client: httpx.AsyncClient) -> None:
 
 async def test_totals_ignore_type_and_category_filters(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    await add_txn(client, owner, type="INCOME", category="MILK", amount=100.0)
+    await add_txn(client, owner, type="INCOME", category="MANURE", amount=100.0)
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=40.0)
-    data = await get_finance(client, owner, type="INCOME", category="MILK")
+    data = await get_finance(client, owner, type="INCOME", category="MANURE")
     assert len(data["transactions"]) == 1
     assert data["total_income"] == 100.0
     assert data["total_expense"] == 40.0
@@ -2030,7 +2039,7 @@ async def test_month_filter_unpadded_month_matches(client: httpx.AsyncClient) ->
 
 async def test_type_filter(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    inc = await add_txn(client, owner, type="INCOME", category="MILK", amount=10.0)
+    inc = await add_txn(client, owner, type="INCOME", category="MANURE", amount=10.0)
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=20.0)
     data = await get_finance(client, owner, type="INCOME")
     assert [t["id"] for t in data["transactions"]] == [inc["id"]]
@@ -2116,7 +2125,7 @@ async def test_pnl_single_month_hand_computed(client: httpx.AsyncClient) -> None
     owner = await owner_with_farm(client)
     d = today().replace(day=1)
     await add_txn(client, owner, type="INCOME", category="ANIMAL_SALE", amount=1000.0, date=iso(d))
-    await add_txn(client, owner, type="INCOME", category="MILK", amount=500.5, date=iso(d))
+    await add_txn(client, owner, type="INCOME", category="MANURE", amount=500.5, date=iso(d))
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=200.25, date=iso(d))
     data = await get_finance(client, owner)
     assert len(data["pnl"]) == 12
@@ -2127,7 +2136,7 @@ async def test_pnl_single_month_hand_computed(client: httpx.AsyncClient) -> None
     assert row["net"] == 1300.25
     assert row["categories"] == {
         "ANIMAL_SALE": {"income": 1000.0, "expense": 0.0},
-        "MILK": {"income": 500.5, "expense": 0.0},
+        "MANURE": {"income": 500.5, "expense": 0.0},
         "FEED": {"income": 0.0, "expense": 200.25},
     }
 
@@ -2248,7 +2257,7 @@ async def test_death_creates_no_transaction(client: httpx.AsyncClient) -> None:
 async def test_finance_cross_farm_isolation(client: httpx.AsyncClient) -> None:
     owner_a = await owner_with_farm(client, email="a@farm.in", farm_name="Farm A")
     owner_b = await owner_with_farm(client, email="b@farm.in", farm_name="Farm B")
-    await add_txn(client, owner_a, type="INCOME", category="MILK", amount=111.0)
+    await add_txn(client, owner_a, type="INCOME", category="MANURE", amount=111.0)
     await add_txn(client, owner_b, type="EXPENSE", category="FEED", amount=222.0)
     data_a = await get_finance(client, owner_a)
     assert data_a["total_income"] == 111.0

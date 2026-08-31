@@ -73,6 +73,8 @@ import { cn } from "@/lib/utils";
 
 const CATEGORIES = Object.values(TransactionInCategory);
 const TYPES = Object.values(TransactionInType);
+/** Backend per-amount ceiling; the validation copy prints it Indian-grouped. */
+const MAX_AMOUNT = 1_000_000_000;
 /** Sentinel for "no filter / no selection" (empty string is not a valid item value). */
 const ALL = "all";
 const NONE = "none";
@@ -104,23 +106,12 @@ const txnSchema = z.object({
   type: z.enum([TransactionInType.INCOME, TransactionInType.EXPENSE]),
   // Derived from the generated enum so a new contract category is accepted
   // the moment the selects offer it (was a hand-copied list — L24).
-  category: z.enum([
-    TransactionInCategory.ANIMAL_SALE,
-    TransactionInCategory.ANIMAL_PURCHASE,
-    TransactionInCategory.FEED,
-    TransactionInCategory.MEDICINE,
-    TransactionInCategory.VET,
-    TransactionInCategory.LABOUR,
-    TransactionInCategory.EQUIPMENT,
-    TransactionInCategory.MILK,
-    TransactionInCategory.MANURE,
-    TransactionInCategory.OTHER,
-  ]),
+  category: z.nativeEnum(TransactionInCategory),
   amount: z.coerce
     .number()
     .positive("Amount must be greater than 0")
     .min(MIN_PERSISTED_MONEY, "Amount must be at least ₹0.005")
-    .max(1_000_000_000, "Amount cannot exceed ₹1,000,000,000"),
+    .max(MAX_AMOUNT, `Amount cannot exceed ${formatMoney(MAX_AMOUNT)}`),
   notes: z.string().max(255).optional(),
   related_animal_id: z.string().optional(),
 });
@@ -174,7 +165,7 @@ const correctionSchema = txnSchema.extend({
     z
       .number({ error: "Amount is required" })
       .nonnegative("Amount can't be negative")
-      .max(1_000_000_000, "Amount cannot exceed ₹1,000,000,000")
+      .max(MAX_AMOUNT, `Amount cannot exceed ${formatMoney(MAX_AMOUNT)}`)
       .refine(isPersistableNonnegativeMoney, MIN_PERSISTED_MONEY_MESSAGE),
   ),
   feed_quantity_kg: z.preprocess(

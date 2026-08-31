@@ -378,6 +378,36 @@ describe("SimulationPage metric explanations", () => {
       within(dialog).getByText("How Minimum DSCR was derived."),
     ).toBeInTheDocument();
   });
+
+  // REGRESSION — total_opex and ebitda_total share no substring with the
+  // explain dialog's money vocabulary (cost/price/amount/…), and
+  // festival_uplift is a 0-1 fraction; all three used to print bare
+  // ("1250000", "0.35") next to their grouped siblings.
+  it("groups money totals and prints uplift fractions as percentages", async () => {
+    const user = await renderWithResult({
+      ...RESULT,
+      metric_explanations: [
+        {
+          key: "npv",
+          title: "About NPV",
+          explanation: "How NPV was derived.",
+          figures: {
+            total_opex: 1250000,
+            ebitda_total: 640000,
+            festival_uplift: 0.35,
+          },
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Explain NPV" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("₹12,50,000")).toBeInTheDocument();
+    expect(within(dialog).getByText("₹6,40,000")).toBeInTheDocument();
+    expect(within(dialog).getByText("35.0%")).toBeInTheDocument();
+    expect(within(dialog).queryByText("1250000")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("0.35")).not.toBeInTheDocument();
+  });
 });
 
 describe("SimulationPage result tables", () => {

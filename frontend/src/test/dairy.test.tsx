@@ -93,8 +93,15 @@ describe("FarmSelectPage — farm type", () => {
 });
 
 describe("MilkPage", () => {
+  // The parlour is dairy-only: the page hides itself on a goat farm, so these
+  // tests run against the buffalo-dairy session.
+  const DAIRY_SESSION = {
+    farms: http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])),
+  };
+
   it("shows herd totals and per-buffalo averages from the summary", async () => {
     server.use(
+      DAIRY_SESSION.farms,
       http.get("/api/milk/summary", () =>
         HttpResponse.json({
           days: 30,
@@ -151,8 +158,9 @@ describe("MilkPage", () => {
 
   it("rejects an out-of-range litre entry before any request", async () => {
     const posts = vi.fn();
-    server.use(http.post("/api/milk/new", () => (posts(), HttpResponse.json({}, { status: 201 }))));
     server.use(
+      DAIRY_SESSION.farms,
+      http.post("/api/milk/new", () => (posts(), HttpResponse.json({}, { status: 201 }))),
       http.get("/api/milk", () =>
         HttpResponse.json({
           records: [],
@@ -169,9 +177,9 @@ describe("MilkPage", () => {
     await user.type(await screen.findByLabelText("Litres"), "250");
     await user.click(screen.getByRole("button", { name: "Record yield" }));
 
-    // No buffalo picked yet: the eligibility copy appears and nothing posts.
+    // No animal picked yet: the eligibility copy appears and nothing posts.
     expect(
-      await screen.findByText("Pick the buffalo this reading belongs to."),
+      await screen.findByText("Pick the milking buffalo this reading belongs to."),
     ).toBeInTheDocument();
     expect(posts).not.toHaveBeenCalled();
   });

@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .assumptions import MAX_HEAD, SimulationAssumptions
+from .assumptions import MAX_HEAD, ReproductionAssumptions, SimulationAssumptions
 from .engine import monthly_mortality_rate
 from .feed import DAYS_PER_MONTH
 from .lactation import curve_from_assumptions
@@ -198,10 +198,12 @@ def _simulate(
 ) -> list[_SimMonth]:
     """Expected-value monthly simulation of the dairy doe subsystem.
 
-    Pool progression, the milking overlay and the monthly compounding of
+    Pool progression, the milking overlay, the service-count breeding policy
+    (sexed semen / repeat-breeder culls), per-phase juvenile mortality,
+    max-age culling, the finishing pen and the monthly compounding of
     mortality/culling follow the engine's order and conventions exactly; the
-    differences are deliberate and documented in the module docstring
-    (in-milk purchases, heifer top-up toward the planned herd size).
+    deliberate differences are documented in the module docstring (in-milk
+    purchases, heifer top-up toward the planned herd size).
     """
     r = assumptions.reproduction
     herd = assumptions.herd
@@ -211,25 +213,65 @@ def _simulate(
     curve = curve_from_assumptions(sales, r.lactation_months)
     start_calendar = int(assumptions.meta.start_year_month.split("-")[1])
 
+    n_service_buckets = max(r.sexed_semen_services, r.max_services_before_cull, 1)
     waiting = [0.0] * r.months_open_before_breeding
-    ready = 0.0
+    svc = [0.0] * n_service_buckets
     preg = [0.0] * r.gestation_months
+    preg_female_fraction = [r.sex_ratio_female] * r.gestation_months
     lact = [0.0] * r.lactation_months
+    finishing = [0.0] * r.lactation_months
     heifers = [0.0] * max(1, r.age_at_first_breeding_months)
+    doe_ages = [0.0] * (cull.max_doe_age_months + 1)
+
+    def _spread_doe_ages(count: float) -> None:
+        if count <= 0.0:
+            return
+        age_ceiling = max(cull.max_doe_age_months - 12, 0)
+        span_lo = min(herd.foundation_doe_age_min_months, age_ceiling)
+        span_hi = max(span_lo, min(herd.foundation_doe_age_max_months, age_ceiling))
+        slots = list(range(span_lo, span_hi + 1)) or [span_lo]
+        for age in slots:
+            doe_ages[age] += count / len(slots)
+
+    def _cull_does(count: float) -> float:
+        """Engine semantics: culls leave the breeding pools now, keep milking
+        in the finishing pen, and are gone when their overlay dries off.
+        Returns the head that left entirely this month (no milk to finish)."""
+        nonlocal svc, waiting, preg, finishing, lact
+        if count <= 0.0:
+            return 0.0
+        pool_total = sum(svc) + sum(waiting) + sum(preg)
+        if pool_total <= 0.0:
+            return 0.0
+        factor = max(0.0, 1.0 - count / pool_total)
+        svc = [v * factor for v in svc]
+        waiting = [w * factor for w in waiting]
+        preg = [p * factor for p in preg]
+        lact_total = sum(lact)
+        if lact_total > 0.0:
+            for stage in range(len(finishing)):
+                finishing[stage] += count * lact[stage] / lact_total
+            return 0.0
+        return count
 
     # Existing starting herd, placed exactly as the engine would place it.
     if herd.does > 0:
+        _spread_doe_ages(float(herd.does))
         if herd.foundation_flock_state == "mixed":
-            ready += _place_across_cycle(float(herd.does), waiting, preg, lact, r.conception_rate)
+            svc[0] += _place_across_cycle(
+                float(herd.does), waiting, preg, lact, r.conception_rate
+            )
         else:  # "open": clean start, bred from month 1
-            ready += float(herd.does)
+            svc[0] += float(herd.does)
 
     # Procurement: in-milk animals at mixed stages, staged over the ramp.
     purchases_total = max(0.0, herd_target - float(herd.does))
     per_ramp_month = purchases_total / ramp_months if ramp_months > 0 else 0.0
 
-    s_kid = 1.0 - monthly_mortality_rate(mort.kid_pre_weaning)
-    s_weaner = 1.0 - monthly_mortality_rate(mort.kid_post_weaning)
+    from .engine import phase_monthly_mortality_rate
+
+    s_kid = 1.0 - phase_monthly_mortality_rate(mort.kid_pre_weaning, 3)
+    s_weaner = 1.0 - phase_monthly_mortality_rate(mort.kid_post_weaning, 3)
     s_grower = 1.0 - monthly_mortality_rate(mort.grower)
     s_adult = 1.0 - monthly_mortality_rate(mort.adult)
     monthly_cull_rate = monthly_mortality_rate(cull.doe_cull_rate_annual)
@@ -240,41 +282,47 @@ def _simulate(
 
         # Purchases (start of month, like engine events).
         if month <= ramp_months and per_ramp_month > 0.0:
-            ready += _place_across_cycle(per_ramp_month, waiting, preg, lact, r.conception_rate)
+            svc[0] += _place_across_cycle(
+                per_ramp_month, waiting, preg, lact, r.conception_rate
+            )
+            _spread_doe_ages(per_ramp_month)
 
-        # Lactation progression; waiting does graduate to ready.
+        # Lactation progression; waiting does graduate to ready; finished
+        # culls leave when their overlay dries off (engine step 2).
         lact = [0.0, *lact[:-1]]
+        finishing = [0.0, *finishing[:-1]]
         if waiting:
-            ready += waiting[-1]
+            svc[0] += waiting[-1]
             waiting = [0.0, *waiting[:-1]]
 
         # Pregnancy progression and calving; fresh dams start their VWP and
-        # their lactation in the calving month.
+        # their lactation in the calving month (engine step 3).
         fresh = preg[-1]
+        fresh_female_fraction = preg_female_fraction[-1]
         preg = [0.0, *preg[:-1]]
+        preg_female_fraction = [r.sex_ratio_female, *preg_female_fraction[:-1]]
         if fresh > 0.0:
             if waiting:
                 waiting[0] += fresh
             else:
-                ready += fresh
+                svc[0] += fresh
             lact[0] += fresh
 
-        # Heifer pipeline, run before breeding like the engine's graduation
-        # step so a graduate can be served in the month she joins the pool:
-        # this month's female births enter at age 0, every cohort ages one
-        # month under its class survival, and graduates top the breeding herd
-        # back up toward the plan.
-        heifer_graduates = 0.0
+        # Heifer pipeline aging: this month's female births enter at age 0 and
+        # every cohort ages one month under its class survival. The graduation
+        # decision is deferred to after the cull block below: crediting
+        # graduates against the herd BEFORE this month's attrition is known
+        # (rate cull + mortality + repeat-breeder culls + max-age overflow)
+        # systematically under-credited home-bred heifers, and the replacement
+        # bridge then bought animals the farm's own pipeline was already
+        # producing. Graduates are first served the following month — a
+        # one-month AI delay against the engine's same-month service, a far
+        # smaller divergence than wrong procurement advice.
+        pending_graduates = 0.0
         if heifers:
-            out = heifers[-1]
+            pending_graduates = heifers[-1]
             heifers = [0.0, *heifers[:-1]]
-            breeding_now = ready + sum(waiting) + sum(preg)
-            room = max(0.0, herd_target - breeding_now)
-            # The engine's graduation policy: retention fraction first, then
-            # the plan's headroom; the surplus is sold as young stock.
-            heifer_graduates = min(out * herd.female_retention_fraction, room)
-            ready += heifer_graduates
-        female_born = fresh * r.litter_size * (1.0 - r.stillbirth_rate) * r.sex_ratio_female
+        female_born = fresh * r.litter_size * (1.0 - r.stillbirth_rate) * fresh_female_fraction
         if heifers:
             heifers[0] += female_born
         heifers = [
@@ -282,37 +330,97 @@ def _simulate(
             for age, count in enumerate(heifers)
         ]
 
-        # Breeding: every ready doe is served; expected-value conception.
-        ai_services = ready
-        conceived = ready * r.conception_rate
-        preg[0] += conceived
-        ready -= conceived
+        # Breeding: engine step 4 — service-count buckets, sexed-semen rates,
+        # repeat-breeder culls (finishing pen).
+        ai_services = sum(svc)
+        breeding_pool_before = ai_services + sum(waiting) + sum(preg)
+        new_svc = [0.0] * n_service_buckets
+        conceived_sexed = 0.0
+        conceived_conventional = 0.0
+        repeat_culls = 0.0
+        for bucket, count in enumerate(svc):
+            if count <= 0.0:
+                continue
+            sexed = bucket < r.sexed_semen_services
+            rate = r.conception_rate * (r.sexed_conception_multiplier if sexed else 1.0)
+            conceived = count * rate
+            failed = count - conceived
+            if sexed:
+                conceived_sexed += conceived
+            else:
+                conceived_conventional += conceived
+            if bucket + 1 < n_service_buckets:
+                new_svc[bucket + 1] += failed
+            elif r.max_services_before_cull > 0:
+                repeat_culls += failed
+            else:
+                new_svc[bucket] += failed
+        svc = new_svc
+        conceived = conceived_sexed + conceived_conventional
+        if conceived > 0.0:
+            preg[0] += conceived
+            preg_female_fraction[0] = (
+                conceived_sexed * r.sexed_female_fraction
+                + conceived_conventional * r.sex_ratio_female
+            ) / conceived
+        # Repeat breeders already left the service buckets above; only route
+        # them into the finishing pen (no second removal from the pools —
+        # that would double-count the cull and hollow out gestation) and scale
+        # the parallel doe-age ledger so later max-age overflows stay honest.
+        if repeat_culls > 0.0:
+            if breeding_pool_before > 0.0:
+                doe_ages = [
+                    age * max(0.0, 1.0 - repeat_culls / breeding_pool_before) for age in doe_ages
+                ]
+            lact_total = sum(lact)
+            if lact_total > 0.0:
+                for stage in range(len(finishing)):
+                    finishing[stage] += repeat_culls * lact[stage] / lact_total
 
-        # Mortality, then rate-based culling with the engine's foundation-year
-        # grace (month >= 13).
+        # Mortality, then max-age and rate-based culling with the engine's
+        # foundation-year grace (month >= 13).
         waiting = [w * s_adult for w in waiting]
-        ready *= s_adult
+        svc = [v * s_adult for v in svc]
         preg = [p * s_adult for p in preg]
         lact = [l_ * s_adult for l_ in lact]
-        if month >= 13:
-            waiting = [w * (1.0 - monthly_cull_rate) for w in waiting]
-            ready *= 1.0 - monthly_cull_rate
-            preg = [p * (1.0 - monthly_cull_rate) for p in preg]
-            lact = [l_ * (1.0 - monthly_cull_rate) for l_ in lact]
+        finishing = [f_ * s_adult for f_ in finishing]
+        doe_ages = [age * s_adult for age in doe_ages]
 
-        # Replacement bridge: after the ramp, buy back what mortality and
-        # culling drain past what heifer graduates covered. The first home-bred
-        # heifers arrive only ~age-at-first-breeding months after the first
-        # calvings, and without this bridge the herd visibly melts through
-        # that gap (culling starts month 13, graduates around month afb+1).
-        # A real dairy buys springers through exactly this window.
+        overflow = doe_ages[-1]
+        doe_ages = [0.0, *doe_ages[:-1]]
+        _cull_does(overflow)
+        if month >= 13:
+            breeding_now = sum(svc) + sum(waiting) + sum(preg)
+            _cull_does(breeding_now * monthly_cull_rate)
+            doe_ages = [age * (1.0 - monthly_cull_rate) for age in doe_ages]
+
+        # Graduation: with this month's attrition fully applied, home-bred
+        # heifers get first claim on the gap to the planned herd — retention
+        # fraction first, then headroom; the surplus is sold as young stock.
+        heifer_graduates = 0.0
+        breeding_now = sum(svc) + sum(waiting) + sum(preg)
+        room = max(0.0, herd_target - breeding_now)
+        if pending_graduates > 0.0:
+            heifer_graduates = min(pending_graduates * herd.female_retention_fraction, room)
+            svc[0] += heifer_graduates
+            doe_ages[r.age_at_first_breeding_months] += heifer_graduates
+
+        # Replacement bridge: after the ramp, buy back what mortality, culling,
+        # repeat-breeder removal and max-age attrition drain PAST what heifer
+        # graduates covered. The first home-bred heifers arrive only
+        # ~age-at-first-breeding months after the first calvings, and without
+        # this bridge the herd visibly melts through that gap (culling starts
+        # month 13, graduates around month afb+1). A real dairy buys springers
+        # through exactly this window.
         replacement_bought = 0.0
         if replacement_bridge and month > ramp_months:
-            shortfall = herd_target - (ready + sum(waiting) + sum(preg))
+            shortfall = herd_target - (sum(svc) + sum(waiting) + sum(preg))
             if shortfall > 0.5:  # below half a head is float dust, not a plan
                 replacement_bought = shortfall
-                _place_across_cycle(replacement_bought, waiting, preg, lact, r.conception_rate)
-                ready += replacement_bought / (1 + len(waiting) + len(preg))
+                svc[0] += _place_across_cycle(
+                    replacement_bought, waiting, preg, lact, r.conception_rate
+                )
+                _spread_doe_ages(replacement_bought)
 
         monthly_litres = (
             sum(count * yield_month for count, yield_month in zip(lact, curve, strict=True))
@@ -321,7 +429,7 @@ def _simulate(
         record = _SimMonth(
             month=month,
             calendar_month=calendar_month,
-            breeding_does=ready + sum(waiting) + sum(preg),
+            breeding_does=sum(svc) + sum(waiting) + sum(preg),
             milking_does=sum(lact),
             freshenings=fresh,
             ai_services=ai_services,
@@ -355,10 +463,48 @@ def _measure(
         start = min(max(ramp_months, 12), max(ramp_months, len(records) - 1))
         tail = records[start:] or records[-1:]
         return min(m.daily_litres for m in tail)
-    tail = records[-window:]
+    # Average mode must skip the ramp entirely: a 12-month projection with a
+    # 6-month ramp otherwise sizes the herd so the *ramp-inclusive* mean hits
+    # the target and every post-ramp month overshoots it by the ramp deficit.
+    # When the post-ramp stretch is shorter than the window, average just
+    # those months — never reach back into the ramp for filler.
+    start = max(ramp_months, len(records) - window, 0)
+    tail = records[start:][-window:]
     if not tail:
         return 0.0
     return sum(m.daily_litres for m in tail) / len(tail)
+
+
+def _service_ladder(reproduction: ReproductionAssumptions) -> tuple[float, float, float]:
+    """Expected services per successful conception, the blended female
+    fraction of births, and the per-attempt repeat-breeder failure fraction,
+    under the engine's per-attempt service policy (sexed semen for the first
+    services, conventional after, repeat-breeder cull at the configured
+    limit). All three feed the plan's steady-state identities.
+    """
+    r = reproduction
+    n_services = max(r.max_services_before_cull, r.sexed_semen_services, 1)
+    rates = [
+        r.conception_rate * (r.sexed_conception_multiplier if i < r.sexed_semen_services else 1.0)
+        for i in range(n_services)
+    ]
+    female_fractions = [
+        r.sexed_female_fraction if i < r.sexed_semen_services else r.sex_ratio_female
+        for i in range(n_services)
+    ]
+    survival = 1.0
+    success_mass = 0.0
+    services_mass = 0.0
+    female_mass = 0.0
+    for index, rate in enumerate(rates):
+        probability = survival * rate
+        success_mass += probability
+        services_mass += probability * (index + 1)
+        female_mass += probability * female_fractions[index]
+        survival *= 1.0 - rate
+    if success_mass <= 0.0:
+        return 1.0 / max(r.conception_rate, 1e-9), r.sex_ratio_female, 0.0
+    return services_mass / success_mass, female_mass / success_mass, survival
 
 
 def _trend_is_stable(records: list[_SimMonth], window: int, multipliers: list[float]) -> bool:
@@ -412,7 +558,7 @@ def build_milk_plan(
         raise ValueError("ramp_months must leave at least one projection month after the ramp")
 
     curve = curve_from_assumptions(sales, r.lactation_months)
-    expected_services = 1.0 / max(r.conception_rate, 1e-9)
+    expected_services, blended_female_fraction, repeat_breeder_fraction = _service_ladder(r)
     calving_interval = r.months_open_before_breeding + expected_services + r.gestation_months
 
     # Seed: f freshenings/month fill the lactation slots, giving flat daily
@@ -514,7 +660,7 @@ def build_milk_plan(
     avg_breeding = sum(m.breeding_does for m in tail) / len(tail)
     avg_fresh = sum(m.freshenings for m in tail) / len(tail)
     avg_ai = sum(m.ai_services for m in tail) / len(tail)
-    female_born = avg_fresh * r.litter_size * (1.0 - r.stillbirth_rate) * r.sex_ratio_female
+    female_born = avg_fresh * r.litter_size * (1.0 - r.stillbirth_rate) * blended_female_fraction
     # Rough survival of a female calf to breeding age, for pipeline sizing.
     grower_years = max(0.0, (r.age_at_first_breeding_months - 6) / 12.0)
     to_breeding_age = (
@@ -523,9 +669,17 @@ def build_milk_plan(
         * math.pow(1.0 - assumptions.mortality.grower, grower_years)
     )
     heifers_available = female_born * to_breeding_age
+    # Total replacement demand: voluntary cull + adult mortality + the
+    # repeat-breeder culls the service policy removes (a fraction of every
+    # breeding attempt fails all permitted services; attempts recur each
+    # calving interval). Counting only the voluntary rate overstated the
+    # heifer surplus whenever a service-cull limit was configured.
     replacement_needed = avg_breeding * (
         1.0 - math.pow(1.0 - assumptions.culling.doe_cull_rate_annual, 1 / 12.0)
     ) + avg_breeding * (1.0 - math.pow(1.0 - assumptions.mortality.adult, 1 / 12.0))
+    if repeat_breeder_fraction > 0.0:
+        attempts_per_month = 1.0 / max(calving_interval, 1e-9)
+        replacement_needed += avg_breeding * attempts_per_month * repeat_breeder_fraction
 
     peak_index = max(range(len(curve)), key=lambda i: curve[i])
     report = MilkPlanReport(

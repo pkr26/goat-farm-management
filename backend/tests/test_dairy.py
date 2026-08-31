@@ -258,17 +258,17 @@ async def test_milk_record_upsert_and_summary(client):
     animal = await _create_animal(client, headers)
     today = date.today().isoformat()
     for litres in (8.5, 9.0):
-        resp = await client.post(
-            "/api/milk/new",
-            json={
-                "animal_id": animal["id"],
-                "date": today,
-                "shift": "MORNING",
-                "litres": litres,
-                "fat_pct": 6.9,
-            },
-            headers=headers,
-        )
+        payload = {
+            "animal_id": animal["id"],
+            "date": today,
+            "shift": "MORNING",
+            "litres": litres,
+            "fat_pct": 6.9,
+        }
+        if litres != 8.5:
+            # Re-submitting the same milking is a correction and must say why.
+            payload["correction_reason"] = "Mis-keyed yield"
+        resp = await client.post("/api/milk/new", json=payload, headers=headers)
         assert resp.status_code == 201, resp.text
     listing = (await client.get("/api/milk?date_from=" + today, headers=headers)).json()
     assert listing["total"] == 1  # upsert replaced, not duplicated
@@ -294,6 +294,148 @@ async def test_milk_requires_female_active_animal(client):
         headers=headers,
     )
     assert resp.status_code == 422
+
+
+async def test_milk_endpoints_reject_goat_farm(client):
+    """Milk is a dairy operation: a goat (meat) farm gets a 422, not an empty
+    parlour, from every milk route."""
+    headers = await owner_with_farm(client, email="goat-milk@farm.in")
+    # A schema-valid submission: the refusal must come from the farm-type
+    # gate, not from body validation.
+    valid = {
+        "animal_id": 1,
+        "date": date.today().isoformat(),
+        "shift": "MORNING",
+        "litres": 5.0,
+    }
+    for method, path, kwargs in (
+        ("GET", "/api/milk", {}),
+        ("GET", "/api/milk/summary", {}),
+        ("POST", "/api/milk/new", {"json": valid}),
+    ):
+        resp = await client.request(method, path, headers=headers, **kwargs)
+        assert resp.status_code == 422, (method, path, resp.text)
+        assert resp.json()["detail"] == "Milk is recorded on buffalo dairy farms only"
+    # The dairy twin of the same farm gets through (and has all along above).
+    dairy = await _dairy_owner(client, email="dairy-milk-ok@farm.in")
+    resp = await client.get("/api/milk", headers=dairy)
+    assert resp.status_code == 200, resp.text
+    resp = await client.get("/api/milk/summary", headers=dairy)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["animals_total"] == 0
+    assert resp.json()["animals"] == []
+
+
+async def test_milk_correction_freezes_original_and_requires_reason(client):
+    """Correcting a milking is an audited edit, never a silent overwrite."""
+    headers = await _dairy_owner(client)
+    animal = await _create_animal(client, headers, {"tag_number": "BUF-AUDIT"})
+    today = date.today().isoformat()
+
+    def submit(**overrides):
+        return {
+            "animal_id": animal["id"],
+            "date": today,
+            "shift": "MORNING",
+            "litres": 8.5,
+            "fat_pct": 6.9,
+            "notes": "first reading",
+        } | overrides
+
+    first = (await client.post("/api/milk/new", json=submit(), headers=headers)).json()
+    assert first["original_litres"] is None
+    assert first["original_fat_pct"] is None
+    assert first["original_notes"] is None
+    assert first["original_recorded_by_id"] is None
+    assert first["corrected_at"] is None
+    assert first["correction_reason"] is None
+
+    # A correction without a stated reason is refused and changes nothing.
+    refused = await client.post(
+        "/api/milk/new", json=submit(litres=9.2), headers=headers
+    )
+    assert refused.status_code == 422, refused.text
+    assert "correction_reason" in refused.json()["detail"]
+
+    corrected = (
+        await client.post(
+            "/api/milk/new",
+            json=submit(litres=9.2, fat_pct=7.1, correction_reason="Mis-keyed yield"),
+            headers=headers,
+        )
+    ).json()
+    assert corrected["litres"] == 9.2
+    assert corrected["fat_pct"] == 7.1
+    assert corrected["original_litres"] == 8.5  # the FIRST reading is frozen
+    assert corrected["original_fat_pct"] == 6.9
+    assert corrected["original_notes"] == "first reading"
+    assert corrected["original_recorded_by_id"] is not None
+    assert corrected["corrected_at"] is not None
+    assert corrected["correction_reason"] == "Mis-keyed yield"
+
+    # A second correction moves the current values but never the originals.
+    again = (
+        await client.post(
+            "/api/milk/new",
+            json=submit(litres=9.5, fat_pct=7.2, correction_reason="Fat test re-run"),
+            headers=headers,
+        )
+    ).json()
+    assert again["litres"] == 9.5
+    assert again["original_litres"] == 8.5
+    assert again["original_fat_pct"] == 6.9
+    assert again["original_notes"] == "first reading"
+    assert again["correction_reason"] == "Fat test re-run"
+    assert again["corrected_at"] >= corrected["corrected_at"]
+
+    # The audit trail is visible on the read path too, still one row.
+    listing = (await client.get("/api/milk?date_from=" + today, headers=headers)).json()
+    assert listing["total"] == 1
+    row = listing["records"][0]
+    assert row["original_litres"] == 8.5
+    assert row["correction_reason"] == "Fat test re-run"
+
+
+async def test_milk_summary_weighted_fat_and_animals_total(client):
+    """Fat averages are litre-weighted and the animal list reports its true
+    window total alongside the capped page."""
+    headers = await _dairy_owner(client)
+    animal_a = await _create_animal(client, headers, {"tag_number": "BUF-W-A"})
+    animal_b = await _create_animal(client, headers, {"tag_number": "BUF-W-B"})
+    animal_c = await _create_animal(client, headers, {"tag_number": "BUF-W-C"})
+    today = date.today().isoformat()
+
+    async def record(animal_id, shift, litres, fat_pct=None):
+        payload = {
+            "animal_id": animal_id,
+            "date": today,
+            "shift": shift,
+            "litres": litres,
+        }
+        if fat_pct is not None:
+            payload["fat_pct"] = fat_pct
+        resp = await client.post("/api/milk/new", json=payload, headers=headers)
+        assert resp.status_code == 201, resp.text
+
+    await record(animal_a["id"], "MORNING", 10.0, 6.0)
+    await record(animal_a["id"], "NIGHT", 2.0, 7.0)
+    await record(animal_b["id"], "MORNING", 6.0, 5.0)
+    # An untested shipment counts its litres, but weighs on no fat average.
+    await record(animal_c["id"], "MORNING", 4.0)
+
+    summary = (await client.get("/api/milk/summary?days=7", headers=headers)).json()
+    assert summary["animals_total"] == 3
+    assert len(summary["animals"]) == 3
+    # Herd: (10x6.0 + 2x7.0 + 6x5.0) / 18 = 5.777... — an unweighted record
+    # mean would report 6.0, and animal A alone would report 6.5.
+    assert summary["total_litres"] == 22.0
+    assert summary["avg_fat_pct"] == 5.78
+    by_tag = {row["animal_tag"]: row for row in summary["animals"]}
+    assert by_tag["BUF-W-A"]["avg_fat_pct"] == 6.17
+    assert by_tag["BUF-W-B"]["avg_fat_pct"] == 5.0
+    assert by_tag["BUF-W-C"]["avg_fat_pct"] is None
+    assert summary["daily"][0]["avg_fat_pct"] == 5.78
+    assert summary["daily"][0]["recorded_animals"] == 3
 
 
 async def test_milk_sale_transaction_provenance(client):
@@ -331,6 +473,203 @@ async def test_milk_sale_transaction_provenance(client):
     assert resp2.status_code == 422
 
 
+async def test_milk_income_rejected_on_goat_farm(client):
+    """MILK is a dairy-ledger category in both the create and correct paths."""
+    headers = await owner_with_farm(client, email="goat-ledger@farm.in")
+    payload = {
+        "date": date.today().isoformat(),
+        "type": "INCOME",
+        "category": "MILK",
+        "amount": 500.0,
+    }
+    resp = await client.post("/api/finance/new", json=payload, headers=headers)
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"] == "Milk income is booked on buffalo dairy farms only"
+    # The category is refused for expenses too, and the ledger stays empty.
+    expense = await client.post(
+        "/api/finance/new", json=payload | {"type": "EXPENSE"}, headers=headers
+    )
+    assert expense.status_code == 422, expense.text
+    listing = (await client.get("/api/finance", headers=headers)).json()
+    assert listing["transactions"] == []
+    # A goat farm cannot correct its way into a MILK row either.
+    other = (
+        await client.post(
+            "/api/finance/new",
+            json=payload | {"category": "OTHER", "type": "EXPENSE"},
+            headers=headers,
+        )
+    ).json()
+    rebooked = await client.post(
+        f"/api/finance/transactions/{other['id']}/correct",
+        json=payload | {"reason": "Recategorise as milk"},
+        headers=headers,
+    )
+    assert rebooked.status_code == 422, rebooked.text
+    assert rebooked.json()["detail"] == "Milk income is booked on buffalo dairy farms only"
+
+
+async def test_milk_fat_priced_sale_provenance(client):
+    """Fat-based procurement: litres x fat% x ₹/kg-fat must price the amount."""
+    headers = await _dairy_owner(client, email="dairy-fat-price@farm.in")
+    base = {
+        "date": date.today().isoformat(),
+        "type": "INCOME",
+        "category": "MILK",
+        "notes": "Sangam pickup",
+    }
+    # 70 L at 6.9% fat and ₹950/kg fat prices to ₹4,588.50.
+    booked = (
+        await client.post(
+            "/api/finance/new",
+            json=base
+            | {
+                "amount": 4588.50,
+                "milk_litres": 70.0,
+                "milk_fat_pct": 6.9,
+                "milk_price_per_kg_fat": 950.0,
+            },
+            headers=headers,
+        )
+    ).json()
+    assert booked["milk_litres"] == 70.0
+    assert booked["milk_fat_pct"] == 6.9
+    assert booked["milk_price_per_kg_fat"] == 950.0
+    assert booked["milk_unit_price_per_litre"] is None
+    assert booked["amount"] == 4588.50
+
+    # A mistyped amount that disagrees with the provenance is refused. The
+    # refusal is a schema-level 422, so the message rides the validation
+    # error list rather than a plain string detail.
+    mismatch = await client.post(
+        "/api/finance/new",
+        json=base
+        | {
+            "amount": 4588.00,
+            "milk_litres": 70.0,
+            "milk_fat_pct": 6.9,
+            "milk_price_per_kg_fat": 950.0,
+        },
+        headers=headers,
+    )
+    assert mismatch.status_code == 422, mismatch.text
+    assert "prices to ₹4588.50" in mismatch.text
+
+    # One paisa of rounding is tolerated; two is not.
+    assert (
+        await client.post(
+            "/api/finance/new",
+            json=base
+            | {
+                "amount": 4588.51,
+                "milk_litres": 70.0,
+                "milk_fat_pct": 6.9,
+                "milk_price_per_kg_fat": 950.0,
+            },
+            headers=headers,
+        )
+    ).status_code == 201
+    assert (
+        await client.post(
+            "/api/finance/new",
+            json=base
+            | {
+                "amount": 4588.52,
+                "milk_litres": 70.0,
+                "milk_fat_pct": 6.9,
+                "milk_price_per_kg_fat": 950.0,
+            },
+            headers=headers,
+        )
+    ).status_code == 422
+
+    # The fat pair is all-or-nothing and cannot stand in for litres.
+    for incomplete in (
+        {"milk_litres": 70.0, "milk_fat_pct": 6.9},
+        {"milk_litres": 70.0, "milk_price_per_kg_fat": 950.0},
+        {"milk_fat_pct": 6.9, "milk_price_per_kg_fat": 950.0},
+        {"milk_unit_price_per_litre": 56.0},
+    ):
+        resp = await client.post(
+            "/api/finance/new", json=base | {"amount": 3920.0} | incomplete, headers=headers
+        )
+        assert resp.status_code == 422, incomplete
+
+    # When both bases are given, fat pricing is the price of record:
+    # 100 L x 6.0% x ₹800 = ₹4,800, not 100 L x ₹50 = ₹5,000.
+    both = await client.post(
+        "/api/finance/new",
+        json=base
+        | {
+            "amount": 4800.0,
+            "milk_litres": 100.0,
+            "milk_fat_pct": 6.0,
+            "milk_price_per_kg_fat": 800.0,
+            "milk_unit_price_per_litre": 50.0,
+        },
+        headers=headers,
+    )
+    assert both.status_code == 201, both.text
+    flat = await client.post(
+        "/api/finance/new",
+        json=base
+        | {
+            "amount": 5000.0,
+            "milk_litres": 100.0,
+            "milk_fat_pct": 6.0,
+            "milk_price_per_kg_fat": 800.0,
+            "milk_unit_price_per_litre": 50.0,
+        },
+        headers=headers,
+    )
+    assert flat.status_code == 422, flat.text
+
+    # The flat ₹/litre basis keeps working exactly as before.
+    per_litre = (
+        await client.post(
+            "/api/finance/new",
+            json=base | {"amount": 3920.0, "milk_litres": 70.0, "milk_unit_price_per_litre": 56.0},
+            headers=headers,
+        )
+    ).json()
+    assert per_litre["amount"] == 3920.0
+    assert per_litre["milk_fat_pct"] is None
+    assert per_litre["milk_price_per_kg_fat"] is None
+
+    # Corrections restate fat-based provenance under the same pricing rule
+    # (69.75 L x 6.9% x ₹950 prices to ₹4,572.11).
+    corrected = (
+        await client.post(
+            f"/api/finance/transactions/{booked['id']}/correct",
+            json=base
+            | {
+                "amount": 4572.11,
+                "milk_litres": 69.75,
+                "milk_fat_pct": 6.9,
+                "milk_price_per_kg_fat": 950.0,
+                "reason": "Tare weight on the tanker slip",
+            },
+            headers=headers,
+        )
+    ).json()
+    assert corrected["milk_litres"] == 69.75
+    assert corrected["milk_fat_pct"] == 6.9
+    assert corrected["correction_of_id"] == booked["id"]
+    bad_correction = await client.post(
+        f"/api/finance/transactions/{corrected['id']}/correct",
+        json=base
+        | {
+            "amount": 4000.0,
+            "milk_litres": 69.75,
+            "milk_fat_pct": 6.9,
+            "milk_price_per_kg_fat": 950.0,
+            "reason": "Wrong amount",
+        },
+        headers=headers,
+    )
+    assert bad_correction.status_code == 422, bad_correction.text
+
+
 # --- dairy simulation preset ----------------------------------------------------
 
 
@@ -342,27 +681,85 @@ def test_murrah_preset_defaults():
     assert a.reproduction.lactation_months == 10
     assert a.reproduction.litter_size == 1.0
     assert a.reproduction.conception_rate == pytest.approx(0.45)
-    assert a.sales.lactation_milk_litres == pytest.approx(2400.0)
-    assert a.sales.milk_price_per_kg_fat == pytest.approx(950.0)
+    # Calibrated to the 2025-26 CIRB/NDRI lactation and Telangana procurement
+    # figures (see the preset docstring): 2,100 L over a 305-day lactation,
+    # Vijaya/Sangam-style procurement at Rs 900/kg fat blended with direct
+    # sales (Rs 58/L flat fallback).
+    assert a.sales.lactation_milk_litres == pytest.approx(2100.0)
+    assert a.sales.milk_price_per_kg_fat == pytest.approx(900.0)
+    assert a.sales.milk_price_per_litre == pytest.approx(58.0)
     assert a.sales.milk_fat_pct == pytest.approx(6.8)
     assert a.sales.male_calf_sell_at_birth_fraction == pytest.approx(0.9)
-    assert a.growth.birth_weight_kg == pytest.approx(34.0)
-    assert a.growth.weight_by_age_months[0] == pytest.approx(34.0)
+    assert a.sales.male_calf_price_per_head == pytest.approx(1600.0)
+    # Cull buffaloes price near the Rs 145-170/kg live floor.
+    assert a.sales.cull_doe_price_per_kg == pytest.approx(160.0)
+    assert a.sales.cull_buck_price_per_kg == pytest.approx(170.0)
+    # CIRB recorded calf weights: males 31.7 kg, females 30 kg; the curve is
+    # 31 kg + 15.3 kg/month to a ~215 kg yearling.
+    assert a.growth.birth_weight_kg == pytest.approx(31.0)
+    assert a.growth.weight_by_age_months[0] == pytest.approx(31.0)
+    assert a.growth.weight_by_age_months == pytest.approx(
+        [31.0 + 15.3 * month for month in range(13)]
+    )
+    # Heifers are bred at ~345 kg / 24 months and mature to the adult weight
+    # at 40 months (NDRI growth studies), not the goat-default 24.
+    assert a.reproduction.age_at_first_breeding_months == 24
+    assert a.growth.adult_weight_age_months == 40
+    assert a.growth.young_male_weight_premium == pytest.approx(0.05)
+    # AI-first breeding policy: sexed semen for the first two services (90%
+    # female births at a 15% conception penalty), a 3-service repeat-breeder
+    # cull, and a flat 50:50 ratio on conventional services.
+    assert a.reproduction.sex_ratio_female == pytest.approx(0.5)
+    assert a.reproduction.sexed_semen_services == 2
+    assert a.reproduction.sexed_female_fraction == pytest.approx(0.90)
+    assert a.reproduction.sexed_conception_multiplier == pytest.approx(0.85)
+    assert a.reproduction.max_services_before_cull == 3
+    # Voluntary/age culls only: the repeat-breeder rule above removes ~17%/yr,
+    # so the residual rate cull is 5% (total disposal ~21%/yr, ~4.8 lactations).
+    assert a.culling.doe_cull_rate_annual == pytest.approx(0.05)
+    # A 25-acre multi-cut fodder plot at 10 t DM/acre/yr covers ~80% of the
+    # green-DM need at home cost.
+    assert a.feed.cultivated_fodder_acres == pytest.approx(25.0)
+    assert a.feed.fodder_yield_t_dm_per_acre_year == pytest.approx(10.0)
+    # Dairy is a milk business, not a sacrificial-market one: the preset
+    # explicitly disables the (auto-filled) Bakrid festival pricing.
+    assert a.sales.festival_sale_months == []
 
 
 def test_murrah_simulation_is_mass_balanced_and_profitable_shape():
     from app.simulation.defaults import get_preset
     from app.simulation.engine import run_simulation
 
-    result = run_simulation(get_preset("murrah_dairy"), with_break_even=False)
+    preset = get_preset("murrah_dairy")
+    result = run_simulation(preset, with_break_even=False)
     # Milk is the dominant revenue line from year 1 (Phase A procurement).
     y1 = result.annual_pl[0]
     assert y1.milk_revenue > 0
     assert y1.milk_revenue > 4 * max(y1.meat_revenue, 1.0)
     # The herd grows toward the 200-milking plan, not to zero.
     assert result.months[-1].total_herd > 60.0
-    # Mass balance: no month reports a negative herd.
-    assert all(m.total_herd >= 0 for m in result.months)
+    # Mass balance holds EXACTLY, including the dairy finishing pen (culled
+    # does leave the breeding pools immediately but keep milking/eating until
+    # their lactation overlay dries off):
+    # total_herd == prev + births + purchases - deaths - sales - culls.
+    h = preset.herd
+    previous = float(
+        h.does
+        + h.bucks
+        + h.female_kids
+        + h.male_kids
+        + h.female_weaners
+        + h.male_weaners
+        + h.female_growers
+        + h.male_growers
+    )
+    for m in result.months:
+        expected = (
+            previous + m.births + m.purchases_head - m.deaths - m.sales_head - m.culls_head
+        )
+        assert m.total_herd == pytest.approx(expected, abs=1e-6), m.month
+        assert m.total_herd >= 0
+        previous = m.total_herd
 
 
 def test_murrah_monte_carlo_milk_price_risk():
@@ -375,3 +772,72 @@ def test_murrah_monte_carlo_milk_price_risk():
     mc = result.monte_carlo
     assert mc.npv_p5 <= mc.npv_p50 <= mc.npv_p95
     assert mc.npv_p95 > mc.npv_p5
+
+
+def test_dairy_culls_book_at_dry_off_and_keep_milking_until_then():
+    """A real dairy culls at dry-off, not mid-lactation: culled does leave the
+    breeding pools immediately (no further service) but keep milking and
+    eating in the finishing pen until their lactation overlay ends — cull
+    head and revenue book THAT month. Meat mode books the cull immediately."""
+    from app.simulation import (
+        CullingAssumptions,
+        HerdAssumptions,
+        MetaAssumptions,
+        MortalityAssumptions,
+        ReproductionAssumptions,
+        SalesAssumptions,
+        SimulationAssumptions,
+        run_simulation,
+    )
+
+    def run(milk_litres: float):
+        # Open foundation, certain conception, single kids, no mortality: the
+        # six does calve in month 12, so the month-13 rate cull catches them
+        # all in milk (a 100% annual rate compounds to everything in month 13).
+        assumptions = SimulationAssumptions(
+            meta=MetaAssumptions(horizon_months=18),
+            herd=HerdAssumptions(
+                does=6, bucks=0, auto_purchase_bucks=False, foundation_flock_state="open"
+            ),
+            reproduction=ReproductionAssumptions(
+                conception_rate=1.0,
+                gestation_months=5,
+                lactation_months=3,
+                months_open_before_breeding=1,
+                litter_size=1.0,
+                stillbirth_rate=0.0,
+            ),
+            mortality=MortalityAssumptions(
+                kid_pre_weaning=0.0, kid_post_weaning=0.0, grower=0.0, adult=0.0
+            ),
+            culling=CullingAssumptions(doe_cull_rate_annual=1.0, max_doe_age_months=180),
+            sales=SalesAssumptions(
+                lactation_milk_litres=milk_litres,
+                milk_price_per_litre=30.0,
+                annual_milk_price_growth_rate=0.0,
+                annual_livestock_price_growth_rate=0.0,
+                monthly_milk_yield_multipliers=[1.0] * 12,
+                monthly_milk_price_multipliers=[1.0] * 12,
+                monthly_meat_price_multipliers=[1.0] * 12,
+                festival_sale_months=[],
+            ),
+        )
+        return run_simulation(assumptions, with_break_even=False)
+
+    dairy = run(100.0)
+    meat = run(0.0)
+
+    # Meat mode: the cull decision and the booking are the same month.
+    assert meat.months[12].culls_head == pytest.approx(6.0)
+    assert meat.months[12].cull_revenue > 0.0
+    # Dairy mode: month 13 books nothing — every culled doe is still milking.
+    assert dairy.months[12].culls_head == pytest.approx(0.0)
+    assert dairy.months[12].cull_revenue == 0.0
+    assert dairy.months[12].milk_revenue > 0.0
+    assert dairy.months[13].milk_revenue > 0.0  # the finishing pen keeps milking
+    # Their 3-month lactation (fresh in month 12) dries off in month 15: that
+    # is when the head and the cull revenue book.
+    assert dairy.months[13].culls_head == pytest.approx(0.0)
+    assert dairy.months[14].culls_head == pytest.approx(6.0)
+    assert dairy.months[14].cull_revenue > 0.0
+    assert dairy.months[14].milk_revenue == 0.0

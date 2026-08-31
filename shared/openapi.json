@@ -7752,7 +7752,7 @@
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Vet Per Animal Per Year",
-            "default": 250.0
+            "default": 450.0
           },
           "labour_per_month": {
             "type": "number",
@@ -7787,14 +7787,14 @@
             "maximum": 1.0,
             "exclusiveMinimum": -1.0,
             "title": "Operating Cost Growth Rate Annual",
-            "default": 0.0
+            "default": 0.05
           },
           "shed_cost_per_animal_place": {
             "type": "number",
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Shed Cost Per Animal Place",
-            "default": 4500.0
+            "default": 6000.0
           },
           "equipment_cost_per_animal": {
             "type": "number",
@@ -8624,7 +8624,7 @@
             "maximum": 1000000.0,
             "minimum": 0.0,
             "title": "Cultivated Fodder Acres",
-            "default": 0.0
+            "default": 3.0
           },
           "fodder_yield_t_dm_per_acre_year": {
             "type": "number",
@@ -9238,6 +9238,20 @@
             "minItems": 13,
             "title": "Weight By Age Months"
           },
+          "adult_weight_age_months": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 13.0,
+            "title": "Adult Weight Age Months",
+            "default": 24
+          },
+          "young_male_weight_premium": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Young Male Weight Premium",
+            "default": 0.1
+          },
           "sale_age_months": {
             "type": "integer",
             "maximum": 24.0,
@@ -9249,7 +9263,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "GrowthAssumptions",
-        "description": "Live-weight curve and sale-age policy.\n\n``weight_by_age_months`` gives live weight (kg) at ages 0..12 months; from\nmonth 13 the curve approaches the adult weight linearly, reaching it at 24\nmonths. Default table is an Osmanabadi stall-fed curve (2.5 kg birth weight,\n~2 kg/month pre-yearling gain) per ICAR/NBAGR breed descriptors."
+        "description": "Live-weight curve and sale-age policy.\n\n``weight_by_age_months`` gives live weight (kg) at ages 0..12 months; from\nmonth 13 the curve approaches the adult weight linearly, reaching it at\n``adult_weight_age_months``. The default table is a decelerating Osmanabadi\nstall-fed curve anchored on recorded field weights \u2014 fast pre-weaning gain\non dam's milk (~3.2 kg/mo to ~12 kg at 3 m), then slowing to a ~20.5 kg\nyearling (ICAR-AICRP/NARI field unit: 12.1 kg @ 3 m, 17.0 @ 6 m; Raskar\n2018 semi-intensive yearling 19.6 kg) \u2014 NOT the old flat 2 kg/month line\nthat under-weighted kids ~30% and over-weighted yearlings ~25-35%."
       },
       "HTTPValidationError": {
         "properties": {
@@ -11618,6 +11632,18 @@
               }
             ],
             "title": "Notes"
+          },
+          "correction_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Reason"
           }
         },
         "additionalProperties": false,
@@ -11690,6 +11716,73 @@
               }
             ],
             "title": "Animal Tag"
+          },
+          "original_litres": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Litres"
+          },
+          "original_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Fat Pct"
+          },
+          "original_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Notes"
+          },
+          "original_recorded_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Recorded By Id"
+          },
+          "corrected_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected At"
+          },
+          "correction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Reason"
           }
         },
         "type": "object",
@@ -11737,6 +11830,10 @@
             "type": "array",
             "title": "Daily"
           },
+          "animals_total": {
+            "type": "integer",
+            "title": "Animals Total"
+          },
           "animals": {
             "items": {
               "$ref": "#/components/schemas/MilkAnimalSummaryOut"
@@ -11752,6 +11849,7 @@
           "avg_daily_litres",
           "avg_fat_pct",
           "daily",
+          "animals_total",
           "animals"
         ],
         "title": "MilkSummaryOut",
@@ -12187,7 +12285,7 @@
         "additionalProperties": false,
         "type": "object",
         "title": "MortalityAssumptions",
-        "description": "Annual mortality fractions per class (converted to monthly compounding rates)."
+        "description": "Mortality fractions per class.\n\n``kid_pre_weaning`` and ``kid_post_weaning`` are WHOLE-PHASE rates: the\nfraction of a crop lost across the entire 3-month kid (0-2 m) / weaner\n(3-5 m) class, which is how the literature quotes them (5-15% pre-weaning\nstall-fed; NABARD bankable models use 15%). The engine spreads each rate\nover exactly its three monthly slots, so a documented 10% removes 10% of\nthe crop \u2014 not the 2.6% an annual-rate conversion over three months\nrealized. ``grower`` and ``adult`` are ANNUAL rates (compounded monthly):\nthose classes have breed-dependent, open-ended durations, and survivors\nstay in them indefinitely."
       },
       "MortalityOut": {
         "properties": {
@@ -13788,7 +13886,7 @@
             "maximum": 12.0,
             "minimum": 0.0,
             "title": "Months Open Before Breeding",
-            "default": 2
+            "default": 1
           },
           "litter_size": {
             "type": "number",
@@ -13817,6 +13915,34 @@
             "minimum": 0.0,
             "title": "Stillbirth Rate",
             "default": 0.02
+          },
+          "sexed_semen_services": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Sexed Semen Services",
+            "default": 0
+          },
+          "sexed_female_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.5,
+            "title": "Sexed Female Fraction",
+            "default": 0.9
+          },
+          "sexed_conception_multiplier": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Sexed Conception Multiplier",
+            "default": 0.85
+          },
+          "max_services_before_cull": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 0.0,
+            "title": "Max Services Before Cull",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -14188,7 +14314,7 @@
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Meat Price Per Kg",
-            "default": 400.0
+            "default": 370.0
           },
           "cull_doe_price_per_kg": {
             "type": "number",
@@ -14235,12 +14361,26 @@
             "default": 0.35
           },
           "festival_sale_months": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array",
-            "maxItems": 40,
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array",
+                "maxItems": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Festival Sale Months"
+          },
+          "festival_hold_months": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 0.0,
+            "title": "Festival Hold Months",
+            "default": 2
           },
           "selling_cost_fraction": {
             "type": "number",
@@ -15865,6 +16005,32 @@
             ],
             "title": "Milk Unit Price Per Litre"
           },
+          "milk_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 12.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Fat Pct"
+          },
+          "milk_price_per_kg_fat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Price Per Kg Fat"
+          },
           "reason": {
             "type": "string",
             "maxLength": 255,
@@ -15970,6 +16136,32 @@
               }
             ],
             "title": "Milk Unit Price Per Litre"
+          },
+          "milk_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 12.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Fat Pct"
+          },
+          "milk_price_per_kg_fat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Price Per Kg Fat"
           }
         },
         "additionalProperties": false,
@@ -16131,6 +16323,28 @@
               }
             ],
             "title": "Milk Unit Price Per Litre"
+          },
+          "milk_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Fat Pct"
+          },
+          "milk_price_per_kg_fat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Price Per Kg Fat"
           }
         },
         "type": "object",
@@ -16150,7 +16364,9 @@
           "voided_by_id",
           "void_reason",
           "milk_litres",
-          "milk_unit_price_per_litre"
+          "milk_unit_price_per_litre",
+          "milk_fat_pct",
+          "milk_price_per_kg_fat"
         ],
         "title": "TransactionOut"
       },

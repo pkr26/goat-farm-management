@@ -50,8 +50,12 @@ export interface SalesAssumptions {
      * @maximum 2
      */
   eid_price_uplift?: number;
-  /** @maxItems 40 */
-  festival_sale_months?: number[];
+  festival_sale_months?: number[] | null;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  festival_hold_months?: number;
   /**
      * @minimum 0
      * @maximum 0.5

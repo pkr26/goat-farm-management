@@ -238,7 +238,10 @@ function AppLayoutContent({
     : NAV_GROUPS.map((group) => ({
         ...group,
         items: group.items
-          .filter((item) => can(item.perm))
+          // Milk is a buffalo-dairy module: farm owners hold every
+          // permission, so the permission filter alone showed it on goat
+          // (meat) farms whose API rejects every milk call.
+          .filter((item) => can(item.perm) && (item.href !== "/milk" || vocabulary.dairy))
           .map((item) => ({
             ...item,
             // Species vocabulary: a dairy farm calving-records, a goat farm

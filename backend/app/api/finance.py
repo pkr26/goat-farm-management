@@ -15,6 +15,7 @@ from ..models import (
     BreedingRecord,
     Bucket,
     BucketMove,
+    FarmType,
     FeedInventory,
     HealthEvent,
     PurchaseBatch,
@@ -48,6 +49,21 @@ FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 FinanceManage = Annotated[set[str], Depends(require_perm("finance.manage"))]
 
 _MAX_FEED_UNIT_PRICE = Decimal("1000000000.00")
+
+
+def _require_dairy_farm_for_milk(farm: CurrentFarm) -> None:
+    """MILK income belongs to the dairy ledger only.
+
+    On a goat (meat) farm the category would book revenue no animal of that
+    species produced; milk provenance — litres and a fat- or litre-based
+    price — exists to reconcile dairy procurement slips against the parlour
+    records, which a meat operation does not have.
+    """
+    if farm.farm_type != FarmType.BUFFALO_DAIRY.value:
+        raise HTTPException(
+            status_code=422,
+            detail="Milk income is booked on buffalo dairy farms only",
+        )
 
 
 def _transaction_out(txn: Transaction) -> TransactionOut:
@@ -585,6 +601,8 @@ async def add_transaction(
     """Record an income/expense with an optional verified farm-animal link."""
 
     async def mutate() -> TransactionOut:
+        if payload.category == "MILK":
+            _require_dairy_farm_for_milk(farm)
         try:
             require_farm_not_future(payload.date, farm, "transaction date")
         except ValueError as exc:
@@ -600,6 +618,8 @@ async def add_transaction(
             notes=(payload.notes or "").strip() or None,
             milk_litres=payload.milk_litres,
             milk_unit_price_per_litre=payload.milk_unit_price_per_litre,
+            milk_fat_pct=payload.milk_fat_pct,
+            milk_price_per_kg_fat=payload.milk_price_per_kg_fat,
             created_by_id=user.id,
         )
         db.add(txn)
@@ -637,6 +657,8 @@ async def correct_transaction(
     """Void one ledger row and create its audited replacement atomically."""
 
     async def mutate() -> TransactionOut:
+        if payload.category == "MILK":
+            _require_dairy_farm_for_milk(farm)
         try:
             require_farm_not_future(payload.date, farm, "replacement transaction date")
         except ValueError as exc:
@@ -682,21 +704,10 @@ async def correct_transaction(
             replacement_feed_unit_price = _corrected_feed_unit_price(
                 txn, money(payload.amount), replacement_feed_quantity_kg
             )
-        # A corrected MILK row may restate its sale provenance; any other
-        # category carries none.
-        replacement_milk_litres = (
-            payload.milk_litres if payload.category == "MILK" and payload.type == "INCOME" else None
-        )
-        replacement_milk_price = (
-            payload.milk_unit_price_per_litre
-            if payload.category == "MILK" and payload.type == "INCOME"
-            else None
-        )
-        if (replacement_milk_litres is None) != (replacement_milk_price is None):
-            raise HTTPException(
-                status_code=422,
-                detail="Milk provenance requires both litres and unit price",
-            )
+        # A corrected MILK row may restate its sale provenance — flat ₹/litre
+        # or fat-based procurement, kept coherent and priced against the
+        # amount by TransactionCorrectionIn; any other category carries none.
+        is_milk_income = payload.category == "MILK" and payload.type == "INCOME"
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,
@@ -711,8 +722,10 @@ async def correct_transaction(
             feed_inventory_id=txn.feed_inventory_id,
             feed_quantity_kg=replacement_feed_quantity_kg,
             feed_unit_price_per_kg=replacement_feed_unit_price,
-            milk_litres=replacement_milk_litres,
-            milk_unit_price_per_litre=replacement_milk_price,
+            milk_litres=payload.milk_litres if is_milk_income else None,
+            milk_unit_price_per_litre=payload.milk_unit_price_per_litre if is_milk_income else None,
+            milk_fat_pct=payload.milk_fat_pct if is_milk_income else None,
+            milk_price_per_kg_fat=payload.milk_price_per_kg_fat if is_milk_income else None,
             correction_of_id=txn.id,
         )
         db.add(replacement)

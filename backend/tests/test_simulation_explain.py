@@ -24,6 +24,7 @@ from app.simulation import (
 from app.simulation.assumptions import HerdEventAssumptions
 from app.simulation.explain import (
     _inr,
+    _inr_per_kg,
     _outstanding_at_horizon,
     _pct,
     _ranked,
@@ -76,6 +77,11 @@ def test_narrative_formatters_hold_exact_public_boundaries() -> None:
     # drift in the crore divisor changes the public amount.
     assert _inr(10_050_001.0) == "₹1.01 crore"
     assert _inr(-10_000_000.0) == "-₹1.00 crore"
+    # Break-even ₹/kg carries Indian digit grouping, matching the money
+    # formatter the frontend renders these narratives with.
+    assert _inr_per_kg(370.0) == "₹370/kg"
+    assert _inr_per_kg(123_456.0) == "₹1,23,456/kg"
+    assert _inr_per_kg(-1_234_567.0) == "-₹12,34,567/kg"
     assert _pct(0.1235) == "12.3%"
     assert _share(1.0, 4.0) == "25.0%"
     assert _share(0.5, 1.0) == "50.0%"
@@ -171,9 +177,11 @@ def test_verdict_not_viable_for_default_run() -> None:
 
 def _viable_assumptions() -> SimulationAssumptions:
     """A run where every standard check genuinely passes, weakest debt year
-    included (a short, half-financed loan against strong early meat sales)."""
+    included (a short, half-financed loan against strong early meat sales).
+    Priced at ₹1,000/kg against the recalibrated 2025-26 cost base: viability
+    needs a genuine premium over the ₹370 farm-gate default."""
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 800.0
+    a.sales.meat_price_per_kg = 1000.0
     a.herd.male_growers = 250  # meat revenue from month 1
     a.finance.loan_term_months = 12
     a.finance.moratorium_months = 6
@@ -220,27 +228,28 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "60a3aa25246e7afd7038a8caeb88fd3af53a7f309fb3e7116d0f0cb4870fa8e4"
+        "f6512d6f8400098e569f6c093b9efa235fe9c1dcd9cf136ec13afb0f9f7061f8"
     )
     assert _explanation_digest(viable) == (
-        "301381b376e90a6a82bc18a59ad634ed2be97bf36d7aded656c0669e35da4935"
+        "2a9dbeaa536186f0f8565f3faad093533ff1e90d64208627db0e09ad00c3c8bf"
     )
     assert _explanation_digest(no_debt) == (
-        "e47c1b61a789f69cef0d93ecee9fab2f3bd79001343d5e937fb2aac0eee22fb2"
+        "fc846816a3b9b59336e3cbf3e4ce679fcae85f967469958e050556258feb808d"
     )
     assert _report_digest(default) == (
-        "cf3c9178a5f579e5289da73d1051fef4b05b47eaa62d4f91bbcb5cf4c9a6d184"
+        "02225f1c0c64f0f5aa3de5ac23a1b941dcf1fb5c00b83e2c5634e054cc8d0c12"
     )
     assert _report_digest(viable) == (
-        "2724c12a5636c4d118aab351de8c3f0b71ac5bb6d641169530f9cf2fd69ba949"
+        "856e21754644c596320e61e434add6482656da13822865a93d023a350c1054c0"
     )
     assert _report_digest(no_debt) == (
-        "29a12c4576a2bcc17246d8b17ee79ccdcd8e3dfaf162c28eecce7d43e213bc64"
+        "0aa942f3ad6a61488c0399d82b303e5d7c290704e1ba8f968bd5f8f6ca2830aa"
     )
-    # Sensitivity gained the milk_price tornado bar (dairy support): the risk
-    # branch digest changed with that explicit contract update.
+    # The narratives gained the equity-basis NPV/BCR notes, the payback
+    # terminal-value disclosure and the MC-events note in the recalibration
+    # contract update; the risk branch digest changed with them.
     assert _report_digest(risk) == (
-        "62077485c82b498621f4823ec26a9d0e883c18cfa72c6c415229d7e6d49b7a7e"
+        "299b0fc79cf9063d4450b58191605b1513113ab8db4ca5f9d4da5997f64e0d9e"
     )
 
 
@@ -280,7 +289,7 @@ def test_verdict_viable_with_caution_for_borderline_run() -> None:
     a = SimulationAssumptions()
     a.herd.male_growers = 60  # early meat revenue keeps year-1 EBITDA positive
     a.finance.moratorium_months = 0  # full EMI from month 1 squeezes year-1 DSCR
-    a.sales.meat_price_per_kg = 700.0
+    a.sales.meat_price_per_kg = 1000.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
@@ -296,7 +305,7 @@ def test_verdict_never_hides_a_negative_weakest_debt_year() -> None:
     every negative year fell through it and the report printed "VIABLE — all
     standard checks pass" with no mention of the DSCR."""
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 700.0
+    a.sales.meat_price_per_kg = 1200.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     # Everything else passes; only year 1 cannot service the loan.
@@ -656,16 +665,16 @@ def test_break_even_explanation_covers_no_solution_and_margin_boundaries() -> No
     assert zero_price.figures["safety_margin"] == 1.0
     assert explanation(1.0).startswith("Meat can fall to ₹1/kg")
     zero_margin = (
-        "Meat can fall to ₹400/kg before the project's NPV turns negative. Your assumed "
-        "price is ₹400/kg — a safety margin of 0.0%."
+        "Meat can fall to ₹370/kg before the project's NPV turns negative. Your assumed "
+        "price is ₹370/kg — a safety margin of 0.0%."
     )
-    assert explanation(400.0) == zero_margin
+    assert explanation(370.0) == zero_margin
     # The flag distinguishes only the two reasons a missing result is None;
     # it must not hide a result that is already present.
-    assert explanation(400.0, computed=False) == zero_margin
+    assert explanation(370.0, computed=False) == zero_margin
     assert explanation(200.0) == (
         "Meat can fall to ₹200/kg before the project's NPV turns negative. Your assumed "
-        "price is ₹400/kg — a safety margin of 50.0%."
+        "price is ₹370/kg — a safety margin of 45.9%."
     )
 
     one_rupee_assumption = assumptions.model_copy(deep=True)
@@ -1025,3 +1034,24 @@ def test_payback_explanation_says_never_covers_when_no_payback() -> None:
     entry = next(e for e in res.metric_explanations if e.key == "payback_month")
     assert "never covers" in entry.explanation
     assert entry.figures["payback_month"] is None
+
+
+def test_payback_discloses_when_only_terminal_value_closes_the_gap() -> None:
+    """A payback that lands in the final month is usually the terminal
+    recovery closing the gap: the disclosure (and its terminal_driven figure)
+    must say so, or a lifetime of losses reads as 'paid back'."""
+    a = SimulationAssumptions()
+    a.sales.meat_price_per_kg = 700.0
+    res = run_simulation(a, with_break_even=False)
+    assert res.metrics.payback_month == a.meta.horizon_months
+    entry = next(e for e in res.metric_explanations if e.key == "payback_month")
+    assert entry.figures["terminal_driven"] == 1.0
+    assert "payback by liquidation" in entry.explanation
+    assert f"{_inr(res.metrics.terminal_value)}" in entry.explanation
+    # A genuinely operating payback earlier in the horizon carries no such note.
+    strong = SimulationAssumptions()
+    strong.sales.meat_price_per_kg = 850.0
+    strong_res = run_simulation(strong, with_break_even=False)
+    strong_entry = next(e for e in strong_res.metric_explanations if e.key == "payback_month")
+    assert strong_entry.figures["terminal_driven"] == 0.0
+    assert "liquidation" not in strong_entry.explanation

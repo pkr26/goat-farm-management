@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, AnimalStatus, MilkRecord
+from ..models import Animal, AnimalStatus, FarmType, MilkRecord
 from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.milk import (
     MilkAnimalSummaryOut,
@@ -25,6 +25,21 @@ router = APIRouter(prefix="/api/milk", tags=["milk"])
 
 MilkView = Annotated[set[str], Depends(require_perm("milk.view"))]
 MilkManage = Annotated[set[str], Depends(require_perm("milk.manage"))]
+
+
+def _require_dairy_farm(farm: CurrentFarm) -> None:
+    """Milk endpoints exist only for buffalo dairy farms.
+
+    A goat farm here is an Osmanabadi meat herd: per-shift yield recording
+    against it would fabricate dairy data (and dairy P&L expectations) for
+    animals that are never milked, so every route in this module refuses the
+    request outright rather than returning an empty parlour.
+    """
+    if farm.farm_type != FarmType.BUFFALO_DAIRY.value:
+        raise HTTPException(
+            status_code=422,
+            detail="Milk is recorded on buffalo dairy farms only",
+        )
 
 
 def _milk_out(record: MilkRecord, animal_tag: str | None) -> MilkRecordOut:
@@ -46,6 +61,7 @@ async def milk_list(
     offset: int = Query(default=0, ge=0, le=MAX_PAGE_OFFSET),
 ) -> MilkListOut:
     """Yield readings, newest first, with the filtered-set litre total."""
+    _require_dairy_farm(farm)
     if animal_id is not None:
         animal = (
             await db.execute(
@@ -84,6 +100,7 @@ async def milk_summary_endpoint(
     animal_id: int | None = Query(default=None, gt=0, le=MAX_INT32_ID),
 ) -> MilkSummaryOut:
     """Daily herd totals and per-animal averages over the last N days."""
+    _require_dairy_farm(farm)
     if animal_id is not None:
         animal = (
             await db.execute(
@@ -92,7 +109,7 @@ async def milk_summary_endpoint(
         ).scalar_one_or_none()
         if animal is None:
             raise HTTPException(status_code=404, detail="Animal not found")
-    daily, animals, total_litres, avg_fat = await milk_summary(
+    daily, animals, total_litres, avg_fat, animals_total = await milk_summary(
         db, farm, days=days, animal_id=animal_id
     )
     return MilkSummaryOut(
@@ -109,6 +126,7 @@ async def milk_summary_endpoint(
             )
             for row in daily
         ],
+        animals_total=animals_total,
         animals=[
             MilkAnimalSummaryOut(
                 animal_id=row.animal_id,
@@ -136,6 +154,7 @@ async def add_milk_record(
     """Record (or correct) one animal's yield for a milking shift."""
 
     async def mutate() -> MilkRecordOut:
+        _require_dairy_farm(farm)
         if payload.date > today(farm.timezone):
             raise HTTPException(status_code=422, detail="Milk date cannot be in the future")
         # Lock the animal row: it both verifies farm membership and serializes
@@ -156,17 +175,22 @@ async def add_milk_record(
             )
         if animal.sex != "F":
             raise HTTPException(status_code=422, detail="Milk is recorded for female animals")
-        record = await record_milk(
-            db,
-            farm,
-            animal,
-            payload.date,
-            payload.shift,
-            payload.litres,
-            payload.fat_pct,
-            payload.notes,
-            created_by_id=user.id,
-        )
+        try:
+            record = await record_milk(
+                db,
+                farm,
+                animal,
+                payload.date,
+                payload.shift,
+                payload.litres,
+                payload.fat_pct,
+                payload.notes,
+                created_by_id=user.id,
+                correction_reason=payload.correction_reason,
+            )
+        except ValueError as exc:
+            # Re-submitting a recorded milking without a stated reason.
+            raise HTTPException(status_code=422, detail=str(exc)) from None
         return _milk_out(record, animal.tag_number)
 
     return await execute_idempotent(

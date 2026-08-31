@@ -468,11 +468,13 @@ describe("AppLayout — permission-gated nav", () => {
     replaceMock.mockClear();
   });
 
-  it("shows all 14 nav items to the farm owner (full catalog)", async () => {
+  it("shows all 13 goat-farm nav items to the farm owner (full catalog minus dairy-only Milk)", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    // The default test farm is a goat (meat) farm; its owner holds every
+    // permission including milk.view, but Milk is a buffalo-dairy module.
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     for (const label of ALL_NAV_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
@@ -570,7 +572,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("nav links point at their module routes", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     const expected: Record<string, string> = {
       Dashboard: "/dashboard",
       Animals: "/animals",
@@ -594,7 +596,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("highlights the nav item matching the current path", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     // usePathname is mocked to /dashboard.
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
       "data-active",
@@ -625,9 +627,11 @@ describe("AppLayout — permission-gated nav", () => {
     navState.pathname = "/dashboard";
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     // The group heading is the only thing that explains why Health and
-    // Feeding sit together; without it the sidebar is one flat 13-item list.
+    // Feeding sit together; without it the sidebar is one flat list. The
+    // default test farm is a goat (meat) farm, so the buffalo-dairy Milk
+    // module stays hidden even though the owner holds milk.view.
     expect(navGroupItems("Overview")).toEqual(["Dashboard"]);
     expect(navGroupItems("Herd")).toEqual([
       "Animals",
@@ -635,7 +639,7 @@ describe("AppLayout — permission-gated nav", () => {
       "Breeding",
       "Kidding",
     ]);
-    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding", "Milk"]);
+    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding"]);
     expect(navGroupItems("Operations")).toEqual(["Purchases", "Tasks"]);
     expect(navGroupItems("Business")).toEqual([
       "Finance",
@@ -643,6 +647,31 @@ describe("AppLayout — permission-gated nav", () => {
       "Reports",
       "Team",
     ]);
+  });
+
+  it("shows the Milk module on buffalo dairy farms", async () => {
+    server.use(
+      http.get("/api/auth/farms", () =>
+        HttpResponse.json([
+          {
+            id: 7,
+            name: "Navipet Dairy",
+            location: "Navipet",
+            timezone: "Asia/Kolkata",
+            role: null,
+            farm_type: "BUFFALO_DAIRY",
+          },
+        ]),
+      ),
+    );
+    navState.pathname = "/dashboard";
+    const { unmount } = renderWithProviders(
+      <AppLayout defaultOpen={true}>{null}</AppLayout>,
+    );
+
+    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding", "Milk"]);
+    unmount();
   });
 
   it("keeps a group heading only while the worker can reach something under it", async () => {
@@ -663,7 +692,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("keeps the permissions-failure notice out of a healthy sidebar", async () => {
     const { unmount } = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     expect(
       screen.queryByText(/Could not load your permissions/),
     ).not.toBeInTheDocument();
@@ -765,7 +794,7 @@ describe("AppLayout — loading and no-farm states", () => {
   it("never sends a session that already has an active farm to /farm-select", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(13));
     // The farm gate is the only navigation this shell performs; bouncing a
     // fully selected session would make every page load lose its route.
     expect(replaceMock).not.toHaveBeenCalled();

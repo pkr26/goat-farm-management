@@ -49,10 +49,10 @@ def test_thousand_litres_plans_a_herd_that_ships_it() -> None:
     # still swing with the season — the final month sits in the July trough).
     final_twelve = [m.projected_daily_litres for m in report.projection[-12:]]
     assert sum(final_twelve) / 12.0 == pytest.approx(1000.0, rel=0.02)
-    # Fat-based procurement price: 950 Rs/kg fat x 6.8% = 64.6 Rs/L.
+    # Fat-based procurement price: 900 Rs/kg fat x 6.8% = 61.2 Rs/L.
     month = report.projection[-1]
     assert month.projected_monthly_revenue == pytest.approx(
-        month.projected_monthly_litres * 950.0 * 6.8 / 100.0, rel=1e-9
+        month.projected_monthly_litres * 900.0 * 6.8 / 100.0, rel=1e-9
     )
 
 

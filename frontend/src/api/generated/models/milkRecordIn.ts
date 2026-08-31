@@ -21,4 +21,5 @@ export interface MilkRecordIn {
   litres: number;
   fat_pct?: number | null;
   notes?: string | null;
+  correction_reason?: string | null;
 }

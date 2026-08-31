@@ -99,6 +99,10 @@ function TaskLink({
 
 export default function DashboardPage() {
   const vocabulary = farmVocabulary(useFarmType());
+  // Table headers and tag fallbacks start the sentence, so the female-parent
+  // noun needs its display-case form ("Doe" / "Milking buffalo").
+  const femaleParentLabel =
+    vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
   const { farms, farmId } = useAuth();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("dashboard.view");
@@ -325,15 +329,15 @@ export default function DashboardPage() {
           {breedingWithheld ? (
             <EmptyState
               icon={Baby}
-              title="Kiddings require breeding access."
-              description="Ask an admin to grant breeding.view to see kiddings due here."
+              title={`${vocabulary.parturitionCap}s require breeding access.`}
+              description={`Ask an admin to grant breeding.view to see ${vocabulary.parturition}s due here.`}
             />
           ) : payload.kiddings_due.length === 0 ? (
             <EmptyState icon={Baby} title="None." className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
-                <TableRow><th scope="col">Doe</th><th scope="col">Due</th><th scope="col">Record</th></TableRow>
+                <TableRow><th scope="col">{femaleParentLabel}</th><th scope="col">Due</th><th scope="col">Record</th></TableRow>
               </TableHeader>
               <TableBody>
                 {payload.kiddings_due.map((r) => (
@@ -344,10 +348,10 @@ export default function DashboardPage() {
                           href={withReturnTo(`/animals/${r.doe_id}`, "/dashboard")}
                           className="text-primary underline"
                         >
-                          {r.doe_tag ?? `Doe #${r.doe_id}`}
+                          {r.doe_tag ?? `${femaleParentLabel} #${r.doe_id}`}
                         </Link>
                       ) : (
-                        r.doe_tag ?? `Doe #${r.doe_id}`
+                        r.doe_tag ?? `${femaleParentLabel} #${r.doe_id}`
                       )}
                     </TableCell>
                     <TableCell>
@@ -384,7 +388,7 @@ export default function DashboardPage() {
               Showing {payload.kiddings_due.length} of {payload.kiddings_due_total}.{" "}
               {can("kidding.view") && (
                 <Link href="/kidding" className="text-primary underline">
-                  View the kidding register
+                  View the {vocabulary.parturition} register
                 </Link>
               )}
             </p>

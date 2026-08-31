@@ -13,6 +13,8 @@ export type FarmType = "GOAT" | "BUFFALO_DAIRY";
 export interface FarmVocabulary {
   /** "Goat farm" / "Buffalo dairy" — used on cards and pickers. */
   typeLabel: string;
+  /** Species noun: "goat" / "buffalo" — milk, meat and other produce copy. */
+  species: string;
   /** Adult female: "doe" / "milking buffalo". */
   femaleAdult: string;
   /** Adult male: "buck" / "bull". */
@@ -33,6 +35,7 @@ export interface FarmVocabulary {
 
 const GOAT_VOCABULARY: FarmVocabulary = {
   typeLabel: "Goat farm",
+  species: "goat",
   femaleAdult: "doe",
   maleAdult: "buck",
   young: "kid",
@@ -46,6 +49,7 @@ const GOAT_VOCABULARY: FarmVocabulary = {
 
 const BUFFALO_VOCABULARY: FarmVocabulary = {
   typeLabel: "Buffalo dairy",
+  species: "buffalo",
   femaleAdult: "milking buffalo",
   maleAdult: "bull",
   young: "calf",

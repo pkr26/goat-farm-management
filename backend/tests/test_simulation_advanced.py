@@ -271,6 +271,9 @@ def test_per_head_transport_cost_follows_operating_cost_growth() -> None:
 
 def test_green_fodder_is_physically_sourced_and_costed_by_source() -> None:
     no_land = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
+    # The calibrated default grows 3 acres; the "no land" arm of this identity
+    # pins the true zero-acre plan explicitly.
+    no_land.feed.cultivated_fodder_acres = 0.0
     no_land_result = run_simulation(no_land, with_break_even=False)
     assert all(month.feed_homegrown_green_kg == 0.0 for month in no_land_result.months)
     assert all(
@@ -345,6 +348,9 @@ def test_fodder_storage_balance_includes_loss_and_capacity_waste() -> None:
             initial_fodder_stock_kg_dm=10_000.0,
             fodder_storage_capacity_kg_dm=10_000.0,
             fodder_storage_loss_fraction_monthly=0.10,
+            # Zero cultivation isolates the storage balance: the opening stock
+            # is the month's only supply.
+            cultivated_fodder_acres=0.0,
         ),
     )
     first = run_simulation(a, with_break_even=False).months[0]

@@ -25,8 +25,8 @@ PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
-# Autogenerate-drift checks must run at the CURRENT head (farm type + dairy).
-HEAD = "b3d7f1a5c9e2"
+# Autogenerate-drift checks must run at the CURRENT head (milk audit + fat pricing).
+HEAD = "c5a8e1f3b7d2"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
