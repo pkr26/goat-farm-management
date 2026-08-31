@@ -67,6 +67,14 @@ from .finance import (
     npv,
     payback_month,
 )
+from .lactation import (
+    WOOD_CURVATURE_B,
+    curve_from_assumptions,
+    monthly_milk_curve,
+    wood_daily_yield,
+    wood_monthly_weights,
+)
+from .milk_planner import MilkPlanReport, build_milk_plan
 from .montecarlo import percentile, run_monte_carlo, run_sensitivity
 from .results import (
     AmortizationRowModel,
@@ -89,6 +97,7 @@ __all__ = [
     "DAYS_PER_MONTH",
     "PRESET_FACTORIES",
     "SYSTEMS",
+    "WOOD_CURVATURE_B",
     "AmortizationRow",
     "AmortizationRowModel",
     "AnnualPLRow",
@@ -101,6 +110,7 @@ __all__ = [
     "GrowthAssumptions",
     "HerdAssumptions",
     "MetaAssumptions",
+    "MilkPlanReport",
     "MonteCarloResult",
     "MonthlyRow",
     "MortalityAssumptions",
@@ -121,15 +131,18 @@ __all__ = [
     "apply_system",
     "bcr",
     "break_even_meat_price",
+    "build_milk_plan",
     "class_feed",
     "combine_feed",
     "cultivated_green_supply_kg",
+    "curve_from_assumptions",
     "get_preset",
     "herd_cohorts",
     "irr",
     "land_requirement_acres",
     "mirr",
     "monthly_emi",
+    "monthly_milk_curve",
     "monthly_mortality_rate",
     "npv",
     "payback_month",
@@ -138,4 +151,6 @@ __all__ = [
     "run_sensitivity",
     "run_simulation",
     "weight_at_age",
+    "wood_daily_yield",
+    "wood_monthly_weights",
 ]

@@ -70,6 +70,7 @@ from .finance import (
 from .finance import (
     irr as _irr_of_flows,
 )
+from .lactation import curve_from_assumptions
 from .market import (
     annual_growth_multiplier,
     cultivated_green_supply_kg_dm_for_month,
@@ -380,11 +381,9 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             preg = [per_slot] * len(preg)
             lact = [0.0] * len(lact)
             k_months = max(1, round(1.0 / max(r.conception_rate, 1e-9)))
-            overlay_waiting_index = 0
-            overlay_serving_index = min(len(open_waiting), len(lact) - 1)
             for overlay_index in (
-                [overlay_waiting_index] * len(open_waiting)
-                + [overlay_serving_index]
+                list(range(len(open_waiting)))  # waiting slot i -> i months fresh
+                + [min(len(open_waiting), len(lact) - 1)]
                 + [min(len(open_waiting) + k_months + j, 10**9) for j in range(len(preg))]
             ):
                 if overlay_index < len(lact):
@@ -475,17 +474,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     for event in a.events:
         events_by_month.setdefault(event.month, []).append(event)
 
-    # Lactation yield curve: geometric decline from the first month in milk
-    # (peak), normalised so the whole lactation sums to exactly
-    # lactation_milk_litres. A flat average would spread peak yield across the
-    # dry months and understate both feed demand and early-lactation revenue.
-    if r.lactation_months > 0 and sales.lactation_milk_litres > 0.0:
-        _persistency = sales.milk_persistency_monthly
-        _curve_weights = [_persistency**i for i in range(r.lactation_months)]
-        _curve_total = sum(_curve_weights)
-        milk_yield_curve = [sales.lactation_milk_litres * w / _curve_total for w in _curve_weights]
-    else:
-        milk_yield_curve = [0.0] * r.lactation_months
+    # Lactation yield curve (see simulation/lactation.py): the "geometric"
+    # shape declines from a first-month peak; the "wood" shape rises from
+    # calving to a peak around milk_peak_day then declines. Both normalise so
+    # the whole lactation sums to exactly lactation_milk_litres — a flat
+    # average would spread peak yield across the dry months and understate
+    # both feed demand and early-lactation revenue.
+    milk_yield_curve = curve_from_assumptions(sales, r.lactation_months)
 
     for month in range(1, a.meta.horizon_months + 1):
         shock_index = month - 1

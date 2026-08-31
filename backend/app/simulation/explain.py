@@ -494,7 +494,7 @@ def _active_festival_months(assumptions: SimulationAssumptions) -> list[int]:
     return []
 
 
-def _festival_paragraph(assumptions: SimulationAssumptions, result) -> list[str]:
+def _festival_paragraph(assumptions: SimulationAssumptions, result: SimulationResult) -> list[str]:
     months = _active_festival_months(assumptions)
     if not months:
         return []
@@ -650,9 +650,9 @@ def build_narrative_report(
                     ],
                     total_revenue,
                 )
-                + "."
-            ]
-            + _festival_paragraph(a, result),
+                + ".",
+                *_festival_paragraph(a, result),
+            ],
             figures={
                 "total_revenue": total_revenue,
                 "meat_revenue": meat,

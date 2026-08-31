@@ -20,6 +20,7 @@ import {
   IndianRupee,
   Info,
   Landmark,
+  Milk,
   Percent,
   PiggyBank,
   Play,
@@ -53,6 +54,7 @@ import {
   useHerdSnapshotApiSimulationHerdSnapshotGet,
   useListBreedsApiSimulationDefaultsBreedsGet,
   useListScenariosApiSimulationScenariosGet,
+  usePlanMilkApiSimulationMilkPlannerPlanPost,
   usePlanSalesApiSimulationPlannerPlanPost,
   useRunAdhocApiSimulationRunPost,
   useRunScenarioApiSimulationScenariosScenarioIdRunPost,
@@ -63,6 +65,7 @@ import type {
   FarmCalibrationOut,
   HerdEventAssumptions,
   MetricExplanation,
+  MilkPlanReport,
   OptimizationCandidate,
   PercentileBand,
   PlanReport,
@@ -633,6 +636,13 @@ function formatHead(value: number | null | undefined): string {
     : value.toFixed(1);
 }
 
+/** Daily tank volumes: whole litres, Indian digit grouping. */
+function formatLitres(value: number | null | undefined): string {
+  return value === null || value === undefined || !Number.isFinite(value)
+    ? "—"
+    : Math.round(value).toLocaleString("en-IN");
+}
+
 function formatCalibrationValue(value: CalibrationEvidence["calibrated_value"]): string {
   if (Array.isArray(value)) return value.map((item) => formatRatio(item, 3)).join(", ");
   if (!Number.isFinite(value)) return "—";
@@ -1081,6 +1091,16 @@ export default function SimulationPage() {
     string | null
   >(null);
   const [planError, setPlanError] = useState<string | null>(null);
+  // Milk planner: the daily litres target is a procurement contract, not a
+  // herd size — the planner reverse-designs the herd, calving/AI calendar and
+  // in-milk purchases that ship it. Dairy-only; hidden for meat scenarios.
+  const [milkTarget, setMilkTarget] = useState(1000);
+  const [milkRampMonths, setMilkRampMonths] = useState(1);
+  const [milkProjectionMonths, setMilkProjectionMonths] = useState(36);
+  const [milkHoldYearRound, setMilkHoldYearRound] = useState(false);
+  const [milkReport, setMilkReport] = useState<MilkPlanReport | null>(null);
+  const [milkInputsSnapshot, setMilkInputsSnapshot] = useState<string | null>(null);
+  const [milkError, setMilkError] = useState<string | null>(null);
   const [recurrenceOpen, setRecurrenceOpen] = useState(false);
   const [recurrence, setRecurrence] = useState({
     month: 1,
@@ -1209,6 +1229,7 @@ export default function SimulationPage() {
 
   const runMutation = useRunAdhocApiSimulationRunPost();
   const planMutation = usePlanSalesApiSimulationPlannerPlanPost();
+  const milkPlanMutation = usePlanMilkApiSimulationMilkPlannerPlanPost();
   const runScenarioMutation = useRunScenarioApiSimulationScenariosScenarioIdRunPost();
   const createMutation = useCreateScenarioApiSimulationScenariosPost();
   const updateMutation = useUpdateScenarioApiSimulationScenariosScenarioIdPatch();
@@ -1567,6 +1588,46 @@ export default function SimulationPage() {
 
   const planReportIsStale =
     planReport !== null && planTargetsSnapshot !== JSON.stringify(planTargets);
+
+  const milkPlanInputs = {
+    target: milkTarget,
+    ramp: milkRampMonths,
+    projection: milkProjectionMonths,
+    yearRound: milkHoldYearRound,
+  };
+
+  async function onMilkPlan() {
+    await simulationAction.run(async () => {
+      const payload = assumptionsWithEvents();
+      if (!payload || hasEditorErrors) return;
+      setMilkError(null);
+      try {
+        const res = await milkPlanMutation.mutateAsync({
+          data: {
+            assumptions: payload,
+            daily_target_litres: milkTarget,
+            ramp_months: milkRampMonths,
+            projection_months: milkProjectionMonths,
+            hold_year_round: milkHoldYearRound,
+          },
+        });
+        if (res.status === 200) {
+          setMilkReport(res.data);
+          setMilkInputsSnapshot(JSON.stringify(milkPlanInputs));
+        }
+      } catch (err) {
+        const message = runErrorMessage(err, "Milk plan failed");
+        setMilkError(message);
+        toast.error(message);
+      }
+    });
+  }
+
+  const milkReportIsStale =
+    milkReport !== null && milkInputsSnapshot !== JSON.stringify(milkPlanInputs);
+  const isDairyScenario =
+    (assumptions?.sales?.lactation_milk_litres ?? 0) > 0 &&
+    (assumptions?.reproduction?.lactation_months ?? 0) > 0;
 
   /** Turn a checked plan into events: keep purchases, REPLACE existing sale
    * events with the targets, and add the planner's recommended purchases.
@@ -3572,6 +3633,184 @@ export default function SimulationPage() {
           </div>
         )}
       </DataTableCard>
+
+      {isDairyScenario && (
+        <DataTableCard
+          title="Milk planner"
+          description="State the litres per day the dairy must ship (a procurement contract or bulk buyer). The planner designs the herd that delivers it: how many animals at which lactation stages, the calving/AI calendar that keeps the tank flat, and the in-milk purchases that build it — biology included, since yield follows the lactation curve and dries off before the next calving."
+          actions={
+            <Button
+              size="sm"
+              onClick={onMilkPlan}
+              disabled={
+                !assumptions ||
+                hasEditorErrors ||
+                milkPlanMutation.isPending ||
+                milkTarget <= 0
+              }
+            >
+              {milkPlanMutation.isPending ? "Planning…" : "Plan milk"}
+            </Button>
+          }
+          contentClassName="space-y-3"
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1">
+              <Label htmlFor="milk-target">Daily target (L)</Label>
+              <NumberInput
+                id="milk-target"
+                exclusiveMin={0}
+                max={1_000_000}
+                value={milkTarget}
+                onCommit={(n) => setMilkTarget(n)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="milk-ramp">Ramp (months)</Label>
+              <NumberInput
+                id="milk-ramp"
+                min={1}
+                max={Math.max(1, Math.min(60, horizonMonths - 1))}
+                integer
+                className="w-24"
+                value={milkRampMonths}
+                onCommit={(n) => setMilkRampMonths(n)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="milk-projection">Projection (months)</Label>
+              <NumberInput
+                id="milk-projection"
+                min={12}
+                max={horizonMonths}
+                integer
+                className="w-24"
+                value={milkProjectionMonths}
+                onCommit={(n) => setMilkProjectionMonths(n)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="milk-year-round">Sizing</Label>
+              <Select
+                value={milkHoldYearRound ? "year_round" : "average"}
+                onValueChange={(v) => setMilkHoldYearRound(v === "year_round")}
+                items={{ average: "12-month average", year_round: "Hold year-round" }}
+              >
+                <SelectTrigger id="milk-year-round" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="average">12-month average</SelectItem>
+                  <SelectItem value="year_round">Hold year-round</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {milkError && (
+            <p role="alert" className="text-sm text-destructive">
+              {milkError}
+            </p>
+          )}
+
+          {!milkReport ? (
+            <EmptyState
+              icon={Milk}
+              title="No milk plan yet"
+              description="Enter the daily litres you must ship — the planner sizes the herd, the monthly calving calendar and the AI schedule behind it."
+            />
+          ) : (
+            <div className="space-y-3 rounded-lg border border-border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium">
+                  {milkReport.achievable ? "Target is achievable" : "Target falls short"}
+                  {" · "}
+                  <span className="text-muted-foreground">
+                    steady {formatLitres(milkReport.steady_average_daily_litres)} L/day
+                    {milkReport.steady_from_month !== null
+                      ? ` from month ${milkReport.steady_from_month}`
+                      : ""}
+                    {milkReportIsStale ? " · stale — re-plan after edits" : ""}
+                  </span>
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {formatHead(milkReport.herd.breeding_does)} breeding (
+                  {formatHead(milkReport.herd.milking_does)} milking) ·{" "}
+                  {formatHead(milkReport.herd.calvings_per_month)} calvings and{" "}
+                  {formatHead(milkReport.herd.ai_services_per_month)} AI/month
+                </span>
+              </div>
+
+              {milkReport.purchases.length > 0 && (
+                <p className="text-sm text-muted-foreground" role="note">
+                  Buy{" "}
+                  {milkReport.purchases
+                    .map(
+                      (purchase) =>
+                        `${formatHead(purchase.count)} in-milk animal(s) in month ${purchase.month}`,
+                    )
+                    .join(", ")}
+                  {". "}
+                  {milkReport.herd.replacement_purchases_total > 0 && (
+                    <>
+                      Plus a replacement bridge of{" "}
+                      {formatHead(milkReport.herd.replacement_purchases_total)} head over the
+                      plan — culling and mortality the heifer pipeline cannot cover yet.
+                    </>
+                  )}
+                </p>
+              )}
+
+              <div className="max-h-80 overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Month</TableHead>
+                      <TableHead>Cal</TableHead>
+                      <TableHead>Milking</TableHead>
+                      <TableHead>Dry</TableHead>
+                      <TableHead>Calvings</TableHead>
+                      <TableHead>AI</TableHead>
+                      <TableHead>L/day</TableHead>
+                      <TableHead>Gap</TableHead>
+                      <TableHead>₹ milk</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {milkReport.projection.map((row) => (
+                      <TableRow key={`milk-month-${row.month}`}>
+                        <TableCell>{row.month}</TableCell>
+                        <TableCell>{row.calendar_month}</TableCell>
+                        <TableCell>{formatHead(row.milking_does)}</TableCell>
+                        <TableCell>{formatHead(row.dry_does)}</TableCell>
+                        <TableCell>{formatHead(row.freshenings)}</TableCell>
+                        <TableCell>{formatHead(row.ai_services)}</TableCell>
+                        <TableCell
+                          className={row.meets_target ? "" : "text-amber-600 dark:text-amber-400"}
+                        >
+                          {formatLitres(row.projected_daily_litres)}
+                        </TableCell>
+                        <TableCell>{formatLitres(row.gap_daily_litres)}</TableCell>
+                        <TableCell>{formatMoney(row.projected_monthly_revenue)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {(milkReport.notes ?? []).map((note, index) => (
+                <p
+                  key={`milk-note-${index}`}
+                  className="text-sm text-muted-foreground"
+                  role="note"
+                >
+                  {note}
+                </p>
+              ))}
+            </div>
+          )}
+        </DataTableCard>
+      )}
       </fieldset>
 
       <section className="space-y-3">

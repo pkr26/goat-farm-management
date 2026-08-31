@@ -324,6 +324,18 @@ class SalesAssumptions(_Group):
     # in recorded Murrah populations). The engine normalises the curve so the
     # lactation total is exactly lactation_milk_litres.
     milk_persistency_monthly: FiniteFloat = Field(default=0.93, ge=0.5, le=1.0)
+    # Lactation-curve family. "geometric" is the legacy shape (peak in the
+    # first month of milk, then milk_persistency_monthly decline); "wood" is
+    # Wood's incomplete gamma curve (see simulation/lactation.py), which rises
+    # from calving to a peak and then declines — the shape recorded for
+    # Murrah and river buffalo. Both normalise to the same lactation total.
+    milk_curve_shape: Literal["geometric", "wood"] = "geometric"
+    # Day in milk of peak yield, used when milk_curve_shape is "wood".
+    # Published Murrah/river-buffalo lactation-curve fits peak at day 57-73
+    # (~day 65 for Murrah); 65 is the research-backed default. The floor of
+    # 1 day keeps the Wood curve computable (a tinier peak underflows the
+    # gamma's exponential to zero in every monthly bucket).
+    milk_peak_day: FiniteFloat = Field(default=65.0, ge=1.0, le=365.0)
     # Heat-stress seasonality of yield (Telangana: 10-20% summer trough) and
     # flush/lean price seasonality; both January-indexed and validated like the
     # meat multipliers.

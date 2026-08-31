@@ -284,9 +284,15 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             milk_price_per_litre=55.0,  # fallback per-litre price
             # In-milk second-lactation purchases (12+ L/day at peak) give
             # ~2,200-2,800 L over a 305-day lactation (ICAR recorded herds
-            # 2,605 ± 40 kg; field 1,500-2,000 kg). 2,400 with 0.93
-            # persistency = ~11.9 L/day in month 1, ~7.9 L/day average.
+            # 2,605 ± 40 kg; field 1,500-2,000 kg). 2,400 with the Wood curve
+            # below averages ~7.9 L/day in milk.
             lactation_milk_litres=2400.0,
+            # Wood lactation curve peaking at day 65 of lactation (published
+            # Murrah/river-buffalo Wood fits peak day 57-73): ~7.2 L/day in the
+            # first month, peak ~11.6 L/day around month 3, ~7.9 L/day average
+            # over the 305-day lactation.
+            milk_curve_shape="wood",
+            milk_peak_day=65.0,
             # Vijaya/Sangam/Amul procurement ₹840-865/kg fat (2025-26); the
             # default blends Phase A cooperative supply with early Phase B
             # bulk sales to schools/restaurants at better-than-procurement

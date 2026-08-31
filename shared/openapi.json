@@ -5257,6 +5257,64 @@
         }
       }
     },
+    "/api/simulation/milk-planner/plan": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Plan Milk",
+        "description": "Design the dairy herd that ships a daily litres target.\n\nReverse-plans from the target to biology: how many animals at which\nlactation stages, the calving/AI calendar that keeps daily yield flat, and\nthe in-milk purchases that build the herd. Only meaningful for dairy\nassumptions (``sales.lactation_milk_litres > 0``).",
+        "operationId": "plan_milk_api_simulation_milk_planner_plan_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilkPlanIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilkPlanReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/simulation/scenarios": {
       "post": {
         "tags": [
@@ -11051,6 +11109,66 @@
         ],
         "title": "MilkAnimalSummaryOut"
       },
+      "MilkCurveSummary": {
+        "properties": {
+          "shape": {
+            "type": "string",
+            "title": "Shape"
+          },
+          "lactation_litres": {
+            "type": "number",
+            "title": "Lactation Litres"
+          },
+          "lactation_months": {
+            "type": "integer",
+            "title": "Lactation Months"
+          },
+          "peak_day": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peak Day"
+          },
+          "peak_month_of_lactation": {
+            "type": "integer",
+            "title": "Peak Month Of Lactation"
+          },
+          "peak_daily_litres": {
+            "type": "number",
+            "title": "Peak Daily Litres"
+          },
+          "avg_daily_litres_per_milking_doe": {
+            "type": "number",
+            "title": "Avg Daily Litres Per Milking Doe"
+          },
+          "monthly_litres": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Monthly Litres"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "shape",
+          "lactation_litres",
+          "lactation_months",
+          "peak_day",
+          "peak_month_of_lactation",
+          "peak_daily_litres",
+          "avg_daily_litres_per_milking_doe",
+          "monthly_litres"
+        ],
+        "title": "MilkCurveSummary",
+        "description": "The lactation curve the plan is built on."
+      },
       "MilkDayTotalOut": {
         "properties": {
           "date": {
@@ -11087,6 +11205,101 @@
         ],
         "title": "MilkDayTotalOut"
       },
+      "MilkHerdDesign": {
+        "properties": {
+          "daily_target_litres": {
+            "type": "number",
+            "title": "Daily Target Litres"
+          },
+          "calving_interval_months": {
+            "type": "number",
+            "title": "Calving Interval Months"
+          },
+          "expected_services_per_conception": {
+            "type": "number",
+            "title": "Expected Services Per Conception"
+          },
+          "breeding_does": {
+            "type": "number",
+            "title": "Breeding Does"
+          },
+          "milking_does": {
+            "type": "number",
+            "title": "Milking Does"
+          },
+          "dry_does": {
+            "type": "number",
+            "title": "Dry Does"
+          },
+          "calvings_per_month": {
+            "type": "number",
+            "title": "Calvings Per Month"
+          },
+          "ai_services_per_month": {
+            "type": "number",
+            "title": "Ai Services Per Month"
+          },
+          "replacement_does_per_month": {
+            "type": "number",
+            "title": "Replacement Does Per Month"
+          },
+          "heifer_calves_available_per_month": {
+            "type": "number",
+            "title": "Heifer Calves Available Per Month"
+          },
+          "heifer_surplus_per_month": {
+            "type": "number",
+            "title": "Heifer Surplus Per Month"
+          },
+          "starting_does_credited": {
+            "type": "number",
+            "title": "Starting Does Credited"
+          },
+          "purchases_total": {
+            "type": "number",
+            "title": "Purchases Total"
+          },
+          "replacement_purchases_total": {
+            "type": "number",
+            "title": "Replacement Purchases Total"
+          },
+          "seasonal_low_daily_litres": {
+            "type": "number",
+            "title": "Seasonal Low Daily Litres"
+          },
+          "seasonal_high_daily_litres": {
+            "type": "number",
+            "title": "Seasonal High Daily Litres"
+          },
+          "herd_for_year_round_target": {
+            "type": "number",
+            "title": "Herd For Year Round Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "daily_target_litres",
+          "calving_interval_months",
+          "expected_services_per_conception",
+          "breeding_does",
+          "milking_does",
+          "dry_does",
+          "calvings_per_month",
+          "ai_services_per_month",
+          "replacement_does_per_month",
+          "heifer_calves_available_per_month",
+          "heifer_surplus_per_month",
+          "starting_does_credited",
+          "purchases_total",
+          "replacement_purchases_total",
+          "seasonal_low_daily_litres",
+          "seasonal_high_daily_litres",
+          "herd_for_year_round_target"
+        ],
+        "title": "MilkHerdDesign",
+        "description": "The herd that delivers the target, at steady state."
+      },
       "MilkListOut": {
         "properties": {
           "records": {
@@ -11122,6 +11335,236 @@
           "total_litres"
         ],
         "title": "MilkListOut"
+      },
+      "MilkPlanIn": {
+        "properties": {
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          },
+          "daily_target_litres": {
+            "type": "number",
+            "maximum": 1000000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Target Litres"
+          },
+          "ramp_months": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Ramp Months",
+            "default": 1
+          },
+          "projection_months": {
+            "type": "integer",
+            "maximum": 240.0,
+            "minimum": 12.0,
+            "title": "Projection Months",
+            "default": 36
+          },
+          "hold_year_round": {
+            "type": "boolean",
+            "title": "Hold Year Round",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "assumptions",
+          "daily_target_litres"
+        ],
+        "title": "MilkPlanIn",
+        "description": "A milk plan: a daily litres target the dairy herd must deliver."
+      },
+      "MilkPlanMonth": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "calendar_month": {
+            "type": "integer",
+            "title": "Calendar Month"
+          },
+          "breeding_does": {
+            "type": "number",
+            "title": "Breeding Does"
+          },
+          "milking_does": {
+            "type": "number",
+            "title": "Milking Does"
+          },
+          "dry_does": {
+            "type": "number",
+            "title": "Dry Does"
+          },
+          "freshenings": {
+            "type": "number",
+            "title": "Freshenings"
+          },
+          "ai_services": {
+            "type": "number",
+            "title": "Ai Services"
+          },
+          "heifer_graduates": {
+            "type": "number",
+            "title": "Heifer Graduates"
+          },
+          "projected_daily_litres": {
+            "type": "number",
+            "title": "Projected Daily Litres"
+          },
+          "target_daily_litres": {
+            "type": "number",
+            "title": "Target Daily Litres"
+          },
+          "gap_daily_litres": {
+            "type": "number",
+            "title": "Gap Daily Litres"
+          },
+          "projected_monthly_litres": {
+            "type": "number",
+            "title": "Projected Monthly Litres"
+          },
+          "projected_monthly_revenue": {
+            "type": "number",
+            "title": "Projected Monthly Revenue"
+          },
+          "meets_target": {
+            "type": "boolean",
+            "title": "Meets Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "calendar_month",
+          "breeding_does",
+          "milking_does",
+          "dry_does",
+          "freshenings",
+          "ai_services",
+          "heifer_graduates",
+          "projected_daily_litres",
+          "target_daily_litres",
+          "gap_daily_litres",
+          "projected_monthly_litres",
+          "projected_monthly_revenue",
+          "meets_target"
+        ],
+        "title": "MilkPlanMonth",
+        "description": "One projected month of the plan."
+      },
+      "MilkPlanReport": {
+        "properties": {
+          "target_daily_litres": {
+            "type": "number",
+            "title": "Target Daily Litres"
+          },
+          "ramp_months": {
+            "type": "integer",
+            "title": "Ramp Months"
+          },
+          "hold_year_round": {
+            "type": "boolean",
+            "title": "Hold Year Round"
+          },
+          "curve": {
+            "$ref": "#/components/schemas/MilkCurveSummary"
+          },
+          "herd": {
+            "$ref": "#/components/schemas/MilkHerdDesign"
+          },
+          "purchases": {
+            "items": {
+              "$ref": "#/components/schemas/MilkPurchasePlan"
+            },
+            "type": "array",
+            "title": "Purchases"
+          },
+          "projection": {
+            "items": {
+              "$ref": "#/components/schemas/MilkPlanMonth"
+            },
+            "type": "array",
+            "title": "Projection"
+          },
+          "steady_from_month": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steady From Month"
+          },
+          "steady_average_daily_litres": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steady Average Daily Litres"
+          },
+          "achievable": {
+            "type": "boolean",
+            "title": "Achievable"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_daily_litres",
+          "ramp_months",
+          "hold_year_round",
+          "curve",
+          "herd",
+          "purchases",
+          "projection",
+          "steady_from_month",
+          "steady_average_daily_litres",
+          "achievable"
+        ],
+        "title": "MilkPlanReport",
+        "description": "Full milk plan: herd design, procurement and the monthly projection."
+      },
+      "MilkPurchasePlan": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "count": {
+            "type": "number",
+            "title": "Count"
+          },
+          "profile": {
+            "type": "string",
+            "title": "Profile"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "count",
+          "profile"
+        ],
+        "title": "MilkPurchasePlan",
+        "description": "One procurement tranche."
       },
       "MilkRecordIn": {
         "properties": {
@@ -13847,6 +14290,22 @@
             "minimum": 0.5,
             "title": "Milk Persistency Monthly",
             "default": 0.93
+          },
+          "milk_curve_shape": {
+            "type": "string",
+            "enum": [
+              "geometric",
+              "wood"
+            ],
+            "title": "Milk Curve Shape",
+            "default": "geometric"
+          },
+          "milk_peak_day": {
+            "type": "number",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Milk Peak Day",
+            "default": 65.0
           },
           "monthly_milk_yield_multipliers": {
             "items": {

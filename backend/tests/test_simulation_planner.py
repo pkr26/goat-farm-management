@@ -109,7 +109,7 @@ def test_close_gaps_refuses_impossible_targets_without_runaway() -> None:
     a = base_assumptions()
     # Month 6 grower sale: kids cannot exist yet from any purchase.
     targets = [SaleTarget(month=6, animal_class="male_grower", count=25.0)]
-    purchases, evaluation, closed, notes = close_gaps(a, targets)
+    purchases, _evaluation, closed, notes = close_gaps(a, targets)
     assert not closed
     assert purchases == []
     assert any("impossible" in note for note in notes)
@@ -169,9 +169,11 @@ def test_purchased_doe_settles_before_first_service() -> None:
 def test_run_simulation_revalidates_mutated_assumptions() -> None:
     # Programmatic mutation bypasses field validators; the public entry must
     # refuse an incoherent document (negative equity) instead of running it.
+    from pydantic import ValidationError
+
     bad = SimulationAssumptions()
     bad.finance.subsidy_fraction = 0.5  # 0.85 loan + 0.50 subsidy > 1
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         _ = __import__("app.simulation.engine", fromlist=["run_simulation"]).run_simulation(bad)
 
 
@@ -275,9 +277,7 @@ async def test_planner_api_rejects_event_cap_overflow_with_422(client) -> None:
                 for _ in range(8)  # 480 purchases across the horizon
             ][:460],
         },
-        "targets": [
-            {"month": 48, "animal_class": "male_grower", "count": 5} for _ in range(50)
-        ],
+        "targets": [{"month": 48, "animal_class": "male_grower", "count": 5} for _ in range(50)],
     }
     resp = await client.post("/api/simulation/planner/plan", json=document, headers=headers)
     assert resp.status_code == 422, resp.text
@@ -325,9 +325,7 @@ def test_earliest_supply_boundary_month_is_reported_not_skipped() -> None:
     assert impossible.recommended_purchases == []
     assert any("impossible" in note for note in impossible.notes)
 
-    possible = build_plan_report(
-        a, [SaleTarget(month=14, animal_class="male_grower", count=25.0)]
-    )
+    possible = build_plan_report(a, [SaleTarget(month=14, animal_class="male_grower", count=25.0)])
     assert possible.gaps_closed
     assert possible.after is not None and possible.after.targets[0].met
 

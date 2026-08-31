@@ -38,9 +38,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
-from typing import Annotated, TypeVar, cast
-
-_T = TypeVar("_T")
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import ValidationError
@@ -57,6 +55,7 @@ from ..schemas.simulation import (
     BreedsOut,
     FarmCalibrationOut,
     HerdSnapshotOut,
+    MilkPlanIn,
     PlanIn,
     RunIn,
     ScenarioCompareOut,
@@ -70,6 +69,7 @@ from ..services.simulation_calibration import calibrate_farm_assumptions
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
 from ..simulation.engine import run_simulation
+from ..simulation.milk_planner import MilkPlanReport, build_milk_plan
 from ..simulation.planner import PlanReport, SaleTarget, build_plan_report
 from ..simulation.results import SimulationResult
 from ..utils import today
@@ -225,7 +225,7 @@ async def _run_offloaded(
     return await _offload(lambda: _run(assumptions, monte_carlo, sensitivity, optimization))
 
 
-async def _offload(work: Callable[[], _T]) -> _T:
+async def _offload[T](work: Callable[[], T]) -> T:
     """Runs are synchronous CPU work — push them off the event loop so the
     request handler itself does not block. The engine is pure Python and holds
     the GIL, so this alone does not protect other requests; the concurrency
@@ -252,14 +252,14 @@ async def _offload(work: Callable[[], _T]) -> _T:
         if not completed.done():
             completed.set_result(None)
 
-    def run_and_signal() -> _T:
+    def run_and_signal() -> T:
         nonlocal started
         with state_lock:
             if abandoned:
                 # Cancellation won while this call was still queued on AnyIO's
                 # thread limiter. The lease was already released and this late
                 # wrapper must not start untracked engine work.
-                return cast("_T", None)
+                return cast("T", None)
             started = True
         try:
             return work()
@@ -839,9 +839,64 @@ async def plan_sales(
             ) from exc
         # Same defense as /run: a non-finite figure would crash JSON encoding.
         if not _finite_payload(report.model_dump()):
-            raise HTTPException(
-                status_code=422, detail="These inputs produce non-finite results."
+            raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
+        return report
+
+    return await _with_run_limits(farm_id, user_id, run)
+
+
+@router.post("/milk-planner/plan")
+async def plan_milk(
+    payload: MilkPlanIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: SimView,
+) -> MilkPlanReport:
+    """Design the dairy herd that ships a daily litres target.
+
+    Reverse-plans from the target to biology: how many animals at which
+    lactation stages, the calving/AI calendar that keeps daily yield flat, and
+    the in-milk purchases that build the herd. Only meaningful for dairy
+    assumptions (``sales.lactation_milk_litres > 0``).
+    """
+    farm_id = farm.id
+    user_id = user.id
+    await db.rollback()
+
+    horizon = payload.assumptions.meta.horizon_months
+    months = min(horizon, payload.projection_months)
+    # Priced like the sale planner: a handful of deterministic design passes
+    # over the projection window, no Monte Carlo.
+    cost = 10 * months
+
+    async def run() -> MilkPlanReport:
+        _check_run_budget(farm_id, user_id, cost)
+        _charge_run_budget(farm_id, user_id, cost)
+        try:
+            report = await _offload(
+                lambda: build_milk_plan(
+                    payload.assumptions,
+                    payload.daily_target_litres,
+                    ramp_months=payload.ramp_months,
+                    projection_months=payload.projection_months,
+                    hold_year_round=payload.hold_year_round,
+                )
             )
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This milk plan cannot be represented within the simulation's "
+                    f"limits: {exc.errors()[:3]}"
+                ),
+            ) from exc
+        except ValueError as exc:
+            # Deliberate rejections (non-dairy scenario, ramp past the
+            # horizon, head-count ceiling).
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        if not _finite_payload(report.model_dump()):
+            raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
         return report
 
     return await _with_run_limits(farm_id, user_id, run)

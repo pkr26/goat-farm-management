@@ -61,8 +61,9 @@ _PURCHASE_BACKED_CLASSES = {
 }
 
 # Latest age (months) an animal of each class can be at sale time and still
-# belong to that class. Kids span 0-2, weaners 3-5, growers 6..sale_age-1.
-_CLASS_MAX_AGE = {"kid": 2, "weaner": 5, "grower": None}  # grower: sale_age - 1
+# belong to that class. Kids span 0-2, weaners 3-5; growers (handled in the
+# function, as their ceiling is sale_age - 1) span 6..sale_age-1.
+_CLASS_MAX_AGE = {"kid": 2, "weaner": 5}
 # Age (months) at which an animal enters each class: kid 0, weaner 3, grower 6.
 _CLASS_ENTRY_AGE = {"kid": 0, "weaner": 3, "grower": 6}
 
@@ -358,7 +359,7 @@ def close_gaps(
     def _impossible(target: SaleTarget) -> bool:
         return target.month < _earliest_supply_month(target.animal_class)
 
-    for iteration in range(max_iterations):
+    for _ in range(max_iterations):
         if evaluation.all_met:
             break
         changed = False

@@ -85,6 +85,8 @@ import type {
   MembershipOut,
   MilkListApiMilkGetParams,
   MilkListOut,
+  MilkPlanIn,
+  MilkPlanReport,
   MilkRecordIn,
   MilkRecordOut,
   MilkSummaryEndpointApiMilkSummaryGetParams,
@@ -8718,6 +8720,102 @@ export const usePlanSalesApiSimulationPlannerPlanPost = <TError = ErrorType<HTTP
         TContext
       > => {
       return useMutation(getPlanSalesApiSimulationPlannerPlanPostMutationOptions(options), queryClient);
+    }
+
+export type planMilkApiSimulationMilkPlannerPlanPostResponse200 = {
+  data: MilkPlanReport
+  status: 200
+}
+
+export type planMilkApiSimulationMilkPlannerPlanPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type planMilkApiSimulationMilkPlannerPlanPostResponseSuccess = (planMilkApiSimulationMilkPlannerPlanPostResponse200) & {
+  headers: Headers;
+};
+export type planMilkApiSimulationMilkPlannerPlanPostResponseError = (planMilkApiSimulationMilkPlannerPlanPostResponse422) & {
+  headers: Headers;
+};
+
+export type planMilkApiSimulationMilkPlannerPlanPostResponse = (planMilkApiSimulationMilkPlannerPlanPostResponseSuccess | planMilkApiSimulationMilkPlannerPlanPostResponseError)
+
+export const getPlanMilkApiSimulationMilkPlannerPlanPostUrl = () => {
+
+
+
+
+  return `/api/simulation/milk-planner/plan`
+}
+
+/**
+ * Design the dairy herd that ships a daily litres target.
+ *
+ * Reverse-plans from the target to biology: how many animals at which
+ * lactation stages, the calving/AI calendar that keeps daily yield flat, and
+ * the in-milk purchases that build the herd. Only meaningful for dairy
+ * assumptions (``sales.lactation_milk_litres > 0``).
+ * @summary Plan Milk
+ */
+export const planMilkApiSimulationMilkPlannerPlanPost = async (milkPlanIn: MilkPlanIn, options?: Parameters<typeof customInstance>[1]): Promise<planMilkApiSimulationMilkPlannerPlanPostResponse> => {
+
+  return customInstance<planMilkApiSimulationMilkPlannerPlanPostResponse>(getPlanMilkApiSimulationMilkPlannerPlanPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(milkPlanIn)
+  }
+);}
+
+
+
+
+
+export const getPlanMilkApiSimulationMilkPlannerPlanPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, TError,{data: MilkPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, TError,{data: MilkPlanIn}, TContext> => {
+
+const mutationKey = ['planMilkApiSimulationMilkPlannerPlanPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, {data: MilkPlanIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  planMilkApiSimulationMilkPlannerPlanPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlanMilkApiSimulationMilkPlannerPlanPostMutationResult = NonNullable<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>>
+    export type PlanMilkApiSimulationMilkPlannerPlanPostMutationBody = MilkPlanIn
+    export type PlanMilkApiSimulationMilkPlannerPlanPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Plan Milk
+ */
+export const usePlanMilkApiSimulationMilkPlannerPlanPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, TError,{data: MilkPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>,
+        TError,
+        {data: MilkPlanIn},
+        TContext
+      > => {
+      return useMutation(getPlanMilkApiSimulationMilkPlannerPlanPostMutationOptions(options), queryClient);
     }
 
 export type createScenarioApiSimulationScenariosPostResponse201 = {

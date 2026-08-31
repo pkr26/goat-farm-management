@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { SalesAssumptionsMilkCurveShape } from './salesAssumptionsMilkCurveShape';
 
 /**
  * Market prices, seasonality and selling costs (₹).
@@ -86,6 +87,12 @@ export interface SalesAssumptions {
      * @maximum 1
      */
   milk_persistency_monthly?: number;
+  milk_curve_shape?: SalesAssumptionsMilkCurveShape;
+  /**
+     * @minimum 1
+     * @maximum 365
+     */
+  milk_peak_day?: number;
   /**
      * @minItems 12
      * @maxItems 12
