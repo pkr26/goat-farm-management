@@ -49,6 +49,19 @@ MAX_SEASONAL_MULTIPLIER = 10.0
 WeightKg = Annotated[FiniteFloat, Field(gt=0.0, le=MAX_WEIGHT_KG)]
 
 
+def _normalized_seasonality(multipliers: list[float]) -> list[float]:
+    """Rescale twelve monthly multipliers so their mean is exactly 1.0.
+
+    The base price is documented as the *annual mean* live-weight price; a
+    hand-written seasonal curve whose average is 0.98 quietly re-defines it as
+    a peak-month price and understates every month of the year by 2%.
+    """
+    mean = sum(multipliers) / len(multipliers)
+    if mean <= 0.0:
+        return [1.0] * 12
+    return [value / mean for value in multipliers]
+
+
 class _Group(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -86,17 +99,46 @@ class HerdAssumptions(_Group):
     female_kids: int = Field(default=0, ge=0, le=MAX_HEAD)
     male_kids: int = Field(default=0, ge=0, le=MAX_HEAD)
     # Fraction of female growers reaching first-breeding age that are kept as
-    # replacements; the rest are sold as meat. NABARD models use ~0.5.
-    female_retention_fraction: FiniteFloat = Field(default=0.5, ge=0.0, le=1.0)
+    # replacements; the rest are sold as meat. 0.60 (not the textbook 0.50):
+    # with a 20% annual cull plus 5% adult mortality a 0.50 retention cannot
+    # hold the doe pool flat, and the projected flock silently shrinks ~20%
+    # over years 2-5 — exactly the years a lender watches. 0.60 of a ~2.8
+    # female-graduates/month pipeline (~17/yr) covers the ~12.5/yr outflow.
+    female_retention_fraction: FiniteFloat = Field(default=0.60, ge=0.0, le=1.0)
     # Cap on the breeding-doe pool; 0 = unlimited. Default 50 holds the flock
     # at the NABARD 50+2 unit size (model projects keep the breeding flock
     # constant and sell surplus replacements); set 0 for unconstrained growth.
     max_breeding_does: int = Field(default=50, ge=0, le=MAX_HEAD)
-    # ₹, NABARD unit-cost tables.
-    doe_purchase_price: FiniteFloat = Field(default=8000.0, ge=0.0, le=MAX_MONEY)
-    buck_purchase_price: FiniteFloat = Field(default=12000.0, ge=0.0, le=MAX_MONEY)
+    # ₹. Telangana/Nizamabad 2025-26 rates: quality young Osmanabadi does
+    # ₹8,000-15,000 (mandi listings ₹220-350/kg live; 14-month Nashik
+    # replacement ~₹11,000); 9,500 is the conservative mid for a young proven
+    # doe bought outside festival weeks.
+    doe_purchase_price: FiniteFloat = Field(default=9500.0, ge=0.0, le=MAX_MONEY)
+    # Pure-line Osmanabadi breeding bucks list ~₹15,000 (Raigad/Maharashtra
+    # 2025); a farm-raised young sire is less, a proven one more.
+    buck_purchase_price: FiniteFloat = Field(default=15000.0, ge=0.0, le=MAX_MONEY)
     # Buy a buck whenever the buck:doe ratio falls below 1:buck_doe_ratio.
     auto_purchase_bucks: bool = True
+    # Age window over which foundation and later purchased adult does are
+    # spread. 18-42 months (young proven, mixed ages) rather than the old
+    # 24-60: a purchased flock averaging 42 months sends a rolling max-age
+    # cull wave through the herd for three years, and no real buyer stocks up
+    # on near-spent does. Both ends stay inside the doe-age tracking array.
+    foundation_doe_age_min_months: int = Field(default=18, ge=0, le=180)
+    foundation_doe_age_max_months: int = Field(default=42, ge=0, le=180)
+    # A bought-in adult doe does not settle and cycle the day she lands:
+    # transport stress, new ration, pecking order. She spends this many months
+    # in a settling pool (maintenance feeding, adult mortality, no service)
+    # before joining the ready-open pool. 0 restores same-month breeding.
+    purchased_doe_settling_months: int = Field(default=1, ge=0, le=6)
+
+    @model_validator(mode="after")
+    def _foundation_age_window_is_valid(self) -> "HerdAssumptions":
+        if self.foundation_doe_age_min_months > self.foundation_doe_age_max_months:
+            raise ValueError(
+                "foundation_doe_age_min_months must be <= foundation_doe_age_max_months"
+            )
+        return self
     # Foundation flock reproductive state: "mixed" spreads the starting does
     # uniformly across the reproductive cycle (realistic purchased flock —
     # some pregnant, some lactating, some open — so sales begin in year 1);
@@ -156,8 +198,11 @@ class GrowthAssumptions(_Group):
     """
 
     birth_weight_kg: WeightKg = Field(default=2.5, gt=0.0)
-    adult_weight_doe_kg: WeightKg = Field(default=32.0, gt=0.0)
-    adult_weight_buck_kg: WeightKg = Field(default=34.0, gt=0.0)
+    # Osmanabadi breed descriptors: doe 27-36 kg (status paper ~33), buck
+    # 36-45 kg (breeding-tract morphological study 42.8 ± 3.9 kg; farm-reared
+    # bucks 45-50 kg). The old 34 kg buck was below every published range.
+    adult_weight_doe_kg: WeightKg = Field(default=33.0, gt=0.0)
+    adult_weight_buck_kg: WeightKg = Field(default=42.0, gt=0.0)
     weight_by_age_months: list[WeightKg] = Field(
         default_factory=lambda: [
             2.5,
@@ -180,10 +225,13 @@ class GrowthAssumptions(_Group):
         max_length=13,
     )
     # Age at which surplus males are sold for meat. Must be >= 6 so males pass
-    # through the grower chain (weaning at 3, grower from 6). Osmanabadi
-    # stall-fed kids are marketed at 9-12 months; 12 gives the yearling finish
-    # (~26.5 kg) whose extra weight outweighs the added feed at default prices.
-    sale_age_months: int = Field(default=12, ge=6, le=24)
+    # through the grower chain (weaning at 3, grower from 6). Navipet practice
+    # markets Osmanabadi males at 8-10 months (~20-25 kg); 10 months is the
+    # stall-fed finish whose extra weight still pays for its feed at default
+    # prices. The old 12 kept every animal on the payroll two extra months and
+    # pushed the first sale — and the first rupee of meat revenue — past
+    # month 12 of the projection.
+    sale_age_months: int = Field(default=10, ge=6, le=24)
 
     @field_validator("weight_by_age_months")
     @classmethod
@@ -211,18 +259,41 @@ class SalesAssumptions(_Group):
     ``eid_month`` input remains supported for existing saved scenarios.
     """
 
-    meat_price_per_kg: FiniteFloat = Field(default=350.0, ge=0.0, le=MAX_MONEY)  # ₹/kg live weight
-    cull_doe_price_per_kg: FiniteFloat = Field(default=180.0, ge=0.0, le=MAX_MONEY)
-    cull_buck_price_per_kg: FiniteFloat = Field(default=200.0, ge=0.0, le=MAX_MONEY)
+    # ₹/kg live weight. Telangana 2025-26: Osmanabadi trades ₹350-400/kg in
+    # Hyderabad mandis (Jiyaguda) with male listings at ₹380-450/kg; Nizamabad
+    # shandy 20-30 kg "cutting goats" ₹250-350/kg retail-facing. 400 is the
+    # farm-gate mid for quality young males; the seasonal curve below and the
+    # festival uplift carry the documented spikes.
+    meat_price_per_kg: FiniteFloat = Field(default=400.0, ge=0.0, le=MAX_MONEY)
+    # Cull (spent) does and bucks: lower yield, older carcass. Female mandi
+    # listings run ₹220-350/kg live; spent animals price near the floor.
+    cull_doe_price_per_kg: FiniteFloat = Field(default=220.0, ge=0.0, le=MAX_MONEY)
+    cull_buck_price_per_kg: FiniteFloat = Field(default=240.0, ge=0.0, le=MAX_MONEY)
+    # January-indexed. Indian goat-market seasonality: monsoon (Jun-Sep) is
+    # the demand trough (disease caution, supply glut); the Nov-Feb wedding
+    # and festival window sustains the year's best non-Bakrid prices; Mar-May
+    # sits at trend because the Bakrid spike is modelled separately (via
+    # festival months) and must not be double-counted. Normalised so the
+    # twelve multipliers average exactly 1.0 — the base price stays the
+    # annual mean, not an accidental 2% under it.
     monthly_meat_price_multipliers: list[FiniteFloat] = Field(
-        default_factory=lambda: [1.0] * 12,
+        default_factory=lambda: _normalized_seasonality(
+            [1.05, 1.00, 1.00, 1.00, 1.00, 0.93, 0.91, 0.91, 0.94, 0.99, 1.06, 1.09]
+        ),
         min_length=12,
         max_length=12,
     )
-    annual_livestock_price_growth_rate: FiniteFloat = Field(default=0.0, gt=-1.0, le=1.0)
+    # Nominal escalation. Indian mutton/meat CPI has trended near general food
+    # inflation (~5-6%/yr recent years); 4% is a conservative long-run plan
+    # figure for a 10-year appraisal, paired with the same rate on feed.
+    annual_livestock_price_growth_rate: FiniteFloat = Field(default=0.04, gt=-1.0, le=1.0)
     # Calendar month (1-12) in which the Bakrid price uplift applies; 0 disables it.
     eid_month: int = Field(default=0, ge=0, le=12)
-    eid_price_uplift: FiniteFloat = Field(default=0.30, ge=0.0, le=2.0)
+    # Bakrid (Eid al-Adha) sacrificial demand: documented 30-60% live-price
+    # premium in the weeks before the festival (Deonar/Jiyaguda mandi reports;
+    # up to 75-100% on premium animals in some years). 0.35 is the
+    # conservative mid for ordinary commercial males.
+    eid_price_uplift: FiniteFloat = Field(default=0.35, ge=0.0, le=2.0)
     # Explicit 1-based simulation months are the accurate way to model a lunar
     # festival over a multi-year Gregorian forecast. Empty keeps legacy/default
     # behaviour; the same uplift is never applied twice in one month.
@@ -283,7 +354,7 @@ class FeedAssumptions(_Group):
     concentrate_price_per_kg: FiniteFloat = Field(
         default=25.0, ge=0.0, le=MAX_MONEY
     )  # commercial goat feed ₹22-28
-    annual_feed_price_growth_rate: FiniteFloat = Field(default=0.0, gt=-1.0, le=1.0)
+    annual_feed_price_growth_rate: FiniteFloat = Field(default=0.04, gt=-1.0, le=1.0)
     monthly_green_price_multipliers: list[FiniteFloat] = Field(
         default_factory=lambda: [1.0] * 12,
         min_length=12,
@@ -340,16 +411,22 @@ class CostsAssumptions(_Group):
 
     # NABARD/TNAU budgets.
     vet_per_animal_per_year: FiniteFloat = Field(default=250.0, ge=0.0, le=MAX_MONEY)
-    labour_per_month: FiniteFloat = Field(default=10000.0, ge=0.0, le=MAX_MONEY)
+    # Telangana 2025-26 statutory floor: unskilled monthly minimum ₹14,000
+    # (Zone III) to ₹16,000 (Zone I) under the state's comprehensive minimum
+    # wage fixation; a full-time livestock attendant earns the floor to
+    # floor+skill. The old ₹10,000 was a pre-revision NABARD table figure.
+    labour_per_month: FiniteFloat = Field(default=14000.0, ge=0.0, le=MAX_MONEY)
     # One labourer per this many head; labour count scales up with herd size.
+    # TNAU/NABARD stall-fed budgets staff roughly one worker per 50 goats;
+    # semi-intensive herds handle more. 60 splits the difference for a
+    # Navipet-style semi-intensive unit (the old 75 assumed grazing herds).
     # The bound exists only so an arbitrary-size JSON integer cannot raise
-    # OverflowError in the engine's float division — but this is a divisor,
-    # not a herd size: values far above MAX_HEAD are meaningful ("never scale
+    # OverflowError in the engine's float division — this is a divisor, not a
+    # herd size: values far above MAX_HEAD are meaningful ("never scale
     # labour with head count") and were accepted before any bound existed, so
     # persisted scenarios carry them. 10**15 stays float-exact (< 2**53) and
-    # grandfathers every previously-runnable stored value; MAX_HEAD here made
-    # those scenarios retroactively fail revalidation with a 422.
-    labour_per_head_threshold: int = Field(default=75, ge=1, le=MAX_LABOUR_PER_HEAD_THRESHOLD)
+    # grandfathers every previously-runnable stored value.
+    labour_per_head_threshold: int = Field(default=60, ge=1, le=MAX_LABOUR_PER_HEAD_THRESHOLD)
     insurance_pct_stock_value_annual: FiniteFloat = Field(default=0.04, ge=0.0, le=0.25)
     misc_overhead_per_month: FiniteFloat = Field(default=2000.0, ge=0.0, le=MAX_MONEY)
     operating_cost_growth_rate_annual: FiniteFloat = Field(default=0.0, gt=-1.0, le=1.0)
@@ -386,8 +463,13 @@ class FinanceAssumptions(_Group):
     # Capital subsidy as a fraction of project cost; reduces the promoter's equity.
     subsidy_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=0.9)
     discount_rate_annual: FiniteFloat = Field(default=0.12, ge=0.0, le=0.5)
-    # Months of operating cost held as working capital inside the project cost.
-    working_capital_months: int = Field(default=3, ge=0, le=24)
+    # Months of operating cost held as working capital inside the project
+    # cost. A breeding-start unit sells its first animal around month 11-12
+    # (settle, breed, 5-month gestation, 10-month growth), so the NABARD
+    # convention of a full carryover year — the same 12 months as the loan
+    # moratorium — is the honest default. The old 3 left a ~₹5.5 lakh Y1 cash
+    # hole that only surfaced in minimum_cash_balance.
+    working_capital_months: int = Field(default=12, ge=0, le=24)
     # Tax is configurable rather than hard-coded: farm/entity tax treatment is
     # jurisdiction- and structure-specific. Straight-line depreciation is used
     # for the model accounts and tax shield.
@@ -565,10 +647,20 @@ class SimulationAssumptions(_Group):
         if len(set(self.sales.festival_sale_months)) != len(self.sales.festival_sale_months):
             raise ValueError("sales.festival_sale_months must not contain duplicates")
         for month in self.sales.festival_sale_months:
-            if month < 1 or month > self.meta.horizon_months:
+            if month < 1:
                 raise ValueError(
                     "sales.festival_sale_months must contain 1-based months inside the horizon"
                 )
+        # Months beyond the horizon are pruned, not rejected: they come from
+        # the Bakrid calendar pre-filled for a 10-year horizon, and shrinking
+        # the horizon to "see the first two years" must not turn the preset
+        # into a 422 the user has to debug. A festival past the horizon simply
+        # is not part of that plan.
+        self.sales.festival_sale_months = [
+            month
+            for month in self.sales.festival_sale_months
+            if month <= self.meta.horizon_months
+        ]
         return self
 
     @model_validator(mode="after")

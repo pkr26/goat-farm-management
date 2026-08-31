@@ -198,6 +198,7 @@ def test_terminal_balance_charged_in_final_month() -> None:
         meta=MetaAssumptions(horizon_months=24),
         finance=FinanceAssumptions(loan_term_months=120, moratorium_months=12),
     )
+    a.sales.meat_price_per_kg = 700.0  # positive EBITDA keeps "worse" pointing down
     res = run_simulation(a, with_break_even=False)
     balance_at_24 = res.amortization[23].closing_balance
     assert balance_at_24 > 0.0  # 96 scheduled payments remain after the horizon
@@ -222,6 +223,7 @@ def test_terminal_balance_reaches_annual_pl_and_dscr() -> None:
         meta=MetaAssumptions(horizon_months=24),
         finance=FinanceAssumptions(loan_term_months=120, moratorium_months=12),
     )
+    a.sales.meat_price_per_kg = 700.0  # positive EBITDA keeps "worse" pointing down
     res = run_simulation(a, with_break_even=False)
     balance_at_24 = res.amortization[23].closing_balance
     final_year = res.annual_pl[-1]
@@ -686,7 +688,7 @@ def test_avg_and_min_dscr_are_none_only_without_debt_years() -> None:
 
 def test_payback_matches_cumulative_series() -> None:
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 500.0  # profitable: payback exists
+    a.sales.meat_price_per_kg = 700.0  # profitable: payback exists
     res = run_simulation(a, with_break_even=False)
     payback = res.metrics.payback_month
     assert payback is not None
@@ -830,6 +832,11 @@ def test_max_age_cull_empties_synchronized_foundation_herd() -> None:
     a.meta.horizon_months = 24
     a.culling.doe_cull_rate_annual = 0.0
     a.culling.max_doe_age_months = 36
+    # A synchronized cohort needs every foundation doe at the same age; the
+    # calibrated default spreads purchases over 18-42 months, so pin the
+    # window to a point at 24 (also the age the old hard-coded range implied).
+    a.herd.foundation_doe_age_min_months = 24
+    a.herd.foundation_doe_age_max_months = 24
     res = run_simulation(a, with_break_even=False)
     m13 = res.months[12]
     assert m13.culls_head == pytest.approx(10.0 * S_ADULT**13, abs=1e-6)
@@ -862,7 +869,7 @@ def test_auto_buck_purchase_scales_with_doe_count() -> None:
     # fractional head and the end-of-month policy top-up restores three.
     expected_purchases = 3.0 + 3.0 * (1.0 - S_ADULT)
     assert m1.purchases_head == pytest.approx(expected_purchases)
-    assert m1.purchase_cost == pytest.approx(expected_purchases * 12000.0)
+    assert m1.purchase_cost == pytest.approx(expected_purchases * 15000.0)
     assert m1.bucks == pytest.approx(3.0)
 
 
@@ -913,16 +920,15 @@ def test_steady_state_kidding_cadence() -> None:
 
 
 def test_kid_pipeline_timing_matches_biology() -> None:
-    """Conception month 1 -> kidding month 6 -> male sale at age 12 in month 18
-    (born at age 0 in month 6; reaches sale age 12 eleven graduations later,
-    matching the existing golden test where sale age 9 sells in month 15)."""
+    """Conception month 1 -> kidding month 6 -> male sale at age 10 in month 16
+    (born at age 0 in month 6; reaches the sale age 10 ten months later)."""
     a = toy()
     a.meta.horizon_months = 24
     res = run_simulation(a, with_break_even=False)
     assert all(row.births == 0.0 for row in res.months[:5])
     assert res.months[5].births > 0.0
     first_sale = next(row.month for row in res.months if row.sales_head > 0.0)
-    assert first_sale == 18  # month 6 birth + 12 months to reach age 12
+    assert first_sale == 16  # month 6 birth + 10 months to reach sale age 10
 
 
 # ---------------------------------------------------------------------------
@@ -932,6 +938,9 @@ def test_feed_dm_conservation_identity() -> None:
     """As-fed quantities convert back to the purchased DM requirement."""
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=12))
     a.feed.grazing_dm_fraction = 0.3
+    # The identity is against base prices; the calibrated default now grows
+    # feed prices 4%/yr, which this physical-to-cost check must not mix in.
+    a.feed.annual_feed_price_growth_rate = 0.0
     res = run_simulation(a, with_break_even=False)
     feed = a.feed
     for row in res.months:
@@ -1242,16 +1251,40 @@ class TestIrrRootIsolationRouting:
         assert finance.irr(flows, times) is None
 
     def test_short_and_long_horizons_agree_across_the_old_routing_boundary(self) -> None:
-        # The 24-term cap used to split these two; their IRRs must stay on the
-        # same smooth curve.
+        # The 24-term cap used to split these two; horizons on either side of
+        # the old boundary must stay single-rooted and nearly identical (the
+        # economics barely move month-to-month there). Full monotonicity in
+        # horizon is no longer asserted: the calibrated cash-flow shape has a
+        # genuine NPV cliff when the terminal value's Bakrid timing moves off
+        # the final month (horizon 22 -> 23), which is economics, not routing.
         results = {}
         for horizon in (22, 23, 24, 25):
             assumptions = get_preset("osmanabadi", "stall_fed").model_copy(deep=True)
             assumptions.meta.horizon_months = horizon
             results[horizon] = run_simulation(assumptions, with_break_even=False).metrics.irr
         assert all(value is not None for value in results.values())
-        for shorter, longer in pairwise(sorted(results)):
-            assert results[shorter] < results[longer], "IRR must rise monotonically with horizon"
+        assert abs(results[23] - results[24]) < 0.01, (
+            "the old 24-term routing boundary must not move the IRR"
+        )
+        # Pin the CAUSE of the horizon-22 cliff so nobody re-asserts blind
+        # monotonicity: the default preset's Bakrid months include 22, so a
+        # 22-month run liquidates the herd at festival-inflated stock value
+        # while a 23-month run cannot. The jump is economics, not the solver:
+        # strip the festival months and the 22/23 pair sits close together.
+        preset = get_preset("osmanabadi", "stall_fed")
+        assert 22 in preset.sales.festival_sale_months
+
+        def irr_without_festivals(horizon: int) -> float | None:
+            variant = preset.model_copy(deep=True)
+            variant.meta.horizon_months = horizon
+            variant.sales.festival_sale_months = []
+            return run_simulation(variant, with_break_even=False).metrics.irr
+
+        smooth_pair = [irr_without_festivals(h) for h in (22, 23)]
+        assert all(value is not None for value in smooth_pair)
+        assert abs(smooth_pair[22 - 22] - smooth_pair[23 - 22]) < 0.05, (
+            "without the Bakrid terminal-timing effect the IRR curve is smooth"
+        )
 
 
 class TestScheduledSaleUsesRealPoolWeight:

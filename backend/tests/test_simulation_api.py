@@ -569,10 +569,10 @@ async def test_scenario_run(client: httpx.AsyncClient) -> None:
 async def test_scenario_compare(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     assumptions = await default_assumptions(client, headers)
-    # 24 months so meat sales (first at month 13) fall inside the horizon.
+    # 24 months so meat sales (first at month 11) fall inside the horizon.
     assumptions["meta"]["horizon_months"] = 24
     first = await create_scenario(client, headers, "Plan A", assumptions)
-    assumptions["sales"]["meat_price_per_kg"] = 400.0
+    assumptions["sales"]["meat_price_per_kg"] = 500.0  # above the 400 default
     second = await create_scenario(client, headers, "Plan B", assumptions)
 
     resp = await client.get(

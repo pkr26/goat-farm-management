@@ -7,6 +7,23 @@ Kept separate from the engine so the API layer can serialise a
 from pydantic import BaseModel, Field
 
 
+class EventFill(BaseModel):
+    """One scheduled event executed this month, with what actually happened.
+
+    Sales can only take what the herd has: ``filled`` may be below
+    ``requested`` and the difference is the plan's shortfall for that month.
+    """
+
+    month: int
+    kind: str  # "purchase" | "sale"
+    animal_class: str
+    requested: float
+    filled: float
+    shortfall: float  # requested - filled, >= 0
+    price_per_head: float  # ₹ actually paid/received
+    revenue: float  # filled × price (₹ received for sales, ₹ spent for purchases)
+
+
 class MonthlyRow(BaseModel):
     """One simulation month: end-of-month headcounts and that month's flows."""
 
@@ -62,6 +79,10 @@ class MonthlyRow(BaseModel):
     # Human-readable log of scheduled herd events applied this month
     # (SimulationAssumptions.events); empty when nothing was scheduled.
     events: list[str] = Field(default_factory=list)
+    # The same events as structured records: requested vs actually filled.
+    # The narrative log above is for humans; this is for the planner, which
+    # must know a sale came up short without parsing prose.
+    event_fills: list[EventFill] = Field(default_factory=list)
 
 
 class AnnualPLRow(BaseModel):

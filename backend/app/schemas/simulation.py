@@ -11,8 +11,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..simulation.assumptions import SimulationAssumptions
+from ..simulation.planner import PlanReport, SaleTarget
 from ..simulation.results import MonteCarloResult, SensitivityItem, SimulationResult
-from .common import PostgresText, StrictBool, StrictInputModel, StrictInt
+from .common import FiniteFloat, PostgresText, StrictBool, StrictInputModel, StrictInt
 
 __all__ = [
     "BreedsOut",
@@ -20,7 +21,10 @@ __all__ = [
     "FarmCalibrationOut",
     "HerdSnapshotOut",
     "MonteCarloResult",
+    "PlanIn",
+    "PlanReport",
     "RunIn",
+    "SaleTarget",
     "ScenarioCompareOut",
     "ScenarioCreateIn",
     "ScenarioListOut",
@@ -81,6 +85,33 @@ class RunIn(StrictInputModel):
     monte_carlo: StrictBool = False
     sensitivity: StrictBool = False
     optimization: StrictBool = False
+
+
+class PlanTargetIn(StrictInputModel):
+    """One sale target: ``count`` head of one class in one simulation month."""
+
+    month: StrictInt = Field(ge=1)
+    animal_class: Literal[
+        "doe",
+        "buck",
+        "female_kid",
+        "male_kid",
+        "female_weaner",
+        "male_weaner",
+        "female_grower",
+        "male_grower",
+    ]
+    count: FiniteFloat = Field(gt=0.0, le=100_000)
+
+
+class PlanIn(StrictInputModel):
+    """A plan: the assumptions it runs against plus the sale targets."""
+
+    assumptions: SimulationAssumptions
+    targets: list[PlanTargetIn] = Field(min_length=1, max_length=50)
+    close_gaps: StrictBool = True
+    # 0 skips the risk pass; the cap keeps one request priced like a run.
+    risk_runs: StrictInt = Field(default=0, ge=0, le=500)
 
 
 class CalibrationEvidence(BaseModel):

@@ -4903,6 +4903,64 @@
         }
       }
     },
+    "/api/simulation/planner/plan": {
+      "post": {
+        "tags": [
+          "simulation"
+        ],
+        "summary": "Plan Sales",
+        "description": "Evaluate a sale plan against the projected herd, close gaps with\npurchases, and (optionally) risk-score the closed plan.\n\nTargets beyond the run horizon are a client bug, not a plan: reject them\nat 422 instead of letting the engine silently never fire the sale.",
+        "operationId": "plan_sales_api_simulation_planner_plan_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/simulation/scenarios": {
       "post": {
         "tags": [
@@ -7300,14 +7358,14 @@
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Labour Per Month",
-            "default": 10000.0
+            "default": 14000.0
           },
           "labour_per_head_threshold": {
             "type": "integer",
             "maximum": 1000000000000000.0,
             "minimum": 1.0,
             "title": "Labour Per Head Threshold",
-            "default": 75
+            "default": 60
           },
           "insurance_pct_stock_value_annual": {
             "type": "number",
@@ -7778,6 +7836,55 @@
         "title": "DispensingAggregateOut",
         "description": "Exact full-day quantity for one plan allocation and shift."
       },
+      "EventFill": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "animal_class": {
+            "type": "string",
+            "title": "Animal Class"
+          },
+          "requested": {
+            "type": "number",
+            "title": "Requested"
+          },
+          "filled": {
+            "type": "number",
+            "title": "Filled"
+          },
+          "shortfall": {
+            "type": "number",
+            "title": "Shortfall"
+          },
+          "price_per_head": {
+            "type": "number",
+            "title": "Price Per Head"
+          },
+          "revenue": {
+            "type": "number",
+            "title": "Revenue"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "kind",
+          "animal_class",
+          "requested",
+          "filled",
+          "shortfall",
+          "price_per_head",
+          "revenue"
+        ],
+        "title": "EventFill",
+        "description": "One scheduled event executed this month, with what actually happened.\n\nSales can only take what the herd has: ``filled`` may be below\n``requested`` and the difference is the plan's shortfall for that month."
+      },
       "FarmCalibrationOut": {
         "properties": {
           "assumptions": {
@@ -8061,7 +8168,7 @@
             "maximum": 1.0,
             "exclusiveMinimum": -1.0,
             "title": "Annual Feed Price Growth Rate",
-            "default": 0.0
+            "default": 0.04
           },
           "monthly_green_price_multipliers": {
             "items": {
@@ -8557,7 +8664,7 @@
             "maximum": 24.0,
             "minimum": 0.0,
             "title": "Working Capital Months",
-            "default": 3
+            "default": 12
           },
           "income_tax_rate": {
             "type": "number",
@@ -8696,14 +8803,14 @@
             "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Adult Weight Doe Kg",
-            "default": 32.0
+            "default": 33.0
           },
           "adult_weight_buck_kg": {
             "type": "number",
             "maximum": 1000.0,
             "exclusiveMinimum": 0.0,
             "title": "Adult Weight Buck Kg",
-            "default": 34.0
+            "default": 42.0
           },
           "weight_by_age_months": {
             "items": {
@@ -8721,7 +8828,7 @@
             "maximum": 24.0,
             "minimum": 6.0,
             "title": "Sale Age Months",
-            "default": 12
+            "default": 10
           }
         },
         "additionalProperties": false,
@@ -9823,7 +9930,7 @@
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Female Retention Fraction",
-            "default": 0.5
+            "default": 0.6
           },
           "max_breeding_does": {
             "type": "integer",
@@ -9837,19 +9944,40 @@
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Doe Purchase Price",
-            "default": 8000.0
+            "default": 9500.0
           },
           "buck_purchase_price": {
             "type": "number",
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Buck Purchase Price",
-            "default": 12000.0
+            "default": 15000.0
           },
           "auto_purchase_bucks": {
             "type": "boolean",
             "title": "Auto Purchase Bucks",
             "default": true
+          },
+          "foundation_doe_age_min_months": {
+            "type": "integer",
+            "maximum": 180.0,
+            "minimum": 0.0,
+            "title": "Foundation Doe Age Min Months",
+            "default": 18
+          },
+          "foundation_doe_age_max_months": {
+            "type": "integer",
+            "maximum": 180.0,
+            "minimum": 0.0,
+            "title": "Foundation Doe Age Max Months",
+            "default": 42
+          },
+          "purchased_doe_settling_months": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Purchased Doe Settling Months",
+            "default": 1
           },
           "foundation_flock_state": {
             "type": "string",
@@ -10857,6 +10985,13 @@
             },
             "type": "array",
             "title": "Events"
+          },
+          "event_fills": {
+            "items": {
+              "$ref": "#/components/schemas/EventFill"
+            },
+            "type": "array",
+            "title": "Event Fills"
           }
         },
         "type": "object",
@@ -11624,6 +11759,89 @@
         "title": "PermissionsOut",
         "description": "Effective permission set for the current user on the X-Farm-Id farm."
       },
+      "PlanEvaluation": {
+        "properties": {
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetFill"
+            },
+            "type": "array",
+            "title": "Targets"
+          },
+          "npv": {
+            "type": "number",
+            "title": "Npv"
+          },
+          "minimum_cash_balance": {
+            "type": "number",
+            "title": "Minimum Cash Balance"
+          },
+          "minimum_cash_month": {
+            "type": "integer",
+            "title": "Minimum Cash Month"
+          },
+          "additional_working_capital_required": {
+            "type": "number",
+            "title": "Additional Working Capital Required"
+          },
+          "total_shortfall": {
+            "type": "number",
+            "title": "Total Shortfall"
+          },
+          "all_met": {
+            "type": "boolean",
+            "title": "All Met"
+          }
+        },
+        "type": "object",
+        "required": [
+          "targets",
+          "npv",
+          "minimum_cash_balance",
+          "minimum_cash_month",
+          "additional_working_capital_required",
+          "total_shortfall",
+          "all_met"
+        ],
+        "title": "PlanEvaluation",
+        "description": "Forward-run feasibility of a whole target list, plus the plan's money."
+      },
+      "PlanIn": {
+        "properties": {
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/PlanTargetIn"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Targets"
+          },
+          "close_gaps": {
+            "type": "boolean",
+            "title": "Close Gaps",
+            "default": true
+          },
+          "risk_runs": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Risk Runs",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "assumptions",
+          "targets"
+        ],
+        "title": "PlanIn",
+        "description": "A plan: the assumptions it runs against plus the sale targets."
+      },
       "PlanLineOut": {
         "properties": {
           "bucket": {
@@ -11670,6 +11888,102 @@
           "shifts"
         ],
         "title": "PlanLineOut"
+      },
+      "PlanReport": {
+        "properties": {
+          "before": {
+            "$ref": "#/components/schemas/PlanEvaluation"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanEvaluation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recommended_purchases": {
+            "items": {
+              "$ref": "#/components/schemas/HerdEventAssumptions"
+            },
+            "type": "array",
+            "title": "Recommended Purchases"
+          },
+          "gaps_closed": {
+            "type": "boolean",
+            "title": "Gaps Closed"
+          },
+          "probabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TargetRisk"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probabilities"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "before",
+          "after",
+          "recommended_purchases",
+          "gaps_closed"
+        ],
+        "title": "PlanReport",
+        "description": "Planner output: feasibility, the gap-closing purchases, and risk."
+      },
+      "PlanTargetIn": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Month"
+          },
+          "animal_class": {
+            "type": "string",
+            "enum": [
+              "doe",
+              "buck",
+              "female_kid",
+              "male_kid",
+              "female_weaner",
+              "male_weaner",
+              "female_grower",
+              "male_grower"
+            ],
+            "title": "Animal Class"
+          },
+          "count": {
+            "type": "number",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "animal_class",
+          "count"
+        ],
+        "title": "PlanTargetIn",
+        "description": "One sale target: ``count`` head of one class in one simulation month."
       },
       "PnlRowOut": {
         "properties": {
@@ -12751,21 +13065,21 @@
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Meat Price Per Kg",
-            "default": 350.0
+            "default": 400.0
           },
           "cull_doe_price_per_kg": {
             "type": "number",
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Cull Doe Price Per Kg",
-            "default": 180.0
+            "default": 220.0
           },
           "cull_buck_price_per_kg": {
             "type": "number",
             "maximum": 1000000000.0,
             "minimum": 0.0,
             "title": "Cull Buck Price Per Kg",
-            "default": 200.0
+            "default": 240.0
           },
           "monthly_meat_price_multipliers": {
             "items": {
@@ -12781,7 +13095,7 @@
             "maximum": 1.0,
             "exclusiveMinimum": -1.0,
             "title": "Annual Livestock Price Growth Rate",
-            "default": 0.0
+            "default": 0.04
           },
           "eid_month": {
             "type": "integer",
@@ -12795,7 +13109,7 @@
             "maximum": 2.0,
             "minimum": 0.0,
             "title": "Eid Price Uplift",
-            "default": 0.3
+            "default": 0.35
           },
           "festival_sale_months": {
             "items": {
@@ -13548,6 +13862,88 @@
           "qty_kg"
         ],
         "title": "StockAddIn"
+      },
+      "TargetFill": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "animal_class": {
+            "type": "string",
+            "title": "Animal Class"
+          },
+          "requested": {
+            "type": "number",
+            "title": "Requested"
+          },
+          "filled": {
+            "type": "number",
+            "title": "Filled"
+          },
+          "shortfall": {
+            "type": "number",
+            "title": "Shortfall"
+          },
+          "price_per_head": {
+            "type": "number",
+            "title": "Price Per Head"
+          },
+          "revenue": {
+            "type": "number",
+            "title": "Revenue"
+          },
+          "met": {
+            "type": "boolean",
+            "title": "Met"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "animal_class",
+          "requested",
+          "filled",
+          "shortfall",
+          "price_per_head",
+          "revenue",
+          "met"
+        ],
+        "title": "TargetFill",
+        "description": "What the projected herd can actually supply for one target."
+      },
+      "TargetRisk": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "animal_class": {
+            "type": "string",
+            "title": "Animal Class"
+          },
+          "requested": {
+            "type": "number",
+            "title": "Requested"
+          },
+          "p_full": {
+            "type": "number",
+            "title": "P Full"
+          },
+          "p_eighty": {
+            "type": "number",
+            "title": "P Eighty"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "animal_class",
+          "requested",
+          "p_full",
+          "p_eighty"
+        ],
+        "title": "TargetRisk"
       },
       "TaskCreateIn": {
         "properties": {

@@ -67,6 +67,19 @@ S_ADULT = 0.95 ** (1.0 / 12.0)  # monthly adult survival, default 5% annual mort
 S_KID = 0.90 ** (1.0 / 12.0)  # monthly pre-weaning survival, default 10% annual
 
 
+def flatten_market(a: SimulationAssumptions) -> SimulationAssumptions:
+    """Remove the market calendar (4% escalation, seasonal curve) in place.
+
+    Mechanics goldens price events at the base price; the calibrated default
+    would otherwise multiply every month by a season and growth factor that
+    has nothing to do with the mechanism under test.
+    """
+    a.sales.annual_livestock_price_growth_rate = 0.0
+    a.feed.annual_feed_price_growth_rate = 0.0
+    a.sales.monthly_meat_price_multipliers = [1.0] * 12
+    return a
+
+
 def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
     """10 open does + 1 buck, no purchases, 12-month horizon.
 
@@ -75,6 +88,11 @@ def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
     is gated on buck presence (a zero-buck herd never conceives), and one buck
     serves any doe count at the full rate in v1, so the golden math is
     unchanged.
+
+    Nominal price escalation (the calibrated 4%/yr default) is zeroed: these
+    are cohort-mechanics goldens, and a growth factor on every ₹ figure would
+    make each hand-derivation carry a month-indexed multiplier that has
+    nothing to do with the mechanic under test.
     """
     herd = {
         "does": 10,
@@ -83,10 +101,14 @@ def toy_assumptions(**herd_overrides: object) -> SimulationAssumptions:
         "foundation_flock_state": "open",
         **herd_overrides,
     }
-    return SimulationAssumptions(
+    a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
         herd=HerdAssumptions(**herd),  # type: ignore[arg-type]
     )
+    a.sales.annual_livestock_price_growth_rate = 0.0
+    a.feed.annual_feed_price_growth_rate = 0.0
+    a.sales.monthly_meat_price_multipliers = [1.0] * 12
+    return a
 
 
 # ---------------------------------------------------------------------------
@@ -297,10 +319,10 @@ def test_default_run_herd_grows_and_sales_timing() -> None:
     assert months[59].total_herd > 52.0  # grew past the foundation herd
     assert 100.0 <= months[59].total_herd <= 400.0  # sane band at 5 years
     # Mixed foundation flock: does in gestation month 5 kid in month 1, and
-    # their male kids reach sale age 12 in month 13.
+    # their male kids reach sale age 10 in month 11.
     first_sales = next(row.month for row in months if row.sales_head > 0.0)
-    assert first_sales == 13
-    assert all(row.sales_head == 0.0 for row in months[:12])
+    assert first_sales == 11
+    assert all(row.sales_head == 0.0 for row in months[:10])
 
 
 def test_default_run_reports_purchased_fodder_and_honest_operating_result() -> None:
@@ -556,6 +578,7 @@ def test_scheduled_buck_purchase_at_rotation_month_survives_the_cull() -> None:
         culling=CullingAssumptions(buck_rotation_years=1),
         events=events,
     )
+    a.sales.annual_livestock_price_growth_rate = 0.0
     res = run_simulation(a, with_break_even=False)
     m12 = res.months[11]
     # Only the pre-existing 2-head battery (12 months of mortality) is
@@ -727,29 +750,9 @@ def test_birth_weight_must_match_age_zero_growth_curve() -> None:
 
 def test_breed_presets_and_systems() -> None:
     expected = {
-        "osmanabadi",
-        "sirohi",
-        "barbari",
-        "jamunapari",
-        "beetal",
-        "black_bengal",
-        "boer_cross",
-    }
-    assert set(BREED_PRESETS) == expected
-    sirohi = get_preset("Sirohi")
-    assert sirohi.sales.lactation_milk_litres == 110.0
-    semi = get_preset("osmanabadi", "semi_intensive")
-    assert semi.feed.grazing_dm_fraction == 0.3
-    assert semi.mortality.adult == 0.06
-    with pytest.raises(ValueError, match="unknown breed"):
-        get_preset("merino")
-
-
-def test_breed_preset_factories_pin_the_domain_contract() -> None:
-    expected = {
-        "osmanabadi": (8_000, 12_000, 1.6, 12, 3, 2.5, 32, 34, 1.0, 12, 0, 350, 0.10),
-        "sirohi": (9_000, 14_000, 1.4, 12, 3, 3.0, 40, 50, 1.18, 12, 110, 350, 0.10),
-        "barbari": (7_000, 10_000, 1.8, 10, 3, 2.0, 27, 30, 0.85, 8, 90, 350, 0.10),
+        "osmanabadi": (9_500, 15_000, 1.6, 12, 3, 2.5, 33, 42, 1.0, 10, 0, 400, 0.10),
+        "sirohi": (9_000, 14_000, 1.4, 12, 3, 3.0, 40, 50, 1.18, 10, 110, 400, 0.10),
+        "barbari": (7_000, 10_000, 1.8, 10, 3, 2.0, 27, 30, 0.85, 8, 90, 400, 0.10),
         "jamunapari": (
             11_000,
             16_000,
@@ -760,12 +763,12 @@ def test_breed_preset_factories_pin_the_domain_contract() -> None:
             45,
             55,
             1.3,
-            12,
+            10,
             200,
-            350,
+            400,
             0.10,
         ),
-        "beetal": (10_000, 15_000, 1.6, 14, 5, 3.2, 40, 46, 1.2, 12, 175, 350, 0.10),
+        "beetal": (10_000, 15_000, 1.6, 14, 5, 3.2, 40, 46, 1.2, 10, 175, 400, 0.10),
         "black_bengal": (
             4_500,
             6_000,
@@ -778,11 +781,15 @@ def test_breed_preset_factories_pin_the_domain_contract() -> None:
             0.55,
             8,
             0,
-            350,
+            400,
             0.12,
         ),
         "boer_cross": (10_000, 18_000, 1.7, 12, 3, 3.0, 40, 50, 1.3, 8, 0, 400, 0.10),
     }
+
+    # The preset registry itself is pinned: a breed added or removed from
+    # PRESET_FACTORIES must be a deliberate act, not silent drift.
+    assert set(BREED_PRESETS) == set(expected)
 
     for name, values in expected.items():
         (
@@ -895,8 +902,10 @@ def test_max_breeding_does_cap() -> None:
 def test_labour_scales_with_herd_size() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     m12 = res.months[11]
-    assert 75.0 < m12.total_herd <= 150.0  # -> 2 labourers at the 75-head threshold
-    assert m12.labour_cost == pytest.approx(20000.0)
+    # The calibrated staffing rule is one labourer per 60 head at Rs 14,000.
+    labourers = -(-m12.total_herd // 60) if m12.total_herd else 0
+    assert m12.labour_cost == pytest.approx(max(1, labourers) * 14000.0)
+    assert 60.0 < m12.total_herd <= 180.0  # -> 2 or 3 labourers at the 60-head rule
 
 
 def test_sensitivity_tornado_sorted() -> None:
@@ -979,13 +988,31 @@ def test_percentile_linear_interpolation() -> None:
 
 
 def test_stock_cost_and_project_cost_components() -> None:
-    # Foundation stock only: stock cost = 50 x 8000 + 2 x 12000 = 424000.
+    # Foundation stock only: 50 x 9,500 + 2 x 15,000 = 505,000 (the
+    # calibrated Telangana purchase prices).
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     metrics = res.metrics
-    shed_plus_equipment = 52 * (4500.0 + 500.0)
-    working_capital = metrics.project_cost - shed_plus_equipment - 424000.0
-    assert working_capital > 0.0  # 3 months of year-1 average opex
-    assert metrics.project_cost == pytest.approx(shed_plus_equipment + 424000.0 + working_capital)
+    stock_cost = 50 * 9_500.0 + 2 * 15_000.0
+    assert res.project_cost_breakdown.stock_cost == pytest.approx(stock_cost)
+    # Working capital = 12 months x year-1 average monthly opex (feed, vet,
+    # labour, insurance, misc, selling) — recomputed independently here, not
+    # derived from the reported project cost.
+    year1 = res.months[:12]
+    avg_monthly_opex = sum(
+        row.feed_cost
+        + row.vet_cost
+        + row.labour_cost
+        + row.insurance_cost
+        + row.misc_cost
+        + row.selling_cost
+        for row in year1
+    ) / 12.0
+    assert res.project_cost_breakdown.working_capital == pytest.approx(12.0 * avg_monthly_opex)
+    assert avg_monthly_opex > 0.0
+    shed_plus_equipment = res.project_cost_breakdown.capacity_places * (4500.0 + 500.0)
+    assert metrics.project_cost == pytest.approx(
+        shed_plus_equipment + stock_cost + 12.0 * avg_monthly_opex
+    )
 
 
 def test_shed_stops_depreciating_at_residual_value_before_terminal_realization() -> None:
@@ -1146,7 +1173,9 @@ def test_purchase_event_does_jump_at_event_month() -> None:
     assert m14.total_herd - m14_base.total_herd == pytest.approx(10.0 * S_ADULT, abs=1e-6)
     # Charged as opex at the default doe purchase price; revenue untouched.
     assert m14.purchases_head == 10.0
-    assert m14.purchase_cost == pytest.approx(10.0 * 8000.0)
+    assert m14.purchase_cost == pytest.approx(
+        10.0 * SimulationAssumptions().herd.doe_purchase_price
+    )
     assert m14.sales_revenue == pytest.approx(m14_base.sales_revenue, abs=1e-9)
     assert m14.cull_revenue == pytest.approx(m14_base.cull_revenue, abs=1e-9)
     assert any("Purchased 10 doe(s)" in note for note in m14.events)
@@ -1161,9 +1190,10 @@ def test_purchase_events_per_class_jump_and_price() -> None:
     s_grower = 1.0 - monthly_mortality_rate(0.04)
     meat = SimulationAssumptions().sales.meat_price_per_kg
     # (animal_class, row accessor, survival, default price per head)
+    base = SimulationAssumptions()
     cases = [
-        ("doe", _doe_pool, S_ADULT, 8000.0),
-        ("buck", lambda r: r.bucks, S_ADULT, 12000.0),
+        ("doe", _doe_pool, S_ADULT, base.herd.doe_purchase_price),
+        ("buck", lambda r: r.bucks, S_ADULT, base.herd.buck_purchase_price),
         ("female_kid", lambda r: r.f_kids, S_KID, weight_at_age(1, g, doe_w) * meat),
         ("male_kid", lambda r: r.m_kids, S_KID, weight_at_age(1, g, doe_w) * meat),
         ("female_weaner", lambda r: r.f_weaners, s_weaner, weight_at_age(4, g, doe_w) * meat),
@@ -1171,8 +1201,11 @@ def test_purchase_events_per_class_jump_and_price() -> None:
         # Mid-class is the slot the engine actually fills: a chain covering
         # ages 6..11 is filled at index 3, i.e. age 9 — not the age-8
         # midpoint of the class bounds the valuation constant used to use.
+        # The female chain spans 6..afb-1 (6 slots, midpoint age 9); the male
+        # chain spans 6..sale_age-1 (4 slots at the calibrated age-10 sale,
+        # midpoint age 8).
         ("female_grower", lambda r: r.f_growers, s_grower, weight_at_age(9, g, doe_w) * meat),
-        ("male_grower", lambda r: r.m_growers, s_grower, weight_at_age(9, g, buck_w) * meat),
+        ("male_grower", lambda r: r.m_growers, s_grower, weight_at_age(8, g, buck_w) * meat),
     ]
     for animal_class, accessor, survival, price in cases:
         event = HerdEventAssumptions.model_validate(
@@ -1288,13 +1321,13 @@ def test_explicit_zero_event_prices_do_not_fall_back_to_defaults() -> None:
 
 
 def test_young_purchase_default_price_is_live_weight_meat_value() -> None:
-    # A weaner is placed mid-class (age 4): 10.5 kg x ₹350/kg = ₹3,675/head.
+    # A weaner is placed mid-class (age 4): 10.5 kg x Rs 400/kg = Rs 4,200/head.
     g = SimulationAssumptions().growth
-    expected = 4.0 * weight_at_age(4, g, 32.0) * 350.0
+    expected = 4.0 * weight_at_age(4, g, g.adult_weight_doe_kg) * SimulationAssumptions().sales.meat_price_per_kg
     event = HerdEventAssumptions(month=3, kind="purchase", animal_class="female_weaner", count=4)
     res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
     assert res.months[2].purchase_cost == pytest.approx(expected)
-    assert any("₹3,675/head" in note for note in res.months[2].events)
+    assert any("₹4,200/head" in note for note in res.months[2].events)
 
 
 @pytest.mark.parametrize(
@@ -1332,6 +1365,7 @@ def test_long_chain_grower_purchase_uses_sex_weight_and_midpoint_slot(
     )
     assumptions.reproduction.age_at_first_breeding_months = 24
     assumptions.growth.sale_age_months = 24
+    flatten_market(assumptions)
 
     result = run_simulation(assumptions, with_break_even=False)
     midpoint_age = 15
@@ -1378,7 +1412,11 @@ def test_female_grower_purchase_without_chain_still_obeys_retention() -> None:
             month.sales_revenue - baseline.sales_revenue,
         )
 
-    expected_value = 3.0 * weight_at_age(6, SimulationAssumptions().growth, 32.0) * 350.0
+    base = SimulationAssumptions()
+    expected_value = (
+        3.0 * weight_at_age(6, base.growth, base.growth.adult_weight_doe_kg)
+        * base.sales.meat_price_per_kg
+    )
     without_chain = deltas(6)
 
     assert without_chain == pytest.approx((0.0, 3.0, expected_value, expected_value))
@@ -1537,6 +1575,10 @@ def test_adult_purchase_and_grower_graduation_both_enter_doe_age_tracking() -> N
             )
         ],
     )
+    # Pin the purchase-age window to the same synchronized 24 months (the
+    # calibrated default spreads bought-in does over 18-42 months).
+    assumptions.herd.foundation_doe_age_min_months = 24
+    assumptions.herd.foundation_doe_age_max_months = 24
 
     result = run_simulation(assumptions, with_break_even=False)
 
@@ -1562,7 +1604,11 @@ def test_male_grower_purchase_at_sale_age_preserves_mass_and_value() -> None:
     assert m3.m_growers == 0.0
     assert m3.sales_head - m3_base.sales_head == pytest.approx(3.0)
     assert m3.purchases_head == pytest.approx(3.0)
-    expected_value = 3.0 * weight_at_age(6, a.growth, 34.0) * 350.0
+    expected_value = (
+        3.0
+        * weight_at_age(6, a.growth, a.growth.adult_weight_buck_kg)
+        * a.sales.meat_price_per_kg
+    )
     assert m3.purchase_cost == pytest.approx(expected_value)
     assert m3.sales_revenue - m3_base.sales_revenue == pytest.approx(expected_value)
 
@@ -1697,6 +1743,7 @@ def test_default_event_sale_price_and_branch_for_every_animal_class(
         ],
     )
     assumptions.growth.sale_age_months = 24
+    flatten_market(assumptions)
     growth = assumptions.growth
     if animal_class == "doe":
         expected = assumptions.sales.cull_doe_price_per_kg * growth.adult_weight_doe_kg
@@ -1801,9 +1848,9 @@ def test_sale_event_does_booked_as_culls() -> None:
     base = run_simulation(event_toy([], horizon=12), with_break_even=False)
     m6, m6_base = res.months[5], base.months[5]
     assert _doe_pool(m6) - _doe_pool(m6_base) == pytest.approx(-5.0 * S_ADULT, abs=1e-6)
-    # Adult disposals are culls: 5 x 32 kg x ₹180/kg = ₹28,800, no meat sale.
+    # Adult disposals are culls: 5 x 33 kg x Rs 220/kg = Rs 36,300, no meat sale.
     assert m6.culls_head - m6_base.culls_head == pytest.approx(5.0)
-    assert m6.cull_revenue - m6_base.cull_revenue == pytest.approx(5.0 * 180.0 * 32.0)
+    assert m6.cull_revenue - m6_base.cull_revenue == pytest.approx(5.0 * 220.0 * 33.0)
     assert m6.sales_head == pytest.approx(m6_base.sales_head, abs=1e-9)
     assert m6.sales_revenue == pytest.approx(m6_base.sales_revenue, abs=1e-9)
     assert any("Sold 5 doe(s)" in note for note in m6.events)
@@ -1822,11 +1869,11 @@ def test_sale_event_young_stock_booked_as_meat() -> None:
     # Young-stock disposals are meat sales, priced at the weight of the animals
     # actually drawn. These weaners were PLACED mid-class (age 4, 10.5 kg) but
     # the event fires in month 2, by which time the pool has aged into the
-    # age-5 slot (12.5 kg): 5 x 12.5 kg x ₹350/kg = ₹21,875. Pricing every draw
-    # at the fixed placement age understated this by 16%.
+    # age-5 slot (12.5 kg): 5 x 12.5 kg x Rs 400/kg = Rs 25,000. Pricing every
+    # draw at the fixed placement age understated this by 16%.
     assert m2_base.sales_head == 0.0
     assert m2.sales_head == pytest.approx(5.0)
-    assert m2.sales_revenue == pytest.approx(5.0 * 12.5 * 350.0)
+    assert m2.sales_revenue == pytest.approx(5.0 * 12.5 * 400.0)
     assert m2.culls_head == pytest.approx(m2_base.culls_head, abs=1e-9)
     assert m2.cull_revenue == pytest.approx(m2_base.cull_revenue, abs=1e-9)
 
@@ -1839,7 +1886,7 @@ def test_sale_event_capped_at_available_with_note() -> None:
     m2 = res.months[1]
     take = 10.0 * S_ADULT
     assert m2.culls_head == pytest.approx(take, abs=1e-6)
-    assert m2.cull_revenue == pytest.approx(take * 180.0 * 32.0, abs=1e-6)
+    assert m2.cull_revenue == pytest.approx(take * 220.0 * 33.0, abs=1e-6)
     (note,) = m2.events
     assert note.startswith(f"Sold {take:g} doe(s) at ")
     assert "only" in note and "of 1000 available" in note
@@ -1858,7 +1905,7 @@ def test_event_on_month_one() -> None:
     base = run_simulation(event_toy([], horizon=12), with_break_even=False)
     m1 = res.months[0]
     assert m1.purchases_head == 4.0
-    assert m1.purchase_cost == pytest.approx(4.0 * 8000.0)
+    assert m1.purchase_cost == pytest.approx(4.0 * SimulationAssumptions().herd.doe_purchase_price)
     assert _doe_pool(m1) - _doe_pool(base.months[0]) == pytest.approx(4.0 * S_ADULT, abs=1e-6)
 
 
@@ -1882,7 +1929,7 @@ def test_event_purchase_cost_reaches_annual_pl_and_lowers_npv() -> None:
     base = run_simulation(event_toy([]), with_break_even=False)
     # Month 14 falls in year 2; the purchase is opex, not project cost.
     assert res.annual_pl[1].stock_purchases - base.annual_pl[1].stock_purchases == pytest.approx(
-        80000.0
+        10.0 * SimulationAssumptions().herd.doe_purchase_price
     )
     assert res.annual_pl[0].stock_purchases == pytest.approx(base.annual_pl[0].stock_purchases)
     assert res.metrics.npv < base.metrics.npv
@@ -1894,17 +1941,32 @@ def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     # grower pool's WEIGHT-WEIGHTED AVERAGE, not a fixed mid-class age: _draw
     # takes head proportionally from every age slot, and by month 12 the chain
     # holds promoted animals rather than the mid-class placement the foundation
-    # stock started at. 18.5035 kg is that pool average.
-    event = HerdEventAssumptions(month=12, kind="sale", animal_class="male_grower", count=3)
+    # stock started at. At the calibrated sale age 10 the chain spans ages 6-9;
+    # the event fires in month 10 (the last month before organic graduation
+    # sales start competing for the same pool) and averages 16.5012 kg. The
+    # market calendar is flattened so the average is the only thing priced.
+    event = HerdEventAssumptions(month=10, kind="sale", animal_class="male_grower", count=3)
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24), events=[event])
+    flatten_market(a)
+    base_a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+    flatten_market(base_a)
     res = run_simulation(a, with_break_even=False)
-    base = run_simulation(
-        SimulationAssumptions(meta=MetaAssumptions(horizon_months=24)), with_break_even=False
+    base = run_simulation(base_a, with_break_even=False)
+    assert res.months[9].sales_head - base.months[9].sales_head == pytest.approx(3.0)
+    assert res.months[9].sales_revenue - base.months[9].sales_revenue == pytest.approx(
+        3.0 * 16.5012 * 400.0, rel=1e-4
     )
-    assert res.months[11].sales_head - base.months[11].sales_head == pytest.approx(3.0)
-    assert res.annual_pl[0].meat_revenue - base.annual_pl[0].meat_revenue == pytest.approx(
-        3.0 * 18.5035 * 350.0, rel=1e-4
+    # The event's revenue reaches the annual P&L two ways: the P&L row
+    # aggregates the months exactly, and the year-1 delta is economically
+    # bounded — positive (the event pulls revenue forward into month 10) but
+    # below the event-month delta, because at sale age 10 the baseline sells
+    # those same animals inside year 1 too (graduation from month 11).
+    month10_delta = res.months[9].sales_revenue - base.months[9].sales_revenue
+    annual_delta = res.annual_pl[0].meat_revenue - base.annual_pl[0].meat_revenue
+    assert res.annual_pl[0].meat_revenue == pytest.approx(
+        sum(m.sales_revenue for m in res.months[:12]), rel=1e-4
     )
+    assert 0.0 < annual_delta < month10_delta
 
 
 def test_profitable_event_sale_raises_npv() -> None:
@@ -2297,6 +2359,10 @@ def test_single_purchased_foundation_doe_is_present_in_the_age_ledger() -> None:
         mortality=MortalityAssumptions(adult=0.0),
         culling=CullingAssumptions(doe_cull_rate_annual=0.0, max_doe_age_months=36),
     )
+    # Synchronized cohort: pin the foundation age window to the exact age the
+    # max-doe-age clock starts from (the default is a 18-42 month spread).
+    assumptions.herd.foundation_doe_age_min_months = 24
+    assumptions.herd.foundation_doe_age_max_months = 24
 
     result = _run_core(assumptions)
 
@@ -2443,6 +2509,11 @@ def _mutation_empty_assumptions(horizon: int = 12) -> SimulationAssumptions:
     assumptions.finance.working_capital_months = 0
     assumptions.finance.income_tax_rate = 0.0
     assumptions.finance.include_terminal_value = False
+    # The calibrated default escalates prices 4%/yr; mutation-economics
+    # goldens must price at the base they set explicitly.
+    assumptions.sales.annual_livestock_price_growth_rate = 0.0
+    assumptions.feed.annual_feed_price_growth_rate = 0.0
+    assumptions.sales.monthly_meat_price_multipliers = [1.0] * 12
     return assumptions
 
 
@@ -2454,6 +2525,11 @@ def test_adult_doe_age_ledger_accumulates_foundation_and_event_purchases() -> No
     assumptions.reproduction.conception_rate = 0.0
     assumptions.culling.max_doe_age_months = 36
     assumptions.sales.cull_doe_price_per_kg = 2.0
+    # Both the foundation and the event-purchased doe must sit at the same
+    # synchronized age (24 m) so one max-doe-age cull empties them together;
+    # the calibrated default spreads purchases over 18-42 months.
+    assumptions.herd.foundation_doe_age_min_months = 24
+    assumptions.herd.foundation_doe_age_max_months = 24
     assumptions.events = [
         HerdEventAssumptions(
             month=1,

@@ -71,5 +71,20 @@ export interface HerdAssumptions {
      */
   buck_purchase_price?: number;
   auto_purchase_bucks?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 180
+     */
+  foundation_doe_age_min_months?: number;
+  /**
+     * @minimum 0
+     * @maximum 180
+     */
+  foundation_doe_age_max_months?: number;
+  /**
+     * @minimum 0
+     * @maximum 6
+     */
+  purchased_doe_settling_months?: number;
   foundation_flock_state?: HerdAssumptionsFoundationFlockState;
 }

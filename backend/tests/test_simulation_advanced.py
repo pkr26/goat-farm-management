@@ -63,6 +63,9 @@ from app.simulation.shocks import MonthlyShockPath
 def test_calendar_price_growth_and_festival_uplift_are_composed_once() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24, start_year_month="2026-01"))
     a.sales.meat_price_per_kg = 100.0
+    # Flat calendar first: the calibrated default carries a seasonal curve,
+    # and this composition test sets exactly one month's multiplier itself.
+    a.sales.monthly_meat_price_multipliers = [1.0] * 12
     a.sales.monthly_meat_price_multipliers[1] = 1.2
     a.sales.annual_livestock_price_growth_rate = 0.12
     a.sales.eid_month = 2
@@ -70,7 +73,7 @@ def test_calendar_price_growth_and_festival_uplift_are_composed_once() -> None:
     result = run_simulation(a, with_break_even=False)
 
     assert result.months[1].meat_price_per_kg == pytest.approx(
-        100.0 * 1.2 * math.pow(1.12, 1.0 / 12.0) * 1.3
+        100.0 * 1.2 * math.pow(1.12, 1.0 / 12.0) * (1.0 + a.sales.eid_price_uplift)
     )
     assert result.months[12].meat_price_per_kg == pytest.approx(112.0)
     # Once exact lunar-calendar simulation months are present, the legacy
@@ -325,9 +328,11 @@ def test_feed_and_insurance_use_the_tracked_age_cohort_weight() -> None:
     assert purchased_dm == pytest.approx(
         a.growth.weight_by_age_months[2] * a.feed.dmi_kid_creep * 30.44
     )
+    # Young stock is insured at this month's MARKET value, seasonality
+    # included (August, the default start month, prices at 0.9192x the base).
     assert first.insurance_cost == pytest.approx(
         a.growth.weight_by_age_months[2]
-        * a.sales.meat_price_per_kg
+        * first.meat_price_per_kg
         * a.costs.insurance_pct_stock_value_annual
         / 12.0
     )
@@ -1295,7 +1300,9 @@ def test_optimizer_adjusts_only_explicit_stock_cost_and_preserves_its_sentinel(
     explicit.finance.initial_stock_cost = 500_000.0
     _, observed = _recorded_optimization(monkeypatch, explicit)
     assert [(item.herd.does, item.herd.bucks) for item in observed] == [(50, 2), (25, 1)]
-    assert [item.finance.initial_stock_cost for item in observed] == [500_000.0, 288_000.0]
+    # The delta uses the calibrated doe/buck prices: -25 does x 9,500 and
+    # -1 buck x 15,000 off an explicit 500,000.
+    assert [item.finance.initial_stock_cost for item in observed] == [500_000.0, 247_500.0]
 
     automatic = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
@@ -1313,7 +1320,7 @@ def test_optimizer_adjusts_only_explicit_stock_cost_and_preserves_its_sentinel(
     tiny_explicit = automatic.model_copy(deep=True)
     tiny_explicit.finance.initial_stock_cost = 1.0
     _, observed = _recorded_optimization(monkeypatch, tiny_explicit)
-    assert [item.finance.initial_stock_cost for item in observed] == [1.0, 80_001.0]
+    assert [item.finance.initial_stock_cost for item in observed] == [1.0, 95_001.0]
 
     floored = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
@@ -1375,7 +1382,7 @@ def test_optimizer_finances_required_opening_bucks_and_their_stock_value() -> No
     financed = next(candidate for candidate in candidates if candidate.starting_bucks == 2)
 
     assert optimized.baseline.starting_bucks == 0
-    assert financed.project_cost - optimized.baseline.project_cost == pytest.approx(24_000.0)
+    assert financed.project_cost - optimized.baseline.project_cost == pytest.approx(30_000.0)
 
 
 def test_mirr_and_model_fingerprint_are_reproducible() -> None:

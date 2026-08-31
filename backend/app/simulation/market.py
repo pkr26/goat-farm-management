@@ -88,3 +88,46 @@ def cultivated_green_supply_kg_dm_for_month(
     annual_kg_dm = feed.cultivated_fodder_acres * feed.fodder_yield_t_dm_per_acre_year * 1000.0
     seasonal = feed.monthly_fodder_yield_multipliers
     return annual_kg_dm * seasonal[calendar_month - 1] / sum(seasonal) * yield_multiplier
+
+
+# Bakrid (Eid al-Adha) Gregorian dates as observed in India. Verified against
+# timeanddate.com and Drik Panchang through 2032; 2033-2040 are estimates
+# (the festival drifts ~10.5 days earlier per Gregorian year) and are marked
+# tentative — moon sighting moves the day, rarely the month. The simulation
+# only needs the month: month resolution makes a ±1-day estimate safe.
+BAKRID_DATES_BY_YEAR: dict[int, tuple[int, int]] = {
+    2026: (5, 28),
+    2027: (5, 17),
+    2028: (5, 5),
+    2029: (4, 24),
+    2030: (4, 14),
+    2031: (4, 3),
+    2032: (3, 22),
+    2033: (3, 11),  # tentative
+    2034: (2, 28),  # tentative
+    2035: (2, 17),  # tentative
+    2036: (2, 6),  # tentative
+    2037: (1, 26),  # tentative
+    2038: (1, 15),  # tentative
+    2039: (1, 4),  # tentative
+    2040: (12, 26),  # tentative
+}
+
+
+def bakrid_festival_months(start_year_month: str, horizon_months: int) -> list[int]:
+    """1-based simulation months whose calendar month contains Bakrid.
+
+    Returns [] for start years outside the embedded calendar rather than a
+    guessed extrapolation: a wrong festival month silently mis-times a
+    planned sale, which is worse than no festival at all.
+    """
+    try:
+        year, month = int(start_year_month[:4]), int(start_year_month[5:7])
+    except (ValueError, IndexError):
+        return []
+    result: list[int] = []
+    for festival_year, (festival_month, _day) in sorted(BAKRID_DATES_BY_YEAR.items()):
+        simulation_month = (festival_year - year) * 12 + (festival_month - month) + 1
+        if 1 <= simulation_month <= horizon_months:
+            result.append(simulation_month)
+    return sorted(set(result))

@@ -477,6 +477,55 @@ def build_metric_explanations(
     return out
 
 
+def _active_festival_months(assumptions: SimulationAssumptions) -> list[int]:
+    """Months where the Bakrid uplift applies (explicit lunar months, or the
+    legacy recurring Gregorian month)."""
+    sales = assumptions.sales
+    if sales.festival_sale_months:
+        return list(sales.festival_sale_months)
+    if sales.eid_month > 0:
+        start = int(assumptions.meta.start_year_month.split("-")[1])
+        horizon = assumptions.meta.horizon_months
+        return [
+            month
+            for month in range(1, horizon + 1)
+            if (start - 1 + (month - 1)) % 12 + 1 == sales.eid_month
+        ]
+    return []
+
+
+def _festival_paragraph(assumptions: SimulationAssumptions, result) -> list[str]:
+    months = _active_festival_months(assumptions)
+    if not months:
+        return []
+    uplift_pct = assumptions.sales.eid_price_uplift * 100.0
+    # Only meat sales carry the festival uplift; cull disposals are priced on
+    # the growth trend alone, so they are not counted as Bakrid-priced head.
+    priced = [row for row in result.months if row.month in months and row.sales_head > 0.0]
+    head = sum(row.sales_head for row in priced)
+    if head <= 0.0:
+        return [
+            f"Bakrid pricing (+{uplift_pct:.0f}% on the base rate) applies in months "
+            f"{', '.join(str(m) for m in months)}, but the plan sells no animals in "
+            "those months — timing sales into the festival is the single largest "
+            "pricing lever available."
+        ]
+    return [
+        f"Bakrid pricing (+{uplift_pct:.0f}% on the base rate) applies in months "
+        f"{', '.join(str(m) for m in months)}; {head:.0f} head sell inside them."
+    ]
+
+
+def _festival_figures(assumptions: SimulationAssumptions) -> dict[str, float | str | None]:
+    months = _active_festival_months(assumptions)
+    if not months:
+        return {}
+    return {
+        "festival_months": ", ".join(str(m) for m in months),
+        "festival_uplift": assumptions.sales.eid_price_uplift,
+    }
+
+
 def build_narrative_report(
     a: SimulationAssumptions, result: SimulationResult
 ) -> list[ReportSection]:
@@ -602,13 +651,15 @@ def build_narrative_report(
                     total_revenue,
                 )
                 + "."
-            ],
+            ]
+            + _festival_paragraph(a, result),
             figures={
                 "total_revenue": total_revenue,
                 "meat_revenue": meat,
                 "cull_revenue": cull_rev,
                 "milk_revenue": milk,
                 "manure_revenue": manure,
+                **_festival_figures(a),
             },
         )
     )

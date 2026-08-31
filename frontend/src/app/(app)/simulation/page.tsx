@@ -34,6 +34,7 @@ import {
   TriangleAlert,
   Wallet,
   Wheat,
+  Repeat,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
@@ -52,6 +53,7 @@ import {
   useHerdSnapshotApiSimulationHerdSnapshotGet,
   useListBreedsApiSimulationDefaultsBreedsGet,
   useListScenariosApiSimulationScenariosGet,
+  usePlanSalesApiSimulationPlannerPlanPost,
   useRunAdhocApiSimulationRunPost,
   useRunScenarioApiSimulationScenariosScenarioIdRunPost,
   useUpdateScenarioApiSimulationScenariosScenarioIdPatch,
@@ -63,6 +65,8 @@ import type {
   MetricExplanation,
   OptimizationCandidate,
   PercentileBand,
+  PlanReport,
+  PlanTargetIn,
   ScenarioOut,
   SimulationAssumptions,
   SimulationResult,
@@ -86,6 +90,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -495,6 +500,19 @@ const HORIZON_PRESETS = [
 
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
+/** Head counts print as whole numbers: plans are stated in whole animals. */
+function formatPlanCount(value: number): string {
+  return Number.isFinite(value)
+    ? Number.isInteger(value)
+      ? String(value)
+      : value.toFixed(1)
+    : "—";
+}
+
+function formatPlanClass(animalClass: string): string {
+  return EVENT_CLASS_ITEMS[animalClass] ?? animalClass;
+}
+
 const EVENT_KIND_ITEMS: Record<string, string> = {
   purchase: "Purchase",
   sale: "Sale",
@@ -1038,6 +1056,27 @@ export default function SimulationPage() {
   const [events, setEvents] = useState<HerdEventAssumptions[]>([]);
   const eventKeyCounter = useRef(0);
   const [eventKeys, setEventKeys] = useState<string[]>([]);
+  // Sale planner: the targets are separate from the events editor because a
+  // plan is a *statement of intent* the engine checks against projected
+  // supply — the matching sale events are generated, not hand-written.
+  const [planTargets, setPlanTargets] = useState<PlanTargetIn[]>([]);
+  const [planReport, setPlanReport] = useState<PlanReport | null>(null);
+  // The targets the checked report was built from. A report whose targets
+  // have since been edited must not be applied: its recommended purchases
+  // were sized for the old plan.
+  const [planTargetsSnapshot, setPlanTargetsSnapshot] = useState<
+    string | null
+  >(null);
+  const [planError, setPlanError] = useState<string | null>(null);
+  const [recurrenceOpen, setRecurrenceOpen] = useState(false);
+  const [recurrence, setRecurrence] = useState({
+    month: 1,
+    kind: "purchase" as HerdEventAssumptions["kind"],
+    animal_class: "doe" as HerdEventAssumptions["animal_class"],
+    count: 10,
+    every: 2,
+    repeat: 6,
+  });
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
   const [calibration, setCalibration] = useState<FarmCalibrationOut | null>(null);
   const [calibrationLookback, setCalibrationLookback] = useState(24);
@@ -1156,6 +1195,7 @@ export default function SimulationPage() {
       : undefined;
 
   const runMutation = useRunAdhocApiSimulationRunPost();
+  const planMutation = usePlanSalesApiSimulationPlannerPlanPost();
   const runScenarioMutation = useRunScenarioApiSimulationScenariosScenarioIdRunPost();
   const createMutation = useCreateScenarioApiSimulationScenariosPost();
   const updateMutation = useUpdateScenarioApiSimulationScenariosScenarioIdPatch();
@@ -1430,6 +1470,146 @@ export default function SimulationPage() {
   /** Assumptions plus the scheduled events, as sent to run/save endpoints. */
   function assumptionsWithEvents(): SimulationAssumptions | null {
     return assumptions ? { ...assumptions, events } : null;
+  }
+
+  /** Expand "N animals every M months" into concrete event rows.
+   *
+   * The server stays the single source of truth for one event's schema; this
+   * only multiplies rows the same way a user would have clicked them, with
+   * the 500-event ceiling enforced before a single row lands.
+   */
+  function applyRecurrence() {
+    const { month, kind, animal_class, count, every, repeat } = recurrence;
+    const safeRepeat = Math.max(1, Math.min(120, Math.floor(repeat)));
+    const safeEvery = Math.max(1, Math.min(120, Math.floor(every)));
+    const rows: HerdEventAssumptions[] = [];
+    for (let i = 0; i < safeRepeat; i++) {
+      const m = month + i * safeEvery;
+      if (m > horizonMonths) break;
+      rows.push({ month: m, kind, animal_class, count, price_per_head: null });
+    }
+    if (rows.length === 0) {
+      toast.error("That repeat plan starts beyond the simulation horizon.");
+      return;
+    }
+    if (events.length + rows.length > 500) {
+      toast.error(
+        `That repeat plan needs ${rows.length} rows; only ${500 - events.length} event slots remain.`,
+      );
+      return;
+    }
+    acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
+    setEventKeys((previous) => [
+      ...previous,
+      ...rows.map(() => `event-${eventKeyCounter.current++}`),
+    ]);
+    setEvents((prev) => [...prev, ...rows]);
+    setRecurrenceOpen(false);
+    toast.success(`Added ${rows.length} recurring ${kind} event(s).`);
+  }
+
+  function addPlanTarget() {
+    setPlanTargets((prev) => [
+      ...prev,
+      { month: Math.min(24, horizonMonths), animal_class: "male_grower", count: 20 },
+    ]);
+  }
+
+  function updatePlanTarget(index: number, patch: Partial<PlanTargetIn>) {
+    setPlanTargets((prev) =>
+      prev.map((target, i) => (i === index ? { ...target, ...patch } : target)),
+    );
+  }
+
+  function removePlanTarget(index: number) {
+    setPlanTargets((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function onPlan() {
+    await simulationAction.run(async () => {
+      const payload = assumptionsWithEvents();
+      if (!payload || hasEditorErrors || planTargets.length === 0) return;
+      setPlanError(null);
+      try {
+        const res = await planMutation.mutateAsync({
+          data: {
+            assumptions: payload,
+            targets: planTargets,
+            close_gaps: true,
+            risk_runs: 100,
+          },
+        });
+        if (res.status === 200) {
+          setPlanReport(res.data);
+          setPlanTargetsSnapshot(JSON.stringify(planTargets));
+        }
+      } catch (err) {
+        const message = runErrorMessage(err, "Plan check failed");
+        setPlanError(message);
+        toast.error(message);
+      }
+    });
+  }
+
+  const planReportIsStale =
+    planReport !== null && planTargetsSnapshot !== JSON.stringify(planTargets);
+
+  /** Turn a checked plan into events: keep purchases, REPLACE existing sale
+   * events with the targets, and add the planner's recommended purchases.
+   * (The planner owns sale events — keeping the old ones would double-sell
+   * the same animals.) */
+  function applyPlanToEvents() {
+    if (!planReport || planReportIsStale) return;
+    const saleEvents: HerdEventAssumptions[] = planTargets.map((target) => ({
+      month: target.month,
+      kind: "sale" as const,
+      animal_class: target.animal_class,
+      count: target.count,
+      price_per_head: null,
+    }));
+    const next = [
+      ...events.filter((event) => event.kind === "purchase"),
+      ...planReport.recommended_purchases.map((purchase) => ({
+        month: purchase.month,
+        kind: "purchase" as const,
+        animal_class: purchase.animal_class,
+        count: purchase.count,
+        price_per_head: purchase.price_per_head ?? null,
+      })),
+      ...saleEvents,
+    ];
+    if (next.length > 500) {
+      toast.error("Applying the plan would exceed the 500-event limit.");
+      return;
+    }
+    acceptDefaultsRef.current = false;
+    editorContentEpochRef.current += 1;
+    const nextKeys = [
+      ...eventKeys.slice(0, next.length),
+      ...next.slice(eventKeys.length).map(() => `event-${eventKeyCounter.current++}`),
+    ];
+    // Rows that disappear must take their validity markers with them, or a
+    // dropped invalid row leaves Run/Save disabled with nothing highlighted
+    // (removeEvent does the same cleanup).
+    const keptKeys = new Set(nextKeys);
+    setInvalidFields((previous) => {
+      const nextInvalid = new Set<string>();
+      for (const key of previous) {
+        const match = /^event:([^:]+):/.exec(key);
+        if (!match || keptKeys.has(match[1])) nextInvalid.add(key);
+      }
+      return nextInvalid;
+    });
+    setEventKeys(nextKeys);
+    setEvents(next);
+    const replacedSales = events.filter((event) => event.kind === "sale").length;
+    toast.success(
+      `Plan applied: ${planReport.recommended_purchases.length} recommended purchase(s) + ${saleEvents.length} sale event(s)` +
+        (replacedSales > 0
+          ? ` (${replacedSales} existing sale event${replacedSales === 1 ? "" : "s"} replaced).`
+          : "."),
+    );
   }
 
   async function onUseCurrentHerd() {
@@ -2894,20 +3074,31 @@ export default function SimulationPage() {
         title="Herd events"
         description="Purchases or sales that fire at a given simulation month."
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={addEvent}
-            // Events belong to a loaded assumption set. Before the initial
-            // defaults land, adding one would flip acceptDefaultsRef and
-            // silently cancel the pending auto-load, leaving the editor stuck
-            // on "Loading defaults…" — so stay disabled until assumptions
-            // exist, like Run and "Use current herd" already do.
-            disabled={!assumptions || events.length >= 500}
-          >
-            <Plus />
-            Add event
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRecurrenceOpen(true)}
+              disabled={!assumptions || events.length >= 500}
+            >
+              <Repeat />
+              Repeat plan
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addEvent}
+              // Events belong to a loaded assumption set. Before the initial
+              // defaults land, adding one would flip acceptDefaultsRef and
+              // silently cancel the pending auto-load, leaving the editor stuck
+              // on "Loading defaults…" — so stay disabled until assumptions
+              // exist, like Run and "Use current herd" already do.
+              disabled={!assumptions || events.length >= 500}
+            >
+              <Plus />
+              Add event
+            </Button>
+          </div>
         }
         contentClassName="space-y-3"
       >
@@ -3043,6 +3234,330 @@ export default function SimulationPage() {
             {error}
           </p>
         ))}
+      </DataTableCard>
+
+      <Dialog open={recurrenceOpen} onOpenChange={setRecurrenceOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Recurring event plan</DialogTitle>
+            <DialogDescription>
+              Generate rows for a repeated purchase or sale — e.g. 50 does
+              every 2 months. Rows land in the herd-events table for review,
+              never silently.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="recurrence-month">First month</Label>
+              <NumberInput
+                id="recurrence-month"
+                min={1}
+                max={horizonMonths}
+                integer
+                value={recurrence.month}
+                onCommit={(n) => setRecurrence((r) => ({ ...r, month: n }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="recurrence-count">Count</Label>
+              <NumberInput
+                id="recurrence-count"
+                exclusiveMin={0}
+                max={100_000}
+                value={recurrence.count}
+                onCommit={(n) => setRecurrence((r) => ({ ...r, count: n }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="recurrence-every">Every (months)</Label>
+              <NumberInput
+                id="recurrence-every"
+                min={1}
+                max={120}
+                integer
+                value={recurrence.every}
+                onCommit={(n) => setRecurrence((r) => ({ ...r, every: n }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="recurrence-repeat">Repeats</Label>
+              <NumberInput
+                id="recurrence-repeat"
+                min={1}
+                max={120}
+                integer
+                value={recurrence.repeat}
+                onCommit={(n) => setRecurrence((r) => ({ ...r, repeat: n }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="recurrence-kind">Kind</Label>
+              <Select
+                value={recurrence.kind}
+                onValueChange={(v) =>
+                  setRecurrence((r) => ({
+                    ...r,
+                    kind: v as HerdEventAssumptions["kind"],
+                  }))
+                }
+                items={EVENT_KIND_ITEMS}
+              >
+                <SelectTrigger id="recurrence-kind" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(EVENT_KIND_ITEMS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="recurrence-class">Class</Label>
+              <Select
+                value={recurrence.animal_class}
+                onValueChange={(v) =>
+                  setRecurrence((r) => ({
+                    ...r,
+                    animal_class: v as HerdEventAssumptions["animal_class"],
+                  }))
+                }
+                items={EVENT_CLASS_ITEMS}
+              >
+                <SelectTrigger id="recurrence-class" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecurrenceOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={applyRecurrence}>Generate rows</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DataTableCard
+        title="Sale planner"
+        description="State what must be sold and when; the simulator checks whether the projected herd can supply it, and recommends the purchases that close the gap. The planner owns sale events: existing ones are excluded from the check and replaced when you apply a plan."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addPlanTarget}
+              disabled={!assumptions || planTargets.length >= 50}
+            >
+              <Plus />
+              Add target
+            </Button>
+            <Button
+              size="sm"
+              onClick={onPlan}
+              disabled={
+                !assumptions ||
+                planTargets.length === 0 ||
+                hasEditorErrors ||
+                planMutation.isPending
+              }
+            >
+              {planMutation.isPending ? "Checking…" : "Check plan"}
+            </Button>
+          </div>
+        }
+        contentClassName="space-y-3"
+      >
+        {planTargets.length === 0 ? (
+          <EmptyState
+            icon={Target}
+            title="No sale targets"
+            description="Plan 12–24 months ahead: a goat sold in month T was born around T−10 and conceived around T−15."
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Month</TableHead>
+                <TableHead>Class</TableHead>
+                <TableHead>Count</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {planTargets.map((target, index) => (
+                <TableRow key={`plan-target-${index}`}>
+                  <TableCell>
+                    <NumberInput
+                      id={`plan-target-${index}-month`}
+                      aria-label="Sale month"
+                      min={1}
+                      max={horizonMonths}
+                      integer
+                      className="w-20"
+                      value={target.month}
+                      onCommit={(n) => updatePlanTarget(index, { month: n })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Select
+                      value={target.animal_class}
+                      onValueChange={(v) =>
+                        updatePlanTarget(index, {
+                          animal_class: v as PlanTargetIn["animal_class"],
+                        })
+                      }
+                      items={EVENT_CLASS_ITEMS}
+                    >
+                      <SelectTrigger aria-label="Class" size="sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell>
+                    <NumberInput
+                      id={`plan-target-${index}-count`}
+                      aria-label="Count"
+                      exclusiveMin={0}
+                      max={100_000}
+                      className="w-20"
+                      value={target.count}
+                      onCommit={(n) => updatePlanTarget(index, { count: n })}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removePlanTarget(index)}
+                    >
+                      Remove
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {planError && (
+          <p role="alert" className="text-sm text-destructive">
+            {planError}
+          </p>
+        )}
+
+        {planReport && (
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium">
+                {planReport.gaps_closed
+                  ? "Plan is feasible"
+                  : "Plan cannot fully close"}
+                {" · "}
+                <span className="text-muted-foreground">
+                  shortfall{" "}
+                  {formatPlanCount(
+                    (planReport.after ?? planReport.before).total_shortfall,
+                  )}{" "}
+                  head after recommendations
+                </span>
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={applyPlanToEvents}
+                disabled={
+                  planReportIsStale ||
+                  (planReport.recommended_purchases.length === 0 &&
+                    planReport.before.all_met)
+                }
+                title={
+                  planReportIsStale
+                    ? "Targets changed since this plan was checked — run Check plan again."
+                    : undefined
+                }
+              >
+                {planReportIsStale ? "Stale — recheck" : "Apply to events"}
+              </Button>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Target</TableHead>
+                  <TableHead>Filled now</TableHead>
+                  <TableHead>With purchases</TableHead>
+                  <TableHead>₹/head</TableHead>
+                  <TableHead>P(full)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {planReport.before.targets.map((fill, index) => {
+                  const after = planReport.after?.targets[index];
+                  const risk = planReport.probabilities?.[index];
+                  return (
+                    <TableRow key={`plan-fill-${fill.month}-${index}`}>
+                      <TableCell>{fill.month}</TableCell>
+                      <TableCell>{formatPlanClass(fill.animal_class)}</TableCell>
+                      <TableCell>{formatPlanCount(fill.requested)}</TableCell>
+                      <TableCell>
+                        {fill.met ? "✓" : "⚠"} {formatPlanCount(fill.filled)}
+                      </TableCell>
+                      <TableCell>
+                        {after
+                          ? `${after.met ? "✓" : "⚠"} ${formatPlanCount(after.filled)}`
+                          : "—"}
+                      </TableCell>
+                      <TableCell>{formatMoney(fill.price_per_head)}</TableCell>
+                      <TableCell>
+                        {risk ? `${Math.round(risk.p_full * 100)}%` : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+            {planReport.recommended_purchases.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Buy{" "}
+                {planReport.recommended_purchases
+                  .map(
+                    (purchase) =>
+                      `${formatPlanCount(purchase.count)} doe(s) in month ${purchase.month}`,
+                  )
+                  .join(", ")}{" "}
+                to back the plan.
+              </p>
+            )}
+            {(planReport.notes ?? []).map((note, index) => (
+              <p
+                key={`plan-note-${index}`}
+                className="text-sm text-muted-foreground"
+                role="note"
+              >
+                {note}
+              </p>
+            ))}
+          </div>
+        )}
       </DataTableCard>
       </fieldset>
 

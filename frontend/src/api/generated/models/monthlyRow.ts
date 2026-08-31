@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { EventFill } from './eventFill';
 
 /**
  * One simulation month: end-of-month headcounts and that month's flows.
@@ -55,4 +56,5 @@ export interface MonthlyRow {
   fodder_stock_kg_dm: number;
   fodder_waste_kg_dm: number;
   events?: string[];
+  event_fills?: EventFill[];
 }

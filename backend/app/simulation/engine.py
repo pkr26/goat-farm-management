@@ -12,11 +12,14 @@ doe pool at ``herd.female_retention_fraction`` (subject to
 ``herd.max_breeding_does``); the surplus is sold as meat.
 
 Documented model approximations:
-- Foundation does are mixed-age adults (ages spread uniformly over 24-60
-  months); with ``herd.foundation_flock_state="mixed"`` (the default) they are
+- Foundation does are mixed-age adults (ages spread uniformly over the herd's
+  ``foundation_doe_age_min/max_months`` window, default 18-42: a young proven
+  flock); with ``herd.foundation_flock_state="mixed"`` (the default) they are
   also spread uniformly across the reproductive cycle, while ``"open"`` starts
   them all open and ready to breed in month 1. Initial kids/weaners/growers
-  are placed mid-class (age 1 / 4 / mid-grower).
+  are placed mid-class (age 1 / 4 / mid-grower). Adult does bought later via
+  scheduled events first spend ``purchased_doe_settling_months`` in a settling
+  pool (fed, insured, mortal, but not served).
 - Scheduled herd events (``SimulationAssumptions.events``) are applied at the
   start of their month, before aging/breeding/mortality, and purchased animals
   are placed mid-class like foundation stock. Event purchases are operating
@@ -77,6 +80,7 @@ from .market import (
 from .results import (
     AmortizationRowModel,
     AnnualPLRow,
+    EventFill,
     FeedSummary,
     MonthlyRow,
     ProjectCostBreakdown,
@@ -154,6 +158,7 @@ class _MonthRecord:
     fodder_waste_kg_dm: float
     stock_value: float
     events: list[str] = field(default_factory=list)
+    event_fills: list[EventFill] = field(default_factory=list)
 
     @property
     def revenue(self) -> float:
@@ -341,6 +346,9 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
 
     open_waiting = [0.0] * r.months_open_before_breeding
     open_ready = float(a.herd.does)
+    # Bought-in adult does spend their settling months here before service
+    # (transport stress, new ration, pecking order — see HerdAssumptions).
+    settling = [0.0] * a.herd.purchased_doe_settling_months
     preg = [0.0] * r.gestation_months
     lact = [0.0] * r.lactation_months
     if a.herd.foundation_flock_state == "mixed" and a.herd.does > 0:
@@ -365,15 +373,16 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
 
         A purchased doe is a proven adult, not a maiden that has just cleared
         the grower chain. Writing her to ``doe_ages[afb]`` gave every scheduled
-        purchase the full ``max_doe_age_months - afb`` of breeding life ahead of
-        it — five years at the defaults — and made a restocking event look far
+        purchase the full ``max_doe_age_months - afb`` of breeding life ahead
+        of it — five years at the defaults — and made a restocking event look far
         more productive than buying real animals is.
         """
         if count <= 0.0:
             return
-        span_lo, span_hi = 24, min(60, cull.max_doe_age_months - 12)
-        # Defense past the schema floor (ge=36 guarantees span_hi >= span_lo):
-        # never spread over an empty range (ZeroDivisionError).
+        age_ceiling = max(cull.max_doe_age_months - 12, 0)
+        span_lo = min(a.herd.foundation_doe_age_min_months, age_ceiling)
+        span_hi = max(span_lo, min(a.herd.foundation_doe_age_max_months, age_ceiling))
+        # Defense past the schema floor: never spread over an empty range.
         slots = list(range(span_lo, span_hi + 1)) or [span_lo]
         per_slot = count / len(slots)
         for age in slots:
@@ -401,6 +410,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             + m_boundary_grower
             + open_ready
             + sum(open_waiting)
+            + sum(settling)
             + sum(preg)
             + sum(lact)
             + bucks
@@ -439,6 +449,14 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         culls_head = cull_revenue = 0.0
         purchases_head = purchase_cost = 0.0
         event_log: list[str] = []
+        event_fills: list[EventFill] = []
+        # Settling does age forward *before* this month's purchases land, so a
+        # doe bought in month N with a 1-month settle first accepts service in
+        # month N+1 — never the month she arrived.
+        if settling:
+            settling_out = settling[-1]
+            settling = [0.0, *settling[:-1]]
+            open_ready += settling_out
         # Bucks bought via a scheduled event this month, tracked separately so
         # the rotation cull below (step 6) can spare them — see that step.
         bucks_purchased_this_month = 0.0
@@ -479,7 +497,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             if event.kind == "purchase":
                 n = event.count
                 if event.animal_class == "doe":
-                    open_ready += n
+                    # A bought-in doe settles before her first service; she
+                    # eats, ages and faces mortality like any adult from day
+                    # one, but cannot conceive while settling.
+                    if settling:
+                        settling[0] += n
+                    else:
+                        open_ready += n
                     _add_purchased_does(n)
                     default_price = doe_purchase_price
                 elif event.animal_class == "buck":
@@ -524,18 +548,31 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 price = event.price_per_head if event.price_per_head is not None else default_price
                 purchases_head += n
                 purchase_cost += n * price
+                event_fills.append(
+                    EventFill(
+                        month=month,
+                        kind="purchase",
+                        animal_class=event.animal_class,
+                        requested=n,
+                        filled=n,
+                        shortfall=0.0,
+                        price_per_head=price,
+                        revenue=n * price,
+                    )
+                )
                 event_log.append(
                     f"Purchased {n:g} {label} at ₹{price:,.0f}/head (₹{n * price:,.0f})"
                 )
             else:  # sale
                 requested = event.count
                 if event.animal_class == "doe":
-                    available = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+                    available = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
                     take = min(requested, available)
                     if take > 0.0:
                         factor = 1.0 - take / available
                         open_ready *= factor
                         open_waiting = _scale(open_waiting, factor)
+                        settling = _scale(settling, factor)
                         preg = _scale(preg, factor)
                         lact = _scale(lact, factor)
                         doe_ages = _scale(doe_ages, factor)
@@ -584,6 +621,18 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 else:
                     sales_head += take
                     sales_revenue += revenue
+                event_fills.append(
+                    EventFill(
+                        month=month,
+                        kind="sale",
+                        animal_class=event.animal_class,
+                        requested=requested,
+                        filled=take,
+                        shortfall=max(0.0, requested - take),
+                        price_per_head=price,
+                        revenue=revenue,
+                    )
+                )
                 note = f"Sold {take:g} {label} at ₹{price:,.0f}/head (₹{revenue:,.0f})"
                 if take < requested:
                     note += f" — only {take:g} of {requested:g} available"
@@ -618,6 +667,9 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
 
         # Breeding-age females: retained fraction joins the doe pool (subject to
         # the cap), the surplus is sold as meat at the first-breeding-age weight.
+        # Settling does are deliberately outside ``does_before``: like every
+        # event purchase they bypass the retention cap when they land, and the
+        # cap re-asserts itself at the next graduation.
         does_before = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
         retained = f_gro_out * a.herd.female_retention_fraction
         if a.herd.max_breeding_does > 0:
@@ -697,27 +749,29 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         deaths += pre - sum(f_grower) - sum(m_grower)
 
         # Doe pools and the parallel doe_ages array represent the same animals,
-        # so only the pools (+ bucks) enter the death count.
-        pre = open_ready + sum(open_waiting) + sum(preg) + sum(lact) + bucks
+        # so only the pools (+ settling does + bucks) enter the death count.
+        pre = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact) + bucks
         open_ready *= s_adult
         open_waiting = _scale(open_waiting, s_adult)
+        settling = _scale(settling, s_adult)
         preg = _scale(preg, s_adult)
         lact = _scale(lact, s_adult)
         bucks *= s_adult
         bucks_purchased_this_month *= s_adult
         doe_ages = _scale(doe_ages, s_adult)
-        deaths += pre - (open_ready + sum(open_waiting) + sum(preg) + sum(lact) + bucks)
+        deaths += pre - (open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact) + bucks)
 
         # --- 6. culling and buck management ---------------------------------
         # Max-age cull: does aging past max_doe_age_months leave the herd.
         overflow = doe_ages[-1]
         doe_ages = [0.0, *doe_ages[:-1]]
         if overflow > 0.0:
-            does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+            does_now = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
             if does_now > 0.0:
                 factor = 1.0 - min(1.0, overflow / does_now)
                 open_ready *= factor
                 open_waiting = _scale(open_waiting, factor)
+                settling = _scale(settling, factor)
                 preg = _scale(preg, factor)
                 lact = _scale(lact, factor)
             culls_head += overflow
@@ -728,12 +782,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # the model (a plain rate/12 removed only 18.3% of the does for a
         # documented 20% policy, and 64.8% for a "cull everything" 1.0).
         if month >= 13:
-            does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+            does_now = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
             culled = does_now * monthly_cull_rate
             if culled > 0.0:
                 factor = 1.0 - monthly_cull_rate
                 open_ready *= factor
                 open_waiting = _scale(open_waiting, factor)
+                settling = _scale(settling, factor)
                 preg = _scale(preg, factor)
                 lact = _scale(lact, factor)
                 doe_ages = _scale(doe_ages, factor)
@@ -761,7 +816,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             culls_head += cull_pool
             cull_revenue += cull_pool * cull_buck_price * buck_w
             bucks -= cull_pool
-        does_now = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+        does_now = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
@@ -772,7 +827,9 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         physical_peak_head = max(physical_peak_head, _physical_head())
 
         # --- 7. feed, opex and revenue accounting ---------------------------
-        open_total = open_ready + sum(open_waiting)
+        # Settling does are open does for every account: maintenance ration,
+        # manure, insurance value and the head count. Only service is denied.
+        open_total = open_ready + sum(open_waiting) + sum(settling)
         preg_total = sum(preg)
         lact_total = sum(lact)
         f_kid_total, m_kid_total = sum(f_kid), sum(m_kid)
@@ -974,7 +1031,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 bucks=bucks,
                 total_herd=total_herd,
                 births=births,
-                deaths=deaths,
+                # Physically non-negative; each block's "pre - post" is float
+                # association noise (~1e-15) when a mortality rate is exactly
+                # zero, and the sign of that noise is pool-shape dependent.
+                # The mass-balance identity (total_herd = prev + births +
+                # purchases - deaths - sales - culls) remains exact, so a real
+                # leak still fails it loudly.
+                deaths=max(deaths, 0.0),
                 sales_head=sales_head,
                 sales_revenue=sales_revenue,
                 meat_price_per_kg=meat_price,
@@ -1000,6 +1063,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 fodder_waste_kg_dm=fodder_waste_kg_dm,
                 stock_value=stock_value,
                 events=event_log,
+                event_fills=event_fills,
             )
         )
 
@@ -1209,6 +1273,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                 fodder_stock_kg_dm=rec.fodder_stock_kg_dm,
                 fodder_waste_kg_dm=rec.fodder_waste_kg_dm,
                 events=rec.events,
+                event_fills=rec.event_fills,
             )
         )
 
@@ -1450,6 +1515,12 @@ def run_simulation(
     with_optimization: bool = False,
 ) -> SimulationResult:
     """Run the deterministic simulation and assemble the full result model."""
+    # Programmatic callers mutate copies attribute-by-attribute
+    # (model_copy + assignment), which bypasses every model validator — an
+    # incoherent variant (say loan + subsidy > 1, i.e. negative equity) then
+    # ran to completion with garbage metrics. Revalidating the whole document
+    # once per public run is nanoseconds against a 120-month engine pass.
+    assumptions = SimulationAssumptions.model_validate(assumptions.model_dump())
     core = _run_core(assumptions)
     metrics = ViabilityMetrics(
         project_cost=core.project_cost,

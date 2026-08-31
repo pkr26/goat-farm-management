@@ -130,7 +130,9 @@ def test_explanation_figures_match_metrics() -> None:
     assert by_key["avg_dscr"]["avg_dscr"] == pytest.approx(m.avg_dscr)
     assert by_key["min_dscr"]["min_dscr"] == pytest.approx(m.min_dscr)
     assert by_key["payback_month"]["payback_month"] == m.payback_month
-    assert by_key["break_even_meat_price_per_kg"]["assumed_meat_price_per_kg"] == 350.0
+    assert by_key["break_even_meat_price_per_kg"]["assumed_meat_price_per_kg"] == (
+        SimulationAssumptions().sales.meat_price_per_kg
+    )
     assert by_key["peak_capacity_head"]["capacity_places"] == pytest.approx(m.peak_capacity_head)
     assert by_key["terminal_value"]["terminal_value"] == pytest.approx(m.terminal_value)
     assert by_key["tax_total"]["tax_total"] == pytest.approx(m.tax_total)
@@ -171,7 +173,7 @@ def _viable_assumptions() -> SimulationAssumptions:
     """A run where every standard check genuinely passes, weakest debt year
     included (a short, half-financed loan against strong early meat sales)."""
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 700.0
+    a.sales.meat_price_per_kg = 800.0
     a.herd.male_growers = 250  # meat revenue from month 1
     a.finance.loan_term_months = 12
     a.finance.moratorium_months = 6
@@ -218,25 +220,25 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "34318e5c696168e32d55e6a88c5087e20900d3fc6ea1f1d72229d9695977d3ce"
+        "60a3aa25246e7afd7038a8caeb88fd3af53a7f309fb3e7116d0f0cb4870fa8e4"
     )
     assert _explanation_digest(viable) == (
-        "9c18dce047b930a2785e8d7a4e5ed8fdf05be605005d24b7e8fa7768dea62b1b"
+        "301381b376e90a6a82bc18a59ad634ed2be97bf36d7aded656c0669e35da4935"
     )
     assert _explanation_digest(no_debt) == (
-        "f38af2d26fa5cd7d0011b8319124796468ef8a21c7a9b3f606aef5874897d5f4"
+        "e47c1b61a789f69cef0d93ecee9fab2f3bd79001343d5e937fb2aac0eee22fb2"
     )
     assert _report_digest(default) == (
-        "ca25f76bc98590f64b35a2f56a7a846df8e960940cd4540274968e129ac7829a"
+        "cf3c9178a5f579e5289da73d1051fef4b05b47eaa62d4f91bbcb5cf4c9a6d184"
     )
     assert _report_digest(viable) == (
-        "7d93b96bdddb997d7cfff0d7aa8a86aa7667a012bf02cc68bf9ddef9550f60ff"
+        "2724c12a5636c4d118aab351de8c3f0b71ac5bb6d641169530f9cf2fd69ba949"
     )
     assert _report_digest(no_debt) == (
-        "8624820a5fe06e2ea9e5834467a93b82791339763ab1edbbc4041c31e674747e"
+        "29a12c4576a2bcc17246d8b17ee79ccdcd8e3dfaf162c28eecce7d43e213bc64"
     )
     assert _report_digest(risk) == (
-        "3427a2e90b1be7abd9d79e5a3fa1c4cf6fe9df72af7161b552475d718cfdb7bf"
+        "a5fec7334efb458e7cfee25e93225d81766399a9640bf9b34deb4843c70a175e"
     )
 
 
@@ -274,9 +276,9 @@ def test_verdict_viable_with_caution_for_borderline_run() -> None:
     # Positive NPV but the weakest debt year cannot cover its repayment
     # (min_dscr in (0, 1)): viable, with a warning.
     a = SimulationAssumptions()
-    a.herd.male_growers = 40  # early meat revenue keeps year-1 EBITDA positive
+    a.herd.male_growers = 60  # early meat revenue keeps year-1 EBITDA positive
     a.finance.moratorium_months = 0  # full EMI from month 1 squeezes year-1 DSCR
-    a.sales.meat_price_per_kg = 600.0
+    a.sales.meat_price_per_kg = 700.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
@@ -292,7 +294,7 @@ def test_verdict_never_hides_a_negative_weakest_debt_year() -> None:
     every negative year fell through it and the report printed "VIABLE — all
     standard checks pass" with no mention of the DSCR."""
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 600.0
+    a.sales.meat_price_per_kg = 700.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     # Everything else passes; only year 1 cannot service the loan.
@@ -652,16 +654,16 @@ def test_break_even_explanation_covers_no_solution_and_margin_boundaries() -> No
     assert zero_price.figures["safety_margin"] == 1.0
     assert explanation(1.0).startswith("Meat can fall to ₹1/kg")
     zero_margin = (
-        "Meat can fall to ₹350/kg before the project's NPV turns negative. Your assumed "
-        "price is ₹350/kg — a safety margin of 0.0%."
+        "Meat can fall to ₹400/kg before the project's NPV turns negative. Your assumed "
+        "price is ₹400/kg — a safety margin of 0.0%."
     )
-    assert explanation(350.0) == zero_margin
+    assert explanation(400.0) == zero_margin
     # The flag distinguishes only the two reasons a missing result is None;
     # it must not hide a result that is already present.
-    assert explanation(350.0, computed=False) == zero_margin
-    assert explanation(175.0) == (
-        "Meat can fall to ₹175/kg before the project's NPV turns negative. Your assumed "
-        "price is ₹350/kg — a safety margin of 50.0%."
+    assert explanation(400.0, computed=False) == zero_margin
+    assert explanation(200.0) == (
+        "Meat can fall to ₹200/kg before the project's NPV turns negative. Your assumed "
+        "price is ₹400/kg — a safety margin of 50.0%."
     )
 
     one_rupee_assumption = assumptions.model_copy(deep=True)

@@ -38,7 +38,9 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
-from typing import Annotated, cast
+from typing import Annotated, TypeVar, cast
+
+_T = TypeVar("_T")
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import ValidationError
@@ -55,6 +57,7 @@ from ..schemas.simulation import (
     BreedsOut,
     FarmCalibrationOut,
     HerdSnapshotOut,
+    PlanIn,
     RunIn,
     ScenarioCompareOut,
     ScenarioCreateIn,
@@ -67,6 +70,7 @@ from ..services.simulation_calibration import calibrate_farm_assumptions
 from ..simulation.assumptions import SimulationAssumptions
 from ..simulation.defaults import PRESET_FACTORIES, SYSTEMS, System, get_preset
 from ..simulation.engine import run_simulation
+from ..simulation.planner import PlanReport, SaleTarget, build_plan_report
 from ..simulation.results import SimulationResult
 from ..utils import today
 
@@ -217,6 +221,11 @@ async def _run_offloaded(
     sensitivity: bool,
     optimization: bool,
 ) -> SimulationResult:
+    """Offload one standard run (see ``_offload`` for the machinery)."""
+    return await _offload(lambda: _run(assumptions, monte_carlo, sensitivity, optimization))
+
+
+async def _offload(work: Callable[[], _T]) -> _T:
     """Runs are synchronous CPU work — push them off the event loop so the
     request handler itself does not block. The engine is pure Python and holds
     the GIL, so this alone does not protect other requests; the concurrency
@@ -230,13 +239,7 @@ async def _run_offloaded(
     """
     completions = _native_run_completions.get()
     if completions is None:
-        return await run_in_threadpool(
-            _run,
-            assumptions,
-            monte_carlo,
-            sensitivity,
-            optimization,
-        )
+        return await run_in_threadpool(work)
 
     loop = asyncio.get_running_loop()
     completed: asyncio.Future[None] = loop.create_future()
@@ -249,17 +252,17 @@ async def _run_offloaded(
         if not completed.done():
             completed.set_result(None)
 
-    def run_and_signal() -> SimulationResult:
+    def run_and_signal() -> _T:
         nonlocal started
         with state_lock:
             if abandoned:
                 # Cancellation won while this call was still queued on AnyIO's
                 # thread limiter. The lease was already released and this late
                 # wrapper must not start untracked engine work.
-                return cast(SimulationResult, None)
+                return cast("_T", None)
             started = True
         try:
-            return _run(assumptions, monte_carlo, sensitivity, optimization)
+            return work()
         finally:
             try:
                 loop.call_soon_threadsafe(mark_completed)
@@ -773,6 +776,75 @@ async def run_adhoc(
         payload.sensitivity,
         payload.optimization,
     )
+
+
+@router.post("/planner/plan")
+async def plan_sales(
+    payload: PlanIn,
+    db: DbSession,
+    user: CurrentUser,
+    farm: CurrentFarm,
+    perms: SimView,
+) -> PlanReport:
+    """Evaluate a sale plan against the projected herd, close gaps with
+    purchases, and (optionally) risk-score the closed plan.
+
+    Targets beyond the run horizon are a client bug, not a plan: reject them
+    at 422 instead of letting the engine silently never fire the sale.
+    """
+    horizon = payload.assumptions.meta.horizon_months
+    for target in payload.targets:
+        if target.month > horizon:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Sale target month {target.month} is beyond the simulation "
+                    f"horizon of {horizon} months."
+                ),
+            )
+    farm_id = farm.id
+    user_id = user.id
+    await db.rollback()
+
+    targets = [
+        SaleTarget(month=target.month, animal_class=target.animal_class, count=target.count)
+        for target in payload.targets
+    ]
+    # Price the request like a run: one evaluation pass, at most nine
+    # gap-closing passes, then the requested risk replays.
+    cost = (1 + 9 + payload.risk_runs) * horizon
+
+    async def run() -> PlanReport:
+        _check_run_budget(farm_id, user_id, cost)
+        _charge_run_budget(farm_id, user_id, cost)
+        try:
+            report = await _offload(
+                lambda: build_plan_report(
+                    payload.assumptions,
+                    targets,
+                    close_gaps_enabled=payload.close_gaps,
+                    risk_runs=payload.risk_runs,
+                )
+            )
+        except ValidationError as exc:
+            # The planner composes new event documents inside the worker; a
+            # plan that cannot be represented inside the schema (event-cap or
+            # head-count ceilings) is a client-input problem, not a 500.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This plan cannot be represented within the simulation's "
+                    f"limits: {exc.errors()[:3]}"
+                ),
+            ) from exc
+        # Same defense as /run: a non-finite figure would crash JSON encoding.
+        if not _finite_payload(report.model_dump()):
+            raise HTTPException(
+                status_code=422, detail="These inputs produce non-finite results."
+            )
+        return report
+
+    return await _with_run_limits(farm_id, user_id, run)
 
 
 @router.post("/scenarios", status_code=201)

@@ -17,6 +17,7 @@ from .assumptions import (
     SalesAssumptions,
     SimulationAssumptions,
 )
+from .market import bakrid_festival_months
 
 System = Literal["stall_fed", "semi_intensive"]
 
@@ -64,8 +65,18 @@ def _scaled_weights(factor: float, birth_weight: float) -> list[float]:
 
 
 def osmanabadi(system: System = "stall_fed") -> SimulationAssumptions:
-    """Osmanabadi (default): meat breed, no saleable milk, 50 does + 2 bucks."""
-    return apply_system(SimulationAssumptions(), system)
+    """Osmanabadi (default): meat breed, no saleable milk, 50 does + 2 bucks.
+
+    Beyond the base defaults (which already carry the Telangana 2025-26 price
+    and cost calibration), the preset fills in the Bakrid festival months for
+    the run's own horizon so the largest price event of the year is priced
+    from month 1 instead of being a toggle nobody finds.
+    """
+    a = SimulationAssumptions()
+    a.sales.festival_sale_months = bakrid_festival_months(
+        a.meta.start_year_month, a.meta.horizon_months
+    )
+    return apply_system(a, system)
 
 
 def sirohi(system: System = "stall_fed") -> SimulationAssumptions:

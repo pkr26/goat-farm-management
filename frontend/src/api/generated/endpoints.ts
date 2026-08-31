@@ -90,6 +90,8 @@ import type {
   MovementRestrictionHistoryOut,
   PasswordResetIn,
   PermissionsOut,
+  PlanIn,
+  PlanReport,
   PregnancyLossIn,
   PurchaseBatchDetailOut,
   PurchaseBatchIn,
@@ -8268,6 +8270,101 @@ export const useRunAdhocApiSimulationRunPost = <TError = ErrorType<HTTPValidatio
         TContext
       > => {
       return useMutation(getRunAdhocApiSimulationRunPostMutationOptions(options), queryClient);
+    }
+
+export type planSalesApiSimulationPlannerPlanPostResponse200 = {
+  data: PlanReport
+  status: 200
+}
+
+export type planSalesApiSimulationPlannerPlanPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type planSalesApiSimulationPlannerPlanPostResponseSuccess = (planSalesApiSimulationPlannerPlanPostResponse200) & {
+  headers: Headers;
+};
+export type planSalesApiSimulationPlannerPlanPostResponseError = (planSalesApiSimulationPlannerPlanPostResponse422) & {
+  headers: Headers;
+};
+
+export type planSalesApiSimulationPlannerPlanPostResponse = (planSalesApiSimulationPlannerPlanPostResponseSuccess | planSalesApiSimulationPlannerPlanPostResponseError)
+
+export const getPlanSalesApiSimulationPlannerPlanPostUrl = () => {
+
+
+
+
+  return `/api/simulation/planner/plan`
+}
+
+/**
+ * Evaluate a sale plan against the projected herd, close gaps with
+ * purchases, and (optionally) risk-score the closed plan.
+ *
+ * Targets beyond the run horizon are a client bug, not a plan: reject them
+ * at 422 instead of letting the engine silently never fire the sale.
+ * @summary Plan Sales
+ */
+export const planSalesApiSimulationPlannerPlanPost = async (planIn: PlanIn, options?: Parameters<typeof customInstance>[1]): Promise<planSalesApiSimulationPlannerPlanPostResponse> => {
+
+  return customInstance<planSalesApiSimulationPlannerPlanPostResponse>(getPlanSalesApiSimulationPlannerPlanPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(planIn)
+  }
+);}
+
+
+
+
+
+export const getPlanSalesApiSimulationPlannerPlanPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, TError,{data: PlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, TError,{data: PlanIn}, TContext> => {
+
+const mutationKey = ['planSalesApiSimulationPlannerPlanPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, {data: PlanIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  planSalesApiSimulationPlannerPlanPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlanSalesApiSimulationPlannerPlanPostMutationResult = NonNullable<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>>
+    export type PlanSalesApiSimulationPlannerPlanPostMutationBody = PlanIn
+    export type PlanSalesApiSimulationPlannerPlanPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Plan Sales
+ */
+export const usePlanSalesApiSimulationPlannerPlanPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, TError,{data: PlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>,
+        TError,
+        {data: PlanIn},
+        TContext
+      > => {
+      return useMutation(getPlanSalesApiSimulationPlannerPlanPostMutationOptions(options), queryClient);
     }
 
 export type createScenarioApiSimulationScenariosPostResponse201 = {
