@@ -1744,7 +1744,7 @@
           "health"
         ],
         "summary": "Schedule Templates",
-        "description": "The seeded programme items a health event may cite.\n\n``validated_template`` accepts ONLY an exact ``vaccine_templates.name`` for\na VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name \u2014\nso without this list the recording form was a free-text box whose every\nvalue 422s unless the operator already knew one of the seeded names.\nFixed global reference data, identical for every farm; the farm dependency\nkeeps it behind the same tenant auth as the rest of the module.",
+        "description": "The seeded programme items a health event may cite.\n\n``validated_template`` accepts ONLY an exact ``vaccine_templates.name`` for\na VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name \u2014\nso without this list the recording form was a free-text box whose every\nvalue 422s unless the operator already knew one of the seeded names.\nFixed global reference data, scoped to the farm's species; the farm\ndependency keeps it behind the same tenant auth as the rest of the module.",
         "operationId": "schedule_templates_api_health_schedule_templates_get",
         "security": [
           {
@@ -3461,6 +3461,302 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FeedInventoryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/milk": {
+      "get": {
+        "tags": [
+          "milk"
+        ],
+        "summary": "Milk List",
+        "description": "Yield readings, newest first, with the filtered-set litre total.",
+        "operationId": "milk_list_api_milk_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "animal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2147483647,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Animal Id"
+            }
+          },
+          {
+            "name": "shift",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(MORNING|AFTERNOON|NIGHT)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shift"
+            }
+          },
+          {
+            "name": "date_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "name": "date_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilkListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/milk/summary": {
+      "get": {
+        "tags": [
+          "milk"
+        ],
+        "summary": "Milk Summary Endpoint",
+        "description": "Daily herd totals and per-animal averages over the last N days.",
+        "operationId": "milk_summary_endpoint_api_milk_summary_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "animal_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2147483647,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Animal Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilkSummaryOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/milk/new": {
+      "post": {
+        "tags": [
+          "milk"
+        ],
+        "summary": "Add Milk Record",
+        "description": "Record (or correct) one animal's yield for a milking shift.",
+        "operationId": "add_milk_record_api_milk_new_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilkRecordIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilkRecordOut"
                 }
               }
             }
@@ -5609,7 +5905,7 @@
             "type": "string",
             "maxLength": 60,
             "title": "Breed",
-            "default": "Osmanabadi"
+            "default": ""
           },
           "date_of_birth": {
             "anyOf": [
@@ -6599,15 +6895,44 @@
             "title": "Doe Id"
           },
           "buck_id": {
-            "type": "integer",
-            "maximum": 4.611686018427388e+18,
-            "minimum": 1.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 4.611686018427388e+18,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Buck Id"
           },
           "breeding_date": {
             "type": "string",
             "format": "date",
             "title": "Breeding Date"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "NATURAL",
+              "AI",
+              "AI_SEXED"
+            ],
+            "title": "Method",
+            "default": "NATURAL"
+          },
+          "semen_sire_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semen Sire Name"
           },
           "heat_cycle_number": {
             "type": "integer",
@@ -6621,7 +6946,6 @@
         "type": "object",
         "required": [
           "doe_id",
-          "buck_id",
           "breeding_date"
         ],
         "title": "BreedingCreateIn"
@@ -6679,8 +7003,26 @@
             "title": "Doe Id"
           },
           "buck_id": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Buck Id"
+          },
+          "semen_sire_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semen Sire Name"
           },
           "breeding_date": {
             "type": "string",
@@ -6851,6 +7193,7 @@
           "id",
           "doe_id",
           "buck_id",
+          "semen_sire_name",
           "breeding_date",
           "method",
           "heat_cycle_number",
@@ -7958,6 +8301,15 @@
             "minLength": 1,
             "title": "Timezone",
             "default": "Asia/Kolkata"
+          },
+          "farm_type": {
+            "type": "string",
+            "enum": [
+              "GOAT",
+              "BUFFALO_DAIRY"
+            ],
+            "title": "Farm Type",
+            "default": "GOAT"
           }
         },
         "additionalProperties": false,
@@ -8002,6 +8354,10 @@
               }
             ],
             "title": "Role"
+          },
+          "farm_type": {
+            "type": "string",
+            "title": "Farm Type"
           }
         },
         "type": "object",
@@ -8010,7 +8366,8 @@
           "name",
           "location",
           "timezone",
-          "role"
+          "role",
+          "farm_type"
         ],
         "title": "FarmOut"
       },
@@ -10649,6 +11006,314 @@
         "title": "MetricExplanation",
         "description": "Plain-language account of one viability metric, with the numbers used."
       },
+      "MilkAnimalSummaryOut": {
+        "properties": {
+          "animal_id": {
+            "type": "integer",
+            "title": "Animal Id"
+          },
+          "animal_tag": {
+            "type": "string",
+            "title": "Animal Tag"
+          },
+          "total_litres": {
+            "type": "number",
+            "title": "Total Litres"
+          },
+          "avg_daily_litres": {
+            "type": "number",
+            "title": "Avg Daily Litres"
+          },
+          "days_recorded": {
+            "type": "integer",
+            "title": "Days Recorded"
+          },
+          "avg_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Fat Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "animal_id",
+          "animal_tag",
+          "total_litres",
+          "avg_daily_litres",
+          "days_recorded",
+          "avg_fat_pct"
+        ],
+        "title": "MilkAnimalSummaryOut"
+      },
+      "MilkDayTotalOut": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "litres": {
+            "type": "number",
+            "title": "Litres"
+          },
+          "recorded_animals": {
+            "type": "integer",
+            "title": "Recorded Animals"
+          },
+          "avg_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Fat Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "litres",
+          "recorded_animals",
+          "avg_fat_pct"
+        ],
+        "title": "MilkDayTotalOut"
+      },
+      "MilkListOut": {
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/MilkRecordOut"
+            },
+            "type": "array",
+            "title": "Records"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "total_litres": {
+            "type": "number",
+            "title": "Total Litres"
+          }
+        },
+        "type": "object",
+        "required": [
+          "records",
+          "total",
+          "limit",
+          "offset",
+          "total_litres"
+        ],
+        "title": "MilkListOut"
+      },
+      "MilkRecordIn": {
+        "properties": {
+          "animal_id": {
+            "type": "integer",
+            "maximum": 4.611686018427388e+18,
+            "minimum": 1.0,
+            "title": "Animal Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "shift": {
+            "type": "string",
+            "enum": [
+              "MORNING",
+              "AFTERNOON",
+              "NIGHT"
+            ],
+            "title": "Shift"
+          },
+          "litres": {
+            "type": "number",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Litres"
+          },
+          "fat_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 12.0,
+                "minimum": 3.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fat Pct"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "animal_id",
+          "date",
+          "shift",
+          "litres"
+        ],
+        "title": "MilkRecordIn"
+      },
+      "MilkRecordOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "animal_id": {
+            "type": "integer",
+            "title": "Animal Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "shift": {
+            "type": "string",
+            "title": "Shift"
+          },
+          "litres": {
+            "type": "number",
+            "title": "Litres"
+          },
+          "fat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fat Pct"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "animal_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Animal Tag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "animal_id",
+          "date",
+          "shift",
+          "litres",
+          "fat_pct",
+          "notes",
+          "created_at"
+        ],
+        "title": "MilkRecordOut"
+      },
+      "MilkSummaryOut": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "total_litres": {
+            "type": "number",
+            "title": "Total Litres"
+          },
+          "avg_daily_litres": {
+            "type": "number",
+            "title": "Avg Daily Litres"
+          },
+          "avg_fat_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Fat Pct"
+          },
+          "daily": {
+            "items": {
+              "$ref": "#/components/schemas/MilkDayTotalOut"
+            },
+            "type": "array",
+            "title": "Daily"
+          },
+          "animals": {
+            "items": {
+              "$ref": "#/components/schemas/MilkAnimalSummaryOut"
+            },
+            "type": "array",
+            "title": "Animals"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "total_litres",
+          "avg_daily_litres",
+          "avg_fat_pct",
+          "daily",
+          "animals"
+        ],
+        "title": "MilkSummaryOut",
+        "description": "Herd-level window summary: daily totals plus per-buffalo averages."
+      },
       "MixIn": {
         "properties": {
           "recipe_code": {
@@ -11635,6 +12300,10 @@
             "type": "string",
             "title": "Timezone"
           },
+          "farm_type": {
+            "type": "string",
+            "title": "Farm Type"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -11647,6 +12316,7 @@
           "name",
           "location",
           "timezone",
+          "farm_type",
           "created_at"
         ],
         "title": "OwnedFarmExport"
@@ -12658,14 +13328,14 @@
           },
           "gestation_months": {
             "type": "integer",
-            "maximum": 7.0,
+            "maximum": 12.0,
             "minimum": 1.0,
             "title": "Gestation Months",
             "default": 5
           },
           "lactation_months": {
             "type": "integer",
-            "maximum": 8.0,
+            "maximum": 12.0,
             "minimum": 1.0,
             "title": "Lactation Months",
             "default": 3
@@ -12730,6 +13400,9 @@
           "meat_price": {
             "$ref": "#/components/schemas/RiskVariable"
           },
+          "milk_price": {
+            "$ref": "#/components/schemas/RiskVariable"
+          },
           "feed_price": {
             "$ref": "#/components/schemas/RiskVariable"
           },
@@ -12792,6 +13465,13 @@
             "exclusiveMinimum": 0.0,
             "title": "Disease Conception Multiplier",
             "default": 0.7
+          },
+          "disease_milk_yield_multiplier": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Disease Milk Yield Multiplier",
+            "default": 0.85
           },
           "drought_probability_annual": {
             "type": "number",
@@ -13145,6 +13825,66 @@
             "maximum": 100000.0,
             "minimum": 0.0,
             "title": "Lactation Milk Litres",
+            "default": 0.0
+          },
+          "milk_price_per_kg_fat": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Milk Price Per Kg Fat",
+            "default": 0.0
+          },
+          "milk_fat_pct": {
+            "type": "number",
+            "maximum": 12.0,
+            "minimum": 0.0,
+            "title": "Milk Fat Pct",
+            "default": 0.0
+          },
+          "milk_persistency_monthly": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.5,
+            "title": "Milk Persistency Monthly",
+            "default": 0.93
+          },
+          "monthly_milk_yield_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Milk Yield Multipliers"
+          },
+          "monthly_milk_price_multipliers": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "maxItems": 12,
+            "minItems": 12,
+            "title": "Monthly Milk Price Multipliers"
+          },
+          "annual_milk_price_growth_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": -1.0,
+            "title": "Annual Milk Price Growth Rate",
+            "default": 0.05
+          },
+          "male_calf_sell_at_birth_fraction": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Male Calf Sell At Birth Fraction",
+            "default": 0.0
+          },
+          "male_calf_price_per_head": {
+            "type": "number",
+            "maximum": 1000000000.0,
+            "minimum": 0.0,
+            "title": "Male Calf Price Per Head",
             "default": 0.0
           },
           "manure_income_per_adult_per_year": {
@@ -14640,6 +15380,32 @@
             ],
             "title": "Feed Quantity Kg"
           },
+          "milk_litres": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Litres"
+          },
+          "milk_unit_price_per_litre": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Unit Price Per Litre"
+          },
           "reason": {
             "type": "string",
             "maxLength": 255,
@@ -14719,6 +15485,32 @@
               }
             ],
             "title": "Related Animal Id"
+          },
+          "milk_litres": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Litres"
+          },
+          "milk_unit_price_per_litre": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Unit Price Per Litre"
           }
         },
         "additionalProperties": false,
@@ -14858,6 +15650,28 @@
               }
             ],
             "title": "Void Reason"
+          },
+          "milk_litres": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Litres"
+          },
+          "milk_unit_price_per_litre": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Milk Unit Price Per Litre"
           }
         },
         "type": "object",
@@ -14875,7 +15689,9 @@
           "correction_of_id",
           "voided_at",
           "voided_by_id",
-          "void_reason"
+          "void_reason",
+          "milk_litres",
+          "milk_unit_price_per_litre"
         ],
         "title": "TransactionOut"
       },

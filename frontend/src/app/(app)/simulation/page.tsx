@@ -199,8 +199,9 @@ const FIELD_BOUNDS: Record<
   Pick<NumericRule, "min" | "max" | "exclusiveMin">
 > = {
   "meta.horizon_months": { min: 12, max: 240 },
-  "reproduction.gestation_months": { min: 1, max: 7 },
-  "reproduction.lactation_months": { min: 1, max: 8 },
+  // Buffalo gestation ~10.2 months and a 305-day (~10 month) lactation.
+  "reproduction.gestation_months": { min: 1, max: 12 },
+  "reproduction.lactation_months": { min: 1, max: 12 },
   "reproduction.months_open_before_breeding": { min: 0, max: 12 },
   "reproduction.litter_size": { min: 0.5, max: 4 },
   "reproduction.age_at_first_breeding_months": { min: 6, max: 30 },
@@ -217,6 +218,9 @@ const FIELD_BOUNDS: Record<
   "sales.annual_livestock_price_growth_rate": { exclusiveMin: -1, max: 1 },
   "sales.selling_cost_fraction": { min: 0, max: 0.5 },
   "sales.lactation_milk_litres": { min: 0, max: 100_000 },
+  "sales.milk_fat_pct": { min: 0, max: 12 },
+  "sales.milk_price_per_kg_fat": { min: 0, max: 100_000 },
+  "sales.male_calf_price_per_head": { min: 0, max: 1_000_000 },
   // The sales money heuristic below only matches "price"/"income", so this is
   // the one money field on the form that would otherwise reach the API with no
   // client-side floor and 422 on a negative "rebate".
@@ -302,6 +306,15 @@ const FIELD_UNITS: Record<string, string> = {
   // rate "₹" invites farmers to type 30 for 30%; the entry must stay explicit
   // because the money/duration tests cannot simply be moved (see numericRule).
   "sales.selling_cost_fraction": "fraction",
+  // Dairy pricing/ration fields the heuristics would caption as a 0-1
+  // fraction (milk fat is percent points) or as a plain multiplier.
+  "sales.milk_fat_pct": "% fat",
+  "sales.milk_price_per_kg_fat": "₹/kg fat",
+  "sales.milk_price_per_litre": "₹/litre",
+  "sales.milk_persistency_monthly": "fraction of prior month",
+  "sales.annual_milk_price_growth_rate": "fraction",
+  "sales.male_calf_sell_at_birth_fraction": "fraction",
+  "sales.male_calf_price_per_head": "₹/head",
   "sales.annual_livestock_price_growth_rate": "fraction",
   "feed.annual_feed_price_growth_rate": "fraction",
   "feed.fodder_storage_loss_fraction_monthly": "fraction",

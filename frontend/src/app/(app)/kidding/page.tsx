@@ -21,6 +21,8 @@ import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -228,7 +230,7 @@ function RecordKiddingDialog({
           },
         });
         if (farmScopeEpochValue() !== requestFarmEpoch) return;
-        toast.success("Kidding recorded.");
+        toast.success("Delivery recorded.");
         onClose();
         onSaved();
       } catch (err) {
@@ -726,11 +728,13 @@ function KiddingPageContent() {
     );
   }
 
+  const vocabulary = farmVocabulary(useFarmType());
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Kidding"
-        description="Confirmed pregnancies due soon and recent kidding history."
+        title={vocabulary.parturitionCap}
+        description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
       />
 
       {queuesSettling && (

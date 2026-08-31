@@ -21,4 +21,6 @@ export interface TransactionOut {
   voided_at: string | null;
   voided_by_id: number | null;
   void_reason: string | null;
+  milk_litres: number | null;
+  milk_unit_price_per_litre: number | null;
 }

@@ -102,4 +102,11 @@ def test_farm_response_contract_requires_every_emitted_key() -> None:
 
     # ``role`` remains nullable (None means owner), but neither it nor the
     # resolved farm timezone is ever omitted from a backend response.
-    assert set(farm_schema["required"]) == {"id", "name", "location", "timezone", "role"}
+    assert set(farm_schema["required"]) == {
+        "id",
+        "name",
+        "location",
+        "timezone",
+        "role",
+        "farm_type",
+    }

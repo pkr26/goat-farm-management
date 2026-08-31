@@ -957,15 +957,28 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
 
     async with get_sessionmaker()() as db:
         recipe_id = (
-            await db.execute(select(FeedRecipe.id).where(FeedRecipe.code == missing_recipe))
+            await db.execute(
+                select(FeedRecipe.id).where(
+                    FeedRecipe.code == missing_recipe, FeedRecipe.farm_type == "GOAT"
+                )
+            )
         ).scalar_one()
         await db.execute(delete(FeedRecipeLine).where(FeedRecipeLine.recipe_id == recipe_id))
         await db.execute(delete(FeedRecipe).where(FeedRecipe.id == recipe_id))
-        await db.execute(delete(BucketDefinition).where(BucketDefinition.code == missing_bucket))
-        await db.execute(delete(VaccineTemplate).where(VaccineTemplate.name == missing_vaccine))
+        await db.execute(
+            delete(BucketDefinition).where(
+                BucketDefinition.code == missing_bucket,
+                BucketDefinition.farm_type == "GOAT",
+            )
+        )
+        await db.execute(
+            delete(VaccineTemplate).where(
+                VaccineTemplate.name == missing_vaccine, VaccineTemplate.farm_type == "GOAT"
+            )
+        )
         await db.execute(
             update(BucketDefinition)
-            .where(BucketDefinition.code == preserved_bucket)
+            .where(BucketDefinition.code == preserved_bucket, BucketDefinition.farm_type == "GOAT")
             .values(name="Operator-preserved label")
         )
         await db.commit()
@@ -976,11 +989,18 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
     async with get_sessionmaker()() as db:
         assert (
             await db.execute(
-                select(BucketDefinition.id).where(BucketDefinition.code == missing_bucket)
+                select(BucketDefinition.id).where(
+                    BucketDefinition.code == missing_bucket,
+                    BucketDefinition.farm_type == "GOAT",
+                )
             )
         ).scalar_one()
         recipe = (
-            await db.execute(select(FeedRecipe).where(FeedRecipe.code == missing_recipe))
+            await db.execute(
+                select(FeedRecipe).where(
+                    FeedRecipe.code == missing_recipe, FeedRecipe.farm_type == "GOAT"
+                )
+            )
         ).scalar_one()
         line_count = len(
             (
@@ -997,12 +1017,17 @@ async def test_reference_seed_repairs_missing_release_rows_without_rewriting_exi
         assert line_count == expected_line_count
         assert (
             await db.execute(
-                select(VaccineTemplate.id).where(VaccineTemplate.name == missing_vaccine)
+                select(VaccineTemplate.id).where(
+                    VaccineTemplate.name == missing_vaccine, VaccineTemplate.farm_type == "GOAT"
+                )
             )
         ).scalar_one()
         preserved_name = (
             await db.execute(
-                select(BucketDefinition.name).where(BucketDefinition.code == preserved_bucket)
+                select(BucketDefinition.name).where(
+                    BucketDefinition.code == preserved_bucket,
+                    BucketDefinition.farm_type == "GOAT",
+                )
             )
         ).scalar_one()
         assert preserved_name == "Operator-preserved label"

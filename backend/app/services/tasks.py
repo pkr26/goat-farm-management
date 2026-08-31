@@ -15,8 +15,6 @@ from ..core.config import get_settings
 from ..models import (
     HISTORY_OVERRIDE_REASON_PREFIX,
     MAX_RECUR_DAYS,
-    POSTPARTUM_RECOVERY_DAYS,
-    WEANING_DAYS,
     Animal,
     AnimalStatus,
     BreedingOutcome,
@@ -34,6 +32,7 @@ from ..models import (
     TaskStatus,
     User,
     quarantine_schedule,
+    species_profile,
 )
 from ..utils import today, utcnow
 from ._common import _clear_task_rejection
@@ -134,10 +133,13 @@ async def _guard_quarantine_release(
     ).scalar_one_or_none()
     if batch is None:
         raise ValueError("The quarantine release duty has no matching purchase batch")
+    protocol_farm = await db.get(Farm, task.farm_id)
     release_spec = next(
         (
             item
-            for item in quarantine_schedule(batch)
+            for item in quarantine_schedule(
+                batch, protocol_farm.farm_type if protocol_farm is not None else "GOAT"
+            )
             if item["category"] == TaskCategory.BUCKET_MOVE.value
         ),
         None,
@@ -225,6 +227,10 @@ async def _guard_generated_movement_task(
     """Verify that an animal-movement duty came from its recorded workflow."""
     if not task.auto_generated or task.breeding_record_id is None:
         raise ValueError("Movement side effects require an authoritative generated duty")
+    movement_farm = await db.get(Farm, task.farm_id)
+    movement_profile = species_profile(
+        movement_farm.farm_type if movement_farm is not None else "GOAT"
+    )
     breeding = (
         await db.execute(
             select(BreedingRecord).where(
@@ -261,26 +267,38 @@ async def _guard_generated_movement_task(
         )
 
     if linked_animal.current_bucket == Bucket.RECOVERY.value:
-        if kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids):
+        # Goat: the dam's RECOVERY exit only exists once no kid still depends
+        # on her. Dairy: calves are separated at birth, so the fresh-pen exit
+        # duty is valid regardless of calf survival.
+        if kidding is None:
+            raise ValueError("The postpartum movement duty has no eligible kidding record")
+        if movement_profile.young_stay_with_dam and await _litter_has_surviving_kid(
+            db, task.farm_id, kids
+        ):
             raise ValueError("The postpartum movement duty has no eligible kidding record")
         mortality_dates = [
             kid.mortality_reported_at for kid in kids if kid.mortality_reported_at is not None
         ]
         recovery_anchor = max([kidding.date, *mortality_dates])
-        if task.due_date != recovery_anchor + timedelta(days=POSTPARTUM_RECOVERY_DAYS):
+        if task.due_date != recovery_anchor + timedelta(
+            days=movement_profile.postpartum_recovery_days
+        ):
             raise ValueError("The postpartum movement duty does not match the recovery date")
     elif (
         kidding is not None
         or breeding.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value
         or breeding.expected_kidding_date is None
-        or task.due_date != breeding.expected_kidding_date - timedelta(days=15)
+        or task.due_date
+        != breeding.expected_kidding_date
+        - timedelta(days=15 if movement_profile.young_stay_with_dam else 21)
     ):
         raise ValueError("The delivery movement duty does not match the recorded pregnancy")
     return kidding, kids
 
 
 async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> set[int]:
-    """Return this duty's litter after validating its day-60 provenance.
+    """Return this duty's litter after validating its species weaning-day
+    provenance.
 
     ``animal_id`` identifies the dam, not the litter. New duties retain their
     breeding link; the due-date lookup remains for legacy rows created before
@@ -289,10 +307,14 @@ async def _guard_generated_weaning_task(db: AsyncSession, task: Task) -> set[int
     """
     if not task.auto_generated or task.animal_id is None:
         raise ValueError("Weaning side effects require an authoritative generated duty")
+    weaning_farm = await db.get(Farm, task.farm_id)
+    weaning_profile = species_profile(
+        weaning_farm.farm_type if weaning_farm is not None else "GOAT"
+    )
     kidding_filters = [
         KiddingRecord.farm_id == task.farm_id,
         KiddingRecord.doe_id == task.animal_id,
-        KiddingRecord.date == task.due_date - timedelta(days=WEANING_DAYS),
+        KiddingRecord.date == task.due_date - timedelta(days=weaning_profile.weaning_days),
     ]
     if task.breeding_record_id is not None:
         kidding_filters.append(KiddingRecord.breeding_record_id == task.breeding_record_id)

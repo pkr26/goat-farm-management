@@ -19,6 +19,7 @@ describe("firstPermittedPathFromList", () => {
       { permission: "kidding.view", href: "/kidding" },
       { permission: "health.view", href: "/health" },
       { permission: "feeding.view", href: "/feeding" },
+    { permission: "milk.view", href: "/milk" },
       { permission: "purchases.view", href: "/purchases" },
       { permission: "tasks.view", href: "/tasks" },
       { permission: "finance.view", href: "/finance" },

@@ -1088,7 +1088,7 @@ def test_sensitivity_at_sale_age_bounds() -> None:
         a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
         a.growth.sale_age_months = sale_age
         items = run_sensitivity(a)
-        assert len(items) == 8
+        assert len(items) == 9
         assert all(
             math.isfinite(i.delta_npv_low) and math.isfinite(i.delta_npv_high) for i in items
         )

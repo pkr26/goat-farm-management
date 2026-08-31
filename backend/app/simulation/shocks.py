@@ -13,6 +13,9 @@ class MonthlyShockPath:
     conception: list[float]
     litter_size: list[float]
     operating_cost: list[float]
+    # Dairy channels (1.0 throughout for meat-species runs).
+    milk_price: list[float]
+    milk_yield: list[float]
     disease_outbreaks: int = 0
     drought_events: int = 0
     market_crashes: int = 0
@@ -29,4 +32,6 @@ class MonthlyShockPath:
             conception=ones.copy(),
             litter_size=ones.copy(),
             operating_cost=ones.copy(),
+            milk_price=ones.copy(),
+            milk_yield=ones.copy(),
         )

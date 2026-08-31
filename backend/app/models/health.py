@@ -233,6 +233,12 @@ class VaccineTemplate(Base):
 
     __tablename__ = "vaccine_templates"
     __table_args__ = (
+        # "FMD" legitimately exists for both species with different schedules.
+        UniqueConstraint("farm_type", "name", name="uq_vaccine_templates_type_name"),
+        CheckConstraint(
+            "farm_type IN ('GOAT', 'BUFFALO_DAIRY')",
+            name="ck_vaccine_templates_farm_type",
+        ),
         CheckConstraint(
             "first_dose_age_months IS NULL OR "
             "(first_dose_age_months > 0 AND first_dose_age_months <= 240 AND "
@@ -254,7 +260,8 @@ class VaccineTemplate(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), unique=True)
+    farm_type: Mapped[str] = mapped_column(String(20), default="GOAT", server_default="GOAT")
+    name: Mapped[str] = mapped_column(String(120))
     first_dose_age_months: Mapped[float | None]  # null = pregnancy-linked
     booster_weeks: Mapped[float | None]
     repeat_months: Mapped[float | None]

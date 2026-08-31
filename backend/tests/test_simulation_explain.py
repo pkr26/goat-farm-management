@@ -237,8 +237,10 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     assert _report_digest(no_debt) == (
         "29a12c4576a2bcc17246d8b17ee79ccdcd8e3dfaf162c28eecce7d43e213bc64"
     )
+    # Sensitivity gained the milk_price tornado bar (dairy support): the risk
+    # branch digest changed with that explicit contract update.
     assert _report_digest(risk) == (
-        "a5fec7334efb458e7cfee25e93225d81766399a9640bf9b34deb4843c70a175e"
+        "62077485c82b498621f4823ec26a9d0e883c18cfa72c6c415229d7e6d49b7a7e"
     )
 
 

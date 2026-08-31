@@ -139,6 +139,7 @@ class HerdAssumptions(_Group):
                 "foundation_doe_age_min_months must be <= foundation_doe_age_max_months"
             )
         return self
+
     # Foundation flock reproductive state: "mixed" spreads the starting does
     # uniformly across the reproductive cycle (realistic purchased flock —
     # some pregnant, some lactating, some open — so sales begin in year 1);
@@ -153,8 +154,11 @@ class ReproductionAssumptions(_Group):
     conception_rate: FiniteFloat = Field(
         default=0.85, ge=0.0, le=1.0
     )  # per service, ICAR herd models
-    gestation_months: int = Field(default=5, ge=1, le=7)  # ~150 days
-    lactation_months: int = Field(default=3, ge=1, le=8)
+    # Bounds cover both modelled species: goats ~5 months (~150 days) and
+    # Murrah buffalo ~10.2 months (~310 days), with a 305-day (~10 month)
+    # lactation.
+    gestation_months: int = Field(default=5, ge=1, le=12)  # ~150 days goats
+    lactation_months: int = Field(default=3, ge=1, le=12)
     # Months a doe waits after lactation before rebreeding (post-partum anoestrus).
     months_open_before_breeding: int = Field(default=2, ge=0, le=12)
     litter_size: FiniteFloat = Field(default=1.6, ge=0.5, le=4.0)  # kids born per kidding
@@ -305,14 +309,54 @@ class SalesAssumptions(_Group):
     transport_cost_per_head: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
     milk_price_per_litre: FiniteFloat = Field(default=30.0, ge=0.0, le=MAX_MONEY)
     # Total litres per lactation per doe; 0 for meat breeds (Osmanabadi),
-    # ~110 Sirohi, ~175 Beetal, ~200 Jamunapari (NBAGR descriptors).
+    # ~110 Sirohi, ~175 Beetal, ~200 Jamunapari (NBAGR descriptors),
+    # 1,800-2,200 for a commercial Murrah (ICAR/NDRI lactation records).
     lactation_milk_litres: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_LACTATION_LITRES)
+    # --- dairy lactation economics (used when lactation_milk_litres > 0) ---
+    # Fat-based procurement is how Telangana cooperatives actually pay
+    # (Vijaya/Sangam ~₹840-865/kg fat 2025-26). When > 0, the effective
+    # ₹/litre is milk_price_per_kg_fat × milk_fat_pct / 100 and the flat
+    # per-litre price is ignored.
+    milk_price_per_kg_fat: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
+    # Murrah milk runs 6.0-7.5% fat.
+    milk_fat_pct: FiniteFloat = Field(default=0.0, ge=0.0, le=12.0)
+    # Geometric monthly decline in yield after peak (persistency ~0.89-0.93
+    # in recorded Murrah populations). The engine normalises the curve so the
+    # lactation total is exactly lactation_milk_litres.
+    milk_persistency_monthly: FiniteFloat = Field(default=0.93, ge=0.5, le=1.0)
+    # Heat-stress seasonality of yield (Telangana: 10-20% summer trough) and
+    # flush/lean price seasonality; both January-indexed and validated like the
+    # meat multipliers.
+    monthly_milk_yield_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
+    monthly_milk_price_multipliers: list[FiniteFloat] = Field(
+        default_factory=lambda: [1.0] * 12,
+        min_length=12,
+        max_length=12,
+    )
+    annual_milk_price_growth_rate: FiniteFloat = Field(default=0.05, gt=-1.0, le=1.0)
+    # Male buffalo calves: fraction of male births sold in the first week at a
+    # flat head price (₹2,000-3,000; the sexed-semen strategy makes this the
+    # default exit); the remainder grows on for live-weight meat sale at
+    # sale_age_months.
+    male_calf_sell_at_birth_fraction: FiniteFloat = Field(default=0.0, ge=0.0, le=1.0)
+    male_calf_price_per_head: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_MONEY)
     # ₹, TNAU budgets.
     manure_income_per_adult_per_year: FiniteFloat = Field(default=900.0, ge=0.0, le=MAX_MONEY)
 
     @field_validator("monthly_meat_price_multipliers")
     @classmethod
     def _bounded_meat_multipliers(cls, value: list[float]) -> list[float]:
+        if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
+            raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
+        return value
+
+    @field_validator("monthly_milk_yield_multipliers", "monthly_milk_price_multipliers")
+    @classmethod
+    def _bounded_milk_multipliers(cls, value: list[float]) -> list[float]:
         if any(item <= 0.0 or item > MAX_SEASONAL_MULTIPLIER for item in value):
             raise ValueError(f"monthly multipliers must be > 0 and <= {MAX_SEASONAL_MULTIPLIER:g}")
         return value
@@ -534,6 +578,9 @@ class RiskAssumptions(_Group):
     # run. 2**31-1 is well inside the exactly-representable range.
     seed: int = Field(default=42, ge=0, le=2**31 - 1)
     meat_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.80, high=1.20))
+    # Realized milk price (procurement revisions are the dairy's main price
+    # risk: Vijaya moved buffalo ₹48→₹59.50/L within 2025).
+    milk_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.85, high=1.15))
     feed_price: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.90, high=1.25))
     adult_mortality: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.60, high=1.80))
     kid_mortality: RiskVariable = Field(default_factory=lambda: RiskVariable(low=0.60, high=1.60))
@@ -550,6 +597,8 @@ class RiskAssumptions(_Group):
     disease_adult_mortality_multiplier: FiniteFloat = Field(default=2.0, ge=1.0, le=20.0)
     disease_kid_mortality_multiplier: FiniteFloat = Field(default=2.5, ge=1.0, le=20.0)
     disease_conception_multiplier: FiniteFloat = Field(default=0.70, gt=0.0, le=1.0)
+    # FMD/LSD outbreaks cut yield 14-25% on affected farms for the episode.
+    disease_milk_yield_multiplier: FiniteFloat = Field(default=0.85, gt=0.0, le=1.0)
     drought_probability_annual: FiniteFloat = Field(default=0.15, ge=0.0, le=1.0)
     drought_duration_months: int = Field(default=4, ge=1, le=24)
     drought_fodder_yield_multiplier: FiniteFloat = Field(default=0.50, gt=0.0, le=1.0)
@@ -657,9 +706,7 @@ class SimulationAssumptions(_Group):
         # into a 422 the user has to debug. A festival past the horizon simply
         # is not part of that plan.
         self.sales.festival_sale_months = [
-            month
-            for month in self.sales.festival_sale_months
-            if month <= self.meta.horizon_months
+            month for month in self.sales.festival_sale_months if month <= self.meta.horizon_months
         ]
         return self
 

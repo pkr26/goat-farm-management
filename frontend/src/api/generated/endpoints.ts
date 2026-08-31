@@ -83,6 +83,12 @@ import type {
   ListTransactionsApiFinanceGetParams,
   LoginIn,
   MembershipOut,
+  MilkListApiMilkGetParams,
+  MilkListOut,
+  MilkRecordIn,
+  MilkRecordOut,
+  MilkSummaryEndpointApiMilkSummaryGetParams,
+  MilkSummaryOut,
   MixIn,
   MoveIn,
   MovementRestrictionClearIn,
@@ -3257,8 +3263,8 @@ export const getScheduleTemplatesApiHealthScheduleTemplatesGetUrl = () => {
  * a VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name —
  * so without this list the recording form was a free-text box whose every
  * value 422s unless the operator already knew one of the seeded names.
- * Fixed global reference data, identical for every farm; the farm dependency
- * keeps it behind the same tenant auth as the rest of the module.
+ * Fixed global reference data, scoped to the farm's species; the farm
+ * dependency keeps it behind the same tenant auth as the rest of the module.
  * @summary Schedule Templates
  */
 export const scheduleTemplatesApiHealthScheduleTemplatesGet = async ( options?: Parameters<typeof customInstance>[1]): Promise<scheduleTemplatesApiHealthScheduleTemplatesGetResponse> => {
@@ -5965,6 +5971,353 @@ export const useAddStockApiFeedingInventoryItemIdAddPost = <TError = ErrorType<H
         TContext
       > => {
       return useMutation(getAddStockApiFeedingInventoryItemIdAddPostMutationOptions(options), queryClient);
+    }
+
+export type milkListApiMilkGetResponse200 = {
+  data: MilkListOut
+  status: 200
+}
+
+export type milkListApiMilkGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type milkListApiMilkGetResponseSuccess = (milkListApiMilkGetResponse200) & {
+  headers: Headers;
+};
+export type milkListApiMilkGetResponseError = (milkListApiMilkGetResponse422) & {
+  headers: Headers;
+};
+
+export type milkListApiMilkGetResponse = (milkListApiMilkGetResponseSuccess | milkListApiMilkGetResponseError)
+
+export const getMilkListApiMilkGetUrl = (params?: MilkListApiMilkGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/milk?${stringifiedParams}` : `/api/milk`
+}
+
+/**
+ * Yield readings, newest first, with the filtered-set litre total.
+ * @summary Milk List
+ */
+export const milkListApiMilkGet = async (params?: MilkListApiMilkGetParams, options?: Parameters<typeof customInstance>[1]): Promise<milkListApiMilkGetResponse> => {
+
+  return customInstance<milkListApiMilkGetResponse>(getMilkListApiMilkGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMilkListApiMilkGetQueryKey = (params?: MilkListApiMilkGetParams,) => {
+    return [
+    `/api/milk`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getMilkListApiMilkGetQueryOptions = <TData = Awaited<ReturnType<typeof milkListApiMilkGet>>, TError = ErrorType<HTTPValidationError>>(params?: MilkListApiMilkGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkListApiMilkGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMilkListApiMilkGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof milkListApiMilkGet>>> = ({ signal }) => milkListApiMilkGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof milkListApiMilkGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MilkListApiMilkGetQueryResult = NonNullable<Awaited<ReturnType<typeof milkListApiMilkGet>>>
+export type MilkListApiMilkGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useMilkListApiMilkGet<TData = Awaited<ReturnType<typeof milkListApiMilkGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  MilkListApiMilkGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkListApiMilkGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof milkListApiMilkGet>>,
+          TError,
+          Awaited<ReturnType<typeof milkListApiMilkGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMilkListApiMilkGet<TData = Awaited<ReturnType<typeof milkListApiMilkGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: MilkListApiMilkGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkListApiMilkGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof milkListApiMilkGet>>,
+          TError,
+          Awaited<ReturnType<typeof milkListApiMilkGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMilkListApiMilkGet<TData = Awaited<ReturnType<typeof milkListApiMilkGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: MilkListApiMilkGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkListApiMilkGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Milk List
+ */
+
+export function useMilkListApiMilkGet<TData = Awaited<ReturnType<typeof milkListApiMilkGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: MilkListApiMilkGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkListApiMilkGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMilkListApiMilkGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type milkSummaryEndpointApiMilkSummaryGetResponse200 = {
+  data: MilkSummaryOut
+  status: 200
+}
+
+export type milkSummaryEndpointApiMilkSummaryGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type milkSummaryEndpointApiMilkSummaryGetResponseSuccess = (milkSummaryEndpointApiMilkSummaryGetResponse200) & {
+  headers: Headers;
+};
+export type milkSummaryEndpointApiMilkSummaryGetResponseError = (milkSummaryEndpointApiMilkSummaryGetResponse422) & {
+  headers: Headers;
+};
+
+export type milkSummaryEndpointApiMilkSummaryGetResponse = (milkSummaryEndpointApiMilkSummaryGetResponseSuccess | milkSummaryEndpointApiMilkSummaryGetResponseError)
+
+export const getMilkSummaryEndpointApiMilkSummaryGetUrl = (params?: MilkSummaryEndpointApiMilkSummaryGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/milk/summary?${stringifiedParams}` : `/api/milk/summary`
+}
+
+/**
+ * Daily herd totals and per-animal averages over the last N days.
+ * @summary Milk Summary Endpoint
+ */
+export const milkSummaryEndpointApiMilkSummaryGet = async (params?: MilkSummaryEndpointApiMilkSummaryGetParams, options?: Parameters<typeof customInstance>[1]): Promise<milkSummaryEndpointApiMilkSummaryGetResponse> => {
+
+  return customInstance<milkSummaryEndpointApiMilkSummaryGetResponse>(getMilkSummaryEndpointApiMilkSummaryGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getMilkSummaryEndpointApiMilkSummaryGetQueryKey = (params?: MilkSummaryEndpointApiMilkSummaryGetParams,) => {
+    return [
+    `/api/milk/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getMilkSummaryEndpointApiMilkSummaryGetQueryOptions = <TData = Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError = ErrorType<HTTPValidationError>>(params?: MilkSummaryEndpointApiMilkSummaryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMilkSummaryEndpointApiMilkSummaryGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>> = ({ signal }) => milkSummaryEndpointApiMilkSummaryGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type MilkSummaryEndpointApiMilkSummaryGetQueryResult = NonNullable<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>>
+export type MilkSummaryEndpointApiMilkSummaryGetQueryError = ErrorType<HTTPValidationError>
+
+
+export function useMilkSummaryEndpointApiMilkSummaryGet<TData = Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError = ErrorType<HTTPValidationError>>(
+ params: undefined |  MilkSummaryEndpointApiMilkSummaryGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>,
+          TError,
+          Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMilkSummaryEndpointApiMilkSummaryGet<TData = Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: MilkSummaryEndpointApiMilkSummaryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>,
+          TError,
+          Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useMilkSummaryEndpointApiMilkSummaryGet<TData = Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: MilkSummaryEndpointApiMilkSummaryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Milk Summary Endpoint
+ */
+
+export function useMilkSummaryEndpointApiMilkSummaryGet<TData = Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError = ErrorType<HTTPValidationError>>(
+ params?: MilkSummaryEndpointApiMilkSummaryGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof milkSummaryEndpointApiMilkSummaryGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMilkSummaryEndpointApiMilkSummaryGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type addMilkRecordApiMilkNewPostResponse201 = {
+  data: MilkRecordOut
+  status: 201
+}
+
+export type addMilkRecordApiMilkNewPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type addMilkRecordApiMilkNewPostResponseSuccess = (addMilkRecordApiMilkNewPostResponse201) & {
+  headers: Headers;
+};
+export type addMilkRecordApiMilkNewPostResponseError = (addMilkRecordApiMilkNewPostResponse422) & {
+  headers: Headers;
+};
+
+export type addMilkRecordApiMilkNewPostResponse = (addMilkRecordApiMilkNewPostResponseSuccess | addMilkRecordApiMilkNewPostResponseError)
+
+export const getAddMilkRecordApiMilkNewPostUrl = () => {
+
+
+
+
+  return `/api/milk/new`
+}
+
+/**
+ * Record (or correct) one animal's yield for a milking shift.
+ * @summary Add Milk Record
+ */
+export const addMilkRecordApiMilkNewPost = async (milkRecordIn: MilkRecordIn, options?: Parameters<typeof customInstance>[1]): Promise<addMilkRecordApiMilkNewPostResponse> => {
+
+  return customInstance<addMilkRecordApiMilkNewPostResponse>(getAddMilkRecordApiMilkNewPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(milkRecordIn)
+  }
+);}
+
+
+
+
+
+export const getAddMilkRecordApiMilkNewPostMutationOptions = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addMilkRecordApiMilkNewPost>>, TError,{data: MilkRecordIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof addMilkRecordApiMilkNewPost>>, TError,{data: MilkRecordIn}, TContext> => {
+
+const mutationKey = ['addMilkRecordApiMilkNewPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addMilkRecordApiMilkNewPost>>, {data: MilkRecordIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  addMilkRecordApiMilkNewPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddMilkRecordApiMilkNewPostMutationResult = NonNullable<Awaited<ReturnType<typeof addMilkRecordApiMilkNewPost>>>
+    export type AddMilkRecordApiMilkNewPostMutationBody = MilkRecordIn
+    export type AddMilkRecordApiMilkNewPostMutationError = ErrorType<HTTPValidationError>
+
+    /**
+ * @summary Add Milk Record
+ */
+export const useAddMilkRecordApiMilkNewPost = <TError = ErrorType<HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addMilkRecordApiMilkNewPost>>, TError,{data: MilkRecordIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof addMilkRecordApiMilkNewPost>>,
+        TError,
+        {data: MilkRecordIn},
+        TContext
+      > => {
+      return useMutation(getAddMilkRecordApiMilkNewPostMutationOptions(options), queryClient);
     }
 
 export type listTransactionsApiFinanceGetResponse200 = {

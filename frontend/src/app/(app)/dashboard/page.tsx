@@ -23,6 +23,8 @@ import type { AnimalIdentityOut, TaskOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -96,6 +98,7 @@ function TaskLink({
 }
 
 export default function DashboardPage() {
+  const vocabulary = farmVocabulary(useFarmType());
   const { farms, farmId } = useAuth();
   const { can, loading: permsLoading, isError: permsError } = usePermissions();
   const allowed = can("dashboard.view");
@@ -307,8 +310,8 @@ export default function DashboardPage() {
         <DataTableCard
           title={
             !breedingWithheld
-              ? `Kiddings due or overdue (${payload.kiddings_due_total})`
-              : "Kiddings due or overdue"
+              ? `${vocabulary.parturitionCap}s due or overdue (${payload.kiddings_due_total})`
+              : `${vocabulary.parturitionCap}s due or overdue`
           }
           actions={canViewBreeding ? (
             <Link

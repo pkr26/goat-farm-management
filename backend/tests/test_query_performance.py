@@ -27,6 +27,7 @@ from app.models import (
     BreedingRecord,
     Bucket,
     BucketDefinition,
+    Farm,
     BucketMove,
     FeedingRecord,
     FeedingShift,
@@ -110,9 +111,14 @@ async def _golden_reports(farm_id: int) -> dict:
                 )
             ).scalars()
         )
+        farm_row = (await db.execute(select(Farm).where(Farm.id == farm_id))).scalar_one()
         defs = list(
             (
-                await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))
+                await db.execute(
+                    select(BucketDefinition)
+                    .where(BucketDefinition.farm_type == farm_row.farm_type)
+                    .order_by(BucketDefinition.sort_order)
+                )
             ).scalars()
         )
         records = list(

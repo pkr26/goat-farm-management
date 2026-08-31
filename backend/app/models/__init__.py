@@ -45,6 +45,7 @@ from .enums import (
     BreedingMethod,
     BreedingOutcome,
     Bucket,
+    FarmType,
     FeedingShift,
     HealthEventType,
     IngredientCategory,
@@ -68,15 +69,29 @@ from .helpers import (
     quarantine_schedule,
 )
 from .idempotency import IdempotencyRecord
+from .milk import MilkRecord
 from .purchases import PurchaseBatch
 from .simulation import SimulationScenario
+from .species import (
+    BUFFALO_DAIRY,
+    FARM_TYPE_LABELS,
+    FARM_TYPES,
+    GOAT,
+    SPECIES_PROFILES,
+    SpeciesProfile,
+    species_profile,
+)
 from .tasks import Task
 
 __all__ = [
     "BREEDING_READY_BUCKETS",
     "BUCK_DOE_RATIO",
     "BUCK_ROTATION_DAYS",
+    "BUFFALO_DAIRY",
+    "FARM_TYPES",
+    "FARM_TYPE_LABELS",
     "GESTATION_DAYS",
+    "GOAT",
     "HISTORY_OVERRIDE_REASON_PREFIX",
     "KIDDING_WINDOW_DAYS",
     "MAX_AGE_MONTHS",
@@ -98,6 +113,7 @@ __all__ = [
     "PREGNANCY_LOSS_CAUSES",
     "QUARANTINE_PROTOCOL",
     "SHIFT_SPLIT",
+    "SPECIES_PROFILES",
     "ULTRASOUND_AFTER_BREEDING_DAYS",
     "VERIFICATION_REQUIRED_CATEGORIES",
     "WEANING_DAYS",
@@ -115,6 +131,7 @@ __all__ = [
     "BucketMove",
     "Farm",
     "FarmMembership",
+    "FarmType",
     "FeedFinishedStock",
     "FeedInventory",
     "FeedRecipe",
@@ -129,6 +146,7 @@ __all__ = [
     "KidStatus",
     "KiddingEase",
     "KiddingRecord",
+    "MilkRecord",
     "MovementRestrictionAction",
     "PurchaseBatch",
     "QuarantineTaskSpec",
@@ -136,6 +154,7 @@ __all__ = [
     "Role",
     "Sex",
     "SimulationScenario",
+    "SpeciesProfile",
     "Task",
     "TaskCategory",
     "TaskStatus",
@@ -149,4 +168,5 @@ __all__ = [
     "expected_kidding_date",
     "planned_ultrasound_date",
     "quarantine_schedule",
+    "species_profile",
 ]

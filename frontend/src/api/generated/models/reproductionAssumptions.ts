@@ -16,12 +16,12 @@ export interface ReproductionAssumptions {
   conception_rate?: number;
   /**
      * @minimum 1
-     * @maximum 7
+     * @maximum 12
      */
   gestation_months?: number;
   /**
      * @minimum 1
-     * @maximum 8
+     * @maximum 12
      */
   lactation_months?: number;
   /**

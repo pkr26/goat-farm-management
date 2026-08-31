@@ -32,6 +32,9 @@ _DRAW_ORDER = (
     "conception_rate",
     "fodder_yield",
     "operating_cost",
+    # Last: pre-existing seeded runs draw the same values for the eight
+    # variables above; dairy runs additionally consume the milk draw.
+    "milk_price",
 )
 
 # Unit-length-ish loadings on three independent latent factors. Multiplying
@@ -41,6 +44,9 @@ _DRAW_ORDER = (
 _FACTOR_LOADINGS: dict[str, tuple[float, float, float]] = {
     # market, climate, disease
     "meat_price": (0.80, 0.00, 0.00),
+    # Milk shares the market factor with meat (dairy procurement cycles track
+    # feed/food inflation) with a slightly tighter loading.
+    "milk_price": (0.70, 0.00, 0.00),
     "feed_price": (0.45, 0.60, 0.00),
     "adult_mortality": (0.00, 0.20, 0.70),
     "kid_mortality": (0.00, 0.25, 0.80),
@@ -72,6 +78,12 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     variant = a.model_copy(deep=True)
     variant.sales.meat_price_per_kg = min(
         MAX_MONEY, variant.sales.meat_price_per_kg * draws["meat_price"]
+    )
+    variant.sales.milk_price_per_litre = min(
+        MAX_MONEY, variant.sales.milk_price_per_litre * draws["milk_price"]
+    )
+    variant.sales.milk_price_per_kg_fat = min(
+        MAX_MONEY, variant.sales.milk_price_per_kg_fat * draws["milk_price"]
     )
     variant.feed.green_price_per_kg = min(
         MAX_MONEY, variant.feed.green_price_per_kg * draws["feed_price"]
@@ -204,6 +216,7 @@ def _event_shock_path(a: SimulationAssumptions, rng: random.Random) -> MonthlySh
             path.adult_mortality[month] *= a.risk.disease_adult_mortality_multiplier
             path.kid_mortality[month] *= a.risk.disease_kid_mortality_multiplier
             path.conception[month] *= a.risk.disease_conception_multiplier
+            path.milk_yield[month] *= a.risk.disease_milk_yield_multiplier
             disease_left -= 1
         if drought_left > 0:
             path.fodder_yield[month] *= a.risk.drought_fodder_yield_multiplier
@@ -211,6 +224,7 @@ def _event_shock_path(a: SimulationAssumptions, rng: random.Random) -> MonthlySh
             drought_left -= 1
         if crash_left > 0:
             path.meat_price[month] *= a.risk.market_crash_price_multiplier
+            path.milk_price[month] *= a.risk.market_crash_price_multiplier
             crash_left -= 1
     return MonthlyShockPath(
         meat_price=path.meat_price,
@@ -221,6 +235,8 @@ def _event_shock_path(a: SimulationAssumptions, rng: random.Random) -> MonthlySh
         conception=path.conception,
         litter_size=path.litter_size,
         operating_cost=path.operating_cost,
+        milk_price=path.milk_price,
+        milk_yield=path.milk_yield,
         disease_outbreaks=disease_count,
         drought_events=drought_count,
         market_crashes=crash_count,
@@ -253,6 +269,7 @@ def run_monte_carlo(a: SimulationAssumptions) -> MonteCarloResult:
     runs = a.risk.monte_carlo_runs
     risk_vars = {
         "meat_price": a.risk.meat_price,
+        "milk_price": a.risk.milk_price,
         "feed_price": a.risk.feed_price,
         "adult_mortality": a.risk.adult_mortality,
         "kid_mortality": a.risk.kid_mortality,
@@ -353,6 +370,16 @@ def _months_label(base: float, applied: float) -> str:
     return f"{applied - base:+.0f} month(s)"
 
 
+def _scale_milk_price(v: SimulationAssumptions) -> None:
+    v.sales.milk_price_per_litre *= 0.8
+    v.sales.milk_price_per_kg_fat *= 0.8
+
+
+def _scale_milk_price_high(v: SimulationAssumptions) -> None:
+    v.sales.milk_price_per_litre = min(MAX_MONEY, v.sales.milk_price_per_litre * 1.2)
+    v.sales.milk_price_per_kg_fat = min(MAX_MONEY, v.sales.milk_price_per_kg_fat * 1.2)
+
+
 def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
     """OAT (tornado) sensitivity of NPV: +/-20% on one parameter at a time.
 
@@ -382,6 +409,20 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
                 "meat_price_per_kg",
                 min(MAX_MONEY, v.sales.meat_price_per_kg * 1.2),
             ),
+        ),
+        _SensitivityCase(
+            # Dairy's dominant price driver; the perturbation applies to both
+            # the per-litre and the per-kg-fat price so either pricing basis
+            # moves by the same proportion.
+            "milk_price",
+            lambda v: (
+                v.sales.milk_price_per_litre
+                if v.sales.milk_price_per_kg_fat <= 0.0
+                else v.sales.milk_price_per_kg_fat
+            ),
+            _pct_label,
+            _scale_milk_price,
+            _scale_milk_price_high,
         ),
         _SensitivityCase(
             "feed_prices",

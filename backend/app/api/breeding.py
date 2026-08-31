@@ -227,9 +227,14 @@ async def create_breeding(
     # sale/death must serialize against the breeding — the loser re-reads the
     # committed status and fails the eligibility check below instead of
     # leaving an open PENDING breeding on a non-ACTIVE doe.
-    if payload.doe_id > MAX_INT32_ID or payload.buck_id > MAX_INT32_ID:
+    if payload.doe_id > MAX_INT32_ID or (
+        payload.buck_id is not None and payload.buck_id > MAX_INT32_ID
+    ):
         raise HTTPException(status_code=404, detail="Doe or buck not found")
-    candidate_ids = sorted({payload.doe_id, payload.buck_id})
+    participant_ids = {payload.doe_id}
+    if payload.buck_id is not None:
+        participant_ids.add(payload.buck_id)
+    candidate_ids = sorted(participant_ids)
     locked_ids = list(
         (
             await db.execute(
@@ -256,21 +261,32 @@ async def create_breeding(
     )
     animals_by_id = {animal.id: animal for animal in animals}
     doe = animals_by_id[payload.doe_id]
-    buck = animals_by_id[payload.buck_id]
+    buck = animals_by_id.get(payload.buck_id) if payload.buck_id is not None else None
     weights = await breeding_weights_as_of(db, candidate_ids, payload.breeding_date)
     has_open_breeding = await doe_has_open_breeding(db, farm.id, doe.id)
     # Same eligibility rules as v1's doe/buck pickers — a forged request
     # cannot breed a male, a sold doe, or an already-pregnant doe. Targeted
-    # one-doe check: no full candidate-set build per create.
-    if not is_breeding_candidate(
-        doe,
-        latest_weight_kg=weights.get(doe.id),
-        has_open_breeding=has_open_breeding,
-        reference_date=payload.breeding_date,
-    ) or not is_buck_breeding_candidate(
-        buck,
-        latest_weight_kg=weights.get(buck.id),
-        reference_date=payload.breeding_date,
+    # one-doe check: no full candidate-set build per create. Natural service
+    # validates the sire the same way; an AI service has no herd sire.
+    sire_eligible = (
+        is_buck_breeding_candidate(
+            buck,
+            latest_weight_kg=weights.get(buck.id),
+            reference_date=payload.breeding_date,
+            farm_type=farm.farm_type,
+        )
+        if buck is not None
+        else payload.method in ("AI", "AI_SEXED")
+    )
+    if (
+        not is_breeding_candidate(
+            doe,
+            latest_weight_kg=weights.get(doe.id),
+            has_open_breeding=has_open_breeding,
+            reference_date=payload.breeding_date,
+            farm_type=farm.farm_type,
+        )
+        or not sire_eligible
     ):
         raise HTTPException(
             status_code=400,
@@ -287,6 +303,8 @@ async def create_breeding(
             created_by_id=user.id,
             doe_latest_weight_kg=weights.get(doe.id),
             has_open_breeding=has_open_breeding,
+            method=payload.method,
+            semen_sire_name=payload.semen_sire_name,
         )
         br_id = br.id
         await db.commit()

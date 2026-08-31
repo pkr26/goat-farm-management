@@ -15,17 +15,33 @@ from .common import (
     StrictInt,
 )
 
+BreedingMethodValue = Literal["NATURAL", "AI", "AI_SEXED"]
+
 
 class BreedingCreateIn(StrictInputModel):
     doe_id: BoundedId
-    buck_id: BoundedId
+    # Herd sire for NATURAL service. Required for NATURAL; NULL for AI /
+    # AI_SEXED, where the sire is the named semen bull instead.
+    buck_id: BoundedId | None = None
     breeding_date: PastOrTodayDate
+    method: BreedingMethodValue = "NATURAL"
+    # Semen-bull identity (bull name / code from the straw) for AI services.
+    semen_sire_name: PostgresText | None = Field(default=None, max_length=120)
     # Accepted for wire compatibility but NOT stored: the cycle index is
     # derived from the doe's own consecutive failed cycles
     # (services.breeding.derived_heat_cycle_number), so the reports'
     # first-cycle metric cannot be inflated by a client that omits or forges
     # it. The bound mirrors ck_breeding_records_heat_cycle.
     heat_cycle_number: Annotated[StrictInt, Field(ge=1, le=99)] = 1
+
+    @model_validator(mode="after")
+    def _sire_matches_method(self) -> "BreedingCreateIn":
+        if self.method == "NATURAL":
+            if self.buck_id is None:
+                raise ValueError("buck_id is required for a NATURAL service")
+            if self.semen_sire_name is not None:
+                raise ValueError("semen_sire_name is valid only for AI services")
+        return self
 
 
 class UltrasoundIn(StrictInputModel):
@@ -72,7 +88,8 @@ class BreedingRecordOut(BaseModel):
 
     id: int
     doe_id: int
-    buck_id: int
+    buck_id: int | None  # None for AI/AI_SEXED services
+    semen_sire_name: str | None
     breeding_date: date
     method: str
     heat_cycle_number: int

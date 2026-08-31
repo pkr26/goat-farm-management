@@ -573,6 +573,7 @@ def test_apply_draws_scales_every_risk_control_in_the_documented_direction() -> 
         "conception_rate": 1.5,
         "fodder_yield": 0.5,
         "operating_cost": 2.0,
+        "milk_price": 1.25,
     }
 
     variant = _apply_draws(assumptions, draws)
@@ -632,7 +633,7 @@ def test_correlated_draw_uses_unit_normal_factor_model() -> None:
         getattr(risk, name).enabled = name == "meat_price"
     risk_vars = {name: getattr(risk, name) for name in _DRAW_ORDER}
     factor_values = [0.25, -0.5, 0.75]
-    idiosyncratic_values = [-0.4, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    idiosyncratic_values = [-0.4, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
     strength = 0.5
 
     draws = _correlated_draws(

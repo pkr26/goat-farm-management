@@ -58,6 +58,13 @@ class Transaction(Base):
             name="ck_transactions_feed_purchase_provenance",
         ),
         CheckConstraint(
+            "(milk_litres IS NULL AND milk_unit_price_per_litre IS NULL) OR "
+            "(category = 'MILK' AND type = 'INCOME' "
+            "AND milk_litres BETWEEN 0.001 AND 1000000 "
+            "AND milk_unit_price_per_litre BETWEEN 0 AND 1000000000)",
+            name="ck_transactions_milk_provenance",
+        ),
+        CheckConstraint(
             "correction_of_id IS NULL OR correction_of_id <> id",
             name="ck_transactions_not_self_correction",
         ),
@@ -118,6 +125,11 @@ class Transaction(Base):
     feed_inventory_id: Mapped[int | None]
     feed_quantity_kg: Mapped[Decimal | None] = mapped_column(Numeric(15, 3))
     feed_unit_price_per_kg: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    # Optional provenance on MILK income rows: litres sold and the realized
+    # ₹/litre. Kept beside the amount so the ledger can price milk per litre
+    # without a separate sales document.
+    milk_litres: Mapped[Decimal | None] = mapped_column(Numeric(12, 3))
+    milk_unit_price_per_litre: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     correction_of_id: Mapped[int | None] = mapped_column(
         ForeignKey("transactions.id", ondelete="RESTRICT")
     )

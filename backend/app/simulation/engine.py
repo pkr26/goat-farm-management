@@ -313,6 +313,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     fin = a.finance
     shocks = shock_path or MonthlyShockPath.neutral(a.meta.horizon_months)
 
+    # Dairy regime (saleable milk): lactation overlaps pregnancy — buffaloes
+    # (and dairy goats) are bred back during lactation, so the doe pools track
+    # reproductive state while a parallel ``lact`` overlay attributes milk
+    # yield by month-in-milk. In the meat regime ``lact`` remains a state pool
+    # exactly as before (bit-identical results).
+    dairy_mode = sales.lactation_milk_litres > 0.0 and r.lactation_months > 0
+
     afb = r.age_at_first_breeding_months
     sale_age = g.sale_age_months
     doe_w = g.adult_weight_doe_kg
@@ -356,12 +363,39 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # reproductive cycle (open-ready slot + waiting + gestation + lactation
         # slots), so kiddings and sales are spread from month 1 instead of
         # arriving as one synchronized wave.
-        n_slots = 1 + len(open_waiting) + len(preg) + len(lact)
-        per_slot = float(a.herd.does) / n_slots
-        open_ready = per_slot
-        open_waiting = [per_slot] * len(open_waiting)
-        preg = [per_slot] * len(preg)
-        lact = [per_slot] * len(lact)
+        if dairy_mode:
+            # The state pools are waiting + serving + gestation; ``lact`` is a
+            # milking-status overlay of the same animals, anchored to each
+            # doe's month-since-calving: a waiting doe at slot i is i months
+            # fresh, a serving doe ~VWP months fresh, and a pregnant doe at
+            # gestation slot j is VWP + K + j months fresh (dry once that
+            # index passes the lactation length). Anchoring the overlay this
+            # way makes the foundation's milking fraction match the steady
+            # state L/C from month 1 instead of over-crediting year 1 and
+            # double-counting every doe at her first simulated calving.
+            n_slots = 1 + len(open_waiting) + len(preg)
+            per_slot = float(a.herd.does) / n_slots
+            open_ready = per_slot
+            open_waiting = [per_slot] * len(open_waiting)
+            preg = [per_slot] * len(preg)
+            lact = [0.0] * len(lact)
+            k_months = max(1, round(1.0 / max(r.conception_rate, 1e-9)))
+            overlay_waiting_index = 0
+            overlay_serving_index = min(len(open_waiting), len(lact) - 1)
+            for overlay_index in (
+                [overlay_waiting_index] * len(open_waiting)
+                + [overlay_serving_index]
+                + [min(len(open_waiting) + k_months + j, 10**9) for j in range(len(preg))]
+            ):
+                if overlay_index < len(lact):
+                    lact[overlay_index] += per_slot
+        else:
+            n_slots = 1 + len(open_waiting) + len(preg) + len(lact)
+            per_slot = float(a.herd.does) / n_slots
+            open_ready = per_slot
+            open_waiting = [per_slot] * len(open_waiting)
+            preg = [per_slot] * len(preg)
+            lact = [per_slot] * len(lact)
     # Parallel doe age cohorts (all breeding does). Foundation does are spread
     # uniformly over ages 24..60 months (a purchased flock is mixed-age); this
     # avoids an artificial mass max-age cull when a synchronized cohort would
@@ -412,7 +446,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             + sum(open_waiting)
             + sum(settling)
             + sum(preg)
-            + sum(lact)
+            + (0.0 if dairy_mode else sum(lact))
             + bucks
         )
 
@@ -440,6 +474,18 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     events_by_month: dict[int, list[HerdEventAssumptions]] = {}
     for event in a.events:
         events_by_month.setdefault(event.month, []).append(event)
+
+    # Lactation yield curve: geometric decline from the first month in milk
+    # (peak), normalised so the whole lactation sums to exactly
+    # lactation_milk_litres. A flat average would spread peak yield across the
+    # dry months and understate both feed demand and early-lactation revenue.
+    if r.lactation_months > 0 and sales.lactation_milk_litres > 0.0:
+        _persistency = sales.milk_persistency_monthly
+        _curve_weights = [_persistency**i for i in range(r.lactation_months)]
+        _curve_total = sum(_curve_weights)
+        milk_yield_curve = [sales.lactation_milk_litres * w / _curve_total for w in _curve_weights]
+    else:
+        milk_yield_curve = [0.0] * r.lactation_months
 
     for month in range(1, a.meta.horizon_months + 1):
         shock_index = month - 1
@@ -566,7 +612,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             else:  # sale
                 requested = event.count
                 if event.animal_class == "doe":
-                    available = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
+                    available = (
+                        open_ready
+                        + sum(open_waiting)
+                        + sum(settling)
+                        + sum(preg)
+                        + (0.0 if dairy_mode else sum(lact))
+                    )
                     take = min(requested, available)
                     if take > 0.0:
                         factor = 1.0 - take / available
@@ -670,7 +722,9 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # Settling does are deliberately outside ``does_before``: like every
         # event purchase they bypass the retention cap when they land, and the
         # cap re-asserts itself at the next graduation.
-        does_before = open_ready + sum(open_waiting) + sum(preg) + sum(lact)
+        does_before = (
+            open_ready + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
+        )
         retained = f_gro_out * a.herd.female_retention_fraction
         if a.herd.max_breeding_does > 0:
             retained = min(retained, max(0.0, a.herd.max_breeding_does - does_before))
@@ -687,25 +741,52 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             sales_revenue += m_gro_out * weight_at_age(sale_age, g, buck_w) * meat_price
 
         # --- 2. lactation progression; open does become ready again ---------
-        lact_out = lact[-1]
-        lact = [0.0, *lact[:-1]]
-        if open_waiting:
-            waiting_out = open_waiting[-1]
-            open_waiting = [lact_out, *open_waiting[:-1]]
-            open_ready += waiting_out
+        if dairy_mode:
+            # ``lact`` is the milking-status overlay: stage L is dried off and
+            # leaves the overlay; the doe herself stays wherever she is in the
+            # reproductive state pools.
+            lact = [0.0, *lact[:-1]]
+            if open_waiting:
+                waiting_out = open_waiting[-1]
+                open_waiting = [0.0, *open_waiting[:-1]]
+                open_ready += waiting_out
         else:
-            open_ready += lact_out
+            lact_out = lact[-1]
+            lact = [0.0, *lact[:-1]]
+            if open_waiting:
+                waiting_out = open_waiting[-1]
+                open_waiting = [lact_out, *open_waiting[:-1]]
+                open_ready += waiting_out
+            else:
+                open_ready += lact_out
 
         # --- 3. pregnancy progression and kidding ---------------------------
         kidding_does = preg[-1]
         preg = [0.0, *preg[:-1]]
+        if dairy_mode and kidding_does > 0.0:
+            # Fresh dams start their voluntary waiting period in the month
+            # they calve (the original block below credits lact[0]).
+            if open_waiting:
+                open_waiting[0] += kidding_does
+            else:
+                open_ready += kidding_does
         if kidding_does > 0.0:
             effective_litter_size = min(4.0, r.litter_size * shocks.litter_size[shock_index])
             born = kidding_does * effective_litter_size * (1.0 - r.stillbirth_rate)
             births += born
             f_born = born * r.sex_ratio_female
             f_kid[0] += f_born
-            m_kid[0] += born - f_born
+            m_born = born - f_born
+            # Dairy policy: a configured fraction of male births (the sexed-
+            # semen strategy makes this most of them) is sold in the first week
+            # at a flat head price instead of growing on for meat.
+            if sales.male_calf_price_per_head > 0.0 and m_born > 0.0:
+                m_sold_at_birth = m_born * sales.male_calf_sell_at_birth_fraction
+                if m_sold_at_birth > 0.0:
+                    sales_head += m_sold_at_birth
+                    sales_revenue += m_sold_at_birth * sales.male_calf_price_per_head
+                    m_born -= m_sold_at_birth
+            m_kid[0] += m_born
             lact[0] += kidding_does
 
         # --- 4. breeding of ready open does ---------------------------------
@@ -723,8 +804,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
 
         # One buck can serve only the configured number of ready does. This
         # turns the buck:doe ratio into a biological constraint rather than a
-        # purchase-policy annotation.
-        service_capacity = bucks * cull.buck_doe_ratio
+        # purchase-policy annotation. A dairy run with no sire battery and no
+        # auto-purchase is an AI programme: service is technician-limited, not
+        # buck-limited, so capacity is unconstrained.
+        if dairy_mode and bucks <= 0.0 and not a.herd.auto_purchase_bucks:
+            service_capacity = open_ready
+        else:
+            service_capacity = bucks * cull.buck_doe_ratio
         served_does = min(open_ready, service_capacity)
         effective_conception = min(1.0, r.conception_rate * shocks.conception[shock_index])
         conceived = served_does * effective_conception
@@ -750,7 +836,16 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
 
         # Doe pools and the parallel doe_ages array represent the same animals,
         # so only the pools (+ settling does + bucks) enter the death count.
-        pre = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact) + bucks
+        # In dairy mode ``lact`` is an overlay of the same does, so it is
+        # scaled for attribution but never counted as extra animals.
+        pre = (
+            open_ready
+            + sum(open_waiting)
+            + sum(settling)
+            + sum(preg)
+            + (0.0 if dairy_mode else sum(lact))
+            + bucks
+        )
         open_ready *= s_adult
         open_waiting = _scale(open_waiting, s_adult)
         settling = _scale(settling, s_adult)
@@ -759,14 +854,27 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         bucks *= s_adult
         bucks_purchased_this_month *= s_adult
         doe_ages = _scale(doe_ages, s_adult)
-        deaths += pre - (open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact) + bucks)
+        deaths += pre - (
+            open_ready
+            + sum(open_waiting)
+            + sum(settling)
+            + sum(preg)
+            + (0.0 if dairy_mode else sum(lact))
+            + bucks
+        )
 
         # --- 6. culling and buck management ---------------------------------
         # Max-age cull: does aging past max_doe_age_months leave the herd.
         overflow = doe_ages[-1]
         doe_ages = [0.0, *doe_ages[:-1]]
         if overflow > 0.0:
-            does_now = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
+            does_now = (
+                open_ready
+                + sum(open_waiting)
+                + sum(settling)
+                + sum(preg)
+                + (0.0 if dairy_mode else sum(lact))
+            )
             if does_now > 0.0:
                 factor = 1.0 - min(1.0, overflow / does_now)
                 open_ready *= factor
@@ -782,7 +890,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # the model (a plain rate/12 removed only 18.3% of the does for a
         # documented 20% policy, and 64.8% for a "cull everything" 1.0).
         if month >= 13:
-            does_now = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
+            does_now = (
+                open_ready
+                + sum(open_waiting)
+                + sum(settling)
+                + sum(preg)
+                + (0.0 if dairy_mode else sum(lact))
+            )
             culled = does_now * monthly_cull_rate
             if culled > 0.0:
                 factor = 1.0 - monthly_cull_rate
@@ -816,7 +930,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             culls_head += cull_pool
             cull_revenue += cull_pool * cull_buck_price * buck_w
             bucks -= cull_pool
-        does_now = open_ready + sum(open_waiting) + sum(settling) + sum(preg) + sum(lact)
+        does_now = (
+            open_ready
+            + sum(open_waiting)
+            + sum(settling)
+            + sum(preg)
+            + (0.0 if dairy_mode else sum(lact))
+        )
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
@@ -835,18 +955,41 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         f_kid_total, m_kid_total = sum(f_kid), sum(m_kid)
         f_wea_total, m_wea_total = sum(f_weaner), sum(m_weaner)
         f_gro_total, m_gro_total = sum(f_grower), sum(m_grower)
-        total_herd = (
-            f_kid_total
-            + m_kid_total
-            + f_wea_total
-            + m_wea_total
-            + f_gro_total
-            + m_gro_total
-            + open_total
-            + preg_total
-            + lact_total
-            + bucks
-        )
+        if dairy_mode:
+            # ``lact`` is a milking overlay of the same does: the distinct
+            # animals are the state pools; the overlay partitions them into
+            # milking (lactation ration) and dry (pregnant/close-up ration,
+            # settling does on maintenance).
+            does_state_total = open_total + preg_total
+            milking_does = min(lact_total, does_state_total)
+            settling_total = sum(settling)
+            dry_does = max(0.0, does_state_total - milking_does - settling_total)
+            total_herd = (
+                f_kid_total
+                + m_kid_total
+                + f_wea_total
+                + m_wea_total
+                + f_gro_total
+                + m_gro_total
+                + does_state_total
+                + bucks
+            )
+        else:
+            milking_does = 0.0
+            settling_total = 0.0
+            dry_does = 0.0
+            total_herd = (
+                f_kid_total
+                + m_kid_total
+                + f_wea_total
+                + m_wea_total
+                + f_gro_total
+                + m_gro_total
+                + open_total
+                + preg_total
+                + lact_total
+                + bucks
+            )
 
         feed_total = combine_feed(
             [
@@ -892,26 +1035,57 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
                     )
                     for age, count in enumerate(m_grower, start=6)
                 ],
-                class_feed(
-                    open_total,
-                    doe_w,
-                    feed.dmi_doe_maintenance,
-                    feed.concentrate_share_doe_maintenance,
-                    feed,
-                ),
-                class_feed(
-                    preg_total,
-                    doe_w,
-                    feed.dmi_doe_pregnant,
-                    feed.concentrate_share_doe_pregnant,
-                    feed,
-                ),
-                class_feed(
-                    lact_total,
-                    doe_w,
-                    feed.dmi_doe_lactating,
-                    feed.concentrate_share_doe_lactating,
-                    feed,
+                *(
+                    [
+                        # Dairy ration by milking status: the overlay partitions
+                        # the state does into milking (production ration), dry
+                        # (pregnant/close-up ration) and settling (maintenance).
+                        class_feed(
+                            milking_does,
+                            doe_w,
+                            feed.dmi_doe_lactating,
+                            feed.concentrate_share_doe_lactating,
+                            feed,
+                        ),
+                        class_feed(
+                            dry_does,
+                            doe_w,
+                            feed.dmi_doe_pregnant,
+                            feed.concentrate_share_doe_pregnant,
+                            feed,
+                        ),
+                        class_feed(
+                            settling_total,
+                            doe_w,
+                            feed.dmi_doe_maintenance,
+                            feed.concentrate_share_doe_maintenance,
+                            feed,
+                        ),
+                    ]
+                    if dairy_mode
+                    else [
+                        class_feed(
+                            open_total,
+                            doe_w,
+                            feed.dmi_doe_maintenance,
+                            feed.concentrate_share_doe_maintenance,
+                            feed,
+                        ),
+                        class_feed(
+                            preg_total,
+                            doe_w,
+                            feed.dmi_doe_pregnant,
+                            feed.concentrate_share_doe_pregnant,
+                            feed,
+                        ),
+                        class_feed(
+                            lact_total,
+                            doe_w,
+                            feed.dmi_doe_lactating,
+                            feed.concentrate_share_doe_lactating,
+                            feed,
+                        ),
+                    ]
                 ),
                 class_feed(bucks, buck_w, feed.dmi_buck, feed.concentrate_share_buck, feed),
             ]
@@ -964,12 +1138,29 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             + feed_total.concentrate_kg * concentrate_price
         )
 
-        milk_revenue = (
-            lact_total
-            * (sales.lactation_milk_litres / r.lactation_months)
-            * sales.milk_price_per_litre
-            * livestock_growth
+        # Stage-indexed lactation yield: each lactation month's cohort yields
+        # its own curve value, scaled by heat-stress seasonality, disease shock,
+        # milk-price seasonality, milk-price growth and the milk-price shock.
+        milk_growth = annual_growth_multiplier(sales.annual_milk_price_growth_rate, month)
+        if sales.milk_price_per_kg_fat > 0.0 and sales.milk_fat_pct > 0.0:
+            effective_milk_price = sales.milk_price_per_kg_fat * sales.milk_fat_pct / 100.0
+        else:
+            effective_milk_price = sales.milk_price_per_litre
+        milk_price_month = (
+            effective_milk_price
+            * sales.monthly_milk_price_multipliers[calendar_month - 1]
+            * milk_growth
+            * (shocks.milk_price[shock_index] if shocks.milk_price else 1.0)
         )
+        milk_litres_month = (
+            sum(
+                count * yield_month
+                for count, yield_month in zip(lact, milk_yield_curve, strict=True)
+            )
+            * sales.monthly_milk_yield_multipliers[calendar_month - 1]
+            * (shocks.milk_yield[shock_index] if shocks.milk_yield else 1.0)
+        )
+        milk_revenue = milk_litres_month * milk_price_month
         manure_revenue = (
             (does_now + bucks) * sales.manure_income_per_adult_per_year * livestock_growth / 12.0
         )

@@ -635,7 +635,7 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             ("ck_transactions_void_state",),
         ),
         InvalidMutation(
-            "UPDATE breeding_records SET method = 'AI' WHERE id = :id",
+            "UPDATE breeding_records SET method = 'ET' WHERE id = :id",
             {"id": ids["breeding"]},
             ("ck_breeding_records_method",),
         ),

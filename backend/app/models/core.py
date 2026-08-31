@@ -72,6 +72,12 @@ class User(Base):
 
 class Farm(Base):
     __tablename__ = "farms"
+    __table_args__ = (
+        CheckConstraint(
+            "farm_type IN ('GOAT', 'BUFFALO_DAIRY')",
+            name="ck_farms_farm_type",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
@@ -79,6 +85,10 @@ class Farm(Base):
     timezone: Mapped[str] = mapped_column(
         String(64), default="Asia/Kolkata", server_default="Asia/Kolkata"
     )
+    # Species of the farm: selects the bucket definitions, feed recipes,
+    # vaccine templates, biology constants and vocabulary. Every farm created
+    # before this column existed is a goat farm (server default backfill).
+    farm_type: Mapped[str] = mapped_column(String(20), default="GOAT", server_default="GOAT")
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 

@@ -8,13 +8,8 @@ from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
-    GESTATION_DAYS,
     HISTORY_OVERRIDE_REASON_PREFIX,
     MAX_ANIMAL_TAG_LENGTH,
-    MAX_GESTATION_DAYS,
-    MIN_GESTATION_DAYS,
-    POSTPARTUM_RECOVERY_DAYS,
-    WEANING_DAYS,
     Animal,
     AnimalSource,
     AnimalStatus,
@@ -30,6 +25,7 @@ from ..models import (
     Task,
     TaskCategory,
     TaskStatus,
+    species_profile,
 )
 from ..utils import today, utcnow
 from ._common import (
@@ -66,14 +62,14 @@ async def record_kidding(
     """Record a kidding. Alive kids auto-create Animal rows (source=BORN,
     dam/sire linked, bucket=RECOVERY). Doe → RECOVERY; WEANING task at +60d.
 
-    Only a confirmed, not-yet-kidded pregnancy of an ACTIVE doe can kidd:
+    Only a confirmed, not-yet-delivered pregnancy of an ACTIVE doe can deliver:
     a sold/dead doe must not "deliver" new stock onto the farm. The kidding
-    date must imply a plausible gestation (MIN/MAX_GESTATION_DAYS) — the SPEC
-    window is 145–155 days, so 100–200 accepts any real record while rejecting
-    absurd dates that would silently corrupt gestation statistics. The caller
-    must hold the breeding row's FOR UPDATE lock (and the doe's, in that
-    order — animal → breeding → task), so the outcome/kidding guards above
-    run against the latest committed state."""
+    date must imply a plausible gestation for the farm's species (goats
+    ~150 days, buffalo ~310) — the accepted window covers any real record
+    while rejecting absurd dates that would silently corrupt gestation
+    statistics. The caller must hold the breeding row's FOR UPDATE lock (and
+    the doe's, in that order — animal → breeding → task), so the
+    outcome/kidding guards above run against the latest committed state."""
     if br.outcome != BreedingOutcome.CONFIRMED_PREGNANT.value:
         raise ValueError("Kidding requires a confirmed pregnancy")
     if await _kidding_record_of(db, br) is not None:
@@ -81,12 +77,13 @@ async def record_kidding(
     doe = await _load_doe(db, br)
     if doe.status != AnimalStatus.ACTIVE.value:
         raise ValueError(f"{doe.tag_number} is {doe.status.lower()} — cannot record a kidding")
+    profile = species_profile(farm.farm_type)
     gestation = (kidding_date - br.breeding_date).days
-    if not MIN_GESTATION_DAYS <= gestation <= MAX_GESTATION_DAYS:
+    if not profile.min_gestation_days <= gestation <= profile.max_gestation_days:
         raise ValueError(
-            f"Kidding date implies a {gestation}-day gestation — goats kid at "
-            f"~{GESTATION_DAYS} days (accepted window "
-            f"{MIN_GESTATION_DAYS}–{MAX_GESTATION_DAYS} days)"
+            f"Delivery date implies a {gestation}-day gestation — {profile.farm_type.lower()} "
+            f"gestation is ~{profile.gestation_days} days (accepted window "
+            f"{profile.min_gestation_days}–{profile.max_gestation_days} days)"
         )
     # A doe cannot deliver before the scan that confirmed she was carrying.
     # The loss path enforces the same ordering (mark_aborted plus the
@@ -206,6 +203,14 @@ async def record_kidding(
         # retain an Animal record in DEAD state for lineage and mortality
         # traceability, while keeping it out of the active herd.
         if kid["status"] != KidStatus.STILLBORN.value:
+            # Dairy calves are separated from the dam within 24 hours and
+            # raised in the calf shed (their own airspace); goat kids stay
+            # with the doe in RECOVERY until weaning.
+            born_bucket = (
+                Bucket.RECOVERY.value
+                if profile.young_stay_with_dam
+                else (Bucket.MALE_KIDS.value if kid["sex"] == "M" else Bucket.FEMALE_KIDS.value)
+            )
             animal = Animal(
                 farm_id=farm.id,
                 tag_number=tag,
@@ -217,7 +222,7 @@ async def record_kidding(
                 dam_id=doe.id,
                 sire_id=br.buck_id,
                 birth_weight=kid["birth_weight"],
-                current_bucket=Bucket.RECOVERY.value,
+                current_bucket=born_bucket,
                 status=(
                     AnimalStatus.ACTIVE.value
                     if kid["status"] == KidStatus.ALIVE.value
@@ -237,7 +242,7 @@ async def record_kidding(
                 BucketMove(
                     animal_id=animal.id,
                     from_bucket=None,
-                    to_bucket=Bucket.RECOVERY.value,
+                    to_bucket=born_bucket,
                     effective_date=kidding_date,
                     reason="Born",
                     created_by_id=created_by_id,
@@ -245,16 +250,17 @@ async def record_kidding(
             )
             entry.animal_id = animal.id
 
-    # Doe goes to RECOVERY whether she was in DELIVERY or still in PREGNANCY_LATE.
+    # Doe goes to RECOVERY (fresh pen) whether she was in DELIVERY or still
+    # in PREGNANCY_LATE.
     move_animal(
         db,
         doe,
         Bucket.RECOVERY.value,
-        "Kidded",
+        "Calved" if not profile.young_stay_with_dam else "Kidded",
         created_by_id=created_by_id,
         context="kidding",
         reference_date=kidding_date,
-        # Kidding is an authoritative lifecycle fact. A hold remains active,
+        # Delivery is an authoritative lifecycle fact. A hold remains active,
         # but it must not leave the doe classified as pregnant after delivery.
         allow_restricted_reclassification=True,
     )
@@ -290,12 +296,41 @@ async def record_kidding(
             task.skip_reason = "Kidding recorded; remaining pregnancy duty no longer applies"
             _clear_task_rejection(task)
 
-    if alive_count:
+    if not profile.young_stay_with_dam:
+        # Dairy: the dam rejoins the milking string after the fresh pen
+        # regardless of calf survival (calves are already in the calf shed),
+        # and the calves' milk-weaning reminder stays on the dam's record.
+        mortality_dates = [
+            kid["mortality_reported_at"]
+            for kid in kids
+            if kid["status"] == KidStatus.DIED.value and kid["mortality_reported_at"] is not None
+        ]
+        recovery_anchor = max([kidding_date, *mortality_dates])
+        await _add_task(
+            db,
+            farm.id,
+            f"Move {doe.tag_number} to RESTING after the fresh period",
+            recovery_anchor + timedelta(days=profile.postpartum_recovery_days),
+            TaskCategory.BUCKET_MOVE,
+            animal_id=doe.id,
+            breeding_record_id=br.id,
+        )
+        if alive_count:
+            await _add_task(
+                db,
+                farm.id,
+                f"Wean calves of {doe.tag_number} off milk; → FOUNDATION",
+                kidding_date + timedelta(days=profile.weaning_days),
+                TaskCategory.WEANING,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
+    elif alive_count:
         await _add_task(
             db,
             farm.id,
             f"Wean kids of {doe.tag_number}; doe → RESTING",
-            kidding_date + timedelta(days=WEANING_DAYS),
+            kidding_date + timedelta(days=profile.weaning_days),
             TaskCategory.WEANING,
             animal_id=doe.id,
             breeding_record_id=br.id,
@@ -311,7 +346,7 @@ async def record_kidding(
             db,
             farm.id,
             f"Move {doe.tag_number} to RESTING after postpartum recovery",
-            recovery_anchor + timedelta(days=POSTPARTUM_RECOVERY_DAYS),
+            recovery_anchor + timedelta(days=profile.postpartum_recovery_days),
             TaskCategory.BUCKET_MOVE,
             animal_id=doe.id,
             breeding_record_id=br.id,
@@ -326,6 +361,7 @@ async def replan_dam_after_last_kid_death(
     child: Animal,
     death_date: date,
 ) -> bool:
+    profile = species_profile(farm.farm_type)
     """Replace a stale weaning plan when a kidding's final survivor dies.
 
     The animal status row and its KidEntry are two views of the same neonatal
@@ -454,7 +490,7 @@ async def replan_dam_after_last_kid_death(
         if task.breeding_record_id not in (None, kidding.breeding_record_id):
             continue
         if task.breeding_record_id is None and task.due_date != kidding.date + timedelta(
-            days=WEANING_DAYS
+            days=profile.weaning_days
         ):
             continue
         task.status = TaskStatus.SKIPPED.value
@@ -512,7 +548,7 @@ async def replan_dam_after_last_kid_death(
         if value is not None
     ]
     recovery_anchor: date = max([kidding.date, death_date, *recorded_mortalities])
-    due: date = recovery_anchor + timedelta(days=POSTPARTUM_RECOVERY_DAYS)
+    due: date = recovery_anchor + timedelta(days=profile.postpartum_recovery_days)
     existing = (
         await db.execute(
             select(Task)

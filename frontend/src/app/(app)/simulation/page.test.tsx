@@ -1005,7 +1005,7 @@ describe("SimulationPage", () => {
     bounds("Female Retention Fraction", { min: "0", max: "1", step: "any" });
     bounds("Doe Purchase Price", { min: "0", max: "1000000000", unit: "₹" });
     bounds("Conception Rate", { min: "0", max: "1", unit: "fraction" });
-    bounds("Gestation Months", { min: "1", max: "7", step: "1", unit: "months" });
+    bounds("Gestation Months", { min: "1", max: "12", step: "1", unit: "months" });
     bounds("Adult", { min: "0", max: "0.9" });
     bounds("Doe Cull Rate Annual", { min: "0", max: "1", unit: "fraction" });
     bounds("Buck Doe Ratio", { min: "1", max: "100", step: "1", unit: "does per buck" });

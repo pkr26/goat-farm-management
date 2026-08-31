@@ -63,6 +63,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     id: 1,
     doe_id: 10,
     buck_id: 20,
+    semen_sire_name: null,
     breeding_date: BRED_ON,
     method: "NATURAL",
     heat_cycle_number: 1,

@@ -94,7 +94,7 @@ def _escaped_contains(raw: str) -> str:
 @router.get("/schedule-templates")
 async def schedule_templates(
     db: DbSession,
-    _farm: CurrentFarm,
+    farm: CurrentFarm,
     _perms: VIEW,
 ) -> ScheduleTemplateListOut:
     """The seeded programme items a health event may cite.
@@ -103,10 +103,16 @@ async def schedule_templates(
     a VACCINE/DEWORMING event, and ``next_due_date`` requires a schedule name —
     so without this list the recording form was a free-text box whose every
     value 422s unless the operator already knew one of the seeded names.
-    Fixed global reference data, identical for every farm; the farm dependency
-    keeps it behind the same tenant auth as the rest of the module.
+    Fixed global reference data, scoped to the farm's species; the farm
+    dependency keeps it behind the same tenant auth as the rest of the module.
     """
-    rows = (await db.execute(select(VaccineTemplate).order_by(VaccineTemplate.name))).scalars()
+    rows = (
+        await db.execute(
+            select(VaccineTemplate)
+            .where(VaccineTemplate.farm_type == farm.farm_type)
+            .order_by(VaccineTemplate.name)
+        )
+    ).scalars()
     return ScheduleTemplateListOut(
         templates=[
             ScheduleTemplateOut(
@@ -804,7 +810,9 @@ async def _record_event_mutation(
     template = None
     if payload.type in (HealthEventType.VACCINE.value, HealthEventType.DEWORMING.value):
         try:
-            template = await validated_template(db, requested_template, payload.type)
+            template = await validated_template(
+                db, requested_template, payload.type, farm_type=farm.farm_type
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         template_name = str(template.name) if template is not None else None
@@ -866,7 +874,9 @@ async def _record_event_mutation(
                     status_code=422, detail="Disease target does not match the linked task"
                 )
             try:
-                template = await validated_template(db, expected_template, payload.type)
+                template = await validated_template(
+                    db, expected_template, payload.type, farm_type=farm.farm_type
+                )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
             template_name = expected_template
@@ -880,6 +890,7 @@ async def _record_event_mutation(
             payload.type,
             (payload.product_name or "").strip(),
             disease_target,
+            farm_type=farm.farm_type,
         )
     template_id = template.id if template is not None else None
 

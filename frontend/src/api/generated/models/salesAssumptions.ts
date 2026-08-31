@@ -75,5 +75,45 @@ export interface SalesAssumptions {
      * @minimum 0
      * @maximum 1000000000
      */
+  milk_price_per_kg_fat?: number;
+  /**
+     * @minimum 0
+     * @maximum 12
+     */
+  milk_fat_pct?: number;
+  /**
+     * @minimum 0.5
+     * @maximum 1
+     */
+  milk_persistency_monthly?: number;
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_milk_yield_multipliers?: number[];
+  /**
+     * @minItems 12
+     * @maxItems 12
+     */
+  monthly_milk_price_multipliers?: number[];
+  /**
+     * @maximum 1
+     * @exclusiveMinimum -1
+     */
+  annual_milk_price_growth_rate?: number;
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  male_calf_sell_at_birth_fraction?: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
+  male_calf_price_per_head?: number;
+  /**
+     * @minimum 0
+     * @maximum 1000000000
+     */
   manure_income_per_adult_per_year?: number;
 }

@@ -70,6 +70,7 @@ function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut 
     id: 1,
     doe_id: 10,
     buck_id: 20,
+    semen_sire_name: null,
     // 200 days back keeps the dialog's MIN_GESTATION_DAYS floor in the past.
     breeding_date: daysFromToday(-200),
     method: "NATURAL",
@@ -638,7 +639,7 @@ describe("KiddingPage copy and field wiring", () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
 
-    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Kidding recorded."));
+    await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Delivery recorded."));
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 

@@ -25,6 +25,8 @@ PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
+# Autogenerate-drift checks must run at the CURRENT head (farm type + dairy).
+HEAD = "b3d7f1a5c9e2"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -685,7 +687,7 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
 
         # ORM metadata mirrors both the partial unique index and the CHECK;
         # deployment-time autogenerate drift detection must stay clean.
-        await _alembic(database, "upgrade", KIDDING_LOCK_ORDER)
+        await _alembic(database, "upgrade", HEAD)
         await _alembic(database, "check")
         await _alembic(database, "downgrade", PRESET_ROLE_PARENT)
         connection = await asyncpg.connect(database_url)
@@ -737,7 +739,7 @@ async def test_kidding_trigger_migration_splits_insert_and_update_lock_paths() -
         finally:
             await connection.close()
 
-        await _alembic(database, "upgrade", KIDDING_LOCK_ORDER)
+        await _alembic(database, "upgrade", HEAD)
         connection = await asyncpg.connect(database_url)
         try:
             trigger_rows = await connection.fetch(

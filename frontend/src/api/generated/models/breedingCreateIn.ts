@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { BreedingCreateInMethod } from './breedingCreateInMethod';
 
 export interface BreedingCreateIn {
   /**
@@ -11,12 +12,10 @@ export interface BreedingCreateIn {
      * @maximum 4611686018427388000
      */
   doe_id: number;
-  /**
-     * @minimum 1
-     * @maximum 4611686018427388000
-     */
-  buck_id: number;
+  buck_id?: number | null;
   breeding_date: string;
+  method?: BreedingCreateInMethod;
+  semen_sire_name?: string | null;
   /**
      * @minimum 1
      * @maximum 99

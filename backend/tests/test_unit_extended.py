@@ -298,7 +298,7 @@ ENUM_CASES = [
     (AnimalSource, {"BORN", "PURCHASED"}),
     (Sex, {"M", "F"}),
     (BirthType, {"SINGLE", "TWIN", "TRIPLET", "QUADRUPLET", "MULTIPLET"}),
-    (BreedingMethod, {"NATURAL"}),
+    (BreedingMethod, {"NATURAL", "AI", "AI_SEXED"}),
     # UNASSESSED closes a service that could never be scanned because the doe
     # left the herd; it asserts neither a conception nor a failure to conceive.
     (BreedingOutcome, {"PENDING", "CONFIRMED_PREGNANT", "FAILED", "ABORTED", "UNASSESSED"}),
@@ -1362,8 +1362,10 @@ def test_animal_create_tag_optional_defaults_none() -> None:
     assert AnimalCreateIn(**payload).tag_number is None
 
 
-def test_animal_create_defaults_breed_to_osmanabadi() -> None:
-    assert AnimalCreateIn(**VALID_ANIMAL).breed == "Osmanabadi"
+def test_animal_create_defaults_breed_to_species_default() -> None:
+    # Empty means "the farm's species default" (Osmanabadi / Murrah), resolved
+    # by the create endpoint from the farm's type.
+    assert AnimalCreateIn(**VALID_ANIMAL).breed == ""
 
 
 def test_animal_create_rejects_unknown_extra_fields() -> None:

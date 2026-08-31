@@ -21,6 +21,7 @@ export interface RiskAssumptions {
      */
   seed?: number;
   meat_price?: RiskVariable;
+  milk_price?: RiskVariable;
   feed_price?: RiskVariable;
   adult_mortality?: RiskVariable;
   kid_mortality?: RiskVariable;
@@ -58,6 +59,11 @@ export interface RiskAssumptions {
      * @exclusiveMinimum 0
      */
   disease_conception_multiplier?: number;
+  /**
+     * @maximum 1
+     * @exclusiveMinimum 0
+     */
+  disease_milk_yield_multiplier?: number;
   /**
      * @minimum 0
      * @maximum 1

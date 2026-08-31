@@ -8,7 +8,8 @@
 export interface BreedingRecordOut {
   id: number;
   doe_id: number;
-  buck_id: number;
+  buck_id: number | null;
+  semen_sire_name: string | null;
   breeding_date: string;
   method: string;
   heat_cycle_number: number;

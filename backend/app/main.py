@@ -33,6 +33,7 @@ from .api import (
     finance,
     health,
     kidding,
+    milk,
     purchases,
     simulation,
     tasks,
@@ -612,6 +613,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(tasks.router)
     app.include_router(feeding.router)
+    app.include_router(milk.router)
     app.include_router(finance.router)
     app.include_router(purchases.router)
     app.include_router(dashboard.router)

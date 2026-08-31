@@ -54,6 +54,7 @@ PRESET_PERMS: dict[str, set[str]] = {
         "kidding.manage",
         "health.view",
         "health.manage",
+        "milk.view",
         "tasks.view",
         "tasks.complete",
     },
@@ -63,6 +64,8 @@ PRESET_PERMS: dict[str, set[str]] = {
         "dashboard.view",
         "feeding.view",
         "feeding.manage",
+        "milk.view",
+        "milk.manage",
         "buckets.view",
         "tasks.view",
         "tasks.complete",
@@ -96,6 +99,8 @@ ALL_PERMS = {
     "purchases.manage",
     "feeding.view",
     "feeding.manage",
+    "milk.view",
+    "milk.manage",
     "tasks.view",
     "tasks.create",
     "tasks.complete",
@@ -636,7 +641,7 @@ async def test_permissions_owner_has_everything(client: httpx.AsyncClient) -> No
     assert body["is_owner"] is True
     assert set(body["permissions"]) == ALL_PERMS
     assert body["permissions"] == sorted(body["permissions"])
-    assert len(body["permissions"]) == 27  # full catalog size
+    assert len(body["permissions"]) == 29  # full catalog size
 
 
 @pytest.mark.parametrize("role_code", sorted(PRESET_PERMS))

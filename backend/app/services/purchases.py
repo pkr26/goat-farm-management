@@ -69,7 +69,7 @@ def _estimated_dob_from_age(batch_date: date, avg_age_months: float) -> date:
 
 async def schedule_quarantine_tasks(db: AsyncSession, farm: Farm, batch: PurchaseBatch) -> None:
     """Create one auditable protocol series for a batch that has animals."""
-    for item in quarantine_schedule(batch):
+    for item in quarantine_schedule(batch, farm.farm_type):
         await _add_task(
             db,
             farm.id,

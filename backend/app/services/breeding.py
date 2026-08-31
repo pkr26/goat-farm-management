@@ -10,11 +10,6 @@ from sqlalchemy.sql.elements import ColumnElement
 from ..models import (
     BREEDING_READY_BUCKETS,
     MAX_FAILED_CYCLES_BEFORE_CULL,
-    MAX_GESTATION_DAYS,
-    MIN_BREEDING_AGE_MONTHS,
-    MIN_BREEDING_WEIGHT_KG,
-    MIN_BUCK_BREEDING_AGE_MONTHS,
-    MIN_BUCK_BREEDING_WEIGHT_KG,
     PREGNANCY_LOSS_CAUSES,
     Animal,
     AnimalStatus,
@@ -29,6 +24,7 @@ from ..models import (
     WeightRecord,
     expected_kidding_date,
     planned_ultrasound_date,
+    species_profile,
 )
 from ..utils import add_months, today, utcnow
 from ._common import (
@@ -39,7 +35,7 @@ from ._common import (
     _pending_tasks_for,
 )
 from .animals import move_animal
-from .health import PRE_KIDDING_VACCINE_TITLE
+from .health import PRE_CALVING_THERAPY_TITLE, PRE_KIDDING_VACCINE_TITLE
 
 BreedingCandidateKind = Literal["doe", "buck"]
 
@@ -81,8 +77,10 @@ def _candidate_filters(
     farm_id: int,
     kind: BreedingCandidateKind,
     reference_date: date,
+    farm_type: str = "GOAT",
 ) -> tuple[ColumnElement[bool], ...]:
     """SQL equivalent of the canonical doe/buck eligibility predicates."""
+    profile = species_profile(farm_type)
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
     common: tuple[ColumnElement[bool], ...] = (
         Animal.farm_id == farm_id,
@@ -91,17 +89,17 @@ def _candidate_filters(
         Animal.suspected_scheduled_disease.is_(False),
     )
     if kind == "buck":
-        age_cutoff = add_months(reference_date, -MIN_BUCK_BREEDING_AGE_MONTHS)
+        age_cutoff = add_months(reference_date, -profile.min_sire_breeding_age_months)
         return (
             *common,
             Animal.sex == "M",
             Animal.current_bucket.in_([Bucket.FOUNDATION.value, Bucket.BREEDING.value]),
             effective_dob.is_not(None),
             effective_dob <= age_cutoff,
-            _latest_weight_as_of(reference_date) >= MIN_BUCK_BREEDING_WEIGHT_KG,
+            _latest_weight_as_of(reference_date) >= profile.min_sire_breeding_weight_kg,
         )
 
-    age_cutoff = add_months(reference_date, -MIN_BREEDING_AGE_MONTHS)
+    age_cutoff = add_months(reference_date, -profile.min_breeding_age_months)
     unresolved_pregnancy = (
         select(BreedingRecord.id)
         .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
@@ -127,7 +125,7 @@ def _candidate_filters(
         ),
         effective_dob.is_not(None),
         effective_dob <= age_cutoff,
-        _latest_weight_as_of(reference_date) >= MIN_BREEDING_WEIGHT_KG,
+        _latest_weight_as_of(reference_date) >= profile.min_breeding_weight_kg,
         ~unresolved_pregnancy,
     )
 
@@ -149,8 +147,9 @@ def _candidate_ids_stmt(
     kind: BreedingCandidateKind,
     reference_date: date,
     q: str | None = None,
+    farm_type: str = "GOAT",
 ) -> Select[tuple[int]]:
-    filters = list(_candidate_filters(farm_id, kind, reference_date))
+    filters = list(_candidate_filters(farm_id, kind, reference_date, farm_type))
     search = _literal_candidate_search(q)
     if search is not None:
         filters.append(search)
@@ -174,9 +173,9 @@ async def breeding_candidate_page(
     pregnancy and all eligibility filtering remain in SQL.
     """
     when = reference_date or today(farm.timezone)
-    id_stmt = _candidate_ids_stmt(farm.id, kind, when, q)
+    id_stmt = _candidate_ids_stmt(farm.id, kind, when, q, farm.farm_type)
     total = (await db.execute(select(func.count()).select_from(id_stmt.subquery()))).scalar_one()
-    filters = list(_candidate_filters(farm.id, kind, when))
+    filters = list(_candidate_filters(farm.id, kind, when, farm.farm_type))
     search = _literal_candidate_search(q)
     if search is not None:
         filters.append(search)
@@ -200,12 +199,14 @@ async def breeding_candidate_counts(
     when = reference_date or today(farm.timezone)
     doe_count = (
         select(func.count())
-        .select_from(_candidate_ids_stmt(farm.id, "doe", when).subquery())
+        .select_from(_candidate_ids_stmt(farm.id, "doe", when, farm_type=farm.farm_type).subquery())
         .scalar_subquery()
     )
     buck_count = (
         select(func.count())
-        .select_from(_candidate_ids_stmt(farm.id, "buck", when).subquery())
+        .select_from(
+            _candidate_ids_stmt(farm.id, "buck", when, farm_type=farm.farm_type).subquery()
+        )
         .scalar_subquery()
     )
     row = (await db.execute(select(doe_count, buck_count))).one()
@@ -218,12 +219,14 @@ def is_breeding_candidate(
     latest_weight_kg: float | None,
     has_open_breeding: bool,
     reference_date: date,
+    farm_type: str = "GOAT",
 ) -> bool:
     """Canonical picker and write-path predicate for a doe.
 
     Re-service after a failed cycle is allowed from BREEDING, but it retains
     the exact same age/weight/pregnancy requirements as first service.
     """
+    profile = species_profile(farm_type)
     age = doe.age_months_on(reference_date)
     return bool(
         not has_open_breeding
@@ -233,16 +236,17 @@ def is_breeding_candidate(
         and not doe.suspected_scheduled_disease
         and doe.current_bucket in {*BREEDING_READY_BUCKETS, Bucket.BREEDING.value}
         and age is not None
-        and age >= MIN_BREEDING_AGE_MONTHS
+        and age >= profile.min_breeding_age_months
         and latest_weight_kg is not None
-        and latest_weight_kg >= MIN_BREEDING_WEIGHT_KG
+        and latest_weight_kg >= profile.min_breeding_weight_kg
     )
 
 
 def is_buck_breeding_candidate(
-    buck: Animal, *, latest_weight_kg: float | None, reference_date: date
+    buck: Animal, *, latest_weight_kg: float | None, reference_date: date, farm_type: str = "GOAT"
 ) -> bool:
     """Canonical sire predicate using a bounded latest-weight scalar."""
+    profile = species_profile(farm_type)
     age = buck.age_months_on(reference_date)
     return bool(
         buck.sex == "M"
@@ -251,9 +255,9 @@ def is_buck_breeding_candidate(
         and not buck.suspected_scheduled_disease
         and buck.current_bucket in {Bucket.FOUNDATION.value, Bucket.BREEDING.value}
         and age is not None
-        and age >= MIN_BUCK_BREEDING_AGE_MONTHS
+        and age >= profile.min_sire_breeding_age_months
         and latest_weight_kg is not None
-        and latest_weight_kg >= MIN_BUCK_BREEDING_WEIGHT_KG
+        and latest_weight_kg >= profile.min_sire_breeding_weight_kg
     )
 
 
@@ -376,14 +380,23 @@ async def create_breeding_record(
     db: AsyncSession,
     farm: Farm,
     doe: Animal,
-    buck: Animal,
+    buck: Animal | None,
     breeding_date: date,
     created_by_id: int | None = None,
     *,
     doe_latest_weight_kg: float | None,
     has_open_breeding: bool,
+    method: str = BreedingMethod.NATURAL.value,
+    semen_sire_name: str | None = None,
 ) -> BreedingRecord:
-    for animal, role in ((doe, "Doe"), (buck, "Buck")):
+    participants: list[tuple[Animal, str]] = [(doe, "Doe")]
+    if method == BreedingMethod.NATURAL.value:
+        if buck is None:
+            raise ValueError("A natural service requires a herd buck")
+        participants.append((buck, "Buck"))
+    else:
+        buck = None  # an AI service never credits a herd sire row
+    for animal, role in participants:
         if animal.effective_dob and breeding_date < animal.effective_dob:
             raise ValueError(f"{role} breeding chronology cannot predate its recorded birth date")
         if animal.purchase_date and breeding_date < animal.purchase_date:
@@ -403,13 +416,16 @@ async def create_breeding_record(
     # breeding that physically happened before a same-day move legitimately
     # predates it. Rejecting that ordering made every backdated breeding —
     # which the schema explicitly supports — unrecordable after any move.
-    ultrasound_date = planned_ultrasound_date(breeding_date)
+    ultrasound_date = planned_ultrasound_date(breeding_date, farm.farm_type)
     br = BreedingRecord(
         farm_id=farm.id,
         doe_id=doe.id,
-        buck_id=buck.id,
+        buck_id=buck.id if buck is not None else None,
+        semen_sire_name=(semen_sire_name or "").strip() or None
+        if method != BreedingMethod.NATURAL.value
+        else None,
         breeding_date=breeding_date,
-        method=BreedingMethod.NATURAL.value,
+        method=method,
         heat_cycle_number=await derived_heat_cycle_number(db, farm.id, doe.id),
         ultrasound_date=ultrasound_date,
         outcome=BreedingOutcome.PENDING.value,
@@ -420,7 +436,7 @@ async def create_breeding_record(
     await _add_task(
         db,
         farm.id,
-        f"Ultrasound check: {doe.tag_number} (bred {breeding_date.strftime('%d-%m')})",
+        f"Pregnancy check: {doe.tag_number} (bred {breeding_date.strftime('%d-%m')})",
         ultrasound_date,
         TaskCategory.ULTRASOUND,
         animal_id=doe.id,
@@ -435,6 +451,7 @@ async def create_breeding_record(
         context="breeding",
         reference_date=breeding_date,
         facts=(doe_latest_weight_kg, False),
+        farm_type=farm.farm_type,
     )
     await db.flush()
     return br
@@ -468,9 +485,12 @@ async def record_ultrasound_result(
         raise ValueError(
             f"{doe.tag_number} is {doe.status.lower()} — cannot record an ultrasound result"
         )
+    farm = await db.get(Farm, br.farm_id)
+    profile = species_profile(farm.farm_type if farm is not None else "GOAT")
+    max_gestation = profile.max_gestation_days
     if result_date < br.breeding_date:
         raise ValueError("Pregnancy check result cannot predate the breeding date")
-    if result_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS):
+    if result_date > br.breeding_date + timedelta(days=max_gestation):
         # A result recorded after the last possible gestation day is not a
         # factual ultrasound outcome in either direction.  The positive case
         # would strand the doe with no legal kidding date; the negative case
@@ -481,11 +501,11 @@ async def record_ultrasound_result(
         if pregnant:
             raise ValueError(
                 "A positive pregnancy check cannot be recorded after the maximum "
-                f"{MAX_GESTATION_DAYS}-day gestation window"
+                f"{max_gestation}-day gestation window"
             )
         raise ValueError(
             "A not-pregnant result cannot be recorded after the maximum "
-            f"{MAX_GESTATION_DAYS}-day gestation window"
+            f"{max_gestation}-day gestation window"
         )
     if not pregnant:
         # The negative path deliberately accepts results well before the
@@ -541,13 +561,14 @@ async def record_ultrasound_result(
     if pregnant:
         br.outcome = BreedingOutcome.CONFIRMED_PREGNANT.value
         doe.cull_candidate = False  # she conceived — previous failures forgiven
-        ekd = expected_kidding_date(br.breeding_date)
+        farm_type = farm.farm_type if farm is not None else "GOAT"
+        ekd = expected_kidding_date(br.breeding_date, farm_type)
         br.expected_kidding_date = ekd
         move_animal(
             db,
             doe,
             Bucket.PREGNANCY_EARLY.value,
-            "Ultrasound confirmed pregnant",
+            "Pregnancy confirmed",
             created_by_id=created_by_id,
             context="ultrasound",
             reference_date=result_date,
@@ -556,28 +577,50 @@ async def record_ultrasound_result(
             # be committed atomically in the same transaction.
             allow_restricted_reclassification=True,
         )
+        if farm_type != "GOAT":
+            # Buffalo: dry-off ~60 days before calving (dry buffalo therapy),
+            # move to the calving-pen wing ~2-3 weeks before the due date.
+            await _add_task(
+                db,
+                br.farm_id,
+                f"{PRE_CALVING_THERAPY_TITLE}: {doe.tag_number}",
+                ekd - timedelta(days=60),
+                TaskCategory.VACCINE,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
+            await _add_task(
+                db,
+                br.farm_id,
+                f"Move {doe.tag_number} to DELIVERY (dry off, calving in ~2 weeks)",
+                ekd - timedelta(days=21),
+                TaskCategory.BUCKET_MOVE,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
+        else:
+            await _add_task(
+                db,
+                br.farm_id,
+                f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
+                ekd - timedelta(days=40),
+                TaskCategory.VACCINE,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
+            await _add_task(
+                db,
+                br.farm_id,
+                f"Move {doe.tag_number} to DELIVERY (kidding in ~2 weeks)",
+                ekd - timedelta(days=15),
+                TaskCategory.BUCKET_MOVE,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
         await _add_task(
             db,
             br.farm_id,
-            f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
-            ekd - timedelta(days=40),
-            TaskCategory.VACCINE,
-            animal_id=doe.id,
-            breeding_record_id=br.id,
-        )
-        await _add_task(
-            db,
-            br.farm_id,
-            f"Move {doe.tag_number} to DELIVERY (kidding in ~2 weeks)",
-            ekd - timedelta(days=15),
-            TaskCategory.BUCKET_MOVE,
-            animal_id=doe.id,
-            breeding_record_id=br.id,
-        )
-        await _add_task(
-            db,
-            br.farm_id,
-            f"Kidding due: {doe.tag_number}",
+            f"{profile.parturition.capitalize()} due: {doe.tag_number}",
             ekd,
             TaskCategory.KIDDING_DUE,
             animal_id=doe.id,
@@ -683,13 +726,15 @@ async def mark_aborted(
         raise ValueError("Pregnancy loss date cannot be before the breeding date")
     if br.ultrasound_result_date is not None and loss_date < br.ultrasound_result_date:
         raise ValueError("Pregnancy loss date cannot be before pregnancy confirmation")
-    if (
-        loss_date > br.breeding_date + timedelta(days=MAX_GESTATION_DAYS)
-        and not allow_late_administrative_close
+    farm = await db.get(Farm, br.farm_id)
+    max_gestation = species_profile(
+        farm.farm_type if farm is not None else "GOAT"
+    ).max_gestation_days
+    if loss_date > br.breeding_date + timedelta(days=max_gestation) and not (
+        allow_late_administrative_close
     ):
         raise ValueError(
-            "Pregnancy loss date cannot be after the maximum "
-            f"{MAX_GESTATION_DAYS}-day gestation window"
+            f"Pregnancy loss date cannot be after the maximum {max_gestation}-day gestation window"
         )
     clean_notes = (loss_notes or "").strip() or None
     if clean_notes is not None and len(clean_notes) > 4_000:

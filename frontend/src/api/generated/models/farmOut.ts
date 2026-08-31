@@ -11,4 +11,5 @@ export interface FarmOut {
   location: string | null;
   timezone: string;
   role: string | null;
+  farm_type: string;
 }

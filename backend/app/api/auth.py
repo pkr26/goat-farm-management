@@ -1292,6 +1292,7 @@ async def export_account(response: Response, db: DbSession, user: CurrentUser) -
                 name=farm.name,
                 location=farm.location,
                 timezone=farm.timezone,
+                farm_type=farm.farm_type,
                 created_at=farm.created_at,
             )
             for farm in owned
@@ -1434,6 +1435,7 @@ async def list_farms(db: DbSession, user: CurrentUser) -> list[FarmOut]:
             location=f.location,
             timezone=f.timezone,
             role=role,
+            farm_type=f.farm_type,
         )
         for f, role in pairs
     ]
@@ -1489,6 +1491,7 @@ async def create_farm(
             name=name,
             location=(payload.location or "").strip() or None,
             timezone=payload.timezone,
+            farm_type=payload.farm_type,
             owner_id=locked_user.id,
         )
         db.add(farm)
@@ -1500,6 +1503,7 @@ async def create_farm(
             location=farm.location,
             timezone=farm.timezone,
             role=None,
+            farm_type=farm.farm_type,
         )
 
     return await execute_idempotent(

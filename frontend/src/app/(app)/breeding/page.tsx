@@ -62,6 +62,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
@@ -118,18 +120,40 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   );
 }
 
-const breedingSchema = z.object({
-  doe_id: z.string().min(1, "Select a doe"),
-  buck_id: z.string().min(1, "Select a buck"),
-  breeding_date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
-    .refine((s) => s <= localToday(), "Date can't be in the future"),
-});
+const breedingSchema = z
+  .object({
+    doe_id: z.string().min(1, "Select a doe"),
+    // Buck is required for natural service; AI methods name a semen bull.
+    buck_id: z.string(),
+    method: z.enum(["NATURAL", "AI", "AI_SEXED"]),
+    semen_sire_name: z.string().trim().max(120).optional(),
+    breeding_date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid date")
+      .refine((s) => s <= localToday(), "Date can't be in the future"),
+  })
+  .superRefine((values, ctx) => {
+    if (values.method === "NATURAL" && !values.buck_id) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["buck_id"],
+        message: "Select a buck for a natural service",
+      });
+    }
+    if (values.method !== "NATURAL" && values.semen_sire_name?.trim() === undefined) {
+      return; // semen identity is optional; the straw may not record it
+    }
+  });
 type BreedingValues = z.infer<typeof breedingSchema>;
 
 function breedingDefaults(): BreedingValues {
-  return { doe_id: "", buck_id: "", breeding_date: localToday() };
+  return {
+    doe_id: "",
+    buck_id: "",
+    method: "NATURAL",
+    semen_sire_name: "",
+    breeding_date: localToday(),
+  };
 }
 
 function NewBreedingDialog({
@@ -145,6 +169,7 @@ function NewBreedingDialog({
 }) {
   const createMutation = useCreateBreedingApiBreedingPost();
   const createFlight = useSingleFlight();
+  const vocabulary = farmVocabulary(useFarmType());
   const [formError, setFormError] = useState<string | null>(null);
   // RemotePicker resolves a selected label from its loaded page, then this
   // prop, then its own state — and that state dies with the picker when the
@@ -162,11 +187,13 @@ function NewBreedingDialog({
     handleSubmit,
     reset,
     resetField,
+    watch,
     formState: { errors, isSubmitting, dirtyFields },
   } = useForm<BreedingValues>({
     resolver: zodResolver(breedingSchema),
     defaultValues: breedingDefaults(),
   });
+  const method = watch("method");
 
   // Read during render so RHF's formState proxy subscribes to dirty tracking.
   const breedingDateTouched = Boolean(dirtyFields.breeding_date);
@@ -188,7 +215,10 @@ function NewBreedingDialog({
         await createMutation.mutateAsync({
           data: {
             doe_id: Number(values.doe_id),
-            buck_id: Number(values.buck_id),
+            ...(values.method === "NATURAL" ? { buck_id: Number(values.buck_id) } : {}),
+            ...(values.method !== "NATURAL"
+              ? { method: values.method, semen_sire_name: values.semen_sire_name?.trim() || null }
+              : {}),
             breeding_date: values.breeding_date,
           },
         });
@@ -224,7 +254,8 @@ function NewBreedingDialog({
         <DialogHeader>
           <DialogTitle>Add breeding</DialogTitle>
           <DialogDescription>
-            An ultrasound-check task is auto-created for breeding date + 32 days.
+            A pregnancy-check task is auto-created ({vocabulary.dairy ? "~60" : "32"} days after
+            the service{vocabulary.dairy ? "; buffaloes are bred back during lactation" : ""}).
           </DialogDescription>
         </DialogHeader>
         {candidateAvailability === null ? (
@@ -234,8 +265,7 @@ function NewBreedingDialog({
           </p>
         ) : eligibleDoeCount === 0 ? (
           <p className="text-muted-foreground">
-            No breeding-ready does right now (female, ≥10 months, ≥22 kg, not
-            pregnant).
+            No breeding-ready females right now. {vocabulary.breedingGateCopy}
           </p>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} noValidate>
@@ -273,36 +303,84 @@ function NewBreedingDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="breeding-buck">Buck *</Label>
-              <Controller
-                control={control}
-                name="buck_id"
-                render={({ field }) => (
-                  <BreedingCandidatePicker
-                    id="breeding-buck"
-                    kind="buck"
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    onOptionChange={setBuckOption}
-                    selectedOption={buckOption?.value === field.value ? buckOption : null}
-                    placeholder="Select buck"
-                    dialogTitle="Choose an active buck"
-                    disabled={!hasEligibleBuck}
-                    aria-invalid={Boolean(errors.buck_id) || undefined}
-                    aria-describedby={errors.buck_id ? "breeding-buck-error" : undefined}
-                  />
-                )}
-              />
-              {errors.buck_id && (
-                <p id="breeding-buck-error" role="alert" className="text-sm text-destructive">{errors.buck_id.message}</p>
-              )}
-              {!hasEligibleBuck && (
-                <p className="text-sm text-destructive">
-                  No eligible bucks are available. Bucks on hold, in quarantine, or otherwise
-                  restricted cannot be selected.
-                </p>
-              )}
+              <Label>Method *</Label>
+              <div
+                role="radiogroup"
+                aria-label="Breeding method"
+                className="grid gap-2 sm:grid-cols-3"
+              >
+                {(
+                  [
+                    ["NATURAL", "Natural", `Herd ${vocabulary.maleAdult}`],
+                    ["AI", "AI", "Conventional semen"],
+                    ["AI_SEXED", "AI (sexed)", "~90% female calves"],
+                  ] as const
+                ).map(([value, title, hint]) => (
+                  <label
+                    key={value}
+                    className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-left transition has-[[input:checked]]:border-primary"
+                  >
+                    <input
+                      type="radio"
+                      value={value}
+                      {...register("method")}
+                      className="mt-1 accent-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">{title}</span>
+                      <span className="block text-xs text-muted-foreground">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
+            {method === "NATURAL" ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="breeding-buck">Buck *</Label>
+                <Controller
+                  control={control}
+                  name="buck_id"
+                  render={({ field }) => (
+                    <BreedingCandidatePicker
+                      id="breeding-buck"
+                      kind="buck"
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      onOptionChange={setBuckOption}
+                      selectedOption={buckOption?.value === field.value ? buckOption : null}
+                      placeholder="Select buck"
+                      dialogTitle="Choose an active buck"
+                      disabled={!hasEligibleBuck}
+                      aria-invalid={Boolean(errors.buck_id) || undefined}
+                      aria-describedby={errors.buck_id ? "breeding-buck-error" : undefined}
+                    />
+                  )}
+                />
+                {errors.buck_id && (
+                  <p id="breeding-buck-error" role="alert" className="text-sm text-destructive">{errors.buck_id.message}</p>
+                )}
+                {!hasEligibleBuck && (
+                  <p className="text-sm text-destructive">
+                    No eligible bucks are available. Bucks on hold, in quarantine, or otherwise
+                    restricted cannot be selected.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="breeding-semen-sire">Semen bull (optional)</Label>
+                <Input
+                  id="breeding-semen-sire"
+                  maxLength={120}
+                  placeholder="Bull name / straw code, e.g. Karanvir 999"
+                  aria-describedby="breeding-semen-sire-hint"
+                  {...register("semen_sire_name")}
+                />
+                <p id="breeding-semen-sire-hint" className="text-xs text-muted-foreground">
+                  The sire on the straw — verifiable daughters&apos; yield &gt;3,000 kg/lactation.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="breeding_date">Breeding date *</Label>
               <Input
@@ -322,7 +400,11 @@ function NewBreedingDialog({
             <DialogFooter>
               <Button
                 type="submit"
-                disabled={isSubmitting || createFlight.pending || !hasEligibleBuck}
+                disabled={
+                  isSubmitting ||
+                  createFlight.pending ||
+                  (method === "NATURAL" && !hasEligibleBuck)
+                }
               >
                 {isSubmitting || createFlight.pending
                   ? "Saving…"

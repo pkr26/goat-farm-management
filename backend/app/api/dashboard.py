@@ -229,7 +229,13 @@ async def dashboard(
     on the animal pages — and are withheld (empty list, null total) without it.
     """
     defs = list(
-        (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
+        (
+            await db.execute(
+                select(BucketDefinition)
+                .where(BucketDefinition.farm_type == farm.farm_type)
+                .order_by(BucketDefinition.sort_order)
+            )
+        ).scalars()
     )
     counts: dict[str, int] = {d.code: 0 for d in defs}
     sex_counts: dict[str, int] = {"M": 0, "F": 0}
@@ -392,7 +398,13 @@ async def reports(db: DbSession, farm: CurrentFarm, perms: REPORTS_PERM) -> Repo
 
     # --- herd summary -------------------------------------------------------
     defs = list(
-        (await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))).scalars()
+        (
+            await db.execute(
+                select(BucketDefinition)
+                .where(BucketDefinition.farm_type == farm.farm_type)
+                .order_by(BucketDefinition.sort_order)
+            )
+        ).scalars()
     )
     # Latest weight record per animal (date, then id — same key as
     # Animal.latest_weight), falling back to birth_weight like the property.

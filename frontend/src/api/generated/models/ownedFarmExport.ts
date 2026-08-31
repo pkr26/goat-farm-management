@@ -10,5 +10,6 @@ export interface OwnedFarmExport {
   name: string;
   location: string | null;
   timezone: string;
+  farm_type: string;
   created_at: string;
 }

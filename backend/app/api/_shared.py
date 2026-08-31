@@ -16,8 +16,6 @@ from sqlalchemy.orm import selectinload
 
 from ..models import (
     BREEDING_READY_BUCKETS,
-    MIN_BREEDING_AGE_MONTHS,
-    MIN_BREEDING_WEIGHT_KG,
     Animal,
     AnimalStatus,
     BreedingOutcome,
@@ -32,6 +30,7 @@ from ..models import (
     TaskStatus,
     User,
     WeightRecord,
+    species_profile,
 )
 from ..schemas.animals import AnimalOut
 from ..schemas.breeding import BreedingRecordOut
@@ -145,6 +144,7 @@ def animal_out(
     *,
     permissions: Set[str],
     computed: AnimalComputedFacts | None = None,
+    farm_type: str = "GOAT",
 ) -> AnimalOut:
     """Serialize an animal using the caller's effective farm permissions.
 
@@ -170,11 +170,12 @@ def animal_out(
         if field_name not in computed_field_names
     }
     age_months = animal.age_months_on(reference_date)
+    profile = species_profile(farm_type)
     if computed is None:
         latest_weight_kg = animal.latest_weight_kg_on(reference_date)
         days_in_current_bucket = animal.days_in_current_bucket_on(reference_date, timezone_name)
         is_currently_pregnant = animal.is_currently_pregnant
-        is_breeding_ready = animal.is_breeding_ready_on(reference_date)
+        is_breeding_ready = animal.is_breeding_ready_on(reference_date, farm_type=farm_type)
     else:
         latest_weight_kg = computed.latest_weight_kg
         days_in_current_bucket = computed.days_in_current_bucket
@@ -186,9 +187,9 @@ def animal_out(
             and not animal.suspected_scheduled_disease
             and animal.current_bucket in {bucket.value for bucket in BREEDING_READY_BUCKETS}
             and age_months is not None
-            and age_months >= MIN_BREEDING_AGE_MONTHS
+            and age_months >= profile.min_breeding_age_months
             and computed.latest_weight_kg is not None
-            and computed.latest_weight_kg >= MIN_BREEDING_WEIGHT_KG
+            and computed.latest_weight_kg >= profile.min_breeding_weight_kg
             and not computed.is_currently_pregnant
         )
     values.update(
@@ -295,6 +296,7 @@ def breeding_out(br: BreedingRecord) -> BreedingRecordOut:
         id=br.id,
         doe_id=br.doe_id,
         buck_id=br.buck_id,
+        semen_sire_name=br.semen_sire_name,
         breeding_date=br.breeding_date,
         method=br.method,
         heat_cycle_number=br.heat_cycle_number,
@@ -312,7 +314,7 @@ def breeding_out(br: BreedingRecord) -> BreedingRecordOut:
         loss_recorded_at=br.loss_recorded_at,
         has_kidding=br.kidding_record is not None,
         doe_tag=br.doe.tag_number,
-        buck_tag=br.buck.tag_number,
+        buck_tag=br.buck.tag_number if br.buck is not None else None,
     )
 
 

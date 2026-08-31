@@ -34,7 +34,11 @@ async def buckets_board(
     independently-authorized register is the paginated ``/animals`` page in
     ``animals_page_path``.
     """
-    defs_result = await db.execute(select(BucketDefinition).order_by(BucketDefinition.sort_order))
+    defs_result = await db.execute(
+        select(BucketDefinition)
+        .where(BucketDefinition.farm_type == farm.farm_type)
+        .order_by(BucketDefinition.sort_order)
+    )
     defs = list(defs_result.scalars())
 
     # Rank/count cheap Animal rows first. Only the selected preview then probes

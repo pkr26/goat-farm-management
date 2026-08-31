@@ -23,14 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, business_date, today, utcnow
-from .constants import (
-    BREEDING_READY_BUCKETS,
-    MIN_BREEDING_AGE_MONTHS,
-    MIN_BREEDING_WEIGHT_KG,
-    MIN_BUCK_BREEDING_AGE_MONTHS,
-    MIN_BUCK_BREEDING_WEIGHT_KG,
-)
+from .constants import BREEDING_READY_BUCKETS
 from .enums import AnimalStatus, BreedingOutcome, Sex
+from .species import species_profile
 
 if TYPE_CHECKING:
     from .breeding import BreedingRecord
@@ -331,8 +326,9 @@ class Animal(Base):
         living in FOUNDATION / FEMALE_KIDS / RESTING (per SPEC)."""
         return self.is_breeding_ready_on(today())
 
-    def is_breeding_ready_on(self, reference_date: date) -> bool:
+    def is_breeding_ready_on(self, reference_date: date, *, farm_type: str = "GOAT") -> bool:
         """Breeding readiness on an explicit farm-local business date."""
+        profile = species_profile(farm_type)
         if self.sex != Sex.F.value or self.status != AnimalStatus.ACTIVE.value:
             return False
         if self.movement_restricted or self.suspected_scheduled_disease:
@@ -340,10 +336,10 @@ class Animal(Base):
         if self.current_bucket not in [b.value for b in BREEDING_READY_BUCKETS]:
             return False
         age = self.age_months_on(reference_date)
-        if age is None or age < MIN_BREEDING_AGE_MONTHS:
+        if age is None or age < profile.min_breeding_age_months:
             return False
         weight = self.latest_weight_kg_on(reference_date)
-        if weight is None or weight < MIN_BREEDING_WEIGHT_KG:
+        if weight is None or weight < profile.min_breeding_weight_kg:
             return False
         if self.is_currently_pregnant:
             return False
@@ -359,8 +355,9 @@ class Animal(Base):
         """
         return self.is_breeding_eligible_on(today())
 
-    def is_breeding_eligible_on(self, reference_date: date) -> bool:
+    def is_breeding_eligible_on(self, reference_date: date, *, farm_type: str = "GOAT") -> bool:
         """First-service/re-service eligibility on a farm-local date."""
+        profile = species_profile(farm_type)
         if self.sex != Sex.F.value or self.status != AnimalStatus.ACTIVE.value:
             return False
         if self.movement_restricted or self.suspected_scheduled_disease:
@@ -371,9 +368,9 @@ class Animal(Base):
         weight = self.latest_weight_kg_on(reference_date)
         return bool(
             age is not None
-            and age >= MIN_BREEDING_AGE_MONTHS
+            and age >= profile.min_breeding_age_months
             and weight is not None
-            and weight >= MIN_BREEDING_WEIGHT_KG
+            and weight >= profile.min_breeding_weight_kg
             and not self.is_currently_pregnant
         )
 
@@ -382,8 +379,9 @@ class Animal(Base):
         """Canonical sire eligibility on today's default business date."""
         return self.is_buck_eligible_on(today())
 
-    def is_buck_ready_on(self, reference_date: date) -> bool:
+    def is_buck_ready_on(self, reference_date: date, *, farm_type: str = "GOAT") -> bool:
         """Factual maturity/health floor, independent of the current bucket."""
+        profile = species_profile(farm_type)
         age = self.age_months_on(reference_date)
         weight = self.latest_weight_kg_on(reference_date)
         return bool(
@@ -392,15 +390,15 @@ class Animal(Base):
             and not self.movement_restricted
             and not self.suspected_scheduled_disease
             and age is not None
-            and age >= MIN_BUCK_BREEDING_AGE_MONTHS
+            and age >= profile.min_sire_breeding_age_months
             and weight is not None
-            and weight >= MIN_BUCK_BREEDING_WEIGHT_KG
+            and weight >= profile.min_sire_breeding_weight_kg
         )
 
-    def is_buck_eligible_on(self, reference_date: date) -> bool:
+    def is_buck_eligible_on(self, reference_date: date, *, farm_type: str = "GOAT") -> bool:
         """A ready sire already housed in a buck-capable breeding bucket."""
         return self.current_bucket in {"FOUNDATION", "BREEDING"} and self.is_buck_ready_on(
-            reference_date
+            reference_date, farm_type=farm_type
         )
 
     @property
@@ -478,6 +476,14 @@ class BucketMove(Base):
 class BucketDefinition(Base):
     __tablename__ = "bucket_definitions"
     __table_args__ = (
+        # One definition row per (farm type, lifecycle stage code): the ten
+        # stage codes are shared, each farm type labels and feeds them its
+        # own way.
+        UniqueConstraint("farm_type", "code", name="uq_bucket_definitions_type_code"),
+        CheckConstraint(
+            "farm_type IN ('GOAT', 'BUFFALO_DAIRY')",
+            name="ck_bucket_definitions_farm_type",
+        ),
         CheckConstraint(
             "code IN "
             "('QUARANTINE', 'FOUNDATION', 'BREEDING', 'PREGNANCY_EARLY', "
@@ -494,7 +500,8 @@ class BucketDefinition(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(20), unique=True)
+    farm_type: Mapped[str] = mapped_column(String(20), default="GOAT", server_default="GOAT")
+    code: Mapped[str] = mapped_column(String(20))
     name: Mapped[str] = mapped_column(String(120))
     who: Mapped[str | None] = mapped_column(String(255))
     exit_rule: Mapped[str | None] = mapped_column(String(255))

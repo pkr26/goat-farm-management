@@ -71,8 +71,15 @@ class BreedingRecord(Base):
             name="ck_breeding_loss_metadata_matches_outcome",
         ),
         CheckConstraint(
-            "method IN ('NATURAL')",
+            "method IN ('NATURAL', 'AI', 'AI_SEXED')",
             name="ck_breeding_records_method",
+        ),
+        # Natural service names a herd sire; AI services may name the semen
+        # bull instead (or neither, when the straw identity was not recorded).
+        CheckConstraint(
+            "(method <> 'NATURAL' OR (buck_id IS NOT NULL AND semen_sire_name IS NULL)) "
+            "AND (semen_sire_name IS NULL OR method IN ('AI', 'AI_SEXED'))",
+            name="ck_breeding_records_sire_identity",
         ),
         CheckConstraint(
             "outcome IN ('PENDING', 'CONFIRMED_PREGNANT', 'FAILED', 'ABORTED', 'UNASSESSED')",
@@ -155,7 +162,11 @@ class BreedingRecord(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     farm_id: Mapped[int] = mapped_column(ForeignKey("farms.id"), index=True)
     doe_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
-    buck_id: Mapped[int] = mapped_column(ForeignKey("animals.id"), index=True)
+    # Herd sire for NATURAL service. NULL is legal only for AI methods, where
+    # the sire is a semen bull named in semen_sire_name (or unrecorded).
+    buck_id: Mapped[int | None] = mapped_column(ForeignKey("animals.id"), index=True)
+    # Semen bull identity (name/bull code) for AI / sexed-semen services.
+    semen_sire_name: Mapped[str | None] = mapped_column(String(120))
     breeding_date: Mapped[date]
     method: Mapped[str] = mapped_column(String(10), default=BreedingMethod.NATURAL.value)
     heat_cycle_number: Mapped[int] = mapped_column(default=1)

@@ -9,10 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     BREEDING_READY_BUCKETS,
-    MIN_BREEDING_AGE_MONTHS,
-    MIN_BREEDING_WEIGHT_KG,
-    MIN_BUCK_BREEDING_AGE_MONTHS,
-    MIN_BUCK_BREEDING_WEIGHT_KG,
     Animal,
     AnimalStatus,
     Bucket,
@@ -20,6 +16,7 @@ from ..models import (
     PurchaseBatch,
     Task,
     TaskStatus,
+    species_profile,
 )
 from ..utils import today, utcnow
 
@@ -79,6 +76,7 @@ def bucket_transition_error(
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
     allow_restricted_reclassification: bool = False,
+    farm_type: str = "GOAT",
 ) -> str | None:
     """Return the model-level reason a lifecycle move must be blocked.
 
@@ -121,9 +119,10 @@ def bucket_transition_error(
         )
     when = reference_date or today()
     if to_bucket == Bucket.BREEDING.value:
+        profile = species_profile(farm_type)
         if animal.sex == "F":
             if facts is None:
-                eligible = animal.is_breeding_eligible_on(when)
+                eligible = animal.is_breeding_eligible_on(when, farm_type=farm_type)
             else:
                 latest_weight_kg, is_currently_pregnant = facts
                 age = animal.age_months_on(when)
@@ -133,9 +132,9 @@ def bucket_transition_error(
                     and not animal.suspected_scheduled_disease
                     and animal.current_bucket in {*BREEDING_READY_BUCKETS, "BREEDING"}
                     and age is not None
-                    and age >= MIN_BREEDING_AGE_MONTHS
+                    and age >= profile.min_breeding_age_months
                     and latest_weight_kg is not None
-                    and latest_weight_kg >= MIN_BREEDING_WEIGHT_KG
+                    and latest_weight_kg >= profile.min_breeding_weight_kg
                     and not is_currently_pregnant
                 )
             if not eligible:
@@ -145,7 +144,7 @@ def bucket_transition_error(
         # current_bucket FOUNDATION/BREEDING via is_buck_eligible_on().
         if animal.sex == "M":
             if facts is None:
-                ready = animal.is_buck_ready_on(when)
+                ready = animal.is_buck_ready_on(when, farm_type=farm_type)
             else:
                 latest_weight_kg, _is_currently_pregnant = facts
                 age = animal.age_months_on(when)
@@ -154,9 +153,9 @@ def bucket_transition_error(
                     and not animal.movement_restricted
                     and not animal.suspected_scheduled_disease
                     and age is not None
-                    and age >= MIN_BUCK_BREEDING_AGE_MONTHS
+                    and age >= profile.min_sire_breeding_age_months
                     and latest_weight_kg is not None
-                    and latest_weight_kg >= MIN_BUCK_BREEDING_WEIGHT_KG
+                    and latest_weight_kg >= profile.min_sire_breeding_weight_kg
                 )
             if not ready:
                 return f"{animal.tag_number} is not eligible to enter BREEDING"
@@ -171,6 +170,7 @@ def require_bucket_transition(
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
     allow_restricted_reclassification: bool = False,
+    farm_type: str = "GOAT",
 ) -> None:
     if error := bucket_transition_error(
         animal,
@@ -179,6 +179,7 @@ def require_bucket_transition(
         reference_date=reference_date,
         facts=facts,
         allow_restricted_reclassification=allow_restricted_reclassification,
+        farm_type=farm_type,
     ):
         raise ValueError(error)
 
@@ -194,6 +195,7 @@ def move_animal(
     reference_date: date | None = None,
     facts: TransitionFacts | None = None,
     allow_restricted_reclassification: bool = False,
+    farm_type: str = "GOAT",
 ) -> None:
     """Record a BucketMove and update the animal's current bucket.
     Non-ACTIVE (sold/dead/culled) animals never move — they are out of the
@@ -214,6 +216,7 @@ def move_animal(
         reference_date=reference_date,
         facts=facts,
         allow_restricted_reclassification=allow_restricted_reclassification,
+        farm_type=farm_type,
     )
     db.add(
         BucketMove(

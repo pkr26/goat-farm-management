@@ -1,9 +1,23 @@
-# Goat Farm Management
+# Goat & Buffalo Dairy Farm Management
 
-Multi-farm web app for commercial **Osmanabadi** goat farming in Telangana,
-India. Monorepo: async **FastAPI + PostgreSQL** JSON API (`backend/`), a
-**Next.js + React + strict TypeScript** SPA (`frontend/`), and a shared
-OpenAPI contract (`shared/openapi.json`).
+Multi-farm, multi-species web app for commercial livestock in Telangana,
+India: **Osmanabadi** goat (meat) herds and **Murrah buffalo** dairy (milk)
+operations. Every farm picks its type at creation; buckets, feed rations,
+vaccination calendars, breeding biology, vocabulary and the financial model
+all follow the farm's species. Monorepo: async **FastAPI + PostgreSQL**
+JSON API (`backend/`), a **Next.js + React + strict TypeScript** SPA
+(`frontend/`), and a shared OpenAPI contract (`shared/openapi.json`).
+
+**Goat farms** manage the Osmanabadi meat cycle (kidding, 60-day weaning,
+buck rotation, festival-season live-weight sales). **Buffalo dairy farms**
+manage the Murrah milk cycle: AI breeding (conventional and sexed semen,
+60-day voluntary waiting period, 3-service cull rule), 310-day gestation,
+calving with 24-hour calf separation into the calf shed, 90-day milk weaning,
+a 10-day fresh pen, dry-off 60 days before calving, per-shift milk yields
+with fat testing, fat-based procurement pricing (₹/kg fat), male-calf
+sales at birth, and a dairy lactation-curve simulation (peak yield,
+persistency, summer heat-stress trough, lean-season price premium) with
+Monte-Carlo milk-price risk.
 
 ```
 backend/    FastAPI app (async SQLAlchemy 2.0 + asyncpg, Alembic, Argon2id, JWT)
@@ -683,7 +697,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          26 tables, domain enums, computed properties — split per
+    models/          27 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,

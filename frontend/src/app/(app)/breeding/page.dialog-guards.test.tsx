@@ -60,6 +60,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     id: 1,
     doe_id: 10,
     buck_id: 20,
+    semen_sire_name: null,
     breeding_date: "2026-07-01",
     method: "NATURAL",
     heat_cycle_number: 1,

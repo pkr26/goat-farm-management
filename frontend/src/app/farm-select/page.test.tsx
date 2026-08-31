@@ -550,6 +550,7 @@ describe("FarmSelectPage — create a farm", () => {
     await waitFor(() => expect(postCalls).toBe(1));
     expect(postBody).toEqual({
       name: "n".repeat(120),
+      farm_type: "GOAT",
       location: "l".repeat(120),
       timezone: "t".repeat(64),
     });
@@ -588,6 +589,7 @@ describe("FarmSelectPage — create a farm", () => {
     // Blank location → null in the POST body.
     expect(postBody).toEqual({
       name: "New Osmanabadi Farm",
+      farm_type: "GOAT",
       location: null,
       timezone: "Asia/Kolkata",
     });
@@ -619,6 +621,7 @@ describe("FarmSelectPage — create a farm", () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     expect(postBody).toEqual({
       name: "Hillside",
+      farm_type: "GOAT",
       location: "Pune",
       timezone: "Asia/Kolkata",
     });
@@ -643,6 +646,7 @@ describe("FarmSelectPage — create a farm", () => {
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"));
     expect(postBody).toEqual({
       name: "Hillside",
+      farm_type: "GOAT",
       location: "Pune",
       timezone: "Asia/Kolkata",
     });

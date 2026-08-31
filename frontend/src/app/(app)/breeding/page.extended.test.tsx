@@ -101,6 +101,7 @@ function makeRecord(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
     id: 1,
     doe_id: 10,
     buck_id: 20,
+    semen_sire_name: null,
     breeding_date: "2026-07-01",
     method: "NATURAL",
     heat_cycle_number: 1,
@@ -536,7 +537,7 @@ describe("BreedingPage", () => {
     };
     const { dialog } = await openNewDialog();
     expect(
-      await within(dialog).findByText(/No breeding-ready does right now/),
+      await within(dialog).findByText(/No breeding-ready females right now/),
     ).toBeInTheDocument();
     expect(
       within(dialog).queryByRole("button", { name: "Save breeding" }),
@@ -592,7 +593,9 @@ describe("BreedingPage", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save breeding" }));
 
     expect(await within(dialog).findByText("Select a doe")).toBeInTheDocument();
-    expect(within(dialog).getByText("Select a buck")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Select a buck for a natural service"),
+    ).toBeInTheDocument();
     expect(within(dialog).getByText("Pick a valid date")).toBeInTheDocument();
     expect(breedingPostBody).toBeNull();
   });

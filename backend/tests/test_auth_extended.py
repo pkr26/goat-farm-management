@@ -3016,7 +3016,7 @@ async def test_farms_lists_owned_farms_with_none_role(client: httpx.AsyncClient)
     assert [f["id"] for f in farms] == created
     assert {f["name"] for f in farms} == {"Alpha", "Beta"}
     assert all(f["role"] is None for f in farms)  # None = owner
-    assert all(set(f) == {"id", "name", "location", "timezone", "role"} for f in farms)
+    assert all(set(f) == {"id", "name", "location", "timezone", "role", "farm_type"} for f in farms)
 
 
 async def test_affiliation_list_and_export_fail_before_unbounded_hydration(

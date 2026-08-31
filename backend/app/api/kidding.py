@@ -226,7 +226,8 @@ async def create_kidding(
     # waited for the buck's FK KEY SHARE lock — a deterministic deadlock. Taking
     # both parents in one ordered statement closes that cycle and also keeps the
     # existing abort-vs-kidding serialization guarantee.
-    parent_ids = sorted({row.doe_id, row.buck_id})
+    # buck_id is NULL for AI services — the semen sire is not a herd animal.
+    parent_ids = sorted({row.doe_id} | ({row.buck_id} if row.buck_id is not None else set()))
     locked_parent_ids = list(
         (
             await db.execute(

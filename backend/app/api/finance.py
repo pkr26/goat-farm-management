@@ -598,6 +598,8 @@ async def add_transaction(
             amount=money(payload.amount),
             related_animal_id=animal_pk,
             notes=(payload.notes or "").strip() or None,
+            milk_litres=payload.milk_litres,
+            milk_unit_price_per_litre=payload.milk_unit_price_per_litre,
             created_by_id=user.id,
         )
         db.add(txn)
@@ -680,6 +682,21 @@ async def correct_transaction(
             replacement_feed_unit_price = _corrected_feed_unit_price(
                 txn, money(payload.amount), replacement_feed_quantity_kg
             )
+        # A corrected MILK row may restate its sale provenance; any other
+        # category carries none.
+        replacement_milk_litres = (
+            payload.milk_litres if payload.category == "MILK" and payload.type == "INCOME" else None
+        )
+        replacement_milk_price = (
+            payload.milk_unit_price_per_litre
+            if payload.category == "MILK" and payload.type == "INCOME"
+            else None
+        )
+        if (replacement_milk_litres is None) != (replacement_milk_price is None):
+            raise HTTPException(
+                status_code=422,
+                detail="Milk provenance requires both litres and unit price",
+            )
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,
@@ -694,6 +711,8 @@ async def correct_transaction(
             feed_inventory_id=txn.feed_inventory_id,
             feed_quantity_kg=replacement_feed_quantity_kg,
             feed_unit_price_per_kg=replacement_feed_unit_price,
+            milk_litres=replacement_milk_litres,
+            milk_unit_price_per_litre=replacement_milk_price,
             correction_of_id=txn.id,
         )
         db.add(replacement)

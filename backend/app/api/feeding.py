@@ -29,11 +29,11 @@ from ..schemas.feeding import (
     StockAddIn,
 )
 from ..services import (
-    BUCKET_ALLOCATION_REFERENCE,
     DRY_ROUGHAGE,
     IdempotencyKey,
     InsufficientFeedError,
     add_feed_stock,
+    bucket_allocation_reference,
     execute_idempotent,
     feeding_plan,
     mix_feed_batch,
@@ -227,13 +227,16 @@ async def feeding_history(
 async def list_recipes(db: DbSession, farm: CurrentFarm, perms: FeedingView) -> RecipeListOut:
     """All feed recipes (with lines) + the bucket allocation reference table."""
     result = await db.execute(
-        select(FeedRecipe).options(selectinload(FeedRecipe.lines)).order_by(FeedRecipe.id)
+        select(FeedRecipe)
+        .options(selectinload(FeedRecipe.lines))
+        .where(FeedRecipe.farm_type == farm.farm_type)
+        .order_by(FeedRecipe.id)
     )
     return RecipeListOut(
         recipes=[FeedRecipeOut.model_validate(recipe) for recipe in result.scalars().all()],
         allocation=[
             BucketAllocationOut(bucket=bucket, allocation=allocation)
-            for bucket, allocation in BUCKET_ALLOCATION_REFERENCE
+            for bucket, allocation in bucket_allocation_reference(farm.farm_type)
         ],
     )
 

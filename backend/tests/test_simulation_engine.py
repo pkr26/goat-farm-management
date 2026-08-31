@@ -785,6 +785,26 @@ def test_breed_presets_and_systems() -> None:
             0.12,
         ),
         "boer_cross": (10_000, 18_000, 1.7, 12, 3, 3.0, 40, 50, 1.3, 8, 0, 400, 0.10),
+        # Murrah dairy buffalo: no sire battery (AI), single calf, 10-month
+        # gestation and lactation, 2,400 L/lactation, ₹1.1L in-milk purchase.
+        # Murrah dairy buffalo: AI (no sire battery), single calf, 10-month
+        # lactation, 2,400 L/lactation, ₹1.1L in-milk purchase, buffalo meat
+        # ₹190/kg live, curve = 34 kg + 15.1 kg/month (factor 7.55).
+        "murrah_dairy": (
+            110_000,
+            0,
+            1.0,
+            22,
+            10,
+            34.0,
+            520.0,
+            600.0,
+            7.55,
+            14,
+            2_400,
+            190,
+            0.10,
+        ),
     }
 
     # The preset registry itself is pinned: a breed added or removed from
@@ -878,10 +898,14 @@ def test_eid_uplift_applies_in_eid_month_only() -> None:
 def test_milk_revenue_hand_check() -> None:
     a = toy_assumptions()
     a.sales.lactation_milk_litres = 110.0
+    # Flat persistency + zero milk-price growth keeps the curve at the monthly
+    # average, so the hand-check below stays litres/month arithmetic.
+    a.sales.milk_persistency_monthly = 1.0
+    a.sales.annual_milk_price_growth_rate = 0.0
     res = run_simulation(a, with_break_even=False)
     m6 = res.months[5]
-    # 110 L over a 3-month lactation at Rs 30/L -> Rs 1100 per lactating doe-month.
-    assert m6.milk_revenue == pytest.approx(8.5 * S_ADULT**6 * (110.0 / 3.0) * 30.0, abs=1e-6)
+    # 110 L over a 3-month lactation at Rs 30/L -> Rs 1100 per milking doe-month.
+    assert m6.milk_revenue == pytest.approx(m6.lactating_does * (110.0 / 3.0) * 30.0, abs=1e-6)
     # Osmanabadi default (0 L/lactation) earns nothing from milk.
     assert run_simulation(toy_assumptions(), with_break_even=False).months[5].milk_revenue == 0.0
 
@@ -911,9 +935,10 @@ def test_labour_scales_with_herd_size() -> None:
 def test_sensitivity_tornado_sorted() -> None:
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
     items = run_sensitivity(a)
-    assert len(items) == 8
+    assert len(items) == 9
     assert {item.parameter for item in items} == {
         "meat_price",
+        "milk_price",
         "feed_prices",
         "kid_pre_weaning_mortality",
         "litter_size",
@@ -973,7 +998,7 @@ def test_run_simulation_optional_blocks() -> None:
     res = run_simulation(a, with_break_even=False, with_monte_carlo=True, with_sensitivity=True)
     assert res.monte_carlo is not None
     assert res.monte_carlo.runs == 10
-    assert res.sensitivity is not None and len(res.sensitivity) == 8
+    assert res.sensitivity is not None and len(res.sensitivity) == 9
     plain = run_simulation(a, with_break_even=False)
     assert plain.monte_carlo is None
     assert plain.sensitivity is None
@@ -998,15 +1023,18 @@ def test_stock_cost_and_project_cost_components() -> None:
     # labour, insurance, misc, selling) — recomputed independently here, not
     # derived from the reported project cost.
     year1 = res.months[:12]
-    avg_monthly_opex = sum(
-        row.feed_cost
-        + row.vet_cost
-        + row.labour_cost
-        + row.insurance_cost
-        + row.misc_cost
-        + row.selling_cost
-        for row in year1
-    ) / 12.0
+    avg_monthly_opex = (
+        sum(
+            row.feed_cost
+            + row.vet_cost
+            + row.labour_cost
+            + row.insurance_cost
+            + row.misc_cost
+            + row.selling_cost
+            for row in year1
+        )
+        / 12.0
+    )
     assert res.project_cost_breakdown.working_capital == pytest.approx(12.0 * avg_monthly_opex)
     assert avg_monthly_opex > 0.0
     shed_plus_equipment = res.project_cost_breakdown.capacity_places * (4500.0 + 500.0)
@@ -1323,7 +1351,11 @@ def test_explicit_zero_event_prices_do_not_fall_back_to_defaults() -> None:
 def test_young_purchase_default_price_is_live_weight_meat_value() -> None:
     # A weaner is placed mid-class (age 4): 10.5 kg x Rs 400/kg = Rs 4,200/head.
     g = SimulationAssumptions().growth
-    expected = 4.0 * weight_at_age(4, g, g.adult_weight_doe_kg) * SimulationAssumptions().sales.meat_price_per_kg
+    expected = (
+        4.0
+        * weight_at_age(4, g, g.adult_weight_doe_kg)
+        * SimulationAssumptions().sales.meat_price_per_kg
+    )
     event = HerdEventAssumptions(month=3, kind="purchase", animal_class="female_weaner", count=4)
     res = run_simulation(event_toy([event], horizon=12), with_break_even=False)
     assert res.months[2].purchase_cost == pytest.approx(expected)
@@ -1414,7 +1446,8 @@ def test_female_grower_purchase_without_chain_still_obeys_retention() -> None:
 
     base = SimulationAssumptions()
     expected_value = (
-        3.0 * weight_at_age(6, base.growth, base.growth.adult_weight_doe_kg)
+        3.0
+        * weight_at_age(6, base.growth, base.growth.adult_weight_doe_kg)
         * base.sales.meat_price_per_kg
     )
     without_chain = deltas(6)
@@ -1605,9 +1638,7 @@ def test_male_grower_purchase_at_sale_age_preserves_mass_and_value() -> None:
     assert m3.sales_head - m3_base.sales_head == pytest.approx(3.0)
     assert m3.purchases_head == pytest.approx(3.0)
     expected_value = (
-        3.0
-        * weight_at_age(6, a.growth, a.growth.adult_weight_buck_kg)
-        * a.sales.meat_price_per_kg
+        3.0 * weight_at_age(6, a.growth, a.growth.adult_weight_buck_kg) * a.sales.meat_price_per_kg
     )
     assert m3.purchase_cost == pytest.approx(expected_value)
     assert m3.sales_revenue - m3_base.sales_revenue == pytest.approx(expected_value)
@@ -2798,6 +2829,10 @@ def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> Non
     assumptions.sales.annual_livestock_price_growth_rate = 0.21
     assumptions.sales.lactation_milk_litres = 120.0
     assumptions.sales.milk_price_per_litre = 2.0
+    # Flat curve + milk-price growth matching the livestock rate keeps this
+    # hand-check in litres/month arithmetic.
+    assumptions.sales.milk_persistency_monthly = 1.0
+    assumptions.sales.annual_milk_price_growth_rate = 0.21
     assumptions.sales.manure_income_per_adult_per_year = 12.0
     assumptions.sales.selling_cost_fraction = 0.10
     assumptions.sales.transport_cost_per_head = 2.0
@@ -2820,7 +2855,9 @@ def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> Non
     month13 = _run_core(assumptions, shocks).months[12]
     livestock_growth = 1.21
     operating_growth = 1.21 * 2.0
-    adult_head = month13.open_does + month13.pregnant_does + month13.lactating_does + month13.bucks
+    # Dairy regime: lactating_does is a milking overlay of the open/pregnant
+    # pools, so the distinct adults are open + pregnant + bucks.
+    adult_head = month13.open_does + month13.pregnant_does + month13.bucks
 
     assert month13.lactating_does > 0.0
     assert month13.milk_revenue == pytest.approx(

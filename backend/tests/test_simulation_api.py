@@ -185,6 +185,7 @@ async def test_defaults_breeds_list(client: httpx.AsyncClient) -> None:
         "beetal",
         "black_bengal",
         "boer_cross",
+        "murrah_dairy",
     }
     assert body["systems"] == ["stall_fed", "semi_intensive"]
 
@@ -241,7 +242,7 @@ async def test_run_roundtrip(client: httpx.AsyncClient) -> None:
     assert len(body["months"]) == 12
     assert body["metrics"]["project_cost"] > 0.0
     assert body["monte_carlo"]["runs"] == 10
-    assert len(body["sensitivity"]) == 8
+    assert len(body["sensitivity"]) == 9
 
 
 async def test_run_rejects_extra_assumption_field(client: httpx.AsyncClient) -> None:

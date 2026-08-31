@@ -32,16 +32,25 @@ from ..models import (
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, MONEY_QUANTUM, money, today
 
 DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY"
-# The virtual recipe is direct-fed from this seeded raw-inventory row. Keeping
-# the ingredient explicit prevents a successful dispensing log from creating
-# feed ex nihilo merely because no finished-mix recipe exists.
-DRY_ROUGHAGE_INGREDIENT = "Dry jowar stover"
+# The virtual quarantine recipe is direct-fed from a seeded raw-inventory row.
+# Keeping the ingredient explicit prevents a successful dispensing log from
+# creating feed ex nihilo merely because no finished-mix recipe exists.
+DRY_ROUGHAGE_INGREDIENTS = {
+    "GOAT": "Dry jowar stover",
+    "BUFFALO_DAIRY": "Paddy straw",
+}
+DRY_ROUGHAGE_INGREDIENT = DRY_ROUGHAGE_INGREDIENTS["GOAT"]
 RECIPE_DISPLAY = {
     "FATTENING_50_50": "Fattening 50:50",
     "LACTATING_60_40": "Lactating 60:40",
     "MAINTENANCE_75_25": "Maintenance 75:25",
     "FLUSH_70_30": "Flush 70:30",
     "CREEP": "Creep feed",
+    "D_LACTATION_HIGH": "Lactating TMR — High yielders (10+ L/day)",
+    "D_LACTATION_MED": "Lactating TMR — Medium yielders (6–10 L/day)",
+    "D_DRY_CLOSEUP": "Dry & Close-up TMR (Building B)",
+    "D_HEIFER_GROWING": "Growing Heifer TMR (Building C)",
+    "D_CALF_STARTER": "Calf Starter (Building D)",
     DRY_ROUGHAGE: "Dry roughage only (days 1–3, zero grain)",
 }
 
@@ -58,6 +67,27 @@ BUCKET_ALLOCATION_REFERENCE = [
     ("MALE_KIDS", "Day ≤90 LACTATING_60_40 (frame-builder), day 91+ FATTENING_50_50"),
     ("FEMALE_KIDS", "LACTATING_60_40"),
 ]
+DAIRY_BUCKET_ALLOCATION_REFERENCE = [
+    ("QUARANTINE", "Dry roughage only (days 1–3) → transition to D_LACTATION_MED"),
+    ("FOUNDATION", "D_HEIFER_GROWING"),
+    ("BREEDING", "D_LACTATION_MED (milking, open)"),
+    ("PREGNANCY_EARLY", "D_LACTATION_MED (milking, pregnant 1–5 mo)"),
+    ("PREGNANCY_LATE", "D_LACTATION_MED (milking, pregnant 5–8 mo)"),
+    ("DELIVERY", "D_DRY_CLOSEUP (dry period; concentrate in last 3 weeks)"),
+    ("RECOVERY", "D_LACTATION_HIGH (fresh, peak-yield push)"),
+    ("RESTING", "D_LACTATION_MED (post-fresh transition)"),
+    ("MALE_KIDS", "Day ≤90 D_CALF_STARTER, day 91+ D_HEIFER_GROWING"),
+    ("FEMALE_KIDS", "Day ≤90 D_CALF_STARTER, day 91+ D_HEIFER_GROWING"),
+]
+SPECIES_BUCKET_ALLOCATION_REFERENCE = {
+    "GOAT": BUCKET_ALLOCATION_REFERENCE,
+    "BUFFALO_DAIRY": DAIRY_BUCKET_ALLOCATION_REFERENCE,
+}
+
+
+def bucket_allocation_reference(farm_type: str) -> list[tuple[str, str]]:
+    return SPECIES_BUCKET_ALLOCATION_REFERENCE.get(farm_type, BUCKET_ALLOCATION_REFERENCE)
+
 
 SHIFT_TIMES = {
     FeedingShift.MORNING.value: "6:30 AM (sweep bunks first)",
@@ -167,6 +197,7 @@ def recipe_for_animal(
     timezone_name: str = DEFAULT_BUSINESS_TIMEZONE,
     *,
     bucket_days: int | None = None,
+    farm_type: str = "GOAT",
 ) -> str:
     """Which TMR recipe applies to this animal today (SPEC allocation rules).
 
@@ -181,7 +212,36 @@ def recipe_for_animal(
             if bucket_days is None
             else bucket_days
         )
-    return _recipe_for_context(bucket, animal.effective_dob, ref, bucket_days or 0)
+    return _recipe_for_context(bucket, animal.effective_dob, ref, bucket_days or 0, farm_type)
+
+
+def _recipe_for_animal_age_days(effective_dob: date | None, ref: date) -> int:
+    return (ref - effective_dob).days if effective_dob else 999  # unknown → grown
+
+
+def _dairy_recipe_for_context(
+    bucket: str,
+    effective_dob: date | None,
+    ref: date,
+    bucket_days: int,
+) -> str:
+    """Murrah dairy TMR allocation across the shared bucket codes."""
+    if bucket == Bucket.QUARANTINE.value:
+        return DRY_ROUGHAGE if bucket_days < 3 else "D_LACTATION_MED"
+    if bucket in (Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value, Bucket.RESTING.value):
+        return "D_LACTATION_MED"
+    if bucket == Bucket.PREGNANCY_LATE.value:
+        return "D_LACTATION_MED"
+    if bucket == Bucket.DELIVERY.value:
+        return "D_DRY_CLOSEUP"
+    if bucket == Bucket.RECOVERY.value:
+        return "D_LACTATION_HIGH"
+    if bucket in (Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value):
+        age_days = _recipe_for_animal_age_days(effective_dob, ref)
+        return "D_CALF_STARTER" if age_days <= 90 else "D_HEIFER_GROWING"
+    if bucket == Bucket.FOUNDATION.value:
+        return "D_HEIFER_GROWING"
+    return "D_LACTATION_MED"
 
 
 def _recipe_for_context(
@@ -189,8 +249,11 @@ def _recipe_for_context(
     effective_dob: date | None,
     ref: date,
     bucket_days: int,
+    farm_type: str = "GOAT",
 ) -> str:
     """Recipe rules over only the four fields today's plan actually needs."""
+    if farm_type != "GOAT":
+        return _dairy_recipe_for_context(bucket, effective_dob, ref, bucket_days)
     if bucket == Bucket.QUARANTINE.value:
         return DRY_ROUGHAGE if bucket_days < 3 else "MAINTENANCE_75_25"
     if bucket in (
@@ -206,7 +269,7 @@ def _recipe_for_context(
     if bucket == Bucket.RESTING.value:
         return "FLUSH_70_30" if bucket_days >= 10 else "MAINTENANCE_75_25"
     if bucket == Bucket.MALE_KIDS.value:
-        age_days = (ref - effective_dob).days if effective_dob else 999  # unknown → fattening
+        age_days = _recipe_for_animal_age_days(effective_dob, ref)
         return "LACTATING_60_40" if age_days <= 90 else "FATTENING_50_50"
     return "MAINTENANCE_75_25"
 
@@ -272,40 +335,61 @@ async def feeding_plan(
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
     age_days = func.coalesce(ref - effective_dob, 999)
     bucket = Animal.current_bucket
-    recipe_code = case(
-        (
-            (bucket == Bucket.QUARANTINE.value) & (bucket_days < 3),
-            DRY_ROUGHAGE,
-        ),
-        (bucket == Bucket.QUARANTINE.value, "MAINTENANCE_75_25"),
-        (
-            bucket.in_(
-                (
-                    Bucket.FOUNDATION.value,
-                    Bucket.FEMALE_KIDS.value,
-                    Bucket.PREGNANCY_LATE.value,
-                    Bucket.RECOVERY.value,
-                    Bucket.DELIVERY.value,
-                )
+    if farm.farm_type != "GOAT":
+        recipe_code = case(
+            (
+                (bucket == Bucket.QUARANTINE.value) & (bucket_days < 3),
+                DRY_ROUGHAGE,
             ),
-            "LACTATING_60_40",
-        ),
-        (
-            bucket.in_((Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value)),
-            "MAINTENANCE_75_25",
-        ),
-        (
-            (bucket == Bucket.RESTING.value) & (bucket_days >= 10),
-            "FLUSH_70_30",
-        ),
-        (bucket == Bucket.RESTING.value, "MAINTENANCE_75_25"),
-        (
-            (bucket == Bucket.MALE_KIDS.value) & (age_days <= 90),
-            "LACTATING_60_40",
-        ),
-        (bucket == Bucket.MALE_KIDS.value, "FATTENING_50_50"),
-        else_="MAINTENANCE_75_25",
-    )
+            (bucket == Bucket.QUARANTINE.value, "D_LACTATION_MED"),
+            (bucket == Bucket.DELIVERY.value, "D_DRY_CLOSEUP"),
+            (bucket == Bucket.RECOVERY.value, "D_LACTATION_HIGH"),
+            (
+                bucket.in_((Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value)) & (age_days <= 90),
+                "D_CALF_STARTER",
+            ),
+            (
+                bucket.in_((Bucket.MALE_KIDS.value, Bucket.FEMALE_KIDS.value)),
+                "D_HEIFER_GROWING",
+            ),
+            (bucket == Bucket.FOUNDATION.value, "D_HEIFER_GROWING"),
+            else_="D_LACTATION_MED",
+        )
+    else:
+        recipe_code = case(
+            (
+                (bucket == Bucket.QUARANTINE.value) & (bucket_days < 3),
+                DRY_ROUGHAGE,
+            ),
+            (bucket == Bucket.QUARANTINE.value, "MAINTENANCE_75_25"),
+            (
+                bucket.in_(
+                    (
+                        Bucket.FOUNDATION.value,
+                        Bucket.FEMALE_KIDS.value,
+                        Bucket.PREGNANCY_LATE.value,
+                        Bucket.RECOVERY.value,
+                        Bucket.DELIVERY.value,
+                    )
+                ),
+                "LACTATING_60_40",
+            ),
+            (
+                bucket.in_((Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value)),
+                "MAINTENANCE_75_25",
+            ),
+            (
+                (bucket == Bucket.RESTING.value) & (bucket_days >= 10),
+                "FLUSH_70_30",
+            ),
+            (bucket == Bucket.RESTING.value, "MAINTENANCE_75_25"),
+            (
+                (bucket == Bucket.MALE_KIDS.value) & (age_days <= 90),
+                "LACTATING_60_40",
+            ),
+            (bucket == Bucket.MALE_KIDS.value, "FATTENING_50_50"),
+            else_="MAINTENANCE_75_25",
+        )
     contexts = (
         select(
             bucket.label("bucket"),
@@ -327,8 +411,16 @@ async def feeding_plan(
         )
     ).all()
 
-    # Two bulk queries, then join in Python — no per-bucket awaits.
-    definitions = list((await db.execute(select(BucketDefinition))).scalars())
+    # Two bulk queries, then join in Python — no per-bucket awaits. The
+    # reference rows are species-scoped: both farm types define the same ten
+    # bucket codes with different per-head feed rates.
+    definitions = list(
+        (
+            await db.execute(
+                select(BucketDefinition).where(BucketDefinition.farm_type == farm.farm_type)
+            )
+        ).scalars()
+    )
     order = {d.code: d.sort_order for d in definitions}
     kg_per_head_by_bucket = {d.code: d.daily_kg_per_head for d in definitions}
     settings_result = await db.execute(
@@ -542,11 +634,12 @@ async def record_dispensing(
     # but it is still real stock. Lock and debit the canonical seeded dry
     # stover row in the same transaction as the dispensing record.
     if recipe_code == DRY_ROUGHAGE:
+        dry_ingredient = DRY_ROUGHAGE_INGREDIENTS.get(farm.farm_type, DRY_ROUGHAGE_INGREDIENT)
         inventory_result = await db.execute(
             select(FeedInventory)
             .where(
                 FeedInventory.farm_id == farm.id,
-                FeedInventory.ingredient == DRY_ROUGHAGE_INGREDIENT,
+                FeedInventory.ingredient == dry_ingredient,
             )
             .with_for_update()
         )
@@ -558,7 +651,7 @@ async def record_dispensing(
         )
         if inventory is None or available < requested:
             raise InsufficientFeedError(
-                [f"{DRY_ROUGHAGE_INGREDIENT}: need {requested:.3f} kg, have {available:.3f} kg"]
+                [f"{dry_ingredient}: need {requested:.3f} kg, have {available:.3f} kg"]
             )
         inventory.qty_on_hand = float(
             (available - requested).quantize(KG_QUANTUM, rounding=ROUND_HALF_UP)

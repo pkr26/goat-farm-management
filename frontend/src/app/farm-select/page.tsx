@@ -29,6 +29,7 @@ import {
   permittedAppPathFromList,
 } from "@/lib/permission-navigation";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { farmTypeLabel } from "@/lib/farm-vocabulary";
 
 
 const farmSchema = z.object({
@@ -37,6 +38,7 @@ const farmSchema = z.object({
     .trim()
     .min(1, "Name is required")
     .max(120, "Farm name must be at most 120 characters"),
+  farm_type: z.enum(["GOAT", "BUFFALO_DAIRY"]),
   location: z
     .string()
     .trim()
@@ -72,7 +74,7 @@ function FarmSelectPageContent() {
     formState: { errors, isSubmitting },
   } = useForm<FarmValues>({
     resolver: zodResolver(farmSchema),
-    defaultValues: { name: "", location: "", timezone: "Asia/Kolkata" },
+    defaultValues: { name: "", location: "", timezone: "Asia/Kolkata", farm_type: "GOAT" },
   });
 
   useEffect(() => {
@@ -146,7 +148,7 @@ function FarmSelectPageContent() {
       // The farm is durably created from here on. Never report a follow-up
       // failure as a creation failure: the retry would mint a fresh
       // Idempotency-Key and create a second, identical farm.
-      reset({ name: "", location: "", timezone: "Asia/Kolkata" });
+      reset({ name: "", location: "", timezone: "Asia/Kolkata", farm_type: "GOAT" });
       try {
         await refreshFarms();
       } catch {
@@ -203,7 +205,12 @@ function FarmSelectPageContent() {
                     {selectingFarmId === farm.id ? "Opening…" : farm.name}
                   </span>
                 </span>
-                {farm.id === farmId && <Badge>current</Badge>}
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">
+                    {farmTypeLabel((farm as FarmEntry & { farm_type?: string }).farm_type)}
+                  </span>
+                  {farm.id === farmId && <Badge>current</Badge>}
+                </span>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 {farm.location ?? "—"} · {farm.role ?? "Owner"}
@@ -229,6 +236,37 @@ function FarmSelectPageContent() {
                 disabled={isSubmitting || farmTransition.pending}
                 className="min-w-0 space-y-4"
               >
+              <div className="space-y-1.5">
+                <Label>Farm type</Label>
+                <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Farm type">
+                  {(
+                    [
+                      ["GOAT", "Goat farm", "Osmanabadi meat herd — kidding, weaning and live-weight sales."],
+                      [
+                        "BUFFALO_DAIRY",
+                        "Buffalo dairy",
+                        "Murrah milking herd — AI breeding, calving, milk yields and lactation finance.",
+                      ],
+                    ] as const
+                  ).map(([value, title, description]) => (
+                    <label
+                      key={value}
+                      className="flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-left transition has-[[input:checked]]:border-primary"
+                    >
+                      <input
+                        type="radio"
+                        value={value}
+                        {...register("farm_type")}
+                        className="mt-1 accent-primary"
+                      />
+                      <span className="space-y-0.5">
+                        <span className="block text-sm font-medium">{title}</span>
+                        <span className="block text-xs text-muted-foreground">{description}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="name">Farm name</Label>
                 <Input

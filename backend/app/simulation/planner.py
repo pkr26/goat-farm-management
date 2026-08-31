@@ -160,9 +160,7 @@ def _plan_assumptions(
     return SimulationAssumptions.model_validate(variant.model_dump())
 
 
-def _match_target_fills(
-    fills: list[EventFill], targets: list[SaleTarget]
-) -> list[TargetFill]:
+def _match_target_fills(fills: list[EventFill], targets: list[SaleTarget]) -> list[TargetFill]:
     """Pair each sale fill with its target, in order, per (month, class).
 
     The engine groups events by month, so fills arrive chronologically even
@@ -210,9 +208,7 @@ def _evaluate(
     )
 
 
-def evaluate_plan(
-    assumptions: SimulationAssumptions, targets: list[SaleTarget]
-) -> PlanEvaluation:
+def evaluate_plan(assumptions: SimulationAssumptions, targets: list[SaleTarget]) -> PlanEvaluation:
     """Feasibility of the targets against the herd the assumptions project."""
     return _evaluate(assumptions, targets)
 
@@ -248,14 +244,14 @@ def _marginal_kids_per_doe(
     # is <= class_max_age, i.e. B >= T-1-class_max_age... but it must also
     # have ENTERED the class by then (age >= entry age): B <= T-1-entry_age.
     # Kids: born T-3..T; weaners: T-5..T-3; growers: T-A+1..T-6.
-    latest_birth = target.month - _CLASS_ENTRY_AGE[
-        target.animal_class.rsplit("_", maxsplit=1)[-1]
-    ]
+    latest_birth = target.month - _CLASS_ENTRY_AGE[target.animal_class.rsplit("_", maxsplit=1)[-1]]
     if latest_birth < earliest_birth:
         return 0.0
     first_kidding = (
-        purchase_month + assumptions.herd.purchased_doe_settling_months + 1 +
-        assumptions.reproduction.gestation_months
+        purchase_month
+        + assumptions.herd.purchased_doe_settling_months
+        + 1
+        + assumptions.reproduction.gestation_months
     )
     kiddings = 0
     kidding_month = first_kidding
@@ -274,7 +270,9 @@ def _marginal_kids_per_doe(
         * math.pow(1.0 - mort.grower, max(0.0, age_at_sale_years - 0.5))
     )
     r = assumptions.reproduction
-    female_share = r.sex_ratio_female if target.animal_class.startswith("female") else 1.0 - r.sex_ratio_female
+    female_share = (
+        r.sex_ratio_female if target.animal_class.startswith("female") else 1.0 - r.sex_ratio_female
+    )
     per_kidding = r.litter_size * (1.0 - r.stillbirth_rate) * female_share
     return kiddings * per_kidding * survival
 
@@ -418,9 +416,7 @@ def _purchases_from(by_month: dict[int, float]) -> list[HerdEventAssumptions]:
         while remaining > 0.0:
             chunk = min(remaining, float(MAX_HEAD))
             events.append(
-                HerdEventAssumptions(
-                    month=month, kind="purchase", animal_class="doe", count=chunk
-                )
+                HerdEventAssumptions(month=month, kind="purchase", animal_class="doe", count=chunk)
             )
             remaining -= chunk
     return events
@@ -444,6 +440,7 @@ def plan_probabilities(
     rng = random.Random(seed if seed is not None else assumptions.risk.seed)
     risk_vars = {
         "meat_price": assumptions.risk.meat_price,
+        "milk_price": assumptions.risk.milk_price,
         "feed_price": assumptions.risk.feed_price,
         "adult_mortality": assumptions.risk.adult_mortality,
         "kid_mortality": assumptions.risk.kid_mortality,
@@ -508,9 +505,7 @@ def build_plan_report(
 
     probabilities = None
     if risk_runs > 0:
-        probabilities = plan_probabilities(
-            assumptions, targets, purchases or None, runs=risk_runs
-        )
+        probabilities = plan_probabilities(assumptions, targets, purchases or None, runs=risk_runs)
 
     return PlanReport(
         before=before,

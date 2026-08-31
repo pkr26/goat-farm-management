@@ -12,10 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     HISTORY_OVERRIDE_REASON_PREFIX,
-    MIN_BREEDING_AGE_MONTHS,
-    MIN_BREEDING_WEIGHT_KG,
-    MIN_BUCK_BREEDING_AGE_MONTHS,
-    MIN_BUCK_BREEDING_WEIGHT_KG,
     Animal,
     AnimalStatus,
     BreedingOutcome,
@@ -34,6 +30,7 @@ from ..models import (
     TransactionType,
     WeightRecord,
     quarantine_schedule,
+    species_profile,
 )
 from ..schemas.animals import (
     AnimalCreateIn,
@@ -153,6 +150,8 @@ async def _animal_out(
     reference_date: date,
     timezone_name: str,
     permissions: set[str],
+    *,
+    farm_type: str = "GOAT",
 ) -> AnimalOut:
     """Serialize current facts without loading the animal's lifetime history."""
     animal_id = animal.id  # read before expire: expired attrs can't be touched
@@ -166,6 +165,7 @@ async def _animal_out(
         timezone_name,
         permissions=permissions,
         computed=computed,
+        farm_type=farm_type,
     )
 
 
@@ -173,6 +173,8 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
     db: AsyncSession,
     farm_id: int,
     purchase_batch_id: int,
+    *,
+    farm_type: str = "GOAT",
 ) -> None:
     """Allow a batch animal to re-enter quarantine only before work starts.
 
@@ -205,7 +207,7 @@ async def _lock_pristine_batch_protocol_for_quarantine_reentry(
             detail="This animal's purchase-batch quarantine protocol is unavailable.",
         )
 
-    expected = quarantine_schedule(batch)
+    expected = quarantine_schedule(batch, farm_type)
     tasks = list(
         (
             await db.execute(
@@ -305,6 +307,7 @@ async def list_animals(
             farm.timezone,
             permissions=perms,
             computed=computed[animal.id],
+            farm_type=farm.farm_type,
         )
         for animal in page_animals
     ]
@@ -413,11 +416,16 @@ async def create_animal(
                 age_months = (farm_date.year - dob.year) * 12 + (farm_date.month - dob.month)
                 if farm_date.day < dob.day:
                     age_months -= 1
+            profile = species_profile(farm.farm_type)
             min_age = (
-                MIN_BUCK_BREEDING_AGE_MONTHS if payload.sex == "M" else MIN_BREEDING_AGE_MONTHS
+                profile.min_sire_breeding_age_months
+                if payload.sex == "M"
+                else profile.min_breeding_age_months
             )
             min_weight = (
-                MIN_BUCK_BREEDING_WEIGHT_KG if payload.sex == "M" else MIN_BREEDING_WEIGHT_KG
+                profile.min_sire_breeding_weight_kg
+                if payload.sex == "M"
+                else profile.min_breeding_weight_kg
             )
             if age_months is None or age_months < min_age or (payload.weight_kg or 0) < min_weight:
                 raise HTTPException(
@@ -476,7 +484,8 @@ async def create_animal(
                         date_of_birth=payload.date_of_birth,
                         estimated_dob=payload.estimated_dob,
                         birth_type=payload.birth_type,
-                        breed=payload.breed.strip() or "Osmanabadi",
+                        breed=payload.breed.strip()
+                        or species_profile(farm.farm_type).default_breed,
                         birth_weight=payload.birth_weight,
                         purchase_date=(payload.purchase_date or farm_date)
                         if managed_purchase
@@ -694,6 +703,7 @@ async def animal_profile(
             farm.timezone,
             permissions=perms,
             computed=computed,
+            farm_type=farm.farm_type,
         ),
         kids=[AnimalOffspringOut.model_validate(kid) for kid in kids_result.scalars()],
         kids_total=kids_total,
@@ -857,6 +867,7 @@ async def move_bucket(
             db,
             farm.id,
             animal.purchase_batch_id,
+            farm_type=farm.farm_type,
         )
     move_animal(
         db,
@@ -869,7 +880,9 @@ async def move_bucket(
         facts=transition_facts,
     )
     await db.commit()
-    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
+    return await _animal_out(
+        db, animal, today(farm.timezone), farm.timezone, perms, farm_type=farm.farm_type
+    )
 
 
 @router.post("/{animal_id}/weight", status_code=201)
@@ -1166,4 +1179,6 @@ async def change_status(
                 )
             )
     await db.commit()
-    return await _animal_out(db, animal, today(farm.timezone), farm.timezone, perms)
+    return await _animal_out(
+        db, animal, today(farm.timezone), farm.timezone, perms, farm_type=farm.farm_type
+    )

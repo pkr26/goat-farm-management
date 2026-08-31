@@ -15,6 +15,7 @@ import {
   HeartPulse,
   IndianRupee,
   LayoutDashboard,
+  Milk,
   PawPrint,
   ShoppingCart,
   Stethoscope,
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 
 type NavItem = { href: string; label: string; perm: string; icon: LucideIcon };
@@ -82,6 +84,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/health", label: "Health", perm: "health.view", icon: Stethoscope },
       { href: "/feeding", label: "Feeding", perm: "feeding.view", icon: Wheat },
+      { href: "/milk", label: "Milk", perm: "milk.view", icon: Milk },
     ],
   },
   {
@@ -229,11 +232,26 @@ function AppLayoutContent({
   }
 
   const farm = farms.find((f) => f.id === farmId);
+  const vocabulary = farmVocabulary(farm?.farm_type);
   const visibleGroups = permsLoading
     ? []
     : NAV_GROUPS.map((group) => ({
         ...group,
-        items: group.items.filter((item) => can(item.perm)),
+        items: group.items
+          .filter((item) => can(item.perm))
+          .map((item) => ({
+            ...item,
+            // Species vocabulary: a dairy farm calving-records, a goat farm
+            // kidding-records; both live at the same route.
+            label:
+              item.href === "/kidding"
+                ? vocabulary.parturitionCap
+                : item.href === "/breeding"
+                  ? vocabulary.dairy
+                    ? "Breeding / AI"
+                    : item.label
+                  : item.label,
+          })),
       })).filter((group) => group.items.length > 0);
   const landingItem = visibleGroups[0]?.items[0];
   const landingHref = !permsLoading && !permsError ? firstPermittedPath(can) : null;

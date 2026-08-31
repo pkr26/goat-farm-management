@@ -7,6 +7,11 @@
 import enum
 
 
+class FarmType(str, enum.Enum):
+    GOAT = "GOAT"
+    BUFFALO_DAIRY = "BUFFALO_DAIRY"
+
+
 class Bucket(str, enum.Enum):
     QUARANTINE = "QUARANTINE"
     FOUNDATION = "FOUNDATION"
@@ -47,6 +52,8 @@ class BirthType(str, enum.Enum):
 
 class BreedingMethod(str, enum.Enum):
     NATURAL = "NATURAL"
+    AI = "AI"  # artificial insemination, conventional semen
+    AI_SEXED = "AI_SEXED"  # sexed semen (~90% female)
 
 
 class BreedingOutcome(str, enum.Enum):

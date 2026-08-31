@@ -168,7 +168,7 @@ describe("SimulationPage assumption field contracts", () => {
     contract("Male Kids", { min: "0", max: "100000", step: "1" });
     contract("Max Breeding Does", { min: "0", max: "100000", step: "1" });
 
-    contract("Lactation Months", { min: "1", max: "8", step: "1", unit: "months" });
+    contract("Lactation Months", { min: "1", max: "12", step: "1", unit: "months" });
     contract("Months Open Before Breeding", {
       min: "0",
       max: "12",
@@ -398,9 +398,9 @@ describe("SimulationPage assumption field contracts", () => {
 
     const lactation = screen.getByLabelText("Lactation Months");
     await user.clear(lactation);
-    await user.type(lactation, "9");
+    await user.type(lactation, "13");
 
-    expect(screen.getByText("Must be at most 8.")).toBeInTheDocument();
+    expect(screen.getByText("Must be at most 12.")).toBeInTheDocument();
     expect(lactation).toHaveAttribute("aria-invalid", "true");
     expect(
       screen.getByText("Fix 1 highlighted numeric field before running or saving."),
@@ -409,9 +409,9 @@ describe("SimulationPage assumption field contracts", () => {
     expect(screen.getByRole("button", { name: "Save as scenario" })).toBeDisabled();
 
     await user.clear(lactation);
-    await user.type(lactation, "8");
+    await user.type(lactation, "12");
 
-    expect(screen.queryByText("Must be at most 8.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Must be at most 12.")).not.toBeInTheDocument();
     expect(lactation).not.toHaveAttribute("aria-invalid");
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
   });
