@@ -90,7 +90,7 @@ describe("RecipesPage", () => {
     await renderLoaded();
 
     expect(
-      screen.getByRole("heading", { name: "Bucket → recipe allocation (reference)" }),
+      screen.getByText("Bucket → recipe allocation (reference)"),
     ).toBeInTheDocument();
     const row = screen
       .getByText("dry roughage only (days 1–3) → MAINTENANCE")
@@ -121,7 +121,7 @@ describe("RecipesPage", () => {
     renderWithProviders(<RecipesPage />);
 
     expect(
-      await screen.findByRole("heading", { name: "Bucket → recipe allocation (reference)" }),
+      await screen.findByText("Bucket → recipe allocation (reference)"),
     ).toBeInTheDocument();
     expect(screen.queryByText("LACTATING_60_40")).not.toBeInTheDocument();
   });

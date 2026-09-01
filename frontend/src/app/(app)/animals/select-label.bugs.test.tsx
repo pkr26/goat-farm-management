@@ -77,14 +77,15 @@ beforeEach(() => {
 });
 
 describe("Select trigger labels (suspected bug: raw value shown instead of label)", () => {
-  it("filter select shows 'FEMALE KIDS' after picking that option, not 'FEMALE_KIDS'", async () => {
+  it("filter select shows 'Female kids' after picking that option, not 'FEMALE_KIDS'", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
     await screen.findByText("1 animal(s)");
     const trigger = screen.getAllByRole("combobox")[0];
     await user.click(trigger);
-    await user.click(await screen.findByRole("option", { name: "FEMALE KIDS" }));
-    expect(trigger).toHaveTextContent("FEMALE KIDS");
+    await user.click(await screen.findByRole("option", { name: "Female kids" }));
+    expect(trigger).toHaveTextContent("Female kids");
+    expect(trigger).not.toHaveTextContent("FEMALE_KIDS");
   });
 
   it("filter select shows 'Female' after picking it, not 'F'", async () => {

@@ -614,7 +614,6 @@ describe("SimulationPage", () => {
         });
       }),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded(scenarios);
     for (const name of ["Plan 1", "Plan 2", "Plan 3"])
@@ -630,6 +629,7 @@ describe("SimulationPage", () => {
     });
     const planFourRow = screen.getByText("Plan 4").closest("tr") as HTMLElement;
     await user.click(within(planFourRow).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     expect(await screen.findByText("Invalid saved assumptions")).toBeInTheDocument();
     expect(screen.getByText(/2 selected/)).toBeInTheDocument();
@@ -716,13 +716,13 @@ describe("SimulationPage", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded(scenarios);
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     const finalRow = (await screen.findByText("Plan 21")).closest("tr") as HTMLElement;
     await user.click(within(finalRow).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     expect(
       await screen.findByText("Showing 1–20 of 20 saved scenarios"),

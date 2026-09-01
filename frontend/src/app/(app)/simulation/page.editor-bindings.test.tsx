@@ -308,7 +308,9 @@ function runButton() {
 }
 
 function scenariosCard() {
-  return screen.getByText("Scenarios").closest("[data-slot='card']") as HTMLElement;
+  return screen
+    .getByText("Scenarios", { selector: "[data-slot='card-title'], h2" })
+    .closest("[data-slot='card']") as HTMLElement;
 }
 
 function scenarioActions(name: string) {
@@ -513,25 +515,25 @@ describe("SimulationPage editor bindings", () => {
     expect(screen.getByText("Editing scenario: Expansion")).toBeInTheDocument();
 
     await calibrate();
-    expect(await screen.findByText("Farm calibration evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).toBeInTheDocument();
     // Calibrated assumptions are nobody's saved scenario any more.
     expect(screen.queryByText("Editing scenario: Expansion")).not.toBeInTheDocument();
 
     await loadExpansion();
     expect(screen.getByText("Editing scenario: Expansion")).toBeInTheDocument();
     // The evidence described the calibration this scenario just replaced.
-    expect(screen.queryByText("Farm calibration evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).not.toBeInTheDocument();
 
     await loadDefaults();
     await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(52));
     expect(screen.queryByText("Editing scenario: Expansion")).not.toBeInTheDocument();
 
     await calibrate();
-    expect(await screen.findByText("Farm calibration evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).toBeInTheDocument();
 
     await loadDefaults();
     await waitFor(() => expect(screen.getByLabelText("Does")).toHaveValue(53));
-    expect(screen.queryByText("Farm calibration evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).not.toBeInTheDocument();
   });
 
   // An event row's validation entry outlives the row when a loader swaps the
@@ -671,7 +673,7 @@ describe("SimulationPage editor bindings", () => {
       ),
     );
     expect(screen.getByLabelText("Does")).toHaveValue(50);
-    expect(screen.queryByText("Farm calibration evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).not.toBeInTheDocument();
   });
 
   // Every loader claims a fresh editor intent, so an in-flight snapshot that
@@ -930,7 +932,6 @@ describe("SimulationPage scenario paging", () => {
   // see, so it moves off the page it just emptied immediately — whatever the
   // list has grown to elsewhere by the time the refreshed count arrives.
   it("re-homes a deleted last page from the count the operator could see", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const scenarios = Array.from({ length: 41 }, (_, index) =>
       scenarioRow({ id: index + 1, name: `Plan ${index + 1}` }),
     );
@@ -951,6 +952,7 @@ describe("SimulationPage scenario paging", () => {
     expect(await screen.findByText("Plan 41")).toBeInTheDocument();
 
     await user.click(scenarioActions("Plan 41").getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() =>
       expect(
@@ -990,7 +992,6 @@ describe("SimulationPage comparison lifetime", () => {
   });
 
   it("drops a rendered comparison when a delete refreshes the list", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const scenarios = [1, 2, 3].map((id) => scenarioRow({ id, name: `Plan ${id}` }));
     const user = await renderLoaded({
       scenarios,
@@ -1013,6 +1014,7 @@ describe("SimulationPage comparison lifetime", () => {
     expect(await screen.findByText("Comparison")).toBeInTheDocument();
 
     await user.click(scenarioActions("Plan 3").getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() => expect(screen.queryByText("Plan 3")).not.toBeInTheDocument());
     // The comparison was run against a list revision that no longer exists.

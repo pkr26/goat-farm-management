@@ -238,7 +238,7 @@ describe("HealthPage dialog branches", () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
 

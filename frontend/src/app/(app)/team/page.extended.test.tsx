@@ -1053,7 +1053,7 @@ describe("TeamPage role cards", () => {
     expect(await screen.findByText("Manager")).toBeInTheDocument();
 
     const preset = cardOf("Manager");
-    expect(within(preset).getByText("preset")).toBeInTheDocument();
+    expect(within(preset).getByText("Preset")).toBeInTheDocument();
     expect(within(preset).getByText("3 members")).toBeInTheDocument();
   });
 

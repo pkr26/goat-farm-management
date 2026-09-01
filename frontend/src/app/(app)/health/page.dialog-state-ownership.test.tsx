@@ -19,6 +19,7 @@ import type {
 } from "@/api/generated/models";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
+import { enumLabel } from "@/lib/enum-labels";
 import { addDays, farmToday, formatDate } from "@/lib/format";
 
 import HealthPage from "./page";
@@ -261,7 +262,7 @@ describe("HealthPage dialog state ownership", () => {
 
   async function openDialog() {
     const { user, view } = await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     return {
       user,
       view,
@@ -613,7 +614,7 @@ describe("HealthPage dialog state ownership", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await user.click(await screen.findByRole("button", { name: "+ Add event" }));
+    await user.click(await screen.findByRole("button", { name: "Add event" }));
 
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });
     expect(within(reopened).queryByText(/Could not link duty/)).not.toBeInTheDocument();
@@ -644,7 +645,12 @@ describe("HealthPage dialog state ownership", () => {
   async function openBucketReview(bucket = "BREEDING") {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), bucket);
+    // Options are labeled species-aware while the value stays the raw code.
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Bucket *" }),
+      enumLabel("bucket", bucket),
+    );
     await user.click(reviewButton(dialog));
     await within(dialog).findByText(/Reviewed target snapshot/);
     return { user, dialog };
@@ -704,7 +710,7 @@ describe("HealthPage dialog state ownership", () => {
     await user.click(within(dialog).getByRole("button", { name: "Confirm for 2 animals" }));
     await within(dialog).findByText(/Bucket is mid-transfer\./);
 
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "RESTING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Resting");
     expect(failedSaveNotice(dialog)).toBeNull();
 
     await user.click(reviewButton(dialog));
@@ -712,7 +718,7 @@ describe("HealthPage dialog state ownership", () => {
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: "Bucket *" }),
-      "BREEDING",
+      "Breeding",
     );
 
     // The snapshot named RESTING's animals; BREEDING has to be reviewed again.

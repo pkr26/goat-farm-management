@@ -269,7 +269,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     renderWithProviders(<AnimalsPage />);
 
     expect(
-      await screen.findByText("Page 3 of 4 · Showing 101–150 of 155"),
+      await screen.findByText("Showing 101–150 of 155 animals"),
     ).toBeInTheDocument();
     // A first request for page one would be a wasted round trip whose rows
     // the operator never asked for.
@@ -281,7 +281,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     serveAnimals(Array.from({ length: 155 }, (_, index) => animal(index + 1)));
     nav.state.search = "page=3";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 3 of 4 · Showing 101–150 of 155");
+    await screen.findByText("Showing 101–150 of 155 animals");
 
     nav.state.deferReplace = true;
     const before = seenParams.length;
@@ -300,11 +300,11 @@ describe("AnimalsPage state applied before a URL commits", () => {
     serveAnimals(Array.from({ length: 155 }, (_, index) => animal(index + 1)));
     nav.state.search = "page=3";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 3 of 4 · Showing 101–150 of 155");
+    await screen.findByText("Showing 101–150 of 155 animals");
 
     nav.state.deferReplace = true;
     const before = seenParams.length;
-    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "FEMALE KIDS");
+    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
 
     await waitFor(() => expect(seenParams.length).toBeGreaterThan(before));
     expect(seenParams[before].get("bucket")).toBe("FEMALE_KIDS");
@@ -328,7 +328,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
 
     nav.state.deferReplace = true;
     const before = seenParams.length;
-    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "FEMALE KIDS");
+    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
 
     await waitFor(() => expect(seenParams.length).toBeGreaterThan(before));
     expect(seenParams[before].get("q")).toBe("G7");
@@ -355,11 +355,11 @@ describe("AnimalsPage state applied before a URL commits", () => {
     const user = userEvent.setup();
     serveAnimals(Array.from({ length: 155 }, (_, index) => animal(index + 1)));
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 4 · Showing 1–50 of 155");
+    await screen.findByText("Showing 1–50 of 155 animals");
 
     nav.state.deferPush = true;
     const before = seenParams.length;
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     await waitFor(() => expect(seenParams.length).toBeGreaterThan(before));
     expect(seenParams[before].get("offset")).toBe("50");
@@ -375,7 +375,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     await screen.findByText("G-001");
 
     nav.state.deferReplace = true;
-    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "FEMALE KIDS");
+    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
     expect(nav.state.deferredReplacements).toEqual(["/animals?bucket=FEMALE_KIDS"]);
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
 
@@ -410,15 +410,15 @@ describe("AnimalsPage state applied before a URL commits", () => {
     );
     nav.state.search = "page=20002";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 20001 of 22000 · Showing 1000001–1000050 of 1100000");
+    await screen.findByText("Showing 1000001–1000050 of 1100000 animals");
     expect(seenParams[0].get("offset")).toBe("1000000");
 
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(nav.push).not.toHaveBeenCalled();
     expect(nav.replace).not.toHaveBeenCalled();
     expect(
-      await screen.findByText("Page 20002 of 22000 · Showing 1000051–1000100 of 1100000"),
+      await screen.findByText("Showing 1000051–1000100 of 1100000 animals"),
     ).toBeInTheDocument();
   });
 });
@@ -522,7 +522,7 @@ describe("AnimalsPage create dialog payload", () => {
     serveAnimals(Array.from({ length: 60 }, (_, index) => animal(index + 1)));
     nav.state.search = "page=2";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 2 of 2 · Showing 51–60 of 60");
+    await screen.findByText("Showing 51–60 of 60 animals");
 
     nav.state.deferReplace = true;
     const dialog = await openDialog(user);

@@ -73,7 +73,7 @@ describe("AnimalsPage ?new=1 deep link", () => {
 
   it("does not open the dialog without the flag", async () => {
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("No animals match these filters.");
+    await screen.findByText("No animals yet");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

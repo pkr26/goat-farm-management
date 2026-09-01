@@ -429,11 +429,11 @@ describe("SimulationPage cash-flow tables", () => {
     ).toBeInTheDocument();
 
     const [, deficitMonth, surplusMonth] = within(projection).getAllByRole("row");
-    expect(deficitMonth).toHaveClass("bg-amber-50");
+    expect(deficitMonth).toHaveClass("bg-warning-tint/50");
     expect(cells(deficitMonth)[17]).toHaveTextContent(
       "Purchased 10 doe(s) at ₹8,000/head (₹80,000)",
     );
-    expect(surplusMonth).not.toHaveClass("bg-amber-50");
+    expect(surplusMonth).not.toHaveClass("bg-warning-tint/50");
     expect(cells(surplusMonth)[17]).toHaveTextContent("—");
   });
 });
@@ -455,7 +455,7 @@ describe("SimulationPage Monte Carlo presentation", () => {
       "Minimum cash P5",
       "Minimum cash P50",
     ])
-      expect(metricTint(label)).toHaveClass("bg-emerald-100");
+      expect(metricTint(label)).toHaveClass("bg-success-tint");
     expect(within(metricCard("P(NPV < 0)")).getByText("0.0%")).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -465,7 +465,7 @@ describe("SimulationPage Monte Carlo presentation", () => {
 
     // Bar heights are proportional to the busiest bin, with a visible floor
     // for any bin that holds runs at all.
-    const bars = Array.from(screen.getByLabelText("NPV histogram").children);
+    const bars = Array.from(screen.getByLabelText(/^NPV histogram/).children);
     expect(bars).toHaveLength(20);
     expect(bars[0]).toHaveStyle({ height: "0%" });
     expect(bars[1]).toHaveStyle({ height: "4%" });
@@ -517,7 +517,7 @@ describe("SimulationPage Monte Carlo presentation", () => {
       "Minimum cash P5",
       "Minimum cash P50",
     ])
-      expect(metricTint(label)).toHaveClass("bg-red-100");
+      expect(metricTint(label)).toHaveClass("bg-destructive/10");
     expect(within(metricCard("NPV mean")).getByText("-₹50,000")).toBeInTheDocument();
     expect(within(metricCard("P(NPV < 0)")).getByText("8.0%")).toBeInTheDocument();
     expect(
@@ -682,7 +682,7 @@ describe("SimulationPage optimization results", () => {
     expect(failing[1]).toHaveTextContent("Infeasible");
     expect(failing[1]).toHaveClass("text-destructive");
     expect(viable[1]).toHaveTextContent("Feasible");
-    expect(viable[1]).toHaveClass("text-emerald-700");
+    expect(viable[1]).toHaveClass("text-success");
 
     expect(failing[2].textContent).toBe("50 / 2 / 100");
     expect(failing[7].textContent).toBe("58.0 / 70.0");

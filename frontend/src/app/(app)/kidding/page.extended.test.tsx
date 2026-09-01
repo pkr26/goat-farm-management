@@ -401,7 +401,7 @@ describe("KiddingPage", () => {
     await renderLoaded();
     const row = screen.getByText("big twins").closest("tr")!;
     expect(within(row).getByText("20 Jul 2026")).toBeInTheDocument();
-    expect(within(row).getByText("ASSISTED")).toBeInTheDocument();
+    expect(within(row).getByText("Assisted")).toBeInTheDocument();
     const kidLink = within(row).getByRole("link", { name: "G-101" });
     expect(kidLink).toHaveAttribute("href", "/animals/55");
     expect(within(row).getByText(/\(Female, alive\)/)).toBeInTheDocument();
@@ -687,9 +687,9 @@ describe("KiddingPage", () => {
     const { user, dialog } = await openDialog();
     const combos = within(dialog).getAllByRole("combobox");
     // Order: ease, then per-row [sex, status].
-    await pickOption(user, combos[0], "DIFFICULT");
+    await pickOption(user, combos[0], "Difficult");
     await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Male");
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
     // The sex trigger shows the label "Male", not the raw value "M".
     expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Male");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
@@ -731,7 +731,7 @@ describe("KiddingPage", () => {
       }),
     );
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: localTodayISO() },
     });
@@ -745,7 +745,7 @@ describe("KiddingPage", () => {
 
   it("requires a mortality date before posting a died kid", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
 
     expect(await within(dialog).findByText("Mortality date is required")).toBeInTheDocument();
@@ -757,7 +757,7 @@ describe("KiddingPage", () => {
 
   it("rejects a mortality date before the kidding date", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: daysFromToday(-1) },
     });
@@ -771,7 +771,7 @@ describe("KiddingPage", () => {
 
   it("rejects a mortality date in the future", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: daysFromToday(1) },
     });
@@ -807,11 +807,11 @@ describe("KiddingPage", () => {
 
   it("drops the mortality date when a kid is switched back off DIED", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "DIED");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: localTodayISO() },
     });
-    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "ALIVE");
+    await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Alive");
     expect(
       within(dialog).queryByLabelText("Kid 1 mortality date *"),
     ).not.toBeInTheDocument();

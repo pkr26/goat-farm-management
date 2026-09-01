@@ -20,8 +20,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
+import { badgeVariants } from "@/components/ui/badge";
+import { PermissionsError } from "@/components/permissions-error";
 
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalIdentityOut): string {
@@ -38,6 +42,11 @@ function pct(value: number | null): string {
 function humanizeStatus(status: string): string {
   const spaced = status.replaceAll("_", " ").toLowerCase();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** Display-case a vocabulary noun for label positions ("kids" → "Kids"). */
+function cap(noun: string): string {
+  return noun.charAt(0).toUpperCase() + noun.slice(1);
 }
 
 /** Clinical outcomes: the API leaves these out of `status_counts` for viewers
@@ -63,7 +72,8 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
 }
 
 export default function ReportsPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const vocabulary = farmVocabulary(useFarmType());
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("reports.view");
   const canViewAnimals = can("animals.view");
   const canViewHealth = can("health.view");
@@ -72,13 +82,11 @@ export default function ReportsPage() {
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -97,7 +105,7 @@ export default function ReportsPage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const { breeding, mortality } = payload;
@@ -180,7 +188,7 @@ export default function ReportsPage() {
       <DataTableCard
         title="Breeding performance"
         description={
-          "Conception, kidding and twinning rates across all breeding records. " +
+          `Conception, ${vocabulary.parturition} and twinning rates across all breeding records. ` +
           "A pregnancy confirmed by ultrasound counts as a conception even if it was later lost."
         }
       >
@@ -202,9 +210,9 @@ export default function ReportsPage() {
                 !breedingWithheld ? pct(breeding.first_cycle_rate) : <Withheld permission="breeding" />
               }
             />
-            <SummaryRow label="Kiddings recorded" value={breeding.kiddings} />
+            <SummaryRow label={`${cap(vocabulary.parturition)}s recorded`} value={breeding.kiddings} />
             <SummaryRow
-              label="Alive kids per kidding"
+              label={`Alive ${vocabulary.youngPlural} per ${vocabulary.parturition}`}
               value={
                 canViewBreeding
                   ? (breeding.kids_per_kidding ?? "—")
@@ -212,7 +220,7 @@ export default function ReportsPage() {
               }
             />
             <SummaryRow
-              label="Twin rate (≥2 kids)"
+              label={`Twin rate (≥2 ${vocabulary.youngPlural})`}
               value={!breedingWithheld ? pct(breeding.twin_rate) : <Withheld permission="breeding" />}
             />
             <TableRow>
@@ -229,14 +237,14 @@ export default function ReportsPage() {
                         <Link
                           key={a.id}
                           href={withReturnTo(`/animals/${a.id}`, "/reports")}
-                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900"
+                          className={badgeVariants({ variant: "warning" })}
                         >
                           {animalName(a)}
                         </Link>
                       ) : (
                         <span
                           key={a.id}
-                          className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                          className={badgeVariants({ variant: "warning" })}
                         >
                           {animalName(a)}
                         </span>
@@ -277,7 +285,10 @@ export default function ReportsPage() {
               label="Total deaths (herd)"
               value={mortality.total_deaths ?? <Withheld permission="health" />}
             />
-            <SummaryRow label="Kids born (recorded)" value={mortality.total_kids_born} />
+            <SummaryRow
+              label={`${cap(vocabulary.youngPlural)} born (recorded)`}
+              value={mortality.total_kids_born}
+            />
             <SummaryRow
               label="Stillborn"
               value={mortality.stillborn ?? <Withheld permission="health" />}

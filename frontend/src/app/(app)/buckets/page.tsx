@@ -24,6 +24,7 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { safeAppPath } from "@/lib/utils";
 import { usePermissions } from "@/lib/use-permissions";
+import { PermissionsError } from "@/components/permissions-error";
 
 /** The per-head ration is a setting the operator typed and will check against
  * what they configured, and the API stores/dispenses it at 0.001 kg. Render
@@ -114,20 +115,18 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
 }
 
 export default function BucketsPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("buckets.view");
   const canViewAnimals = can("animals.view");
   const query = useBucketsBoardApiBucketsGet({ query: { enabled: allowed } });
   const rows = query.data?.status === 200 ? query.data.data : undefined;
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -141,7 +140,7 @@ export default function BucketsPage() {
         description="Daily feed plan and occupancy per bucket."
       />
       {query.isLoading ? (
-        <p className="py-10 text-center text-muted-foreground">Loading…</p>
+        <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">

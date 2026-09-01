@@ -12,6 +12,7 @@ import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { enumLabel } from "@/lib/enum-labels";
 import { addDays, farmToday } from "@/lib/format";
 import { ALL_PERMISSIONS, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
@@ -221,7 +222,7 @@ describe("FeedingPage bucket summary", () => {
     const { queryClient } = await renderLoaded();
 
     await user.click(within(planRow()).getByRole("button", { name: "Edit" }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("Daily ration — BREEDING");
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Daily ration — Breeding");
 
     // A background refetch can legitimately return the same lines in another
     // order; the editor must follow its own line, not the row position.
@@ -232,7 +233,7 @@ describe("FeedingPage bucket summary", () => {
       expect(first?.previousElementSibling).toBeNull();
     });
 
-    expect(screen.getByRole("dialog")).toHaveTextContent("Daily ration — BREEDING");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Daily ration — Breeding");
   });
 });
 
@@ -322,7 +323,7 @@ describe("FeedingPage kg/head editor", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 12.346 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 12.346 kg/head for Breeding."),
     );
   });
 
@@ -451,8 +452,8 @@ describe("FeedingPage dispensing form", () => {
     const { dialog } = await openDialog();
     const [bucket, shift] = within(dialog).getAllByRole("combobox");
 
-    expect(bucket).toHaveTextContent("BREEDING");
-    expect(shift).toHaveTextContent("MORNING");
+    expect(bucket).toHaveTextContent("Breeding");
+    expect(shift).toHaveTextContent("Morning");
   });
 
   it("confirms a recorded dispensing", async () => {
@@ -535,7 +536,7 @@ describe("FeedingPage dispensing form", () => {
     await user.click(screen.getByRole("button", { name: "Record dispensing" }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getAllByRole("combobox")[0]).toHaveTextContent("QUARANTINE");
+    expect(within(dialog).getAllByRole("combobox")[0]).toHaveTextContent("Quarantine");
     expect(within(dialog).getAllByRole("combobox")[2]).toHaveTextContent("Dry roughage only");
   });
 
@@ -554,7 +555,7 @@ describe("FeedingPage dispensing form", () => {
     const dialog = await screen.findByRole("dialog");
 
     await user.click(within(dialog).getAllByRole("combobox")[0]);
-    await user.click(await screen.findByRole("option", { name: "MALE_KIDS" }));
+    await user.click(await screen.findByRole("option", { name: "Male kids" }));
     // No submit needed: an ambiguous prefill is reported as it happens.
     expect(await within(dialog).findByText("Pick a recipe")).toBeInTheDocument();
 
@@ -575,7 +576,7 @@ describe("FeedingPage dispensing form", () => {
     await user.click(screen.getByRole("button", { name: "Record dispensing" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getAllByRole("combobox")[0]);
-    await user.click(await screen.findByRole("option", { name: "RECOVERY" }));
+    await user.click(await screen.findByRole("option", { name: "Recovery" }));
     await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "5");
     await user.click(within(dialog).getByRole("button", { name: "Record" }));
 
@@ -605,7 +606,10 @@ describe("FeedingPage dispensing form", () => {
 
     for (const bucket of VOCABULARY_BUCKETS) {
       await user.click(within(dialog).getAllByRole("combobox")[0]);
-      await user.click(await screen.findByRole("option", { name: bucket }));
+      // The option list is labeled species-aware; the posted value stays raw.
+      await user.click(
+        await screen.findByRole("option", { name: enumLabel("bucket", bucket) }),
+      );
       await user.click(within(dialog).getByRole("button", { name: "Record" }));
       await waitFor(() =>
         expect(bodies.at(-1)).toMatchObject({ bucket, recipe_code: `${bucket}_MIX` }),
@@ -613,7 +617,7 @@ describe("FeedingPage dispensing form", () => {
     }
 
     await user.click(within(dialog).getAllByRole("combobox")[1]);
-    await user.click(await screen.findByRole("option", { name: "AFTERNOON" }));
+    await user.click(await screen.findByRole("option", { name: "Afternoon" }));
     await user.click(within(dialog).getByRole("button", { name: "Record" }));
     await waitFor(() => expect(bodies.at(-1)).toMatchObject({ shift: "AFTERNOON" }));
   }, 20_000);

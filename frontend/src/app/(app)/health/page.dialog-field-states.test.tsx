@@ -180,7 +180,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
 
@@ -305,7 +305,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     previewCount = 0;
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     const snapshot = await within(dialog).findByRole("status");
@@ -325,7 +325,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     previewCount = 1;
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "RECOVERY");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Recovery");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     expect(
@@ -495,7 +495,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     );
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     const reviewing = await within(dialog).findByRole("button", {

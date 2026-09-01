@@ -36,7 +36,11 @@ vi.mock("next/font/google", () => {
       style: { fontFamily: family },
     };
   };
-  return { Inter: loader("Inter"), JetBrains_Mono: loader("JetBrains_Mono") };
+  return {
+    Inter: loader("Inter"),
+    Fraunces: loader("Fraunces"),
+    JetBrains_Mono: loader("JetBrains_Mono"),
+  };
 });
 
 vi.mock("next/navigation", () => ({
@@ -79,6 +83,7 @@ describe("RootLayout", () => {
     // names, so a renamed or dropped variable silently un-styles the app.
     expect(fontLoaderCalls).toEqual([
       { family: "Inter", options: { subsets: ["latin"], variable: "--font-inter" } },
+      { family: "Fraunces", options: { subsets: ["latin"], variable: "--font-fraunces" } },
       {
         family: "JetBrains_Mono",
         options: { subsets: ["latin"], variable: "--font-jetbrains-mono" },
@@ -87,8 +92,13 @@ describe("RootLayout", () => {
   });
 
   it("exports the document metadata Next renders into <head>", () => {
-    expect(metadata.title).toBe("GoatFarm");
-    expect(metadata.description).toBe("Commercial Osmanabadi goat farm management");
+    expect(metadata.title).toEqual({
+      default: "PashuFarm — Livestock farm management",
+      template: "%s · PashuFarm",
+    });
+    expect(metadata.description).toBe(
+      "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",
+    );
   });
 
   it("renders the html/body shell with both font variable classes", () => {
@@ -104,7 +114,11 @@ describe("RootLayout", () => {
     expect(html).toHaveAttribute("lang", "en");
     // Tailwind resolves font-sans/font-mono through these classes; both must be
     // on the root element or every page falls back to the browser default font.
-    expect(html).toHaveClass("__variable_--font-inter", "__variable_--font-jetbrains-mono");
+    expect(html).toHaveClass(
+      "__variable_--font-inter",
+      "__variable_--font-fraunces",
+      "__variable_--font-jetbrains-mono",
+    );
 
     expect(document.body).toHaveClass(
       "min-h-screen",

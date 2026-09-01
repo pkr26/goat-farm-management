@@ -247,10 +247,17 @@ function tintChip(label: string): HTMLElement {
   return metricCard(label).querySelector("span") as HTMLElement;
 }
 
+/** Semantic tint classes per historical colour name. */
+const TINT_CLASSES: Record<string, [string, string]> = {
+  emerald: ["bg-success-tint", "text-success-tint-foreground"],
+  amber: ["bg-warning-tint", "text-warning-tint-foreground"],
+  red: ["bg-destructive/10", "text-destructive"],
+};
+
 /** Assert the tint chip and the printed figure of each labelled metric. */
 function expectMetrics(cases: [label: string, value: string, tint: string][]) {
   for (const [label, value, tint] of cases) {
-    expect(tintChip(label)).toHaveClass(`bg-${tint}-100`, `text-${tint}-700`);
+    expect(tintChip(label)).toHaveClass(...TINT_CLASSES[tint]);
     expect(within(metricCard(label)).getByText(value)).toBeInTheDocument();
   }
 }
@@ -352,7 +359,7 @@ describe("SimulationPage metric tint thresholds", () => {
     ]);
     for (const label of ["BCR", "Avg DSCR", "Minimum DSCR"]) {
       expect(tintChip(label)).not.toHaveClass("bg-muted");
-      expect(tintChip(label)).not.toHaveClass("bg-amber-100");
+      expect(tintChip(label)).not.toHaveClass("bg-warning-tint");
     }
     // Month 0 payback (recovered at commissioning) is a month, not a dash.
     const payback = metricCard("Payback month");
@@ -435,9 +442,9 @@ describe("SimulationPage narrative report", () => {
 
     const badge = screen.getByText("VIABLE WITH CAUTION");
     expect(badge.tagName).toBe("SPAN");
-    expect(badge).toHaveClass("bg-amber-100", "text-amber-700");
-    expect(badge).not.toHaveClass("bg-emerald-100");
-    expect(badge).not.toHaveClass("bg-red-100");
+    expect(badge).toHaveClass("bg-warning-tint", "text-warning-tint-foreground");
+    expect(badge).not.toHaveClass("bg-success-tint");
+    expect(badge).not.toHaveClass("bg-destructive/10");
     // The badge sits in the verdict section's heading row; no other section
     // gains one.
     const verdictSection = screen
@@ -524,7 +531,7 @@ describe("SimulationPage break-even cash rows", () => {
 
     const [quiet, deficit] = rowsOf("Monthly projection");
     const quietCells = within(quiet).getAllByRole("cell");
-    expect(quiet).not.toHaveClass("bg-amber-50");
+    expect(quiet).not.toHaveClass("bg-warning-tint/50");
     expect(quietCells[17]).toHaveTextContent("—");
     for (const index of [13, 14]) {
       expect(quietCells[index]).toHaveTextContent("₹0");
@@ -532,7 +539,7 @@ describe("SimulationPage break-even cash rows", () => {
     }
 
     const deficitCells = within(deficit).getAllByRole("cell");
-    expect(deficit).toHaveClass("bg-amber-50");
+    expect(deficit).toHaveClass("bg-warning-tint/50");
     expect(deficitCells[17]).toHaveTextContent(
       "Purchased 5 doe(s) at ₹8,000/head (₹40,000)",
     );

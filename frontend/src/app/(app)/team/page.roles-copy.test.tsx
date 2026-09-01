@@ -975,8 +975,10 @@ describe("TeamPage role cards copy", () => {
     await renderLoaded();
 
     const card = roleCard("Manager");
-    expect(within(card).getByText("preset")).toBeInTheDocument();
-    expect(within(card).getByText("Manager").parentElement).toHaveTextContent("Manager preset");
+    // The badge reads as the semantic warning variant, not a raw palette tint.
+    const badge = within(card).getByText("Preset").closest("[data-slot=badge]");
+    expect(badge).toHaveAttribute("data-variant", "warning");
+    expect(within(card).getByText("Manager").parentElement).toHaveTextContent("Manager Preset");
   });
 
   it("toasts a deleted role and a rejected deletion", async () => {

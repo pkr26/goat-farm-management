@@ -40,7 +40,7 @@ export default function RootPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-3">
       <Loader2 className="size-6 animate-spin text-primary" />
-      <p className="text-muted-foreground">Loading…</p>
+      <p role="status" aria-live="polite" className="text-muted-foreground">Loading…</p>
     </main>
   );
 }

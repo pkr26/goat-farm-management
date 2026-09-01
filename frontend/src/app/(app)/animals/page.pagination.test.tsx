@@ -132,27 +132,27 @@ describe("AnimalsPage finite pagination", () => {
     renderWithProviders(<AnimalsPage />);
 
     expect(
-      await screen.findByText("Page 1 of 2 · Showing 1–50 of 55"),
+      await screen.findByText("Showing 1–50 of 55 animals"),
     ).toBeInTheDocument();
     expect(seenParams[0].get("limit")).toBe("50");
     expect(seenParams[0].get("offset")).toBe("0");
     expect(seenParams[0].get("include_all_statuses")).toBe("true");
     expect(screen.getByText("G-050")).toBeInTheDocument();
     expect(screen.queryByText("G-051")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
 
-    const nextButton = screen.getByRole("button", { name: "Next page" });
+    const nextButton = screen.getByRole("button", { name: "Next" });
     fireEvent.click(nextButton);
     fireEvent.click(nextButton);
 
     expect(
-      await screen.findByText("Page 2 of 2 · Showing 51–55 of 55"),
+      await screen.findByText("Showing 51–55 of 55 animals"),
     ).toBeInTheDocument();
     expect(seenParams.at(-1)?.get("limit")).toBe("50");
     expect(seenParams.at(-1)?.get("offset")).toBe("50");
     expect(screen.getByText("G-055")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     expect(nav.push).toHaveBeenLastCalledWith("/animals?page=2");
     expect(nav.push).toHaveBeenCalledTimes(1);
   });
@@ -167,17 +167,17 @@ describe("AnimalsPage finite pagination", () => {
     });
     renderWithProviders(<AnimalsPage />, queryClient);
 
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
-    await user.click(screen.getByRole("button", { name: "Next page" }));
-    await screen.findByText("Page 2 of 2 · Showing 51–55 of 55");
-    await user.click(screen.getByRole("button", { name: "Previous page" }));
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Showing 51–55 of 55 animals");
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await screen.findByText("Showing 1–50 of 55 animals");
 
     // Page 2 is still fresh, so React Query does not toggle isFetching while
     // restoring it. The local double-click latch must nevertheless release.
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(
-      await screen.findByText("Page 2 of 2 · Showing 51–55 of 55"),
+      await screen.findByText("Showing 51–55 of 55 animals"),
     ).toBeInTheDocument();
     expect(nav.push).toHaveBeenCalledTimes(3);
   });
@@ -190,7 +190,7 @@ describe("AnimalsPage finite pagination", () => {
     const view = renderWithProviders(<AnimalsPage />);
 
     expect(
-      await screen.findByText("Page 2 of 3 · Showing 51–100 of 120"),
+      await screen.findByText("Showing 51–100 of 120 animals"),
     ).toBeInTheDocument();
     expect(seenParams[0].get("bucket")).toBe("RESTING");
     expect(seenParams[0].get("sex")).toBe("M");
@@ -201,8 +201,8 @@ describe("AnimalsPage finite pagination", () => {
       "G-77",
     );
 
-    await user.click(screen.getByRole("button", { name: "Previous page" }));
-    expect(await screen.findByText("Page 1 of 3 · Showing 1–50 of 120")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("Showing 1–50 of 120 animals")).toBeInTheDocument();
     const previousUrl = hrefParams(nav.push);
     expect(previousUrl.get("bucket")).toBe("RESTING");
     expect(previousUrl.get("sex")).toBe("M");
@@ -213,7 +213,7 @@ describe("AnimalsPage finite pagination", () => {
     nav.state.search = "bucket=RESTING&sex=M&status=SOLD&q=G-77&page=2";
     view.rerender(<AnimalsPage />);
     expect(
-      await screen.findByText("Page 2 of 3 · Showing 51–100 of 120"),
+      await screen.findByText("Showing 51–100 of 120 animals"),
     ).toBeInTheDocument();
     expect(seenParams.at(-1)?.get("offset")).toBe("50");
   });
@@ -223,11 +223,11 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 100 }, (_, index) => animal(index + 1)));
     nav.state.search = "sex=M&status=ACTIVE&q=G&page=2";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 2 of 2 · Showing 51–100 of 100");
+    await screen.findByText("Showing 51–100 of 100 animals");
 
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
 
-    expect(await screen.findByText("Page 1 of 2 · Showing 1–50 of 100")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–50 of 100 animals")).toBeInTheDocument();
     expect(seenParams.at(-1)?.get("offset")).toBe("0");
     expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS");
     const nextUrl = hrefParams(nav.replace);
@@ -243,7 +243,7 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 100 }, (_, index) => animal(index + 1)));
     nav.state.search = "bucket=RESTING&page=2";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 2 of 2 · Showing 51–100 of 100");
+    await screen.findByText("Showing 51–100 of 100 animals");
 
     await user.type(screen.getByRole("searchbox", { name: "Search animals by tag" }), "G-9");
 
@@ -260,7 +260,7 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
     const search = screen.getByRole("searchbox", { name: "Search animals by tag" });
 
     await user.type(search, "G");
@@ -284,9 +284,9 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     expect(nav.state.deferredReplacements).toHaveLength(1);
     const delayedFilterUrl = nav.state.deferredReplacements[0];
 
@@ -314,9 +314,9 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     nav.state.deferPush = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(nav.state.deferredPushes).toHaveLength(1);
     const delayedPageUrl = nav.state.deferredPushes[0];
 
@@ -342,9 +342,9 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     await chooseOption(user, "Filter animals by sex", "Female");
     expect(nav.state.deferredReplacements).toHaveLength(2);
 
@@ -371,18 +371,18 @@ describe("AnimalsPage finite pagination", () => {
       mutations: { retry: false },
     });
     renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
     // Warm both filter query keys. The third navigation below can therefore
     // settle entirely from cache: only the explicit URL-commit fence can keep
     // its rows unavailable.
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
     await chooseOption(user, "Filter animals by bucket", "All buckets");
     await waitFor(() => expect(nav.state.search).toBe(""));
 
     nav.state.deferReplace = true;
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
 
     expect(screen.getByText("Updating animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
@@ -396,7 +396,7 @@ describe("AnimalsPage finite pagination", () => {
   it("does not raise a navigation fence for an unchanged idle search", async () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
     // On mount q and the URL's q are both empty. Treating that equality as a
     // real replacement strands the screen in Updating because Next has no
@@ -415,10 +415,10 @@ describe("AnimalsPage finite pagination", () => {
       mutations: { retry: false },
     });
     const view = renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
     // Warm A, B, and C before reproducing A -> B -> C with deferred replaces.
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
     await chooseOption(user, "Filter animals by sex", "Female");
     await waitFor(() => expect(seenParams.at(-1)?.get("sex")).toBe("F"));
@@ -428,7 +428,7 @@ describe("AnimalsPage finite pagination", () => {
 
     nav.state.deferReplace = true;
     nav.state.deferredReplacements = [];
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     await chooseOption(user, "Filter animals by sex", "Female");
     expect(nav.state.deferredReplacements).toHaveLength(2);
 
@@ -451,14 +451,14 @@ describe("AnimalsPage finite pagination", () => {
       mutations: { retry: false },
     });
     renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
-    await user.click(screen.getByRole("button", { name: "Next page" }));
-    await screen.findByText("Page 2 of 2 · Showing 51–55 of 55");
-    await user.click(screen.getByRole("button", { name: "Previous page" }));
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Showing 51–55 of 55 animals");
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await screen.findByText("Showing 1–50 of 55 animals");
 
     nav.state.deferPush = true;
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByText("Updating animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-051")).not.toBeInTheDocument();
@@ -469,9 +469,9 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     await chooseOption(user, "Filter animals by sex", "Female");
     await chooseOption(user, "Filter animals by sex", "Both sexes");
     expect(nav.state.deferredReplacements).toHaveLength(3);
@@ -494,9 +494,9 @@ describe("AnimalsPage finite pagination", () => {
     usePagedAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     nav.state.deferReplace = true;
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
-    await chooseOption(user, "Filter animals by bucket", "FEMALE KIDS");
+    await chooseOption(user, "Filter animals by bucket", "Female kids");
     await chooseOption(user, "Filter animals by bucket", "All buckets");
 
     // Although /animals is still the committed URL, this second dispatch is
@@ -530,9 +530,11 @@ describe("AnimalsPage finite pagination", () => {
     renderWithProviders(<AnimalsPage />);
 
     expect(await screen.findByText("No animals match these filters.")).toBeInTheDocument();
-    expect(screen.getByText("Page 1 of 1 · Showing 0–0 of 0")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    // An empty result has nothing to page through: the shared control
+    // unmounts entirely instead of rendering a disabled "Showing 0–0".
+    expect(
+      screen.queryByRole("navigation", { name: "animals pagination" }),
+    ).not.toBeInTheDocument();
     expect(seenParams.some((params) => params.get("offset") === "150")).toBe(true);
     expect(seenParams.at(-1)?.get("offset")).toBe("0");
     const recoveredUrl = hrefParams(nav.replace);

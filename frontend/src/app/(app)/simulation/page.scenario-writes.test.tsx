@@ -207,7 +207,6 @@ describe("SimulationPage scenario paging after a write", () => {
     const offsets: number[] = [];
     const user = await renderLoaded({ scenarios, offsets });
     server.use(deleteHandler(scenarios));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("Plan 21")).toBeInTheDocument();
     expect(pageCaption()).toBe("Showing 21–40 of 42 saved scenarios");
@@ -215,6 +214,7 @@ describe("SimulationPage scenario paging after a write", () => {
     const mark = offsets.length;
     const row = screen.getByText("Plan 25").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() =>
       expect(pageCaption()).toBe("Showing 21–40 of 41 saved scenarios"),
@@ -234,7 +234,6 @@ describe("SimulationPage scenario paging after a write", () => {
     const offsets: number[] = [];
     const user = await renderLoaded({ scenarios, offsets });
     server.use(deleteHandler(scenarios));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText("Plan 21")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -244,6 +243,7 @@ describe("SimulationPage scenario paging after a write", () => {
     const mark = offsets.length;
     const row = screen.getByText("Plan 41").closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() =>
       expect(pageCaption()).toBe("Showing 21–40 of 40 saved scenarios"),
@@ -300,7 +300,6 @@ describe("SimulationPage scenario deletion bindings", () => {
       deleteHandler(scenarios),
       http.post("/api/simulation/scenarios/7/run", () => HttpResponse.json(RESULT)),
     );
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const keptRow = (await screen.findByText("Kept plan")).closest("tr") as HTMLElement;
     await user.click(within(keptRow).getByRole("button", { name: "Load" }));
     await user.click(within(keptRow).getByRole("button", { name: "Run" }));
@@ -311,6 +310,7 @@ describe("SimulationPage scenario deletion bindings", () => {
 
     const doomedRow = screen.getByText("Plan 8").closest("tr") as HTMLElement;
     await user.click(within(doomedRow).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() => expect(screen.queryByText("Plan 8")).not.toBeInTheDocument());
     expect(screen.getByText("Editing scenario: Kept plan")).toBeInTheDocument();
@@ -454,7 +454,7 @@ describe("SimulationPage calibration continuation", () => {
       expect(screen.getByRole("button", { name: "Load defaults" })).toBeEnabled(),
     );
     expect(screen.getByLabelText("Does")).toHaveValue(73);
-    expect(screen.getByText("Farm calibration evidence")).toBeInTheDocument();
+    expect(screen.getByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).toBeInTheDocument();
   });
 
   // Calibrated event rows are keyed like every other event row, and those

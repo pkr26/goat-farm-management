@@ -275,7 +275,7 @@ describe("BreedingPage", () => {
 
   it("renders the records table with formatted dates and animal links", async () => {
     await renderLoaded();
-    const row = firstRowOf("CONFIRMED PREGNANT");
+    const row = firstRowOf("Confirmed Pregnant");
     const doeLink = within(row).getByRole("link", { name: "G-010" });
     expect(doeLink).toHaveAttribute("href", "/animals/10");
     const buckLink = within(row).getByRole("link", { name: "G-020" });
@@ -286,30 +286,30 @@ describe("BreedingPage", () => {
 
   it("renders outcome badge text with underscores replaced", async () => {
     await renderLoaded();
-    expect(screen.getByText("PENDING")).toBeInTheDocument();
-    expect(screen.getAllByText("CONFIRMED PREGNANT")).toHaveLength(2);
-    expect(screen.getByText("FAILED")).toBeInTheDocument();
-    expect(screen.getByText("ABORTED")).toBeInTheDocument();
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getAllByText("Confirmed Pregnant")).toHaveLength(2);
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Aborted")).toBeInTheDocument();
   });
 
   it("renders the recorded pregnancy-loss facts", async () => {
     await renderLoaded();
-    const row = rowOf("ABORTED");
+    const row = rowOf("Aborted");
     expect(within(row).getByText("4 Aug 2026 · INJURY")).toBeInTheDocument();
     expect(within(row).getByText("Fence accident")).toBeInTheDocument();
   });
 
   it("ultrasound cell shows done / due date / dash per record state", async () => {
     await renderLoaded();
-    expect(within(rowOf("PENDING")).getByText("due 2 Aug 2026")).toBeInTheDocument();
-    expect(within(firstRowOf("CONFIRMED PREGNANT")).getByText("done")).toBeInTheDocument();
+    expect(within(rowOf("Pending")).getByText("due 2 Aug 2026")).toBeInTheDocument();
+    expect(within(firstRowOf("Confirmed Pregnant")).getByText("done")).toBeInTheDocument();
   });
 
   it("kid count and expected-kidding cells fall back to a dash", async () => {
     await renderLoaded();
-    const pendingRow = rowOf("PENDING");
+    const pendingRow = rowOf("Pending");
     expect(within(pendingRow).getAllByText("—").length).toBeGreaterThanOrEqual(2);
-    expect(within(firstRowOf("CONFIRMED PREGNANT")).getByText("2")).toBeInTheDocument();
+    expect(within(firstRowOf("Confirmed Pregnant")).getByText("2")).toBeInTheDocument();
   });
 
   it("falls back to 'Doe #id' / 'Buck #id' when tags are absent", async () => {
@@ -425,24 +425,24 @@ describe("BreedingPage", () => {
 
   it("shows management actions per row state with breeding.manage", async () => {
     await renderLoaded();
-    expect(within(rowOf("PENDING")).getByRole("button", { name: "Ultrasound result" }))
+    expect(within(rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }))
       .toBeInTheDocument();
-    const pregnantRow = screen.getAllByText("CONFIRMED PREGNANT")[0].closest("tr")!;
+    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     expect(within(pregnantRow).getByRole("button", { name: "Record loss" })).toBeInTheDocument();
-    const kiddedRow = screen.getAllByText("CONFIRMED PREGNANT")[1].closest("tr")!;
+    const kiddedRow = screen.getAllByText("Confirmed Pregnant")[1].closest("tr")!;
     expect(within(kiddedRow).getByText("Kidded")).toBeInTheDocument();
     expect(
       within(kiddedRow).queryByRole("button", { name: "Record loss" }),
     ).not.toBeInTheDocument();
     expect(
-      within(rowOf("FAILED")).queryByRole("button"),
+      within(rowOf("Failed")).queryByRole("button"),
     ).not.toBeInTheDocument();
   });
 
   it("offers the result action before the planned date, keeping the plan as a hint", async () => {
     listPayload.records = [HEAT_RETURN_REC];
     renderWithProviders(<BreedingPage />);
-    const pending = await screen.findByText("PENDING");
+    const pending = await screen.findByText("Pending");
     const row = pending.closest("tr") as HTMLElement;
 
     // A doe back in standing heat has to be recordable as not-pregnant now.
@@ -454,7 +454,7 @@ describe("BreedingPage", () => {
 
   it("shows no planned-scan hint once the scan date has arrived", async () => {
     await renderLoaded();
-    expect(within(rowOf("PENDING")).queryByText(/^Scan planned /)).not.toBeInTheDocument();
+    expect(within(rowOf("Pending")).queryByText(/^Scan planned /)).not.toBeInTheDocument();
   });
 
   // ---------- Add-breeding dialog ----------
@@ -702,7 +702,7 @@ describe("BreedingPage", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(
-      within(rowOf("PENDING")).getByRole("button", { name: "Ultrasound result" }),
+      within(rowOf("Pending")).getByRole("button", { name: "Ultrasound result" }),
     );
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -783,7 +783,7 @@ describe("BreedingPage", () => {
     const user = userEvent.setup();
     listPayload.records = [HEAT_RETURN_REC];
     renderWithProviders(<BreedingPage />);
-    const row = (await screen.findByText("PENDING")).closest("tr") as HTMLElement;
+    const row = (await screen.findByText("Pending")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Ultrasound result" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
@@ -900,7 +900,7 @@ describe("BreedingPage", () => {
   async function openPregnancyLossDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    const pregnantRow = screen.getAllByText("CONFIRMED PREGNANT")[0].closest("tr")!;
+    const pregnantRow = screen.getAllByText("Confirmed Pregnant")[0].closest("tr")!;
     await user.click(within(pregnantRow).getByRole("button", { name: "Record loss" }));
     const dialog = await screen.findByRole("dialog", { name: "Record pregnancy loss" });
     return { user, dialog };
@@ -988,7 +988,7 @@ describe("BreedingPage", () => {
     expect(within(dialog).getByRole("alert")).toHaveTextContent("kidding already recorded");
     expect(within(dialog).getByLabelText("Notes")).toHaveValue("Observed loss");
     expect(listCalls).toBe(1); // no refresh on failure
-    expect(screen.getAllByText("CONFIRMED PREGNANT")).toHaveLength(2);
+    expect(screen.getAllByText("Confirmed Pregnant")).toHaveLength(2);
   });
 
   it("announces a loss conflict and retries without losing the form", async () => {

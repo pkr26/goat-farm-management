@@ -6,7 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { ReceiptText, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useRef, useState } from "react";
 import { useForm, useWatch, type DefaultValues } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -57,7 +58,9 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -70,6 +73,7 @@ import {
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { cn } from "@/lib/utils";
+import { PermissionsError } from "@/components/permissions-error";
 
 const CATEGORIES = Object.values(TransactionInCategory);
 const TYPES = Object.values(TransactionInType);
@@ -79,16 +83,43 @@ const MAX_AMOUNT = 1_000_000_000;
 const ALL = "all";
 const NONE = "none";
 /** value → label maps for the root `items` prop: without them, Base UI's
- * Select.Value renders the raw value (the "all" sentinel) in the closed
- * trigger. */
+ * Select.Value renders the raw value (the "all" sentinel, or a SCREAMING_SNAKE
+ * enum member) in the closed trigger. */
+const TYPE_ITEMS: Record<string, string> = Object.fromEntries(
+  TYPES.map((t) => [t, enumLabel("txType", t)]),
+);
+const CATEGORY_ITEMS: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c, enumLabel("txCategory", c)]),
+);
 const TYPE_FILTER_ITEMS: Record<string, string> = {
   [ALL]: "All types",
-  ...Object.fromEntries(TYPES.map((t) => [t, t])),
+  ...TYPE_ITEMS,
 };
 const CATEGORY_FILTER_ITEMS: Record<string, string> = {
   [ALL]: "All categories",
-  ...Object.fromEntries(CATEGORIES.map((c) => [c, c])),
+  ...CATEGORY_ITEMS,
 };
+
+/** URL params → filter state. Anything malformed (or absent) means "off", so
+ * a shared link can never wedge the ledger into a filter the API rejects. */
+function monthFromParams(params: URLSearchParams): string {
+  const raw = params.get("month");
+  return raw !== null && /^\d{4}-\d{2}$/.test(raw) ? raw : "";
+}
+
+function typeFromParams(params: URLSearchParams): typeof ALL | TransactionInType {
+  const raw = params.get("type");
+  return TYPES.includes(raw as TransactionInType) ? (raw as TransactionInType) : ALL;
+}
+
+function categoryFromParams(
+  params: URLSearchParams,
+): typeof ALL | TransactionInCategory {
+  const raw = params.get("category");
+  return CATEGORIES.includes(raw as TransactionInCategory)
+    ? (raw as TransactionInCategory)
+    : ALL;
+}
 
 function localToday(): string {
   return farmToday();
@@ -130,14 +161,10 @@ function txnDefaults(): DefaultValues<TxnInput> {
   };
 }
 
-/** Income vs expense tint pair (light + dark), reused for badges and amounts. */
-const TYPE_TINTS: Record<string, string> = {
-  INCOME: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
-  EXPENSE: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
-};
+/** Income vs expense amount tint, from the semantic status tokens. */
 const AMOUNT_TINTS: Record<string, string> = {
-  INCOME: "text-emerald-600 dark:text-emerald-400",
-  EXPENSE: "text-red-600 dark:text-red-400",
+  INCOME: "text-success",
+  EXPENSE: "text-destructive",
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -291,7 +318,7 @@ function CorrectionDialog({
             </p>
           )}
           {consequenceHint && (
-            <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">
+            <p role="alert" className="rounded-lg bg-warning-tint/60 px-3 py-2 text-sm text-warning-tint-foreground">
               {consequenceHint}
             </p>
           )}
@@ -317,13 +344,14 @@ function CorrectionDialog({
               <Select
                 value={type}
                 onValueChange={(value) => setValue("type", value as TransactionInType)}
+                items={TYPE_ITEMS}
               >
                 <SelectTrigger id={`correction-type-${transaction.id}`} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {TYPES.map((value) => (
-                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                    <SelectItem key={value} value={value}>{enumLabel("txType", value)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -333,13 +361,16 @@ function CorrectionDialog({
               <Select
                 value={category}
                 onValueChange={(value) => setValue("category", value as TransactionInCategory)}
+                items={CATEGORY_ITEMS}
               >
                 <SelectTrigger id={`correction-category-${transaction.id}`} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {CATEGORIES.map((value) => (
-                    <SelectItem key={value} value={value}>{value}</SelectItem>
+                    <SelectItem key={value} value={value}>
+                      {enumLabel("txCategory", value)}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -490,24 +521,65 @@ function CorrectionDialog({
   );
 }
 
-export default function FinancePage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+function FinancePageContent() {
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
   const canViewAnimals = can("animals.view");
   const queryClient = useQueryClient();
 
-  const [month, setMonth] = useState("");
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  // Key the URL sync by the serialized params; the useSearchParams object
+  // identity itself is not stable.
+  const paramsKey = searchParams.toString();
+
   // `ALL` is the "no filter" sentinel; every other value is a real enum member,
   // so the ledger filters stay in step with the generated query contract.
-  const [typeFilter, setTypeFilter] = useState<typeof ALL | TransactionInType>(ALL);
-  const [categoryFilter, setCategoryFilter] = useState<typeof ALL | TransactionInCategory>(ALL);
+  // State mirrors the URL so picks apply synchronously; a same-route
+  // navigation (shared link, browser Back) re-syncs it below. This is the
+  // render-time "adjust state when a value changes" pattern — no effect, so
+  // no cascading commit.
+  const [month, setMonth] = useState(() => monthFromParams(searchParams));
+  const [typeFilter, setTypeFilter] = useState<typeof ALL | TransactionInType>(() =>
+    typeFromParams(searchParams),
+  );
+  const [categoryFilter, setCategoryFilter] = useState<
+    typeof ALL | TransactionInCategory
+  >(() => categoryFromParams(searchParams));
+  const [syncedParamsKey, setSyncedParamsKey] = useState(paramsKey);
+  if (paramsKey !== syncedParamsKey) {
+    setSyncedParamsKey(paramsKey);
+    const synced = new URLSearchParams(paramsKey);
+    setMonth(monthFromParams(synced));
+    setTypeFilter(typeFromParams(synced));
+    setCategoryFilter(categoryFromParams(synced));
+  }
   const [open, setOpen] = useState(false);
   const [correcting, setCorrecting] = useState<TransactionOut | null>(null);
   const [correctionPending, setCorrectionPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 50;
+
+  /** Mirror the active filters into the URL without adding a history entry
+   *  or scrolling the ledger out of view; unknown params are preserved. */
+  function replaceLedgerUrl(
+    nextMonth: string,
+    nextType: typeof ALL | TransactionInType,
+    nextCategory: typeof ALL | TransactionInCategory,
+  ) {
+    const params = new URLSearchParams(paramsKey);
+    if (nextMonth) params.set("month", nextMonth);
+    else params.delete("month");
+    if (nextType !== ALL) params.set("type", nextType);
+    else params.delete("type");
+    if (nextCategory !== ALL) params.set("category", nextCategory);
+    else params.delete("category");
+    const rest = params.toString();
+    router.replace(rest ? `${pathname}?${rest}` : pathname, { scroll: false });
+  }
 
   // Omit inactive filters entirely: the Orval URL builder serializes `null`
   // as the literal string "null", which the backend treats as a real filter
@@ -549,6 +621,12 @@ export default function FinancePage() {
   const wRelatedAnimalId = useWatch({ control, name: "related_animal_id" });
   const wType = useWatch({ control, name: "type" });
 
+  function openAddDialog() {
+    reset(txnDefaults());
+    setFormError(null);
+    setOpen(true);
+  }
+
   async function onSubmit(values: TxnValues) {
     await addFlight.run(async () => {
       setFormError(null);
@@ -584,13 +662,11 @@ export default function FinancePage() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -609,7 +685,7 @@ export default function FinancePage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const net = payload.total_income - payload.total_expense;
@@ -621,13 +697,7 @@ export default function FinancePage() {
         description="Income, expenses and monthly profit & loss for the farm."
         actions={
           canManage && (
-            <Button
-              onClick={() => {
-                reset(txnDefaults());
-                setFormError(null);
-                setOpen(true);
-              }}
-            >
+            <Button onClick={openAddDialog}>
               New transaction
             </Button>
           )
@@ -639,25 +709,29 @@ export default function FinancePage() {
           label="Total income"
           value={<span className="tabular-nums">{formatMoney(payload.total_income)}</span>}
           icon={TrendingUp}
-          tint="emerald"
+          tint="success"
         />
         <StatCard
           label="Total expense"
           value={<span className="tabular-nums">{formatMoney(payload.total_expense)}</span>}
           icon={TrendingDown}
-          tint="red"
+          tint="destructive"
         />
         <StatCard
           label="Net (all time)"
           value={<span className="tabular-nums">{formatMoney(net)}</span>}
           icon={Scale}
-          tint="amber"
+          tint="warning"
         />
       </div>
 
       <DataTableCard title="Monthly P&L (last 12 months)">
         {payload.pnl.length === 0 ? (
-          <p className="text-muted-foreground">No transactions yet.</p>
+          <EmptyState
+            icon={ReceiptText}
+            title="No transactions yet."
+            className="py-8"
+          />
         ) : (
           <Table className="min-w-[560px]">
             <TableHeader>
@@ -678,23 +752,22 @@ export default function FinancePage() {
                       onClick={() => {
                         setMonth(row.month);
                         setOffset(0);
+                        replaceLedgerUrl(row.month, typeFilter, categoryFilter);
                       }}
                     >
                       {row.month}
                     </button>
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                  <TableCell className="text-right tabular-nums text-success">
                     {formatMoney(row.income)}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-red-600 dark:text-red-400">
+                  <TableCell className="text-right tabular-nums text-destructive">
                     {formatMoney(row.expense)}
                   </TableCell>
                   <TableCell
                     className={cn(
                       "text-right tabular-nums",
-                      row.net < 0
-                        ? "text-destructive"
-                        : "text-emerald-600 dark:text-emerald-400",
+                      row.net < 0 ? "text-destructive" : "text-success",
                     )}
                   >
                     {formatMoney(row.net)}
@@ -723,6 +796,7 @@ export default function FinancePage() {
             onChange={(e) => {
               setMonth(e.target.value);
               setOffset(0);
+              replaceLedgerUrl(e.target.value, typeFilter, categoryFilter);
             }}
             className="w-40"
             aria-label="Filter by month"
@@ -733,6 +807,7 @@ export default function FinancePage() {
               // The item set below is exactly ALL plus the enum members.
               setTypeFilter(v as typeof ALL | TransactionInType);
               setOffset(0);
+              replaceLedgerUrl(month, v as typeof ALL | TransactionInType, categoryFilter);
             }}
             items={TYPE_FILTER_ITEMS}
           >
@@ -743,7 +818,7 @@ export default function FinancePage() {
               <SelectItem value={ALL}>All types</SelectItem>
               {TYPES.map((t) => (
                 <SelectItem key={t} value={t}>
-                  {t}
+                  {enumLabel("txType", t)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -754,6 +829,7 @@ export default function FinancePage() {
               // The item set below is exactly ALL plus the enum members.
               setCategoryFilter(v as typeof ALL | TransactionInCategory);
               setOffset(0);
+              replaceLedgerUrl(month, typeFilter, v as typeof ALL | TransactionInCategory);
             }}
             items={CATEGORY_FILTER_ITEMS}
           >
@@ -764,7 +840,7 @@ export default function FinancePage() {
               <SelectItem value={ALL}>All categories</SelectItem>
               {CATEGORIES.map((c) => (
                 <SelectItem key={c} value={c}>
-                  {c}
+                  {enumLabel("txCategory", c)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -778,6 +854,7 @@ export default function FinancePage() {
                 setTypeFilter(ALL);
                 setCategoryFilter(ALL);
                 setOffset(0);
+                replaceLedgerUrl("", ALL, ALL);
               }}
             >
               Clear
@@ -786,11 +863,27 @@ export default function FinancePage() {
         </div>
 
         {payload.transactions.length === 0 ? (
-          <EmptyState
-            icon={ReceiptText}
-            title="No transactions match."
-            description="Try clearing the filters or add a new transaction."
-          />
+          month || typeFilter !== ALL || categoryFilter !== ALL ? (
+            // A filter excluded every row: the ledger itself may not be empty.
+            <EmptyState
+              icon={ReceiptText}
+              title="No transactions match."
+              description="Try clearing the filters."
+            />
+          ) : (
+            // No filters active and nothing in range: the farm has no ledger yet.
+            <EmptyState
+              icon={ReceiptText}
+              title="No transactions yet"
+              description="Record income and expenses to build the farm ledger."
+            >
+              {canManage && (
+                <Button size="sm" onClick={openAddDialog}>
+                  Add transaction
+                </Button>
+              )}
+            </EmptyState>
+          )
         ) : (
           <Table className="min-w-[900px]">
             <TableHeader>
@@ -810,14 +903,12 @@ export default function FinancePage() {
                 <TableRow key={t.id} className={cn(t.voided_at && "bg-muted/40 opacity-70")}>
                   <TableCell>{formatDate(t.date)}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={cn("border-transparent", TYPE_TINTS[t.type])}>
-                      {t.type}
-                    </Badge>
+                    <StatusBadge status={t.type} />
                     {t.voided_at && (
                       <Badge variant="destructive" className="ml-2">VOID</Badge>
                     )}
                   </TableCell>
-                  <TableCell>{t.category}</TableCell>
+                  <TableCell>{enumLabel("txCategory", t.category)}</TableCell>
                   <TableCell
                     className={cn(
                       "text-right tabular-nums font-medium",
@@ -957,6 +1048,7 @@ export default function FinancePage() {
                   onValueChange={(v) =>
                     setValue("type", v as TxnInput["type"], { shouldValidate: true })
                   }
+                  items={TYPE_ITEMS}
                 >
                   <SelectTrigger id="transaction-type" className="w-full">
                     <SelectValue />
@@ -964,7 +1056,7 @@ export default function FinancePage() {
                   <SelectContent>
                     {TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {t}
+                        {enumLabel("txType", t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -977,6 +1069,7 @@ export default function FinancePage() {
                   onValueChange={(v) =>
                     setValue("category", v as TxnInput["category"], { shouldValidate: true })
                   }
+                  items={CATEGORY_ITEMS}
                 >
                   <SelectTrigger id="transaction-category" className="w-full">
                     <SelectValue />
@@ -984,7 +1077,7 @@ export default function FinancePage() {
                   <SelectContent>
                     {CATEGORIES.map((c) => (
                       <SelectItem key={c} value={c}>
-                        {c}
+                        {enumLabel("txCategory", c)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1059,5 +1152,14 @@ export default function FinancePage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Suspense boundary required because the content reads useSearchParams(). */
+export default function FinancePage() {
+  return (
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+      <FinancePageContent />
+    </Suspense>
   );
 }

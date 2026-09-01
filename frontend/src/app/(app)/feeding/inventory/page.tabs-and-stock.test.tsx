@@ -230,7 +230,7 @@ describe("InventoryPage low-stock flagging", () => {
 
     const row = rowOf("Maize bran");
     expect(within(row).getByText("low")).toBeInTheDocument();
-    expect(row).toHaveClass("bg-amber-50");
+    expect(row).toHaveClass("bg-warning-tint/50");
   });
 
   it("never flags an ingredient without a reorder level, even when it is empty", async () => {
@@ -239,7 +239,7 @@ describe("InventoryPage low-stock flagging", () => {
     const row = rowOf("Mineral mixture");
     expect(within(row).getByText("0.0")).toBeInTheDocument();
     expect(within(row).queryByText("low")).not.toBeInTheDocument();
-    expect(row).not.toHaveClass("bg-amber-50");
+    expect(row).not.toHaveClass("bg-warning-tint/50");
   });
 
   it("leaves a well-stocked tracked ingredient unflagged", async () => {
@@ -247,7 +247,7 @@ describe("InventoryPage low-stock flagging", () => {
 
     const row = rowOf("Lucerne hay");
     expect(within(row).queryByText("low")).not.toBeInTheDocument();
-    expect(row).not.toHaveClass("bg-amber-50");
+    expect(row).not.toHaveClass("bg-warning-tint/50");
   });
 });
 

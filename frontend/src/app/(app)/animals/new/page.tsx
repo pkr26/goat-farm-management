@@ -19,5 +19,5 @@ export default function AnimalsNewRedirect() {
     router.replace("/animals?new=1");
   }, [router]);
 
-  return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
 }

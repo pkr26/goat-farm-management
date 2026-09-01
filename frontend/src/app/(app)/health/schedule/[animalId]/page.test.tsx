@@ -109,15 +109,15 @@ describe("VaccinationSchedulePage", () => {
 
   it("renders a status badge per row", async () => {
     renderWithProviders(<VaccinationSchedulePage />);
-    expect(await screen.findByText("DONE")).toHaveClass("bg-emerald-100");
-    const overdue = screen.getByText("OVERDUE");
-    const upcoming = screen.getByText("UPCOMING");
-    expect(overdue).toHaveClass("bg-red-100");
-    expect(upcoming).toHaveClass("bg-amber-100");
-    expect(overdue.closest("tr")).toHaveClass("bg-red-50");
-    expect(upcoming.closest("tr")).toHaveClass("bg-amber-50");
-    expect(screen.getByText("DONE").closest("tr")).not.toHaveClass("bg-red-50", "bg-amber-50");
-    expect(screen.getByText("SOMETHING_ELSE")).toBeInTheDocument();
+    expect(await screen.findByText("Done")).toHaveClass("bg-success-tint");
+    const overdue = screen.getByText("Overdue");
+    const upcoming = screen.getByText("Upcoming");
+    expect(overdue).toHaveClass("bg-destructive/10");
+    expect(upcoming).toHaveClass("bg-warning-tint");
+    expect(overdue.closest("tr")).toHaveClass("bg-destructive/[0.04]");
+    expect(upcoming.closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
+    expect(screen.getByText("Done").closest("tr")).not.toHaveClass("bg-destructive/[0.04]");
+    expect(screen.getByText("Something Else")).toBeInTheDocument();
   });
 
   it("shows the empty state when no templates apply", async () => {
@@ -190,7 +190,7 @@ describe("VaccinationSchedulePage", () => {
       "href",
       "/health?schedule_animal_id=7",
     );
-    const addEventHref = screen.getByRole("link", { name: "+ Add event" }).getAttribute("href");
+    const addEventHref = screen.getByRole("link", { name: "Add event" }).getAttribute("href");
     const addEventUrl = new URL(addEventHref ?? "", "https://goatfarm.test");
     expect(addEventUrl.pathname).toBe("/health/new");
     expect(addEventUrl.searchParams.get("animal_id")).toBe("7");
@@ -214,7 +214,7 @@ describe("VaccinationSchedulePage", () => {
     server.use(permissionsHandler(["health.view"]));
     renderWithProviders(<VaccinationSchedulePage />);
     await screen.findByText("PPR");
-    expect(screen.queryByRole("link", { name: "+ Add event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Add event" })).not.toBeInTheDocument();
   });
 
   // ---------- route id parsing ----------
@@ -293,7 +293,7 @@ describe("VaccinationSchedulePage", () => {
     const back = screen.getByRole("link", { name: "Back to health log" });
     expect(back).toHaveClass("border-border", "bg-background");
     expect(back).not.toHaveClass("bg-primary");
-    expect(screen.getByRole("link", { name: "+ Add event" })).toHaveClass("bg-primary");
+    expect(screen.getByRole("link", { name: "Add event" })).toHaveClass("bg-primary");
   });
 
   // ---------- failure with no server detail ----------

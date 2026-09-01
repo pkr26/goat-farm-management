@@ -99,8 +99,8 @@ describe("FeedingPage allocation completion", () => {
     renderWithProviders(<FeedingPage />);
 
     await screen.findByText("Lactating 60/40");
-    expect(within(rowOf("Lactating 60/40")).queryByText("done")).not.toBeInTheDocument();
-    expect(within(rowOf("Flush 70/30")).queryByText("done")).not.toBeInTheDocument();
+    expect(within(rowOf("Lactating 60/40")).queryByText("Done")).not.toBeInTheDocument();
+    expect(within(rowOf("Flush 70/30")).queryByText("Done")).not.toBeInTheDocument();
     expect(screen.getByText("45.0 / 45.0 kg recorded")).toBeInTheDocument();
     expect(screen.getByText("0/2 rations")).toBeInTheDocument();
   });
@@ -120,8 +120,8 @@ describe("FeedingPage allocation completion", () => {
     renderWithProviders(<FeedingPage />);
 
     await screen.findByText("Lactating 60/40");
-    expect(within(rowOf("Lactating 60/40")).getByText("done")).toBeInTheDocument();
-    expect(within(rowOf("Flush 70/30")).getByText("done")).toBeInTheDocument();
+    expect(within(rowOf("Lactating 60/40")).getByText("Done")).toBeInTheDocument();
+    expect(within(rowOf("Flush 70/30")).getByText("Done")).toBeInTheDocument();
     expect(screen.getByText("complete")).toBeInTheDocument();
   });
 });

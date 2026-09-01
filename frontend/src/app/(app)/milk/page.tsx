@@ -43,6 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatLitres } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -50,15 +51,10 @@ import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { toast } from "sonner";
+import { PermissionsError } from "@/components/permissions-error";
 
 const SHIFTS = ["MORNING", "AFTERNOON", "NIGHT"] as const;
 const SUMMARY_WINDOW_DAYS = 30;
-
-function shiftLabel(shift: string): string {
-  if (shift === "MORNING") return "Morning";
-  if (shift === "AFTERNOON") return "Afternoon";
-  return "Night";
-}
 
 function shiftTime(shift: string): string {
   if (shift === "MORNING") return "5:30 AM";
@@ -67,7 +63,7 @@ function shiftTime(shift: string): string {
 }
 
 export default function MilkPage() {
-  const { can, loading, isError } = usePermissions();
+  const { can, loading, isError , refetch } = usePermissions();
   const vocabulary = farmVocabulary(useFarmType());
   const queryClient = useQueryClient();
   const [animalId, setAnimalId] = useState("");
@@ -128,7 +124,7 @@ export default function MilkPage() {
     await submit.run(async () => {
       try {
         await addRecord.mutateAsync({ data: payload });
-        toast.success(`Recorded ${parsedLitres} L (${shiftLabel(shift).toLowerCase()})`);
+        toast.success(`Recorded ${parsedLitres} L (${enumLabel("shift", shift).toLowerCase()})`);
         setLitres("");
         setFatPct("");
         await invalidateFarmData(queryClient);
@@ -140,13 +136,21 @@ export default function MilkPage() {
   }
 
   if (loading) {
-    return <p className="p-6 text-muted-foreground">Loading permissions…</p>;
+    return (
+      <p className="py-10 text-center text-muted-foreground" role="status">
+        Loading…
+      </p>
+    );
   }
   if (isError) {
-    return <p className="p-6 text-destructive">Could not load permissions. Try again later.</p>;
+    return <PermissionsError onRetry={() => void refetch()} />;
   }
   if (!allowed) {
-    return <p className="p-6 text-muted-foreground">You do not have permission to view milk records.</p>;
+    return (
+      <p className="text-muted-foreground">
+        You do not have permission to view milk records.
+      </p>
+    );
   }
   if (!vocabulary.dairy) {
     return (
@@ -162,7 +166,7 @@ export default function MilkPage() {
     vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className="space-y-6">
       <PageHeader
         title="Milk"
         description={`${femaleAdultLabel} yields by milking shift, herd daily totals and ${SUMMARY_WINDOW_DAYS}-day averages.`}
@@ -234,7 +238,7 @@ export default function MilkPage() {
                   <SelectContent>
                     {SHIFTS.map((option) => (
                       <SelectItem key={option} value={option}>
-                        {shiftLabel(option)} · {shiftTime(option)}
+                        {enumLabel("shift", option)} · {shiftTime(option)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -290,15 +294,29 @@ export default function MilkPage() {
         </CardHeader>
         <CardContent>
           {listing.isError ? (
-            <p className="text-sm text-destructive">
-              {listing.error instanceof ApiError ? listing.error.detail : "Could not load records."}
-            </p>
+            <div role="alert" className="space-y-3">
+              <p className="text-sm text-destructive">
+                {listing.error instanceof ApiError
+                  ? listing.error.detail
+                  : "Could not load records."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void listing.refetch()}
+              >
+                Retry readings
+              </Button>
+            </div>
           ) : listing.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
           ) : (records?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No readings today yet — record the morning milking above.
-            </p>
+            <EmptyState
+              icon={Droplets}
+              title="No readings today yet"
+              description="Record the morning milking above."
+              className="py-8"
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -313,7 +331,7 @@ export default function MilkPage() {
                 {(records ?? []).map((record) => (
                   <TableRow key={record.id}>
                     <TableCell className="font-medium">{record.animal_tag}</TableCell>
-                    <TableCell>{shiftLabel(record.shift)}</TableCell>
+                    <TableCell>{enumLabel("shift", record.shift)}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {record.litres.toFixed(1)}
                     </TableCell>
@@ -337,16 +355,29 @@ export default function MilkPage() {
         </CardHeader>
         <CardContent>
           {summary.isError ? (
-            <p className="text-sm text-destructive">
-              {summary.error instanceof ApiError ? summary.error.detail : "Could not load summary."}
-            </p>
+            <div role="alert" className="space-y-3">
+              <p className="text-sm text-destructive">
+                {summary.error instanceof ApiError
+                  ? summary.error.detail
+                  : "Could not load summary."}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void summary.refetch()}
+              >
+                Retry summary
+              </Button>
+            </div>
           ) : summary.isPending ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
           ) : (summaryData?.animals?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Averages appear once readings exist. Below 6 L/day at peak lactation is a cull
-              candidate; the daily-yield trend feeds the monthly cull review.
-            </p>
+            <EmptyState
+              icon={ChartColumn}
+              title="Averages appear once readings exist"
+              description="Below 6 L/day at peak lactation is a cull candidate; the daily-yield trend feeds the monthly cull review."
+              className="py-8"
+            />
           ) : (
             <Table>
               <TableHeader>

@@ -5,7 +5,7 @@
  * gating.
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -175,7 +175,13 @@ describe("FinancePage totals and P&L", () => {
     renderWithProviders(<FinancePage />);
 
     expect(await screen.findByText("No transactions yet.")).toBeInTheDocument();
-    expect(screen.getByText("No transactions match.")).toBeInTheDocument();
+    // An empty month range with no filters active is not a filter miss: the
+    // ledger promises a first entry instead of a Clear nudge.
+    expect(screen.getByText("No transactions yet")).toBeInTheDocument();
+    expect(
+      screen.getByText("Record income and expenses to build the farm ledger."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No transactions match.")).not.toBeInTheDocument();
   });
 
   it("renders transactions with type badges and an animal link", async () => {
@@ -183,8 +189,13 @@ describe("FinancePage totals and P&L", () => {
 
     const row = screen.getByText("sold 10 bucks").closest("tr") as HTMLElement;
     expect(within(row).getByText("5 Jan 2026")).toBeInTheDocument();
-    expect(within(row).getByText("INCOME")).toBeInTheDocument();
-    expect(within(row).getByText("ANIMAL_SALE")).toBeInTheDocument();
+    // StatusBadge maps INCOME→success and humanises the label.
+    const incomeBadge = within(row).getByText("Income");
+    expect(incomeBadge.closest("[data-slot=badge]")).toHaveAttribute(
+      "data-variant",
+      "success",
+    );
+    expect(within(row).getByText("Animal sale")).toBeInTheDocument();
     expect(within(row).getByText("₹1,50,000")).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "G-011" })).toHaveAttribute(
       "href",
@@ -192,7 +203,11 @@ describe("FinancePage totals and P&L", () => {
     );
 
     const feedRow = screen.getByText("7 Jan 2026").closest("tr") as HTMLElement;
-    expect(within(feedRow).getByText("EXPENSE")).toBeInTheDocument();
+    const expenseBadge = within(feedRow).getByText("Expense");
+    expect(expenseBadge.closest("[data-slot=badge]")).toHaveAttribute(
+      "data-variant",
+      "warning",
+    );
     expect(within(feedRow).getByText("—")).toBeInTheDocument(); // no animal
   });
 
@@ -303,7 +318,7 @@ describe("FinancePage filters", () => {
 
     const [typeSelect] = screen.getAllByRole("combobox");
     await user.click(typeSelect);
-    await user.click(await screen.findByRole("option", { name: "INCOME" }));
+    await user.click(await screen.findByRole("option", { name: "Income" }));
 
     await waitFor(() => expect(lastParams.get("type")).toBe("INCOME"));
   });
@@ -314,9 +329,23 @@ describe("FinancePage filters", () => {
 
     const [, categorySelect] = screen.getAllByRole("combobox");
     await user.click(categorySelect);
-    await user.click(await screen.findByRole("option", { name: "FEED" }));
+    await user.click(await screen.findByRole("option", { name: "Feed" }));
 
     await waitFor(() => expect(lastParams.get("category")).toBe("FEED"));
+  });
+
+  it("keeps the filter-miss copy when active filters exclude every row", async () => {
+    server.use(financeHandler({ transactions: [], pnl: [] }));
+    const user = userEvent.setup();
+    await renderLoaded();
+
+    await user.click(screen.getByLabelText("Filter transactions by type"));
+    await user.click(await screen.findByRole("option", { name: "Income" }));
+
+    expect(await screen.findByText("No transactions match.")).toBeInTheDocument();
+    expect(screen.getByText("Try clearing the filters.")).toBeInTheDocument();
+    // Only the unfiltered empty ledger promises a first entry.
+    expect(screen.queryByText("No transactions yet")).not.toBeInTheDocument();
   });
 
   it("Clear resets every active filter", async () => {
@@ -378,12 +407,12 @@ describe("FinancePage filters", () => {
 
     await moveToSecondPage();
     await user.click(screen.getByLabelText("Filter transactions by type"));
-    await user.click(await screen.findByRole("option", { name: "INCOME" }));
+    await user.click(await screen.findByRole("option", { name: "Income" }));
     await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
 
     await moveToSecondPage();
     await user.click(screen.getByLabelText("Filter transactions by category"));
-    await user.click(await screen.findByRole("option", { name: "FEED" }));
+    await user.click(await screen.findByRole("option", { name: "Feed" }));
     await waitFor(() => expect(lastParams.get("offset")).toBe("0"));
 
     await moveToSecondPage();
@@ -434,6 +463,28 @@ describe("FinancePage RBAC and errors", () => {
     expect(await screen.findByText("Total income")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New transaction" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Correct" })).not.toBeInTheDocument();
+  });
+
+  it("offers Add transaction from an empty ledger and hides it without finance.manage", async () => {
+    server.use(financeHandler({ transactions: [], pnl: [] }));
+    const user = userEvent.setup();
+    renderWithProviders(<FinancePage />);
+
+    // The CTA opens the same dialog as the header's New transaction button.
+    await user.click(await screen.findByRole("button", { name: "Add transaction" }));
+    expect(
+      await screen.findByRole("dialog", { name: "New transaction" }),
+    ).toBeInTheDocument();
+
+    server.use(
+      permissionsHandler(["finance.view"]),
+      financeHandler({ transactions: [], pnl: [] }),
+    );
+    cleanup();
+    renderWithProviders(<FinancePage />);
+    expect(await screen.findByText("No transactions yet")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add transaction" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New transaction" })).not.toBeInTheDocument();
   });
 
   it("shows the error detail when the finance GET fails", async () => {
@@ -925,9 +976,9 @@ describe("FinancePage new-transaction dialog", () => {
 
     const [typeSelect, categorySelect] = within(dialog).getAllByRole("combobox");
     await user.click(typeSelect);
-    await user.click(await screen.findByRole("option", { name: "INCOME" }));
+    await user.click(await screen.findByRole("option", { name: "Income" }));
     await user.click(categorySelect);
-    await user.click(await screen.findByRole("option", { name: "MILK" }));
+    await user.click(await screen.findByRole("option", { name: "Milk" }));
 
     await user.type(within(dialog).getByLabelText(/Amount/), "1200");
     await user.click(within(dialog).getByRole("button", { name: "Add transaction" }));

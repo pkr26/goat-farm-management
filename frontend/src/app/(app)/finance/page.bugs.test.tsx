@@ -23,12 +23,21 @@ import { renderWithProviders } from "@/test/render";
 
 import FinancePage from "./page";
 
+/** Router replace spy and per-test URL, so one suite can exercise both the
+ *  empty default params and a shared, filter-carrying link. */
+const replaceMock = vi.fn();
+let urlParams = new URLSearchParams();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: replaceMock, prefetch: vi.fn() }),
   usePathname: () => "/finance",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => urlParams,
   useParams: () => ({}),
 }));
+
+beforeEach(() => {
+  urlParams = new URLSearchParams();
+});
 
 const PAYLOAD = {
   transactions: [],
@@ -72,6 +81,35 @@ describe("FinancePage filter params must be omitted, not the string 'null'", () 
 
     await user.click(screen.getByRole("button", { name: "Clear" }));
     await waitFor(() => expect(lastParams.get("month")).toBeNull());
+  });
+
+  it("seeds the filters from the URL and mirrors every change back into it", async () => {
+    urlParams = new URLSearchParams("month=2025-12&type=INCOME&category=FEED");
+    const user = userEvent.setup();
+    renderWithProviders(<FinancePage />);
+    expect(await screen.findByText("Monthly P&L (last 12 months)")).toBeInTheDocument();
+
+    // The shared link's view is the first request the ledger makes.
+    await waitFor(() => {
+      expect(lastParams.get("month")).toBe("2025-12");
+      expect(lastParams.get("type")).toBe("INCOME");
+      expect(lastParams.get("category")).toBe("FEED");
+    });
+    expect(screen.getByLabelText("Filter by month")).toHaveValue("2025-12");
+    expect(screen.getByLabelText("Filter transactions by type")).toHaveTextContent("Income");
+    expect(screen.getByLabelText("Filter transactions by category")).toHaveTextContent("Feed");
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    // Clear rewrites the URL without a history entry or a scroll, then drops
+    // the params from the next request.
+    await waitFor(() =>
+      expect(replaceMock).toHaveBeenCalledWith("/finance", { scroll: false }),
+    );
+    await waitFor(() => {
+      expect(lastParams.get("month")).toBeNull();
+      expect(lastParams.get("type")).toBeNull();
+      expect(lastParams.get("category")).toBeNull();
+    });
   });
 });
 

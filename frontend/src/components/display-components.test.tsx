@@ -76,7 +76,7 @@ describe("shared display components", () => {
         label="Active goats"
         value={12}
         icon={Activity}
-        tint="emerald"
+        tint="success"
         trend={{ value: "+2", direction: "up", tone: "positive" }}
         hint="since last month"
       />,
@@ -84,11 +84,11 @@ describe("shared display components", () => {
 
     expect(screen.getByText("12")).toBeInTheDocument();
     const trend = screen.getByText("+2").closest("span");
-    expect(trend).toHaveClass("text-emerald-600");
+    expect(trend).toHaveClass("text-success");
     expect(trend?.querySelector(".lucide-trending-up")).toBeInTheDocument();
     expect(screen.getByText("since last month")).toBeInTheDocument();
     expect(screen.getByText("Active goats").parentElement?.previousElementSibling).toHaveClass(
-      "bg-emerald-100",
+      "bg-success-tint",
     );
 
     rerender(
@@ -101,7 +101,7 @@ describe("shared display components", () => {
       />,
     );
     const negative = screen.getByText("-1").closest("span");
-    expect(negative).toHaveClass("text-red-600");
+    expect(negative).toHaveClass("text-destructive");
     expect(negative?.querySelector(".lucide-trending-down")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
 
@@ -129,8 +129,8 @@ describe("shared display components", () => {
     const { rerender } = render(<StatusBadge status=" awaiting-verification " />);
     let badge = screen.getByText("Awaiting Verification");
     expect(badge.textContent).toBe("Awaiting Verification");
-    expect(badge).toHaveClass("bg-amber-100");
-    expect(badge).toHaveAttribute("data-variant", "outline");
+    expect(badge).toHaveClass("bg-warning-tint");
+    expect(badge).toHaveAttribute("data-variant", "warning");
 
     rerender(<StatusBadge status="custom_state" className="custom-badge" />);
     badge = screen.getByText("Custom State");
@@ -138,38 +138,38 @@ describe("shared display components", () => {
     expect(badge).toHaveClass("custom-badge");
 
     rerender(<StatusBadge status="ACTIVE">Ready now</StatusBadge>);
-    expect(screen.getByText("Ready now")).toHaveClass("bg-emerald-100");
+    expect(screen.getByText("Ready now")).toHaveClass("bg-success-tint");
   });
 
   it("collapses repeated spaces and hyphens before tint lookup and display", () => {
     const { rerender } = render(
       <StatusBadge status="awaiting---verification" />,
     );
-    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-amber-100");
+    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-warning-tint");
 
     rerender(<StatusBadge status="  awaiting   verification  " />);
-    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-amber-100");
+    expect(screen.getByText("Awaiting Verification")).toHaveClass("bg-warning-tint");
   });
 
   it.each([
-    ["ACTIVE", "bg-emerald-100"],
-    ["ALIVE", "bg-emerald-100"],
-    ["BORN", "bg-emerald-100"],
-    ["COMPLETED", "bg-emerald-100"],
-    ["VERIFIED", "bg-emerald-100"],
-    ["NORMAL", "bg-emerald-100"],
-    ["SOLD", "bg-blue-100"],
-    ["PURCHASED", "bg-blue-100"],
-    ["CULLED", "bg-red-100"],
-    ["STILLBORN", "bg-red-100"],
-    ["REJECTED", "bg-red-100"],
-    ["DIFFICULT", "bg-red-100"],
-    ["DEAD", "bg-zinc-200"],
-    ["DIED", "bg-zinc-200"],
-    ["QUARANTINE", "bg-amber-100"],
-    ["PENDING", "bg-amber-100"],
-    ["AWAITING_VERIFICATION", "bg-amber-100"],
-    ["ASSISTED", "bg-amber-100"],
+    ["ACTIVE", "bg-success-tint"],
+    ["ALIVE", "bg-success-tint"],
+    ["BORN", "bg-success-tint"],
+    ["COMPLETED", "bg-success-tint"],
+    ["VERIFIED", "bg-success-tint"],
+    ["NORMAL", "bg-success-tint"],
+    ["SOLD", "bg-info-tint"],
+    ["PURCHASED", "bg-info-tint"],
+    ["CULLED", "bg-destructive/10"],
+    ["STILLBORN", "bg-destructive/10"],
+    ["REJECTED", "bg-destructive/10"],
+    ["DIFFICULT", "bg-destructive/10"],
+    ["DEAD", "bg-secondary"],
+    ["DIED", "bg-secondary"],
+    ["QUARANTINE", "bg-warning-tint"],
+    ["PENDING", "bg-warning-tint"],
+    ["AWAITING_VERIFICATION", "bg-warning-tint"],
+    ["ASSISTED", "bg-warning-tint"],
   ])("renders the semantic tint for %s", (status, expectedClass) => {
     render(<StatusBadge status={status} />);
     expect(
@@ -179,12 +179,12 @@ describe("shared display components", () => {
 
   it("renders the logo mark with an optional wordmark", () => {
     const { container, rerender } = render(<Logo className="custom-logo" />);
-    expect(screen.getByText("GoatFarm")).toBeInTheDocument();
+    expect(screen.getByText("PashuFarm")).toBeInTheDocument();
     expect(container.firstElementChild).toHaveClass("custom-logo");
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
 
     rerender(<Logo withWordmark={false} />);
-    expect(screen.queryByText("GoatFarm")).not.toBeInTheDocument();
+    expect(screen.queryByText("PashuFarm")).not.toBeInTheDocument();
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
 });

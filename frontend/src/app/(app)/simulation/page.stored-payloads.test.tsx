@@ -278,7 +278,9 @@ async function renderLoaded(
 }
 
 function assumptionsCard() {
-  return screen.getByText("Assumptions").closest("[data-slot='card']") as HTMLElement;
+  return screen
+    .getByText("Assumptions", { selector: "[data-slot='card-title'], h2" })
+    .closest("[data-slot='card']") as HTMLElement;
 }
 
 function sectionTitles() {

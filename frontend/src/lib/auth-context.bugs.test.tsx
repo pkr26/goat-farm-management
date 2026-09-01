@@ -323,7 +323,7 @@ describe("AccountDialog — password change keeps the session's in-flight reques
     );
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog");
     await user.type(
       within(dialog).getByLabelText("Current password for password change"),

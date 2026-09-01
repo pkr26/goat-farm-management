@@ -15,6 +15,8 @@ export interface FarmVocabulary {
   typeLabel: string;
   /** Species noun: "goat" / "buffalo" — milk, meat and other produce copy. */
   species: string;
+  /** Species plural: "goats" / "buffalo" — group and purchase copy. */
+  speciesPlural: string;
   /** Adult female: "doe" / "milking buffalo". */
   femaleAdult: string;
   /** Adult male: "buck" / "bull". */
@@ -25,6 +27,8 @@ export interface FarmVocabulary {
   /** Parturition noun: "kidding" / "calving". */
   parturition: string;
   parturitionCap: string;
+  /** Parturition past participle: "kidded" / "calved". */
+  parturitionPast: string;
   /** e.g. "Kidding due" / "Calving due" duty label. */
   dueLabel: string;
   /** Breeding-gate copy shown on eligibility hints. */
@@ -36,12 +40,14 @@ export interface FarmVocabulary {
 const GOAT_VOCABULARY: FarmVocabulary = {
   typeLabel: "Goat farm",
   species: "goat",
+  speciesPlural: "goats",
   femaleAdult: "doe",
   maleAdult: "buck",
   young: "kid",
   youngPlural: "kids",
   parturition: "kidding",
   parturitionCap: "Kidding",
+  parturitionPast: "kidded",
   dueLabel: "Kidding due",
   breedingGateCopy: "A doe must be at least 10 months old and 22 kg to breed; bucks 12 months and 25 kg.",
   dairy: false,
@@ -50,12 +56,14 @@ const GOAT_VOCABULARY: FarmVocabulary = {
 const BUFFALO_VOCABULARY: FarmVocabulary = {
   typeLabel: "Buffalo dairy",
   species: "buffalo",
+  speciesPlural: "buffalo",
   femaleAdult: "milking buffalo",
   maleAdult: "bull",
   young: "calf",
   youngPlural: "calves",
   parturition: "calving",
   parturitionCap: "Calving",
+  parturitionPast: "calved",
   dueLabel: "Calving due",
   breedingGateCopy:
     "Heifers are bred at 22–24 months and ≥340 kg (AI at 60 days post-calving; max 3 services before cull review).",

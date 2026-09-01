@@ -2,7 +2,7 @@
 
 /** Per-animal vaccination schedule — parity with v1's health/schedule.html. */
 
-import { CalendarClock, Syringe } from "lucide-react";
+import { CalendarClock, Plus, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -11,7 +11,7 @@ import { useVaccinationScheduleApiHealthScheduleAnimalIdGet } from "@/api/genera
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Table,
@@ -25,56 +25,38 @@ import { ApiError } from "@/lib/api-client";
 import { formatDate } from "@/lib/format";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
+import { PermissionsError } from "@/components/permissions-error";
 
-/** Status pill: DONE in emerald, UPCOMING in amber, OVERDUE in red, anything
- *  else neutral. The raw status string stays visible for parity with the API. */
+/** Status chip: the shared StatusBadge resolves DONE/UPCOMING/OVERDUE to
+ *  success/warning/destructive tints; labels are humanized here. */
 function ScheduleStatusBadge({ status }: { status: string }) {
   switch (status) {
     case "DONE":
       return (
-        <Badge
-          variant="outline"
-          className="border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-        >
-          <Syringe />
-          DONE
-        </Badge>
+        <StatusBadge status={status}>
+          <Syringe aria-hidden="true" /> Done
+        </StatusBadge>
       );
     case "UPCOMING":
       return (
-        <Badge
-          variant="outline"
-          className="border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-        >
-          <CalendarClock />
-          UPCOMING
-        </Badge>
+        <StatusBadge status={status}>
+          <CalendarClock aria-hidden="true" /> Upcoming
+        </StatusBadge>
       );
     case "OVERDUE":
       return (
-        <Badge
-          variant="outline"
-          className="border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
-        >
-          <CalendarClock />
-          OVERDUE
-        </Badge>
+        <StatusBadge status={status}>
+          <CalendarClock aria-hidden="true" /> Overdue
+        </StatusBadge>
       );
     default:
-      return <Badge variant="secondary">{status}</Badge>;
+      return <StatusBadge status={status} />;
   }
 }
 
-/** Subtle row tint so due/overdue vaccines stand out at a glance. */
+/** Subtle row tint so overdue vaccines stand out at a glance. */
 function rowTint(status: string): string | undefined {
-  switch (status) {
-    case "OVERDUE":
-      return "bg-red-50 dark:bg-red-950/20";
-    case "UPCOMING":
-      return "bg-amber-50 dark:bg-amber-950/20";
-    default:
-      return undefined;
-  }
+  return status === "OVERDUE" ? "bg-destructive/[0.04]" : undefined;
 }
 
 function dateOrDash(value: string | null): string {
@@ -82,7 +64,7 @@ function dateOrDash(value: string | null): string {
 }
 
 function VaccinationSchedulePageContent() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
@@ -103,13 +85,11 @@ function VaccinationSchedulePageContent() {
     `/health?schedule_animal_id=${encodeURIComponent(params.animalId)}`;
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -133,7 +113,7 @@ function VaccinationSchedulePageContent() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   return (
@@ -165,7 +145,7 @@ function VaccinationSchedulePageContent() {
                 )}
                 className={buttonVariants()}
               >
-                + Add event
+                <Plus aria-hidden="true" /> Add event
               </Link>
             )}
           </>
@@ -222,7 +202,7 @@ function VaccinationSchedulePageContent() {
 
 export default function VaccinationSchedulePage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <VaccinationSchedulePageContent />
     </Suspense>
   );

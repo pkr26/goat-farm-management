@@ -183,36 +183,31 @@ describe("FinancePage ledger copy", () => {
     await renderLoaded();
 
     const saleRow = rowFor("sold 10 bucks");
-    const incomeBadge = within(saleRow).getByText("INCOME");
-    expect(incomeBadge).toHaveClass(
+    const incomeBadge = within(saleRow).getByText("Income");
+    expect(incomeBadge.closest("[data-slot=badge]")).toHaveClass(
       "border-transparent",
-      "bg-emerald-100",
-      "text-emerald-700",
-      "dark:bg-emerald-950",
-      "dark:text-emerald-300",
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
     expect(within(saleRow).getByText("₹1,50,000")).toHaveClass(
       "text-right",
       "tabular-nums",
       "font-medium",
-      "text-emerald-600",
-      "dark:text-emerald-400",
+      "text-success",
     );
 
     const feedRow = rowFor("7 Jan 2026");
-    expect(within(feedRow).getByText("EXPENSE")).toHaveClass(
+    const expenseBadge = within(feedRow).getByText("Expense");
+    expect(expenseBadge.closest("[data-slot=badge]")).toHaveClass(
       "border-transparent",
-      "bg-red-100",
-      "text-red-700",
-      "dark:bg-red-950",
-      "dark:text-red-300",
+      "bg-warning-tint",
+      "text-warning-tint-foreground",
     );
     expect(within(feedRow).getByText("₹90,000")).toHaveClass(
       "text-right",
       "tabular-nums",
       "font-medium",
-      "text-red-600",
-      "dark:text-red-400",
+      "text-destructive",
     );
   });
 
@@ -267,8 +262,7 @@ describe("FinancePage ledger copy", () => {
     expect(within(rowFor("2026-01")).getByText("₹60,000")).toHaveClass(
       "text-right",
       "tabular-nums",
-      "text-emerald-600",
-      "dark:text-emerald-400",
+      "text-success",
     );
     expect(within(rowFor("2025-12")).getByText("-₹5,000")).toHaveClass(
       "text-right",
@@ -320,9 +314,9 @@ describe("FinancePage correction dialog copy", () => {
     const { dialog } = await openCorrection("sold 10 bucks", "Correct transaction #1");
 
     expect(within(dialog).getByLabelText("Date *")).toHaveValue("2026-01-05");
-    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("INCOME");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Income");
     expect(within(dialog).getByRole("combobox", { name: "Category" })).toHaveTextContent(
-      "ANIMAL_SALE",
+      "Animal sale",
     );
     expect(within(dialog).getByLabelText("Amount (₹) *")).toHaveValue(150000);
     expect(within(dialog).getByLabelText("Notes")).toHaveValue("sold 10 bucks");
@@ -377,28 +371,28 @@ describe("FinancePage correction dialog copy", () => {
     const typeSelect = within(dialog).getByRole("combobox", { name: "Type" });
     await user.click(typeSelect);
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual([
-      "INCOME",
-      "EXPENSE",
+      "Income",
+      "Expense",
     ]);
-    await user.click(screen.getByRole("option", { name: "EXPENSE" }));
-    await waitFor(() => expect(typeSelect).toHaveTextContent("EXPENSE"));
+    await user.click(screen.getByRole("option", { name: "Expense" }));
+    await waitFor(() => expect(typeSelect).toHaveTextContent("Expense"));
 
     const categorySelect = within(dialog).getByRole("combobox", { name: "Category" });
     await user.click(categorySelect);
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual([
-      "ANIMAL_SALE",
-      "ANIMAL_PURCHASE",
-      "FEED",
-      "MEDICINE",
-      "VET",
-      "LABOUR",
-      "EQUIPMENT",
-      "MILK",
-      "MANURE",
-      "OTHER",
+      "Animal sale",
+      "Animal purchase",
+      "Feed",
+      "Medicine",
+      "Vet",
+      "Labour",
+      "Equipment",
+      "Milk",
+      "Manure",
+      "Other",
     ]);
-    await user.click(screen.getByRole("option", { name: "VET" }));
-    await waitFor(() => expect(categorySelect).toHaveTextContent("VET"));
+    await user.click(screen.getByRole("option", { name: "Vet" }));
+    await waitFor(() => expect(categorySelect).toHaveTextContent("Vet"));
 
     const animalPicker = within(dialog).getByLabelText("Animal (optional)");
     await user.click(animalPicker);
@@ -563,14 +557,15 @@ describe("FinancePage new transaction copy", () => {
   it("opens on the farm's expense defaults with no animal linked", async () => {
     const { dialog } = await openDialog();
 
-    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("EXPENSE");
-    expect(within(dialog).getByRole("combobox", { name: "Category" })).toHaveTextContent("OTHER");
+    expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent("Expense");
+    expect(within(dialog).getByRole("combobox", { name: "Category" })).toHaveTextContent("Other");
     expect(within(dialog).getByLabelText("Animal (optional)")).toHaveTextContent("— none —");
   });
 
   /** Walks a set of categories through one open draft: the server keeps
-   *  rejecting, so what is proven is which values reach the wire at all. */
-  async function postEachCategory(categories: string[]) {
+   *  rejecting, so what is proven is which human label picks which value —
+   *  the enum codes on the wire stay paired with their picker labels. */
+  async function postEachCategory(categories: string[], optionLabels: string[]) {
     server.use(
       http.post("/api/finance/new", async ({ request }) => {
         postCalls += 1;
@@ -581,8 +576,12 @@ describe("FinancePage new transaction copy", () => {
     const { user, dialog } = await openDialog();
     await user.type(within(dialog).getByLabelText(/^Amount/), "100");
 
-    for (const category of categories) {
-      await pickOption(user, within(dialog).getByRole("combobox", { name: "Category" }), category);
+    for (const [index, category] of categories.entries()) {
+      await pickOption(
+        user,
+        within(dialog).getByRole("combobox", { name: "Category" }),
+        optionLabels[index],
+      );
       await user.click(
         within(dialog).getByRole("button", { name: /^(Add|Retry add) transaction$/ }),
       );
@@ -592,11 +591,14 @@ describe("FinancePage new transaction copy", () => {
   }
 
   it("posts the animal-side spending categories", async () => {
-    await postEachCategory(["ANIMAL_PURCHASE", "MEDICINE", "VET"]);
+    await postEachCategory(
+      ["ANIMAL_PURCHASE", "MEDICINE", "VET"],
+      ["Animal purchase", "Medicine", "Vet"],
+    );
   });
 
   it("posts the operating categories", async () => {
-    await postEachCategory(["LABOUR", "EQUIPMENT", "MANURE"]);
+    await postEachCategory(["LABOUR", "EQUIPMENT", "MANURE"], ["Labour", "Equipment", "Manure"]);
   });
 
   it("describes every invalid new-transaction field to assistive tech", async () => {

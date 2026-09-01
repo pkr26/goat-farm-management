@@ -21,6 +21,8 @@ export function DataTableCard({
   children,
   className,
   contentClassName,
+  id,
+  tabIndex,
 }: {
   title?: ReactNode;
   description?: ReactNode;
@@ -28,12 +30,16 @@ export function DataTableCard({
   children: ReactNode;
   className?: string;
   contentClassName?: string;
+  /** Optional anchor id for in-page navigation. */
+  id?: string;
+  /** Forwarded to the Card so anchor targets can receive focus. */
+  tabIndex?: number;
 }) {
   const hasTitle = Boolean(title) || title === 0;
   const hasDescription = Boolean(description) || description === 0;
   const hasActions = Boolean(actions) || actions === 0;
   return (
-    <Card className={className}>
+    <Card id={id} tabIndex={tabIndex} className={className}>
       {(hasTitle || hasDescription || hasActions) && (
         <CardHeader>
           {hasTitle && <CardTitle>{title}</CardTitle>}

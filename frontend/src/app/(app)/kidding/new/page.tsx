@@ -27,12 +27,12 @@ function KiddingNewRedirectContent() {
     router.replace(url);
   }, [router, search]);
 
-  return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
 }
 
 export default function KiddingNewRedirect() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <KiddingNewRedirectContent />
     </Suspense>
   );

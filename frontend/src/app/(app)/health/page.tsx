@@ -4,7 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Syringe } from "lucide-react";
+import { CalendarClock, Plus, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -34,11 +34,13 @@ import {
   HealthAnimalPicker,
   HealthPurchaseBatchPicker,
 } from "@/components/health-target-pickers";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { enumLabel } from "@/lib/enum-labels";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
@@ -84,6 +86,7 @@ import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 
 import { taskPrefill } from "./task-prefill";
+import { PermissionsError } from "@/components/permissions-error";
 
 const EVENT_TYPES = Object.values(HealthEventInType);
 const BUCKETS = Object.values(HealthEventInBucket);
@@ -114,23 +117,17 @@ function positiveIdString(raw: string | null | undefined): string | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null;
 }
 
-/** Next-due date cell: red tint when overdue, amber when due within a week.
- *  Comparisons use the active farm's calendar day. */
+/** Next-due date cell: destructive tint when overdue, warning tint when due
+ *  within a week. Comparisons use the active farm's calendar day. */
 function NextDue({ date }: { date: string }) {
   const overdue = date < farmToday();
   const dueSoon = !overdue && date <= addDays(farmToday(), 7);
   if (!overdue && !dueSoon) return <>{formatDate(date)}</>;
   return (
-    <span
-      className={
-        overdue
-          ? "inline-flex items-center gap-1 rounded-md bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-950 dark:text-red-300"
-          : "inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-      }
-    >
-      <CalendarClock className="size-3" />
+    <Badge variant={overdue ? "destructive" : "warning"}>
+      <CalendarClock aria-hidden="true" className="size-3" />
       {formatDate(date)}
-    </span>
+    </Badge>
   );
 }
 
@@ -368,11 +365,17 @@ function FieldError({ message, id }: { message?: string; id?: string }) {
 }
 
 function HealthPageContent() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("health.view");
   const canManage = can("health.manage");
   const canViewAnimals = can("animals.view");
   const canViewTasks = can("tasks.view");
+  const farmType = useFarmType();
+  /** value → label map for the root `items` prop: without it, Base UI's
+   * Select.Value renders the raw value in the closed trigger. */
+  const bucketItems: Record<string, string> = Object.fromEntries(
+    BUCKETS.map((b) => [b, enumLabel("bucket", b, farmType)]),
+  );
   const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -919,13 +922,11 @@ function HealthPageContent() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -946,7 +947,7 @@ function HealthPageContent() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const events = eventPayload.events;
@@ -965,7 +966,7 @@ function HealthPageContent() {
                 setOpen(true);
               }}
             >
-              + Add event
+              <Plus aria-hidden="true" /> Add event
             </Button>
           )
         }
@@ -1019,9 +1020,15 @@ function HealthPageContent() {
             icon={Syringe}
             title="No health events recorded yet."
             description="Recorded vaccinations, deworming and treatments will appear here."
-          />
+          >
+            {canManage && (
+              <Link href="/health/new" className={buttonVariants({ size: "sm" })}>
+                Add health event
+              </Link>
+            )}
+          </EmptyState>
         ) : (
-          <Table>
+          <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
@@ -1041,7 +1048,7 @@ function HealthPageContent() {
                 <TableRow key={e.id}>
                   <TableCell>{formatDate(e.date)}</TableCell>
                   <TableCell>
-                    <StatusBadge status={e.type}>{e.type}</StatusBadge>
+                    <StatusBadge status={e.type}>{enumLabel("eventType", e.type)}</StatusBadge>
                   </TableCell>
                   <TableCell>
                     {e.animal_tag && canViewAnimals ? (
@@ -1230,6 +1237,7 @@ function HealthPageContent() {
                   <Label htmlFor="event-bucket">Bucket *</Label>
                   <Select
                     value={wBucket || ""}
+                    items={bucketItems}
                     onValueChange={(v) => {
                       setBulkPreview(null);
                       setRecordError(null);
@@ -1247,7 +1255,7 @@ function HealthPageContent() {
                     <SelectContent>
                       {BUCKETS.map((b) => (
                         <SelectItem key={b} value={b}>
-                          {b}
+                          {enumLabel("bucket", b, farmType)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1281,7 +1289,7 @@ function HealthPageContent() {
             {scope !== "animal" && bulkPreview && (
               <div
                 role="status"
-                className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+                className="rounded-lg border border-warning/40 bg-warning-tint/50 p-3 text-sm text-warning-tint-foreground"
               >
                 <p className="font-medium">
                   Reviewed target snapshot: {bulkPreview.target_count} active animal
@@ -1296,7 +1304,7 @@ function HealthPageContent() {
                 {bulkPreview.target_animals.length > 0 ? (
                   <ul
                     aria-label="Reviewed target animals"
-                    className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-amber-300/70 bg-background/60 px-2 py-1.5 text-xs dark:border-amber-800"
+                    className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded border border-warning/30 bg-background/60 px-2 py-1.5 text-xs"
                   >
                     {bulkPreview.target_animals.map((animal) => (
                       <li key={animal.id}>
@@ -1484,7 +1492,7 @@ function HealthPageContent() {
                 );
                 if (!linkedTask || linkedTask.due_date <= localToday()) return null;
                 return (
-                  <p role="status" className="sm:col-span-2 text-sm text-amber-700 dark:text-amber-300">
+                  <p role="status" className="sm:col-span-2 text-sm text-muted-foreground">
                     Duty #{linkedTask.id} is not due until {formatDate(linkedTask.due_date)} — the
                     server rejects an event dated before then.
                   </p>
@@ -1757,12 +1765,12 @@ function HealthPageContent() {
                 </p>
               )}
             </div>
+            {recordError && (
+              <p role="alert" className="text-sm text-destructive">
+                {recordError} Check the event details, then try again.
+              </p>
+            )}
             <DialogFooter>
-              {recordError && (
-                <p role="alert" className="mr-auto text-sm text-destructive">
-                  {recordError} Check the event details, then try again.
-                </p>
-              )}
               <Button
                 type="submit"
                 disabled={
@@ -1798,7 +1806,7 @@ function HealthPageContent() {
 
 export default function HealthPage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <HealthPageContent />
     </Suspense>
   );

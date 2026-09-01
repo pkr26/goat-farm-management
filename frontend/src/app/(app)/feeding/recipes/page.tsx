@@ -24,22 +24,21 @@ import {
 import { ApiError } from "@/lib/api-client";
 import { FeedingNav } from "@/components/feeding-nav";
 import { usePermissions } from "@/lib/use-permissions";
+import { PermissionsError } from "@/components/permissions-error";
 
 export default function RecipesPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
 
   const query = useListRecipesApiFeedingRecipesGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -58,7 +57,7 @@ export default function RecipesPage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   return (
@@ -117,7 +116,7 @@ export default function RecipesPage() {
         ))}
       </div>
 
-      <DataTableCard title={<h2>Bucket → recipe allocation (reference)</h2>}>
+      <DataTableCard title="Bucket → recipe allocation (reference)">
         <Table>
           <TableHeader>
             <TableRow>

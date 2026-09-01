@@ -200,8 +200,8 @@ function fullPayload(): TabsPayload {
   };
 }
 
-const RED_BAND = "bg-red-100";
-const AMBER_BAND = "bg-amber-100";
+const RED_BAND = "bg-destructive/10";
+const AMBER_BAND = "bg-warning-tint";
 
 function rowOf(title: string): HTMLElement {
   const row = screen.getByText(title).closest("tr");

@@ -132,9 +132,9 @@ describe("AppLayout — header", () => {
 
     expect(await screen.findByText("Test Goat Farm")).toBeInTheDocument();
     expect(
-      await screen.findByRole("link", { name: "GoatFarm — go to Dashboard" }),
+      await screen.findByRole("link", { name: "PashuFarm — go to Dashboard" }),
     ).toHaveAttribute("href", "/dashboard");
-    expect(screen.getByRole("link", { name: "switch farm" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^Switch farm/ })).toHaveAttribute(
       "href",
       "/farm-select?returnTo=%2Fdashboard",
     );
@@ -147,7 +147,7 @@ describe("AppLayout — header", () => {
     navState.search = "?tab=overdue";
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    expect(await screen.findByRole("link", { name: "switch farm" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /^Switch farm/ })).toHaveAttribute(
       "href",
       "/farm-select?returnTo=%2Ftasks%3Ftab%3Doverdue",
     );
@@ -293,7 +293,7 @@ describe("AppLayout — header", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
     await user.type(
       within(dialog).getByLabelText("Current password for password change"),
@@ -319,7 +319,7 @@ describe("AppLayout — header", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
     await user.type(
       within(dialog).getByLabelText("Current password for password change"),
@@ -358,7 +358,7 @@ describe("AppLayout — header", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
     await user.click(within(dialog).getByRole("button", { name: "Download my data" }));
 
@@ -386,7 +386,7 @@ describe("AppLayout — header", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
     expect(
       within(dialog).getByText(
@@ -430,7 +430,7 @@ describe("AppLayout — header", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
     await user.click(within(dialog).getByRole("button", { name: "Delete my account…" }));
     await user.type(
@@ -451,7 +451,7 @@ describe("AppLayout — header", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
     await screen.findByText("Test Goat Farm");
 
-    await user.click(screen.getByRole("button", { name: "Account" }));
+    await user.click(screen.getByRole("button", { name: /^Account/ }));
     const dialog = await screen.findByRole("dialog", { name: "Account & password" });
 
     // The dialog falls back to the email whenever it is handed no name, so a
@@ -500,7 +500,7 @@ describe("AppLayout — permission-gated nav", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(
-      await screen.findByRole("link", { name: "GoatFarm — go to Health" }),
+      await screen.findByRole("link", { name: "PashuFarm — go to Health" }),
     ).toHaveAttribute("href", "/health");
     expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
   });
@@ -537,7 +537,7 @@ describe("AppLayout — permission-gated nav", () => {
     // Let the permissions query settle (it resolves to an empty set).
     await waitFor(() => expect(navLinks()).toHaveLength(0));
     expect(
-      screen.getByRole("link", { name: "GoatFarm — go to access status" }),
+      screen.getByRole("link", { name: "PashuFarm — go to access status" }),
     ).toHaveAttribute("href", "/no-access");
   });
 
@@ -565,8 +565,8 @@ describe("AppLayout — permission-gated nav", () => {
       await screen.findByText("Could not load your permissions — refresh the page to try again."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /GoatFarm — go to/ })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("GoatFarm")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /PashuFarm — go to/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("PashuFarm")).toBeInTheDocument();
   });
 
   it("nav links point at their module routes", async () => {
@@ -703,7 +703,7 @@ describe("AppLayout — permission-gated nav", () => {
     server.use(permissionsHandler([]));
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await screen.findByRole("link", { name: "GoatFarm — go to access status" });
+    await screen.findByRole("link", { name: "PashuFarm — go to access status" });
     expect(
       screen.queryByText(/Could not load your permissions/),
     ).not.toBeInTheDocument();

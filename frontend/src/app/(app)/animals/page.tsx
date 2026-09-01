@@ -4,10 +4,10 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Search, SearchX } from "lucide-react";
+import { PawPrint, Search, SearchX } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -28,9 +28,10 @@ import {
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
+import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -56,7 +57,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useFarmType } from "@/hooks/use-farm-type";
 import { ApiError } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmToday } from "@/lib/format";
 import {
   isPersistableNonnegativeMoney,
@@ -68,6 +71,7 @@ import {
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 const ALL = "ALL";
 const PAGE_SIZE = 50;
@@ -113,10 +117,6 @@ const SEX_ITEMS: Record<string, string> = {
 const SOURCE_ITEMS: Record<string, string> = {
   [AnimalCreateInSource.BORN]: "Historical born-on-farm import",
   [AnimalCreateInSource.PURCHASED]: "Purchased",
-};
-const BUCKET_FILTER_ITEMS: Record<string, string> = {
-  [ALL]: "All buckets",
-  ...Object.fromEntries(Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [b, bucketLabel(b)])),
 };
 const SEX_FILTER_ITEMS: Record<string, string> = { [ALL]: "Both sexes", ...SEX_ITEMS };
 const STATUS_FILTER_ITEMS: Record<string, string> = {
@@ -736,8 +736,18 @@ function CreateAnimalDialog({
 
 function AnimalsPageContent() {
   const queryClient = useQueryClient();
-  const { can, isOwner, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, isOwner, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("animals.view");
+  const farmType = useFarmType();
+  /** value → label map for the bucket filter Select root: farm-type aware
+   * labels (dairy pens vs goat wards) with the raw code as the value. */
+  const bucketFilterItems = useMemo(() => {
+    const entries = Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => [
+      b,
+      enumLabel("bucket", b, farmType),
+    ]);
+    return { [ALL]: "All buckets", ...Object.fromEntries(entries) };
+  }, [farmType]);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -951,8 +961,10 @@ function AnimalsPageContent() {
   const total = Math.max(0, payload?.total ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageOutOfRange = payload !== undefined && page > totalPages;
-  const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const rangeEnd = Math.min((page - 1) * PAGE_SIZE + (payload?.animals.length ?? 0), total);
+  /** Distinguishes "herd is empty" (offer the first entry) from "filters
+   * exclude everything" (offer to clear them). */
+  const filtersActive =
+    bucket !== ALL || sex !== ALL || status !== ALL || debouncedQ.trim() !== "";
 
   useEffect(() => {
     if (!query.isFetching) pageNavigationPending.current = false;
@@ -1045,13 +1057,11 @@ function AnimalsPageContent() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -1078,7 +1088,7 @@ function AnimalsPageContent() {
         <Select
           value={bucket}
           onValueChange={(value) => changeFilter("bucket", value)}
-          items={BUCKET_FILTER_ITEMS}
+          items={bucketFilterItems}
         >
           <SelectTrigger aria-label="Filter animals by bucket">
             <SelectValue placeholder="All buckets" />
@@ -1087,7 +1097,7 @@ function AnimalsPageContent() {
             <SelectItem value={ALL}>All buckets</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetBucket).map((b) => (
               <SelectItem key={b} value={b}>
-                {bucketLabel(b)}
+                {enumLabel("bucket", b, farmType)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1142,7 +1152,7 @@ function AnimalsPageContent() {
           Updating animals…
         </p>
       ) : query.isLoading ? (
-        <p className="py-10 text-center text-muted-foreground">Loading…</p>
+        <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>
       ) : query.isFetching ? (
         <p role="status" className="py-10 text-center text-muted-foreground">
           Updating animals…
@@ -1161,14 +1171,31 @@ function AnimalsPageContent() {
           Returning to the last available page…
         </p>
       ) : !payload || payload.animals.length === 0 ? (
-        <EmptyState
-          icon={SearchX}
-          title="No animals found"
-          description="No animals match these filters."
-        />
+        filtersActive ? (
+          <EmptyState
+            icon={SearchX}
+            title="No animals match these filters."
+            description="Try clearing the filters."
+          />
+        ) : (
+          <EmptyState
+            icon={PawPrint}
+            title="No animals yet"
+            description="Add your first animal to start the herd register."
+          >
+            {can("animals.create") && (
+              <Link
+                href="/animals/new"
+                className={buttonVariants({ variant: "default", size: "sm" })}
+              >
+                Add animal
+              </Link>
+            )}
+          </EmptyState>
+        )
       ) : (
         <DataTableCard title="Herd" description={`${payload.total} animal(s)`}>
-          <Table>
+          <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Tag</TableHead>
@@ -1193,9 +1220,9 @@ function AnimalsPageContent() {
                     </Link>
                   </TableCell>
                   <TableCell>{a.name ?? "—"}</TableCell>
-                  <TableCell>{a.sex}</TableCell>
+                  <TableCell>{enumLabel("sex", a.sex)}</TableCell>
                   <TableCell>{a.breed}</TableCell>
-                  <TableCell>{a.current_bucket.replace(/_/g, " ")}</TableCell>
+                  <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
                   <TableCell>
                     <StatusBadge status={a.status}>{a.status}</StatusBadge>
                   </TableCell>
@@ -1211,36 +1238,13 @@ function AnimalsPageContent() {
       )}
 
       {payload && !searchPending && !query.isFetching && !query.isError && !pageOutOfRange && (
-        <nav
-          aria-label="Animal list pagination"
-          className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center"
-        >
-          <p role="status" className="text-center text-sm text-muted-foreground sm:mr-auto sm:text-left">
-            Page {page} of {totalPages} · Showing {rangeStart}–{rangeEnd} of {total}
-          </p>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full sm:w-auto"
-              aria-label="Previous page"
-              disabled={page <= 1 || query.isFetching}
-              onClick={() => changePage(page - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full sm:w-auto"
-              aria-label="Next page"
-              disabled={page >= totalPages || query.isFetching}
-              onClick={() => changePage(page + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </nav>
+        <PaginationControls
+          total={total}
+          limit={PAGE_SIZE}
+          offset={(page - 1) * PAGE_SIZE}
+          onOffsetChange={(nextOffset) => changePage(Math.floor(nextOffset / PAGE_SIZE) + 1)}
+          label="animals"
+        />
       )}
     </div>
   );
@@ -1249,7 +1253,7 @@ function AnimalsPageContent() {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function AnimalsPage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <AnimalsPageContent />
     </Suspense>
   );

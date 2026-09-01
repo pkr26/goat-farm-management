@@ -354,7 +354,7 @@ describe("AnimalsPage create dialog guards", () => {
     const user = userEvent.setup();
     nav.state.search = "page=2";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 2 of 2 · Showing 51–60 of 60");
+    await screen.findByText("Showing 51–60 of 60 animals");
 
     const dialog = await openCreateDialog(user);
     await user.type(within(dialog).getByLabelText(/tag number/i), "G-NEW");
@@ -365,7 +365,7 @@ describe("AnimalsPage create dialog guards", () => {
     // A new animal lands on page one, so the list re-homes there instead of
     // leaving the operator on a page that no longer shows their entry.
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/animals"));
-    expect(await screen.findByText("Page 1 of 2 · Showing 1–50 of 60")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–50 of 60 animals")).toBeInTheDocument();
   });
 });
 
@@ -408,7 +408,7 @@ describe("AnimalsPage list URL contract", () => {
     // `page` is the canonical browser state; the request offset comes from it.
     expect(seenParams[0].get("offset")).toBe("0");
 
-    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "FEMALE KIDS");
+    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
     await waitFor(() => expect(nav.replace).toHaveBeenCalled());
     expect(lastReplacedParams().get("bucket")).toBe("FEMALE_KIDS");
     expect(lastReplacedParams().get("offset")).toBeNull();
@@ -459,7 +459,7 @@ describe("AnimalsPage navigation fence", () => {
     const view = renderWithProviders(<AnimalsPage />);
     await screen.findByText("1 animal(s)");
 
-    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "FEMALE KIDS");
+    await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
     await waitFor(() => expect(nav.state.deferredReplacements).toHaveLength(1));
     await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
     await waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
@@ -478,7 +478,7 @@ describe("AnimalsPage navigation fence", () => {
     serveAnimals(Array.from({ length: 100 }, (_, index) => animal(index + 1)));
     nav.state.search = "q=G-77&page=2";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 2 of 2 · Showing 51–100 of 100");
+    await screen.findByText("Showing 51–100 of 100 animals");
 
     // Let the debounce fire: the URL already describes the search box, so it
     // must not issue a replacement (which would reset the page to one).
@@ -488,7 +488,7 @@ describe("AnimalsPage navigation fence", () => {
 
     expect(nav.replace).not.toHaveBeenCalled();
     expect(nav.push).not.toHaveBeenCalled();
-    expect(screen.getByText("Page 2 of 2 · Showing 51–100 of 100")).toBeInTheDocument();
+    expect(screen.getByText("Showing 51–100 of 100 animals")).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search animals by tag" })).toHaveValue(
       "G-77",
     );

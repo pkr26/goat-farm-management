@@ -625,7 +625,7 @@ describe("PurchasesPage batch detail dialog", () => {
     const link = within(dialog).getByRole("link", { name: "B5-001" });
     expect(link).toHaveAttribute("href", "/animals/11");
     const row = link.closest("tr") as HTMLElement;
-    expect(within(row).getByText("QUARANTINE")).toBeInTheDocument();
+    expect(within(row).getByText("Quarantine")).toBeInTheDocument();
     expect(within(row).getByText("ACTIVE")).toBeInTheDocument();
   });
 

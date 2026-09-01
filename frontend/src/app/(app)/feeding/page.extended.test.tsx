@@ -149,7 +149,7 @@ describe("FeedingPage plan table", () => {
 
     const row = planRow();
     const cells = within(row).getAllByRole("cell");
-    expect(cells[0]).toHaveTextContent("BREEDING");
+    expect(cells[0]).toHaveTextContent("Breeding");
     expect(cells[1]).toHaveTextContent("Lactating 60/40");
     expect(cells[2]).toHaveTextContent("20"); // heads
     expect(cells[3]).toHaveTextContent("1"); // kg/head/day
@@ -201,13 +201,13 @@ describe("FeedingPage plan table", () => {
     // a planned ration.
     const breeding = planRow();
     expect(within(breeding).getByText("20.05 / 20.0 kg")).toBeInTheDocument();
-    expect(within(breeding).getByText("done")).toBeInTheDocument();
+    expect(within(breeding).getByText("Done")).toBeInTheDocument();
     expect(within(breeding).getByText("8.0 / 8.0 kg")).toBeInTheDocument();
     expect(within(breeding).getByText("4.0 / 4.0 kg")).toBeInTheDocument();
 
     const kids = rowOf("Fattening 50/50");
     expect(within(kids).getByText("6.0 / 15.0 kg")).toBeInTheDocument();
-    expect(within(kids).queryByText("done")).not.toBeInTheDocument();
+    expect(within(kids).queryByText("Done")).not.toBeInTheDocument();
 
     expect(screen.getByText("32.1 / 20.0 kg recorded")).toBeInTheDocument();
   });
@@ -216,7 +216,7 @@ describe("FeedingPage plan table", () => {
     await renderLoaded();
 
     const logRow = screen.getByText("12.05").closest("tr") as HTMLElement;
-    expect(within(logRow).getByText("NIGHT")).toBeInTheDocument();
+    expect(within(logRow).getByText("Night")).toBeInTheDocument();
     expect(within(logRow).getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("Nothing dispensed yet today.")).not.toBeInTheDocument();
   });
@@ -270,7 +270,7 @@ describe("FeedingPage plan table", () => {
       "Plan progress and completion remain exact because they use full-day totals computed by the server",
     );
     expect(screen.getByText("complete")).toBeInTheDocument();
-    expect(screen.getByText("done")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
     expect(screen.getByText("20.0 / 20.0 kg recorded")).toBeInTheDocument();
   });
 
@@ -647,11 +647,11 @@ describe("FeedingPage dispense dialog", () => {
     // Bucket select → MALE_KIDS.
     const selects = within(dialog).getAllByRole("combobox");
     await user.click(selects[0]);
-    await user.click(await screen.findByRole("option", { name: "MALE_KIDS" }));
+    await user.click(await screen.findByRole("option", { name: "Male kids" }));
 
     // Shift select → NIGHT.
     await user.click(within(dialog).getAllByRole("combobox")[1]);
-    await user.click(await screen.findByRole("option", { name: "NIGHT" }));
+    await user.click(await screen.findByRole("option", { name: "Night" }));
 
     // Recipe select → Fattening 50/50.
     await user.click(within(dialog).getAllByRole("combobox")[2]);
@@ -764,7 +764,7 @@ describe("FeedingPage dispense dialog", () => {
     const dialog = await screen.findByRole("dialog");
 
     await user.click(within(dialog).getAllByRole("combobox")[0]);
-    await user.click(await screen.findByRole("option", { name: "MALE_KIDS" }));
+    await user.click(await screen.findByRole("option", { name: "Male kids" }));
 
     await user.type(within(dialog).getByLabelText(/Quantity \(kg\)/), "6");
     await user.click(within(dialog).getByRole("button", { name: "Record" }));
@@ -850,7 +850,7 @@ describe("FeedingPage kg/head override dialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Daily ration — BREEDING")).toBeInTheDocument();
+    expect(within(dialog).getByText("Daily ration — Breeding")).toBeInTheDocument();
 
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);

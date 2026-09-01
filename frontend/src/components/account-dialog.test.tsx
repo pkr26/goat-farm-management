@@ -49,7 +49,7 @@ vi.mock("@/lib/format", () => ({ farmToday: () => "2026-08-17" }));
 vi.mock("sonner", () => ({ toast: { success: mocks.toastSuccess } }));
 
 async function openAccount(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Account" }));
+  await user.click(screen.getByRole("button", { name: /^Account/ }));
   return screen.getByRole("dialog", { name: "Account & password" });
 }
 
@@ -442,7 +442,7 @@ describe("AccountDialog", () => {
     );
     expect(createObjectURL).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:account-export");
-    expect(document.querySelector('a[download="goatfarm-account-export-2026-08-17.json"]')).toBeNull();
+    expect(document.querySelector('a[download="pashufarm-account-export-2026-08-17.json"]')).toBeNull();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
     click.mockRestore();
   });
@@ -475,7 +475,7 @@ describe("AccountDialog", () => {
     expect((createObjectURL.mock.calls[0][0] as Blob).size).toBeGreaterThan(0);
     expect(click).toHaveBeenCalledOnce();
     const clickedAnchor = click.mock.instances[0] as HTMLAnchorElement;
-    expect(clickedAnchor.download).toBe("goatfarm-account-export-2026-08-17.json");
+    expect(clickedAnchor.download).toBe("pashufarm-account-export-2026-08-17.json");
     expect(clickedAnchor.href).toBe("blob:account-export");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:account-export");
     expect(document.body).not.toContainElement(clickedAnchor);

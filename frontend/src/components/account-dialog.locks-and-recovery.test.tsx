@@ -57,7 +57,7 @@ vi.mock("@/lib/format", () => ({ farmToday: () => "2026-08-17" }));
 vi.mock("sonner", () => ({ toast: { success: mocks.toastSuccess } }));
 
 async function openAccount(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Account" }));
+  await user.click(screen.getByRole("button", { name: /^Account/ }));
   return screen.getByRole("dialog", { name: "Account & password" });
 }
 

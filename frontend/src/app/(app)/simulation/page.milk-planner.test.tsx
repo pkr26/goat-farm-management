@@ -184,12 +184,12 @@ async function renderLoaded(
 describe("SimulationPage milk planner", () => {
   it("shows the milk planner for dairy assumptions and hides it for meat", async () => {
     const dairy = await renderLoaded();
-    expect(screen.getByText("Milk planner")).toBeInTheDocument();
+    expect(screen.getByText("Milk planner", { selector: "[data-slot=\'card-title\'], h2" })).toBeInTheDocument();
     dairy.unmount();
 
     await renderLoaded({ defaults: MEAT_DEFAULTS });
     await waitFor(() => {
-      expect(screen.queryByText("Milk planner")).not.toBeInTheDocument();
+      expect(screen.queryByText("Milk planner", { selector: "[data-slot=\'card-title\'], h2" })).not.toBeInTheDocument();
     });
   });
 

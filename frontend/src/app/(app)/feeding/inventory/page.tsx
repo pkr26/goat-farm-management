@@ -59,6 +59,7 @@ import {
 import { FeedingNav } from "@/components/feeding-nav";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 function mutationError(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
@@ -314,7 +315,7 @@ function MixBatchDialog() {
           lines.
         </p>
         {shortage && (
-          <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+          <p className="rounded-md border border-warning/40 bg-warning-tint/50 p-3 text-sm text-warning-tint-foreground">
             Cannot mix — insufficient stock: {shortage}
           </p>
         )}
@@ -403,7 +404,7 @@ function MixBatchDialog() {
 }
 
 export default function InventoryPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
 
@@ -416,20 +417,18 @@ export default function InventoryPage() {
     finishedQuery.data?.status === 200 ? finishedQuery.data.data : undefined;
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
   if (query.isLoading && !items) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   return (
@@ -455,7 +454,7 @@ export default function InventoryPage() {
             </Button>
           </div>
         ) : items === undefined ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
+          <p role="status" aria-live="polite" className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
         ) : items.length === 0 ? (
           <EmptyState
             icon={Package}
@@ -480,14 +479,14 @@ export default function InventoryPage() {
                 return (
                   <TableRow
                     key={item.id}
-                    className={low ? "bg-amber-50 dark:bg-amber-950/20" : undefined}
+                    className={low ? "bg-warning-tint/50" : undefined}
                   >
                     <TableCell>{item.category}</TableCell>
                     <TableCell className="font-medium">{item.ingredient}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatPersistedKg(item.qty_on_hand)}
                       {low && (
-                        <span className="ml-2 inline-flex items-center align-middle text-amber-600 dark:text-amber-400">
+                        <span className="ml-2 inline-flex items-center align-middle text-warning">
                           <TriangleAlert className="size-4" />
                           <span className="sr-only">low</span>
                         </span>

@@ -1,29 +1,20 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { HeartPulse, PawPrint, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Logo } from "@/components/logo";
+import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import type { RegisterIn, TokenOut } from "@/api/generated/models";
 import { useSingleFlight } from "@/lib/use-single-flight";
-
 
 const registerSchema = z.object({
   name: z.string().max(120).optional(),
@@ -38,24 +29,6 @@ const registerSchema = z.object({
     .max(128, "Password must be at most 128 characters"),
 });
 type RegisterValues = z.infer<typeof registerSchema>;
-
-const FEATURES = [
-  {
-    icon: PawPrint,
-    title: "Complete herd records",
-    description: "Track every animal, tag and lineage in one place.",
-  },
-  {
-    icon: HeartPulse,
-    title: "Proactive health care",
-    description: "Stay ahead of vaccinations, treatments and checkups.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Insights that pay off",
-    description: "Breeding, kidding and finance reports at a glance.",
-  },
-];
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -109,138 +82,92 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="flex min-h-screen">
-      {/* Brand panel (desktop) */}
-      <div className="hidden w-1/2 flex-col justify-between bg-gradient-to-br from-emerald-700 via-emerald-800 to-emerald-950 p-10 text-emerald-50 lg:flex">
-        <Logo />
-        <div className="space-y-8">
-          <div className="space-y-3">
-            <h1 className="font-heading text-3xl font-semibold tracking-tight">
-              Herd management, simplified.
-            </h1>
-            <p className="max-w-md text-emerald-100/80">
-              GoatFarm helps you run a healthier, more profitable farm — from
-              the first tag to the final sale.
+    <AuthLayout
+      title="Create your account"
+      subtitle="Start managing your herd in minutes"
+      footer={
+        <>
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={(event) => void handleSubmit(onSubmit)(event)} noValidate>
+        <fieldset
+          disabled={isSubmitting || submission.pending}
+          className="min-w-0 space-y-4"
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Name (optional)</Label>
+            <Input
+              id="name"
+              autoComplete="name"
+              maxLength={120}
+              aria-invalid={Boolean(errors.name) || undefined}
+              aria-describedby={errors.name ? "register-name-error" : undefined}
+              {...register("name")}
+            />
+            {errors.name && (
+              <p id="register-name-error" role="alert" className="text-sm text-destructive">
+                {errors.name.message}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="email"
+              maxLength={254}
+              aria-invalid={Boolean(errors.email) || undefined}
+              aria-describedby={errors.email ? "register-email-error" : undefined}
+              {...register("email")}
+            />
+            {errors.email && (
+              <p id="register-email-error" role="alert" className="text-sm text-destructive">
+                {errors.email.message}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              maxLength={128}
+              aria-invalid={Boolean(errors.password) || undefined}
+              aria-describedby={errors.password ? "register-password-error" : undefined}
+              {...register("password")}
+            />
+            {errors.password && (
+              <p id="register-password-error" role="alert" className="text-sm text-destructive">
+                {errors.password.message}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              At least 12 characters.
             </p>
           </div>
-          <ul className="space-y-5">
-            {FEATURES.map((feature) => (
-              <li key={feature.title} className="flex items-start gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/10">
-                  <feature.icon className="size-4" />
-                </span>
-                <span>
-                  <span className="block text-sm font-medium">{feature.title}</span>
-                  <span className="block text-sm text-emerald-100/70">
-                    {feature.description}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className="text-sm text-emerald-100/60">
-          Built for goat farmers, by goat farmers.
-        </p>
-      </div>
-
-      {/* Form side */}
-      <div className="flex flex-1 flex-col">
-        {/* Compact brand header (mobile) */}
-        <div className="bg-gradient-to-r from-emerald-700 to-emerald-900 px-4 py-3 text-emerald-50 lg:hidden">
-          <Logo />
-        </div>
-        <div className="flex flex-1 items-center justify-center p-4 sm:p-8">
-          <Card className="w-full max-w-sm">
-            <CardHeader>
-              <CardTitle className="text-2xl">Create your account</CardTitle>
-              <CardDescription>Start managing your herd in minutes</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={(event) => void handleSubmit(onSubmit)(event)}
-                noValidate
-              >
-                <fieldset
-                  disabled={isSubmitting || submission.pending}
-                  className="min-w-0 space-y-4"
-                >
-                <div className="space-y-1.5">
-                  <Label htmlFor="name">Name (optional)</Label>
-                  <Input
-                    id="name"
-                    autoComplete="name"
-                    maxLength={120}
-                    aria-invalid={Boolean(errors.name) || undefined}
-                    aria-describedby={errors.name ? "register-name-error" : undefined}
-                    {...register("name")}
-                  />
-                  {errors.name && (
-                    <p id="register-name-error" role="alert" className="text-sm text-destructive">
-                      {errors.name.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    autoComplete="email"
-                    maxLength={254}
-                    aria-invalid={Boolean(errors.email) || undefined}
-                    aria-describedby={errors.email ? "register-email-error" : undefined}
-                    {...register("email")}
-                  />
-                  {errors.email && (
-                    <p id="register-email-error" role="alert" className="text-sm text-destructive">
-                      {errors.email.message}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    autoComplete="new-password"
-                    maxLength={128}
-                    aria-invalid={Boolean(errors.password) || undefined}
-                    aria-describedby={errors.password ? "register-password-error" : undefined}
-                    {...register("password")}
-                  />
-                  {errors.password && (
-                    <p id="register-password-error" role="alert" className="text-sm text-destructive">
-                      {errors.password.message}
-                    </p>
-                  )}
-                </div>
-                {serverError && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {serverError}
-                  </p>
-                )}
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={isSubmitting || submission.pending}
-                >
-                  {isSubmitting || submission.pending
-                    ? "Creating account…"
-                    : "Create account"}
-                </Button>
-                </fieldset>
-              </form>
-              <p className="mt-4 text-center text-sm text-muted-foreground">
-                Already have an account?{" "}
-                <Link href="/login" className="text-primary underline">
-                  Sign in
-                </Link>
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    </main>
+          {serverError && (
+            <p role="alert" className="text-sm text-destructive">
+              {serverError}
+            </p>
+          )}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isSubmitting || submission.pending}
+          >
+            {isSubmitting || submission.pending
+              ? "Creating account…"
+              : "Create account"}
+          </Button>
+        </fieldset>
+      </form>
+    </AuthLayout>
   );
 }

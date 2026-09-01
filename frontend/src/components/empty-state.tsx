@@ -13,6 +13,7 @@ export function EmptyState({
   icon: LucideIcon;
   title: ReactNode;
   description?: ReactNode;
+  /** Action area — pass the primary CTA (e.g. "Add your first animal"). */
   children?: ReactNode;
   className?: string;
 }) {
@@ -21,18 +22,30 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed px-6 py-12 text-center",
+        "relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border border-dashed px-6 py-12 text-center",
         className,
       )}
     >
-      <span className="flex size-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 [&_svg]:size-6">
-        <Icon />
+      {/* Soft radial glow keeps the state feeling inviting rather than
+       * broken — the color derives from the brand token, not a raw class. */}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute -top-10 left-1/2 size-40 -translate-x-1/2 rounded-full bg-primary/5 blur-2xl"
+      />
+      <span className="relative flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground ring-1 ring-border [&_svg]:size-6">
+        <Icon aria-hidden="true" />
       </span>
-      <h3 className="font-heading text-base font-medium">{title}</h3>
+      <h3 className="relative font-heading text-base font-medium">{title}</h3>
       {hasDescription && (
-        <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+        <p className="relative max-w-sm text-sm text-muted-foreground">
+          {description}
+        </p>
       )}
-      {hasChildren && <div className="mt-2 flex items-center gap-2">{children}</div>}
+      {hasChildren && (
+        <div className="relative mt-2 flex flex-wrap items-center justify-center gap-2">
+          {children}
+        </div>
+      )}
     </div>
   );
 }

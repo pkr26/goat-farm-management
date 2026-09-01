@@ -289,16 +289,16 @@ describe("TasksPage board copy", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    // Due today: amber "due soon", never the overdue red.
+    // Due today: warning-tint "due soon", never the overdue destructive tint.
     const dueToday = within(dueCellOf("Morning feed count")).getByText(formatDate(TODAY));
-    expect(dueToday).toHaveClass("bg-amber-100");
-    expect(dueToday).not.toHaveClass("bg-red-100");
+    expect(dueToday).toHaveClass("bg-warning-tint");
+    expect(dueToday).not.toHaveClass("bg-destructive/10");
 
     await user.click(screen.getByRole("tab", { name: "Overdue (1)" }));
     await screen.findByText("Trim hooves");
     const dueLate = within(dueCellOf("Trim hooves")).getByText(formatDate(THREE_DAYS_AGO));
-    expect(dueLate).toHaveClass("bg-red-100");
-    expect(dueLate).not.toHaveClass("bg-amber-100");
+    expect(dueLate).toHaveClass("bg-destructive/10");
+    expect(dueLate).not.toHaveClass("bg-warning-tint");
     // The lateness suffix is separated from the date, not glued to it.
     expect(dueCellOf("Trim hooves")).toHaveTextContent(
       `${formatDate(THREE_DAYS_AGO)} (3d late)`,
@@ -311,16 +311,20 @@ describe("TasksPage board copy", () => {
     await user.click(screen.getByRole("tab", { name: "Upcoming (1)" }));
     await screen.findByText("Rotate buck");
     const dueLater = within(dueCellOf("Rotate buck")).getByText(formatDate(NEXT_WEEK));
-    expect(dueLater).not.toHaveClass("bg-amber-100");
-    expect(dueLater).not.toHaveClass("bg-red-100");
+    expect(dueLater).not.toHaveClass("bg-warning-tint");
+    expect(dueLater).not.toHaveClass("bg-destructive/10");
   });
 
-  it("renders the Open form link at the same small size as the row's buttons", async () => {
+  it("renders the Open form link as an outline control the size of the row's buttons", async () => {
     await renderLoaded();
 
     const row = rowOf("Vaccinate Radha");
-    expect(within(row).getByRole("link", { name: "Open form" })).toHaveClass("h-7");
-    expect(within(row).getByRole("button", { name: "Skip" })).toHaveClass("h-7");
+    const openForm = within(row).getByRole("link", { name: "Open form" });
+    expect(openForm).toHaveClass("h-8");
+    // Row actions are outline — one primary action per view.
+    expect(openForm).toHaveClass("border-border");
+    expect(openForm).not.toHaveClass("bg-primary");
+    expect(within(row).getByRole("button", { name: "Skip" })).toHaveClass("h-8");
   });
 
   // ---------- transition toasts and error recovery ----------

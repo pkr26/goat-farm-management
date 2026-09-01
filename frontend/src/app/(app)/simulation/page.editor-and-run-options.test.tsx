@@ -510,7 +510,6 @@ describe("SimulationPage compare selection", () => {
     const scenarios = scenarioRows(7);
     const user = await renderLoaded({ scenarios });
     server.use(deleteHandler(scenarios));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     expect(await screen.findByText("Plan 7")).toBeInTheDocument();
 
     for (const id of [1, 2, 3, 4, 5])
@@ -528,6 +527,7 @@ describe("SimulationPage compare selection", () => {
       validation_error: "horizon_months must be positive",
     });
     await user.click(within(rowFor("Plan 7")).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
     await waitFor(() => expect(screen.queryByText("Plan 7")).not.toBeInTheDocument());
     expect(selectionCaption()).toContain("(4 selected)");
 

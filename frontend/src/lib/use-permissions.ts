@@ -29,6 +29,7 @@ export function usePermissions() {
     loading: query.isLoading,
     isError: query.isError,
     error: query.error,
+    refetch: query.refetch,
     isOwner: payload?.is_owner ?? false,
     can: (code: string) => perms.has(code),
   };

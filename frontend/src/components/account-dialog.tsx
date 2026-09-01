@@ -120,7 +120,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = href;
-      anchor.download = `goatfarm-account-export-${farmToday()}.json`;
+      anchor.download = `pashufarm-account-export-${farmToday()}.json`;
       try {
         document.body.appendChild(anchor);
         anchor.click();
@@ -250,9 +250,21 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
-        <KeyRound aria-hidden />
-        Account
+      <Button
+        variant="ghost"
+        size="sm"
+        className="gap-2 px-1.5 font-normal"
+        aria-label={`Account — ${name ?? email}`}
+        onClick={() => setOpen(true)}
+      >
+        <span
+          aria-hidden="true"
+          className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-[0.65rem] font-semibold text-primary"
+        >
+          {(name ?? email).trim().slice(0, 2).toUpperCase()}
+        </span>
+        <span className="hidden max-w-32 truncate md:inline">{name ?? email}</span>
+        <KeyRound aria-hidden className="size-3.5 text-muted-foreground" />
       </Button>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
@@ -405,14 +417,6 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  variant="destructive"
-                  disabled={!deletePassword || activeAction !== null}
-                  onClick={() => void deleteAccount()}
-                >
-                  {activeAction === "delete" ? "Deleting…" : "Delete account and access"}
-                </Button>
-                <Button
-                  type="button"
                   variant="outline"
                   disabled={activeAction === "delete"}
                   onClick={() => {
@@ -422,6 +426,14 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
                   }}
                 >
                   Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={!deletePassword || activeAction !== null}
+                  onClick={() => void deleteAccount()}
+                >
+                  {activeAction === "delete" ? "Deleting…" : "Delete account and access"}
                 </Button>
               </div>
             </div>

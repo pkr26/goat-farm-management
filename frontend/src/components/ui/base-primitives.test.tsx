@@ -123,14 +123,14 @@ const BUTTON_VARIANT_CLASSES: [ButtonVariant, string[]][] = [
 ];
 
 const BUTTON_SIZE_CLASSES: [ButtonSize, string[]][] = [
-  ["default", ["h-8", "px-2.5"]],
+  ["default", ["h-9", "px-3.5"]],
   ["xs", ["h-6", "px-2", "text-xs"]],
-  ["sm", ["h-7", "text-[0.8rem]"]],
-  ["lg", ["h-9", "px-2.5"]],
-  ["icon", ["size-8"]],
+  ["sm", ["h-8", "text-[0.8rem]"]],
+  ["lg", ["h-10", "px-5"]],
+  ["icon", ["size-9"]],
   ["icon-xs", ["size-6", "rounded-[min(var(--radius-md),10px)]"]],
-  ["icon-sm", ["size-7", "rounded-[min(var(--radius-md),12px)]"]],
-  ["icon-lg", ["size-9"]],
+  ["icon-sm", ["size-8", "rounded-[min(var(--radius-md),12px)]"]],
+  ["icon-lg", ["size-10"]],
 ];
 
 describe("buttonVariants", () => {
@@ -150,7 +150,7 @@ describe("buttonVariants", () => {
         "disabled:opacity-50",
         "bg-primary",
         "text-primary-foreground",
-        "h-8",
+        "h-9",
       ]),
     );
   });
@@ -159,7 +159,7 @@ describe("buttonVariants", () => {
     // not-found.tsx / no-access ask for `{ variant: "outline" }` alone.
     const classes = classesOf(buttonVariants({ variant: "outline" }));
 
-    expect(classes).toEqual(expect.arrayContaining(["border-border", "h-8"]));
+    expect(classes).toEqual(expect.arrayContaining(["border-border", "h-9"]));
     expect(classes).not.toContain("bg-primary");
   });
 
@@ -167,8 +167,8 @@ describe("buttonVariants", () => {
     // tasks/page.tsx asks for `{ size: "sm" }` alone.
     const classes = classesOf(buttonVariants({ size: "sm" }));
 
-    expect(classes).toEqual(expect.arrayContaining(["bg-primary", "h-7"]));
-    expect(classes).not.toContain("h-8");
+    expect(classes).toEqual(expect.arrayContaining(["bg-primary", "h-8"]));
+    expect(classes).not.toContain("h-9");
   });
 });
 
@@ -198,7 +198,7 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Save" })).toHaveClass(
       "bg-primary",
       "text-primary-foreground",
-      "h-8",
+      "h-9",
     );
   });
 
@@ -211,7 +211,7 @@ describe("Button", () => {
     expect(button).toHaveClass("h-12", "bg-red-500");
     // tailwind-merge drops the losing side, otherwise the override would be a
     // coin toss on stylesheet order.
-    expect(button).not.toHaveClass("h-8");
+    expect(button).not.toHaveClass("h-9");
     expect(button).not.toHaveClass("bg-primary");
   });
 
@@ -245,7 +245,7 @@ describe("Button", () => {
 
     const link = screen.getByRole("link", { name: "Animals" });
     expect(link).toHaveAttribute("data-slot", "button");
-    expect(link).toHaveClass("border-border", "h-7");
+    expect(link).toHaveClass("border-border", "h-8");
   });
 });
 
@@ -637,7 +637,7 @@ describe("Input, Textarea and Label", () => {
     expect(input).toHaveAttribute("data-slot", "input");
     expect(input).toHaveAttribute("type", "text");
     expect(input).toHaveClass(
-      "h-8",
+      "h-9",
       "w-full",
       "rounded-lg",
       "border-input",

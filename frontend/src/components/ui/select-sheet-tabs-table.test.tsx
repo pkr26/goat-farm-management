@@ -775,7 +775,7 @@ describe("Table", () => {
     const columnHeaders = screen.getAllByRole("columnheader");
     expect(columnHeaders.map((cell) => cell.textContent)).toEqual(["Tag", "Weight"]);
     expect(columnHeaders[0].tagName).toBe("TH");
-    expect(columnHeaders[0]).toHaveClass("h-10", "px-2", "text-left", "font-medium");
+    expect(columnHeaders[0]).toHaveClass("h-11", "px-2", "text-left", "font-medium");
 
     const bodyCells = within(body as HTMLElement).getAllByRole("cell");
     expect(bodyCells.map((cell) => cell.textContent)).toEqual(["G-001", "32.5"]);

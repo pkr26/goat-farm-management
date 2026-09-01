@@ -162,10 +162,15 @@ describe("ADV A2: farm switch mid-write on breeding (M-2 now fenced)", () => {
         <BreedingPage />
       </>,
     );
-    expect(await screen.findByRole("button", { name: "Add breeding" })).toBeInTheDocument();
+    // The header action and the empty-state CTA share the label; either
+    // opens the same create dialog.
+    const addBreedingButtons = await screen.findAllByRole("button", {
+      name: "Add breeding",
+    });
+    expect(addBreedingButtons.length).toBeGreaterThanOrEqual(1);
 
     // Open the dialog and pick a doe + buck via the combobox triggers.
-    await user.click(screen.getByRole("button", { name: "Add breeding" }));
+    await user.click(addBreedingButtons[0]);
     const dialog = await screen.findByRole("dialog");
     const [doeTrigger, buckTrigger] = await within(dialog).findAllByRole("combobox");
     await user.click(doeTrigger);

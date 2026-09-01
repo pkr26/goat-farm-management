@@ -68,7 +68,9 @@ import {
 } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { cn, safeAppPath } from "@/lib/utils";
+import { safeAppPath } from "@/lib/utils";
+import { PermissionsError } from "@/components/permissions-error";
+import { enumLabel } from "@/lib/enum-labels";
 
 const CATEGORIES = Object.values(TaskCreateInCategory);
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
@@ -290,7 +292,7 @@ function RowActions({
             ) : (
               <Link
                 href={withReturnTo(permittedAction, returnTo)}
-                className={buttonVariants({ size: "sm" })}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
               >
                 Open form
               </Link>
@@ -303,6 +305,7 @@ function RowActions({
             !lockedFutureCompletion && (
               <Button
                 size="sm"
+                variant="outline"
                 disabled={actionFlight.pending}
                 onClick={() => void completeTask()}
               >
@@ -354,6 +357,11 @@ function RowActions({
                 maxLength={255}
               />
             </div>
+            {actionError?.action === "skip" && (
+              <p role="alert" className="text-sm text-destructive">
+                {actionError.message} Check the reason, then try again.
+              </p>
+            )}
             <DialogFooter>
               <Button
                 type="button"
@@ -376,11 +384,6 @@ function RowActions({
                     : "Skip task"}
               </Button>
             </DialogFooter>
-            {actionError?.action === "skip" && (
-              <p role="alert" className="text-sm text-destructive">
-                {actionError.message} Check the reason, then try again.
-              </p>
-            )}
           </DialogContent>
         </Dialog>
       </>
@@ -392,6 +395,7 @@ function RowActions({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
+          variant="outline"
           disabled={actionFlight.pending}
           onClick={() => void verifyTask()}
         >
@@ -482,16 +486,14 @@ function TaskTable({
             return (
               <TableRow key={t.id}>
                 <TableCell>
-                  <span
-                    className={cn(
-                      overdue &&
-                        "rounded-md bg-red-100 px-1.5 py-0.5 text-red-700 dark:bg-red-950 dark:text-red-300",
-                      dueSoon &&
-                        "rounded-md bg-amber-100 px-1.5 py-0.5 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-                    )}
-                  >
-                    {formatDate(t.due_date)}
-                  </span>
+                  {(overdue || dueSoon) && (
+                    <Badge variant={overdue ? "destructive" : "warning"}>
+                      {formatDate(t.due_date)}
+                    </Badge>
+                  )}
+                  {!(overdue || dueSoon) && (
+                    <span>{formatDate(t.due_date)}</span>
+                  )}
                   {overdue && (
                     <span className="text-destructive">
                       {" "}
@@ -522,7 +524,7 @@ function TaskTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="secondary">{t.category}</Badge>
+                  <Badge variant="secondary">{enumLabel("taskCategory", t.category)}</Badge>
                 </TableCell>
                 <TableCell>
                   {/* A personal assignment always carries a continuity role as
@@ -648,7 +650,7 @@ function dutyDefaults(): DutyValues {
 }
 
 function TasksPageContent() {
-  const { can, loading: permsLoading, isError: permsError, isOwner } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError, isOwner , refetch: permsRefetch } = usePermissions();
   const { user } = useAuth();
   const allowed = can("tasks.view");
   const canCreate = can("tasks.create");
@@ -866,13 +868,11 @@ function TasksPageContent() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -891,7 +891,7 @@ function TasksPageContent() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   // Comparisons use the active farm's calendar day, not the browser's local
@@ -1273,7 +1273,7 @@ function TasksPageContent() {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function TasksPage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <TasksPageContent />
     </Suspense>
   );

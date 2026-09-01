@@ -257,10 +257,54 @@ function statIcon(label: string): HTMLElement {
 function bucketBar(name: string | RegExp): HTMLElement {
   const bar = screen
     .getByRole("link", { name })
-    .querySelector<HTMLElement>("div.bg-primary");
+    .querySelector<HTMLElement>("span.bg-primary");
   expect(bar).not.toBeNull();
   return bar as HTMLElement;
 }
+
+describe("DashboardPage — first-run onboarding", () => {
+  it("shows the welcome card with linked steps for a truly empty farm", async () => {
+    server.use(dashboardHandler(makePayload()));
+    renderWithProviders(<DashboardPage />);
+    await screen.findByRole("heading", { name: /Dashboard/ });
+
+    expect(
+      screen.getByText("Welcome to your new farm"),
+    ).toBeInTheDocument();
+    const addFirst = screen.getByRole("link", { name: "Add animal" });
+    expect(addFirst).toHaveAttribute("href", "/animals/new");
+    expect(screen.getByRole("link", { name: "Open purchases" })).toHaveAttribute(
+      "href",
+      "/purchases",
+    );
+    expect(screen.getByRole("link", { name: "Open tasks" })).toHaveAttribute(
+      "href",
+      "/tasks",
+    );
+  });
+
+  it("hides the welcome card once any animal exists, even an inactive one", async () => {
+    // A wound-down herd (all sold) must not be greeted as "new".
+    server.use(
+      dashboardHandler(
+        makePayload({ total_active: 0, status_totals: { SOLD: 4 } }),
+      ),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findByText("Sold (all time)");
+    expect(screen.queryByText("Welcome to your new farm")).not.toBeInTheDocument();
+  });
+
+  it("hides the welcome card without animals.view", async () => {
+    server.use(
+      permissionsHandler(["dashboard.view"]),
+      dashboardHandler(makePayload()),
+    );
+    renderWithProviders(<DashboardPage />);
+    await screen.findByRole("heading", { name: /Dashboard/ });
+    expect(screen.queryByText("Welcome to your new farm")).not.toBeInTheDocument();
+  });
+});
 
 describe("DashboardPage — task stat urgency", () => {
   it("tints the task stat red while anything is overdue", async () => {
@@ -269,8 +313,8 @@ describe("DashboardPage — task stat urgency", () => {
     await screen.findByRole("heading", { name: /Dashboard/ });
 
     const icon = statIcon("Tasks due + overdue");
-    expect(icon).toHaveClass("bg-red-100", "text-red-700");
-    expect(icon).not.toHaveClass("bg-amber-100");
+    expect(icon).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(icon).not.toHaveClass("bg-warning-tint");
     expect(icon).not.toHaveClass("bg-muted");
   });
 
@@ -284,7 +328,7 @@ describe("DashboardPage — task stat urgency", () => {
     await screen.findByRole("heading", { name: /Dashboard/ });
 
     const icon = statIcon("Tasks due + overdue");
-    expect(icon).toHaveClass("bg-amber-100", "text-amber-700");
+    expect(icon).toHaveClass("bg-warning-tint", "text-warning-tint-foreground");
     expect(icon).not.toHaveClass("bg-red-100");
     expect(icon).not.toHaveClass("bg-muted");
   });
@@ -610,9 +654,9 @@ describe("DashboardPage — shortcut styling and gating", () => {
     ];
     expect(actions).toHaveLength(6);
     for (const action of actions) {
-      expect(action).toHaveClass("border-border", "bg-background", "h-7");
+      expect(action).toHaveClass("border-border", "bg-background", "h-8");
       expect(action).not.toHaveClass("bg-primary");
-      expect(action).not.toHaveClass("h-8");
+      expect(action).not.toHaveClass("h-9");
     }
   });
 
@@ -628,10 +672,10 @@ describe("DashboardPage — shortcut styling and gating", () => {
     ];
     expect(shortcuts).toHaveLength(4);
     for (const shortcut of shortcuts) {
-      expect(shortcut).toHaveClass("hover:bg-muted", "h-7");
+      expect(shortcut).toHaveClass("hover:bg-muted", "h-8");
       expect(shortcut).not.toHaveClass("bg-primary");
       expect(shortcut).not.toHaveClass("bg-background");
-      expect(shortcut).not.toHaveClass("h-8");
+      expect(shortcut).not.toHaveClass("h-9");
     }
   });
 
@@ -645,9 +689,9 @@ describe("DashboardPage — shortcut styling and gating", () => {
     await screen.findByText(/No weight records yet/);
 
     const invite = screen.getByRole("link", { name: "Add your first animal" });
-    expect(invite).toHaveClass("border-border", "bg-background", "h-7");
+    expect(invite).toHaveClass("border-border", "bg-background", "h-8");
     expect(invite).not.toHaveClass("bg-primary");
-    expect(invite).not.toHaveClass("h-8");
+    expect(invite).not.toHaveClass("h-9");
   });
 
   it("hides the first-animal invite without animals.create", async () => {

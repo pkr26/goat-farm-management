@@ -4,7 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowLeftRight, Baby, GitBranch, HeartPulse, Scale } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useState, type ReactNode } from "react";
@@ -26,6 +26,7 @@ import {
   type AnimalProfileOut,
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
@@ -67,6 +68,7 @@ import {
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 const BUCKETS = Object.values(MoveInToBucket);
 const PROFILE_HISTORY_LIMIT = 25;
@@ -582,7 +584,7 @@ function StatusDialog({
     >
       <Button
         size="sm"
-        variant="destructive"
+        variant="outline"
         disabled={actionFlight.pending || profileSettling}
         onClick={() => setOpen(true)}
       >
@@ -1059,14 +1061,14 @@ function ProfileBody({
       </div>
 
       {a.movement_restricted && (
-        <Card className="border-red-300 bg-red-50/70 dark:border-red-900 dark:bg-red-950/30">
+        <Card className="border-destructive/30 bg-destructive/[0.04]">
           <CardContent className="flex flex-wrap items-start justify-between gap-4 pt-6">
             <div className="space-y-1">
-              <h2 className="flex items-center gap-2 font-medium text-red-800 dark:text-red-300">
+              <h2 className="flex items-center gap-2 font-medium text-destructive">
                 <AlertTriangle className="size-4" aria-hidden />
                 Movement restricted
               </h2>
-              <p className="text-sm text-red-800/90 dark:text-red-200">
+              <p className="text-sm text-destructive/90">
                 {a.restriction_reason ?? "A health hold is active for this animal."}
               </p>
               {a.suspected_disease && (
@@ -1261,7 +1263,12 @@ function ProfileBody({
       <div className="grid gap-4 lg:grid-cols-2">
         <DataTableCard title={`Weight history (${profile.weights_total})`}>
           {profile.weights.length === 0 ? (
-            <p className="text-muted-foreground">No weight records yet.</p>
+            <EmptyState
+              icon={Scale}
+              title="No weight records yet."
+              description="Record the first weight to start tracking growth."
+              className="py-8"
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -1296,7 +1303,12 @@ function ProfileBody({
 
         <DataTableCard title={`Bucket moves (${profile.moves_total})`}>
           {profile.moves.length === 0 ? (
-            <p className="text-muted-foreground">No moves recorded.</p>
+            <EmptyState
+              icon={ArrowLeftRight}
+              title="No moves recorded."
+              description="Bucket changes will appear here once recorded."
+              className="py-8"
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -1334,7 +1346,12 @@ function ProfileBody({
         {canViewHealth && (
         <DataTableCard title={`Health events (${profile.health_events_total})`}>
           {profile.health_events.length === 0 ? (
-            <p className="text-muted-foreground">No health events.</p>
+            <EmptyState
+              icon={HeartPulse}
+              title="No health events."
+              description="Treatments, vaccines and dewormings will appear here."
+              className="py-8"
+            />
           ) : (
             <Table>
               <TableHeader>
@@ -1390,7 +1407,12 @@ function ProfileBody({
         {(a.sex === "F" || profile.kids_total > 0) && (
           <DataTableCard title={`Kids (${profile.kids_total})`}>
             {profile.kids.length === 0 ? (
-              <p className="text-muted-foreground">No kids recorded.</p>
+              <EmptyState
+                icon={Baby}
+                title="No kids recorded."
+                description="Offspring from this animal will appear here."
+                className="py-8"
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -1436,7 +1458,12 @@ function ProfileBody({
         {canViewBreeding && (
           <DataTableCard title={`Breeding history (${profile.breedings_total})`}>
             {profile.breedings.length === 0 ? (
-              <p className="text-muted-foreground">No breeding records.</p>
+              <EmptyState
+                icon={GitBranch}
+                title="No breeding records."
+                description="Linked breeding records will appear here."
+                className="py-8"
+              />
             ) : (
               <ul className="divide-y">
                 {profile.breedings.map((recordId) => (
@@ -1472,7 +1499,7 @@ function AnimalProfilePageContent() {
   const animalId = Number(params.id);
   const validAnimalId =
     /^\d+$/.test(params.id) && Number.isSafeInteger(animalId) && animalId > 0;
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError, refetch: permsRefetch } = usePermissions();
   const allowed = can("animals.view");
   const [kidsOffset, setKidsOffset] = useState(0);
   const [weightsOffset, setWeightsOffset] = useState(0);
@@ -1508,13 +1535,11 @@ function AnimalProfilePageContent() {
         : "Back to animals";
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -1557,7 +1582,7 @@ function AnimalProfilePageContent() {
   // actionable branch instead of an unrecoverable spinner.
   if (!profile) {
     if (query.isError) return profileErrorBox;
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (query.isError && fatalProfileError) return profileErrorBox;
   return (
@@ -1565,7 +1590,7 @@ function AnimalProfilePageContent() {
       {query.isError && (
         <div
           role="status"
-          className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/50 p-3 text-sm"
+          className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/50 bg-warning-tint p-3 text-sm text-warning-tint-foreground dark:border-warning/40"
         >
           <span>Could not refresh this profile — showing the last loaded data.</span>
           <Button type="button" size="sm" variant="outline" onClick={() => void query.refetch()}>
@@ -1597,7 +1622,7 @@ function AnimalProfilePageContent() {
 export default function AnimalProfilePage() {
   const params = useParams<{ id: string }>();
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       {/* Keyed by the route param: the App Router reuses this mounted tree
           when only [id] changes (dam/sire/kid links navigate profile →
           profile), and placeholderData keeps the previous profile rendered

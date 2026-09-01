@@ -248,7 +248,7 @@ describe("HealthPage copy and error wiring", () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(await screen.findByRole("button", { name: "+ Add event" }));
+    await user.click(await screen.findByRole("button", { name: "Add event" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Add health event" }) };
   }
 
@@ -272,7 +272,7 @@ describe("HealthPage copy and error wiring", () => {
     ];
     renderWithProviders(<HealthPage />);
 
-    const row = (await screen.findByText("VACCINE")).closest("tr")!;
+    const row = (await screen.findByText("Vaccination")).closest("tr")!;
     // Date, Type, Animal, Product, Target, Dose, Route, Cost, Next due, Holds.
     const cells = within(row).getAllByRole("cell");
     expect(cells[3]).toHaveTextContent(/^—$/);
@@ -314,7 +314,7 @@ describe("HealthPage copy and error wiring", () => {
     recordedEvents = [makeEvent({ id: 101 }), makeEvent({ id: 102, animal_id: 4 })];
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     await user.click(
       await within(dialog).findByRole("button", { name: "Confirm for 2 animals" }),
@@ -340,7 +340,7 @@ describe("HealthPage copy and error wiring", () => {
     );
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     const snapshot = await within(dialog).findByRole("status");
@@ -372,7 +372,7 @@ describe("HealthPage copy and error wiring", () => {
     );
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "RESTING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Resting");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     const snapshot = await within(dialog).findByRole("status");
@@ -408,7 +408,7 @@ describe("HealthPage copy and error wiring", () => {
     server.use(http.post("/api/health/events/preview", () => HttpResponse.error()));
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
@@ -446,7 +446,7 @@ describe("HealthPage copy and error wiring", () => {
     tasks = [makeTask({ id: 12, title: "Herd PPR round", category: "VACCINE" })];
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Herd PPR round/);
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     await user.click(
@@ -471,7 +471,7 @@ describe("HealthPage copy and error wiring", () => {
     );
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     await user.click(
       await within(dialog).findByRole("button", { name: "Confirm for 2 animals" }),
@@ -485,7 +485,7 @@ describe("HealthPage copy and error wiring", () => {
   it("drops the reviewed snapshot when the target goes back to a single animal", async () => {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     await within(dialog).findByRole("status");
 
@@ -526,7 +526,7 @@ describe("HealthPage copy and error wiring", () => {
     );
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     // The review only reads; the confirm writes an immutable event. The
@@ -570,7 +570,7 @@ describe("HealthPage copy and error wiring", () => {
       "Pick a bucket",
     );
 
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "BREEDING");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), "Breeding");
 
     await waitFor(() => expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument());
     expect(

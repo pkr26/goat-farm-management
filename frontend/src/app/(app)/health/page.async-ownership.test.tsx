@@ -20,6 +20,7 @@ import type {
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { setCurrentFarmId } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmToday } from "@/lib/format";
 
 import HealthPage from "./page";
@@ -254,14 +255,19 @@ describe("HealthPage async ownership guards", () => {
     const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(await screen.findByRole("button", { name: "+ Add event" }));
+    await user.click(await screen.findByRole("button", { name: "Add event" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Add health event" }) };
   }
 
   async function openBucketDialog(bucket = "BREEDING") {
     const { user, dialog } = await openDialog();
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Bucket *" }), bucket);
+    // Options are labeled species-aware while the value stays the raw code.
+    await pickOption(
+      user,
+      within(dialog).getByRole("combobox", { name: "Bucket *" }),
+      enumLabel("bucket", bucket),
+    );
     return { user, dialog };
   }
 
@@ -640,7 +646,7 @@ describe("HealthPage async ownership guards", () => {
     preview.release();
     await settle();
 
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });
     expect(within(reopened).queryByRole("alert")).not.toBeInTheDocument();
     expect(toast.error).not.toHaveBeenCalled();
@@ -689,7 +695,7 @@ describe("HealthPage async ownership guards", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });
 
     write.release();
@@ -755,7 +761,7 @@ describe("HealthPage async ownership guards", () => {
     write.release();
     await settle();
 
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const reopened = await screen.findByRole("dialog", { name: "Add health event" });
     expect(within(reopened).queryByRole("alert")).not.toBeInTheDocument();
     expect(toast.error).not.toHaveBeenCalled();

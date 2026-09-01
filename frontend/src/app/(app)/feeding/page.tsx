@@ -5,6 +5,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -28,7 +29,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -62,8 +63,11 @@ import {
   MIN_PERSISTED_KG_MESSAGE,
 } from "@/lib/persisted-numbers";
 import { FeedingNav } from "@/components/feeding-nav";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 /** Explicit virtual recipe used by quarantine animals on days 1–3. */
 const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
@@ -135,6 +139,8 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
   const queryClient = useQueryClient();
   const mut = useSaveSettingApiFeedingSettingsPost();
   const settingFlight = useSingleFlight();
+  const farmType = useFarmType();
+  const bucketLabel = enumLabel("bucket", line.bucket, farmType);
   const {
     register,
     handleSubmit,
@@ -167,7 +173,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
           },
         });
         const stored = quantizePersistedKg(values.daily_kg_per_head);
-        toast.success(`Saved ${formatPersistedKg(stored)} kg/head for ${line.bucket}.`);
+        toast.success(`Saved ${formatPersistedKg(stored)} kg/head for ${bucketLabel}.`);
         reset({ daily_kg_per_head: stored });
         invalidateFarmData(queryClient);
         setOpen(false);
@@ -198,7 +204,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
       </Button>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Daily ration — {line.bucket}</DialogTitle>
+          <DialogTitle>Daily ration — {bucketLabel}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <fieldset disabled={isSubmitting || settingFlight.pending} className="contents">
@@ -274,10 +280,20 @@ type DispenseInput = z.input<typeof dispenseSchema>;
 type DispenseValues = z.output<typeof dispenseSchema>;
 
 export default function FeedingPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
+  const canCreateAnimals = can("animals.create");
+  const farmType = useFarmType();
   const queryClient = useQueryClient();
+  /** value → label maps for the root `items` prop: without them, Base UI's
+   * Select.Value renders the raw value in the closed trigger. */
+  const bucketItems: Record<string, string> = Object.fromEntries(
+    Object.values(DispenseInBucket).map((b) => [b, enumLabel("bucket", b, farmType)]),
+  );
+  const shiftItems: Record<string, string> = Object.fromEntries(
+    Object.values(DispenseInShift).map((s) => [s, enumLabel("shift", s)]),
+  );
 
   const [dispenseOpen, setDispenseOpen] = useState(false);
   const [historyOffset, setHistoryOffset] = useState(0);
@@ -364,13 +380,11 @@ export default function FeedingPage() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -379,7 +393,10 @@ export default function FeedingPage() {
   if (query.isLoading || !payload) {
     if (query.isError) {
       return (
-        <div role="alert" className="space-y-3">
+        <div
+          role="alert"
+          className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4"
+        >
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError ? query.error.detail : "Could not load the feeding plan."}
           </p>
@@ -389,7 +406,7 @@ export default function FeedingPage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const today = localToday();
@@ -485,13 +502,19 @@ export default function FeedingPage() {
             icon={Wheat}
             title="No active animals — nothing to feed."
             description="Once animals are active, their ration plan will show up here."
-          />
+          >
+            {canCreateAnimals && (
+              <Link href="/animals/new" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                Add animals
+              </Link>
+            )}
+          </EmptyState>
         ) : (
           <div className="space-y-4">
             {payload.records.length < payload.records_total && (
               <p
                 role="status"
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                className="rounded-lg border border-warning/40 bg-warning-tint/50 px-3 py-2 text-sm text-warning-tint-foreground"
               >
                 Today&apos;s dispensing log contains {payload.records_total} entries; the log below
                 shows only the latest {payload.records.length} (response limit {payload.records_limit}).
@@ -514,9 +537,14 @@ export default function FeedingPage() {
                   const complete =
                     allocation.total > 0 && allocation.complete === allocation.total;
                   return (
-                    <div key={bucketName} className="rounded-lg border p-3 text-sm">
+                    <div
+                      key={bucketName}
+                      className="rounded-xl bg-card p-4 shadow-xs ring-1 ring-foreground/[0.07]"
+                    >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{bucketName}</span>
+                        <span className="font-medium">
+                          {enumLabel("bucket", bucketName, farmType)}
+                        </span>
                         <Badge variant={complete ? "default" : "secondary"}>
                           {complete
                             ? "complete"
@@ -564,7 +592,9 @@ export default function FeedingPage() {
                 return (
                   // One bucket can appear on several lines (split by recipe).
                   <TableRow key={`${line.bucket}:${line.recipe_code}`}>
-                    <TableCell className="font-medium">{line.bucket}</TableCell>
+                    <TableCell className="font-medium">
+                      {enumLabel("bucket", line.bucket, farmType)}
+                    </TableCell>
                     <TableCell>{line.recipe_name}</TableCell>
                     <TableCell className="text-right tabular-nums">{line.heads}</TableCell>
                     <TableCell className="text-right tabular-nums">
@@ -584,12 +614,9 @@ export default function FeedingPage() {
                     <TableCell className="text-right tabular-nums">
                       {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
                       {lineComplete && (
-                        <Badge
-                          variant="outline"
-                          className="ml-2 border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                        >
-                          <Check />
-                          done
+                        <Badge variant="success" className="ml-2">
+                          <Check aria-hidden="true" />
+                          Done
                         </Badge>
                       )}
                     </TableCell>
@@ -626,8 +653,8 @@ export default function FeedingPage() {
             <TableBody>
               {payload.records.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell>{r.shift}</TableCell>
-                  <TableCell>{r.bucket}</TableCell>
+                  <TableCell>{enumLabel("shift", r.shift)}</TableCell>
+                  <TableCell>{enumLabel("bucket", r.bucket, farmType)}</TableCell>
                   <TableCell>{r.recipe_code ?? "—"}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatPersistedKg(r.qty_kg)}
@@ -737,8 +764,8 @@ export default function FeedingPage() {
                 {history.records.map((record) => (
                   <TableRow key={record.id}>
                     <TableCell>{formatDate(record.date)}</TableCell>
-                    <TableCell>{record.shift}</TableCell>
-                    <TableCell>{record.bucket}</TableCell>
+                    <TableCell>{enumLabel("shift", record.shift)}</TableCell>
+                    <TableCell>{enumLabel("bucket", record.bucket, farmType)}</TableCell>
                     <TableCell>{record.recipe_code ?? "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatPersistedKg(record.qty_kg)}
@@ -771,6 +798,7 @@ export default function FeedingPage() {
                 <Label htmlFor="dispense-bucket">Bucket</Label>
                 <Select
                   value={wBucket}
+                  items={bucketItems}
                   onValueChange={(v) => {
                     setValue("bucket", v as DispenseValues["bucket"], { shouldValidate: true });
                     // A bucket split by age/day carries several plan lines;
@@ -793,7 +821,7 @@ export default function FeedingPage() {
                   <SelectContent>
                     {Object.values(DispenseInBucket).map((b) => (
                       <SelectItem key={b} value={b}>
-                        {b}
+                        {enumLabel("bucket", b, farmType)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -803,6 +831,7 @@ export default function FeedingPage() {
                 <Label htmlFor="dispense-shift">Shift</Label>
                 <Select
                   value={wShift}
+                  items={shiftItems}
                   onValueChange={(v) =>
                     setValue("shift", v as DispenseValues["shift"], { shouldValidate: true })
                   }
@@ -813,7 +842,7 @@ export default function FeedingPage() {
                   <SelectContent>
                     {Object.values(DispenseInShift).map((s) => (
                       <SelectItem key={s} value={s}>
-                        {s}
+                        {enumLabel("shift", s)}
                       </SelectItem>
                     ))}
                   </SelectContent>

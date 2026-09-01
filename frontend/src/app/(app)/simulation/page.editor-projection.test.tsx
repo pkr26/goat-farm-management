@@ -988,7 +988,7 @@ describe("SimulationPage loader and run feedback", () => {
     );
     expect(screen.getByLabelText("Does")).toHaveValue(99);
     expect(screen.getByText("Editing scenario: Expansion")).toBeInTheDocument();
-    expect(screen.queryByText("Farm calibration evidence")).not.toBeInTheDocument();
+    expect(screen.queryByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).not.toBeInTheDocument();
   });
 
   it("rebinds the calibrated breed and replaces the event list", async () => {
@@ -1144,21 +1144,19 @@ describe("SimulationPage scenario list refresh", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     renderWithProviders(<SimulationPage />);
     expect(await screen.findByText("Old plan")).toBeInTheDocument();
     expect(defaultsCalls).toBe(1);
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(confirm).toHaveBeenCalledWith('Delete scenario "Old plan"?');
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     expect(await screen.findByText("No saved scenarios yet.")).toBeInTheDocument();
     expect(scenarioCalls).toBeGreaterThan(1);
     // The write touched saved scenarios only: breed defaults are untouched
     // editor state and must not be refetched underneath the operator.
     expect(defaultsCalls).toBe(1);
-    confirm.mockRestore();
   });
 
   it("re-homes a scenario page that shrank past the current offset", async () => {

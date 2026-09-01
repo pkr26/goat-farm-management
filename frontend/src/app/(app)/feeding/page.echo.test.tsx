@@ -89,7 +89,7 @@ describe("FeedingPage kg/head confirmation", () => {
     await saveRation("1.2345");
     expect(savedKg).toBe(1.2345);
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 1.235 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 1.235 kg/head for Breeding."),
     );
   });
 
@@ -98,21 +98,21 @@ describe("FeedingPage kg/head confirmation", () => {
     // while Decimal("1.0005") rounds half up to 1.001.
     await saveRation("1.0005");
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 1.001 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 1.001 kg/head for Breeding."),
     );
   });
 
   it("rounds down when the first discarded digit is below five", async () => {
     await saveRation("1.2344");
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 1.234 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 1.234 kg/head for Breeding."),
     );
   });
 
   it("leaves a value already at storage precision untouched", async () => {
     await saveRation("1.8");
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 1.8 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 1.8 kg/head for Breeding."),
     );
   });
 });

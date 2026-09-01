@@ -276,7 +276,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
   async function openDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
 
@@ -341,8 +341,8 @@ describe("HealthPage wire contracts and closed-control labels", () => {
     const bucketTrigger = within(dialog).getByRole("combobox", { name: "Bucket *" });
     expect(bucketTrigger).toHaveTextContent("Pick a bucket");
 
-    await pickOption(user, bucketTrigger, "BREEDING");
-    expect(bucketTrigger).toHaveTextContent("BREEDING");
+    await pickOption(user, bucketTrigger, "Breeding");
+    expect(bucketTrigger).toHaveTextContent("Breeding");
 
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     expect(await within(dialog).findByRole("status")).toHaveTextContent(

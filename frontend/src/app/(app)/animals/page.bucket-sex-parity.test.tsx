@@ -244,18 +244,18 @@ describe("AnimalsPage page steps dispatched in one render pass", () => {
       }),
     );
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 4 · Showing 1–1 of 200");
+    await screen.findByText("Showing 1–50 of 200 animals");
 
     // Both clicks read the same render, so the second one still sees page 1
     // and an enabled button: only the in-flight latch stops it from pushing a
     // duplicate history entry for the page it is already navigating to.
-    const next = screen.getByRole("button", { name: "Next page" });
+    const next = screen.getByRole("button", { name: "Next" });
     act(() => {
       fireEvent.click(next);
       fireEvent.click(next);
     });
 
-    expect(await screen.findByText("Page 2 of 4 · Showing 51–51 of 200")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 51–100 of 200 animals")).toBeInTheDocument();
     expect(nav.push).toHaveBeenCalledTimes(1);
     expect(nav.push).toHaveBeenCalledWith("/animals?page=2");
     expect(nav.state.search).toBe("page=2");
@@ -285,22 +285,22 @@ describe("AnimalsPage page steps dispatched in one render pass", () => {
     nav.state.search = "bucket=FEMALE_KIDS&page=20002";
     const user = userEvent.setup();
     const view = renderWithProviders(<AnimalsPage />, queryClient);
-    await screen.findByText("Page 20001 of 22000 · Showing 1000001–1000001 of 1100000");
+    await screen.findByText("Showing 1000001–1000050 of 1100000 animals");
 
     // Warm the FEMALE_KIDS page-20002 rows and then leave that filter behind,
     // so the cancellation below settles from cache rather than a refetch and
     // the fence is the only thing that could still hide the list.
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
-    await screen.findByText("Page 20002 of 22000 · Showing 1000051–1000051 of 1100000");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Showing 1000051–1000100 of 1100000 animals");
     nav.state.search = "page=20002";
     view.rerender(<AnimalsPage />);
-    await screen.findByText("Page 20001 of 22000 · Showing 1000001–1000001 of 1100000");
+    await screen.findByText("Showing 1000001–1000050 of 1100000 animals");
     nav.push.mockClear();
     nav.replace.mockClear();
 
     await user.click(screen.getByRole("combobox", { name: "Filter animals by bucket" }));
-    const femaleKids = await screen.findByRole("option", { name: "FEMALE KIDS" });
-    const next = screen.getByRole("button", { name: "Next page" });
+    const femaleKids = await screen.findByRole("option", { name: "Female kids" });
+    const next = screen.getByRole("button", { name: "Next" });
     // The page step lands in the same render pass as the filter replacement it
     // supersedes. Next discards the older action but has no commit to deliver
     // for the URL it is already on, so the page must cancel back to it.
@@ -321,7 +321,7 @@ describe("AnimalsPage page steps dispatched in one render pass", () => {
     // Dropping the superseded registry and lowering the fence are both part of
     // the cancellation: no later commit arrives to repair either one.
     expect(
-      screen.getByText("Page 20002 of 22000 · Showing 1000051–1000051 of 1100000"),
+      screen.getByText("Showing 1000051–1000100 of 1100000 animals"),
     ).toBeInTheDocument();
     expect(screen.getByText("G-1000051")).toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();

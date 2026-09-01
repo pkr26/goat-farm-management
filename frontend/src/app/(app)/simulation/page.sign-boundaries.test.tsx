@@ -383,13 +383,13 @@ describe("SimulationPage monthly projection sign boundaries", () => {
     ).getAllByRole("row");
 
     expect(cells(breakEven)[17]).toHaveTextContent("—");
-    expect(breakEven).not.toHaveClass("bg-amber-50");
+    expect(breakEven).not.toHaveClass("bg-warning-tint/50");
     expect(cells(surplus)[17]).toHaveTextContent("—");
-    expect(surplus).not.toHaveClass("bg-amber-50");
+    expect(surplus).not.toHaveClass("bg-warning-tint/50");
     expect(cells(deficit)[17]).toHaveTextContent(
       "Drought: green fodder yield down 40%",
     );
-    expect(deficit).toHaveClass("bg-amber-50");
+    expect(deficit).toHaveClass("bg-warning-tint/50");
   });
 });
 
@@ -418,7 +418,7 @@ describe("SimulationPage Monte Carlo sign boundaries", () => {
       "Minimum cash P5",
       "Minimum cash P50",
     ])
-      expect(metricTint(label)).toHaveClass("bg-emerald-100");
+      expect(metricTint(label)).toHaveClass("bg-success-tint");
     // The spread cards carry no sign of their own, so they stay neutral even
     // where the figure is negative (P5 is -₹10,000 here).
     expect(metricTint("NPV std")).toHaveClass("bg-muted");
@@ -458,7 +458,7 @@ describe("SimulationPage Monte Carlo sign boundaries", () => {
       "Minimum cash P5",
       "Minimum cash P50",
     ])
-      expect(metricTint(label)).toHaveClass("bg-red-100");
+      expect(metricTint(label)).toHaveClass("bg-destructive/10");
     // The spread cards still take no colour from any of it.
     expect(metricTint("NPV std")).toHaveClass("bg-muted");
 
@@ -624,7 +624,6 @@ describe("SimulationPage comparison gate bounds", () => {
     const scenarios = scenarioRows(8);
     const user = await renderLoaded({ scenarios });
     server.use(deleteHandler(scenarios));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     expect(await screen.findByText("Plan 8")).toBeInTheDocument();
 
     for (const id of [1, 2, 3, 4, 5])
@@ -643,6 +642,7 @@ describe("SimulationPage comparison gate bounds", () => {
       validation_error: "horizon_months must be positive",
     });
     await user.click(within(rowFor("Plan 8")).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
     await waitFor(() =>
       expect(screen.queryByText("Plan 8")).not.toBeInTheDocument(),
     );
@@ -658,6 +658,7 @@ describe("SimulationPage comparison gate bounds", () => {
     // a comparison may carry.
     scenarios[0] = scenarioRow(1);
     await user.click(within(rowFor("Plan 7")).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
     await waitFor(() =>
       expect(screen.queryByText("Plan 7")).not.toBeInTheDocument(),
     );
@@ -908,7 +909,7 @@ describe("SimulationPage calibration evidence edges", () => {
 
     await user.click(screen.getByRole("button", { name: "Calibrate from farm" }));
 
-    expect(await screen.findByText("Farm calibration evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Farm calibration evidence", { selector: "[data-slot=\'card-title\'], h2" })).toBeInTheDocument();
     expect(
       screen.getByText(
         "No farm observations met the evidence thresholds; breed-system defaults remain in use.",

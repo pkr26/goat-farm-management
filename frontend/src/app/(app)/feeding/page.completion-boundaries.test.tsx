@@ -229,8 +229,8 @@ describe("FeedingPage completion boundaries", () => {
     renderWithProviders(<FeedingPage />);
     expect(await screen.findByText("Trace mix")).toBeInTheDocument();
 
-    expect(within(rowOf("Trace mix")).getByText("done")).toBeInTheDocument();
-    expect(within(rowOf("Maintenance mix")).queryByText("done")).not.toBeInTheDocument();
+    expect(within(rowOf("Trace mix")).getByText("Done")).toBeInTheDocument();
+    expect(within(rowOf("Maintenance mix")).queryByText("Done")).not.toBeInTheDocument();
     expect(screen.getByText("complete")).toBeInTheDocument();
     expect(screen.getByText("0/1 rations")).toBeInTheDocument();
   });
@@ -240,7 +240,7 @@ describe("FeedingPage completion boundaries", () => {
     await renderLoaded();
 
     // `[].every()` is vacuously true — an unsplit ration must not inherit that.
-    expect(within(planRow()).queryByText("done")).not.toBeInTheDocument();
+    expect(within(planRow()).queryByText("Done")).not.toBeInTheDocument();
     expect(screen.getByText("0/1 rations")).toBeInTheDocument();
     expect(screen.queryByText("complete")).not.toBeInTheDocument();
   });
@@ -570,7 +570,7 @@ describe("FeedingPage ration editor branches", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Saved 3.0 kg/head for BREEDING."),
+      expect(toast.success).toHaveBeenCalledWith("Saved 3.0 kg/head for Breeding."),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
@@ -740,7 +740,7 @@ describe("FeedingPage dispensing form branches", () => {
     // MALE_KIDS is split across two rations, so nothing can be prefilled and
     // the gap is reported before the operator reaches the submit button.
     await user.click(within(dialog).getAllByRole("combobox")[0]);
-    await user.click(await screen.findByRole("option", { name: "MALE_KIDS" }));
+    await user.click(await screen.findByRole("option", { name: "Male kids" }));
     expect(await within(dialog).findByText("Pick a recipe")).toBeInTheDocument();
 
     // Choosing one clears the same error just as immediately.
@@ -752,7 +752,7 @@ describe("FeedingPage dispensing form branches", () => {
 
     // BREEDING has exactly one planned ration, so switching back prefills it.
     await user.click(within(dialog).getAllByRole("combobox")[0]);
-    await user.click(await screen.findByRole("option", { name: "BREEDING" }));
+    await user.click(await screen.findByRole("option", { name: "Breeding" }));
     await waitFor(() =>
       expect(within(dialog).getAllByRole("combobox")[2]).toHaveTextContent("Lactating 60/40"),
     );

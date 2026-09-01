@@ -258,7 +258,7 @@ describe("FinancePage ledger row rendering", () => {
       screen.getByRole("button", { name: "2026-03" }).closest("tr") as HTMLElement,
     ).getAllByRole("cell")[3];
     expect(breakEven).toHaveTextContent("₹0");
-    expect(breakEven).toHaveClass("text-emerald-600");
+    expect(breakEven).toHaveClass("text-success");
     expect(breakEven).not.toHaveClass("text-destructive");
     const loss = within(
       screen.getByRole("button", { name: "2026-02" }).closest("tr") as HTMLElement,
@@ -278,7 +278,7 @@ describe("FinancePage filter affordances", () => {
     expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
 
     await user.click(screen.getByLabelText("Filter transactions by type"));
-    await user.click(await screen.findByRole("option", { name: "INCOME" }));
+    await user.click(await screen.findByRole("option", { name: "Income" }));
 
     expect(await screen.findByRole("button", { name: "Clear" })).toBeInTheDocument();
   });
@@ -289,7 +289,7 @@ describe("FinancePage filter affordances", () => {
     expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
 
     await user.click(screen.getByLabelText("Filter transactions by category"));
-    await user.click(await screen.findByRole("option", { name: "FEED" }));
+    await user.click(await screen.findByRole("option", { name: "Feed" }));
 
     expect(await screen.findByRole("button", { name: "Clear" })).toBeInTheDocument();
   });

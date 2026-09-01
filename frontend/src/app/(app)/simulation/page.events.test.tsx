@@ -1498,14 +1498,17 @@ describe("SimulationPage results and scenario management", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-02T00:00:00Z",
     };
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded({ scenarios: [scenario] });
 
     const deleteButton = await screen.findByRole("button", { name: "Delete" });
     const runButton = screen.getByRole("button", { name: "Run" });
     await user.click(deleteButton);
-    expect(confirm).toHaveBeenCalledWith('Delete scenario "Old plan"?');
+    // The confirmation dialog names the scenario before anything is deleted.
+    expect(
+      await screen.findByRole("heading", { name: "Delete scenario?" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete scenario" }));
 
     // Mutation in flight: a second click can't fire a duplicate DELETE.
     expect(deleteButton).toBeDisabled();
@@ -1519,6 +1522,41 @@ describe("SimulationPage results and scenario management", () => {
     await waitFor(() => expect(deleteCalls).toBe(1));
     await waitFor(() => expect(deleteButton).toBeEnabled());
     expect(screen.queryByText("Editing scenario: Old plan")).not.toBeInTheDocument();
+  });
+
+  it("keeps the scenario when the delete confirmation is cancelled", async () => {
+    let deleteCalls = 0;
+    server.use(
+      http.delete("/api/simulation/scenarios/7", () => {
+        deleteCalls += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    const scenario = {
+      id: 7,
+      farm_id: 1,
+      name: "Kept plan",
+      notes: "",
+      assumptions: DEFAULTS,
+      valid: true,
+      validation_error: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-02T00:00:00Z",
+    };
+    const user = userEvent.setup();
+    await renderLoaded({ scenarios: [scenario] });
+
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    // The dialog names the scenario about to be destroyed.
+    expect(
+      await screen.findByRole("heading", { name: "Delete scenario?" }),
+    ).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("Kept plan")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("heading", { name: "Delete scenario?" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Kept plan")).toBeInTheDocument();
+    expect(deleteCalls).toBe(0);
   });
 
   it("clears a deleted scenario from editor, result provenance, and comparison selection", async () => {
@@ -1541,7 +1579,6 @@ describe("SimulationPage results and scenario management", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-02T00:00:00Z",
     };
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const user = userEvent.setup();
     await renderLoaded({ scenarios: [scenario] });
     const row = screen.getByText("Disposable plan").closest("tr") as HTMLElement;
@@ -1555,6 +1592,7 @@ describe("SimulationPage results and scenario management", () => {
     ).toBeInTheDocument();
 
     await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() =>
       expect(

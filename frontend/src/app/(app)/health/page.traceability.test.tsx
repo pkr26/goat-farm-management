@@ -242,7 +242,7 @@ describe("HealthPage traceability cell and event targets", () => {
   async function openDialog() {
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     return { user, dialog: await screen.findByRole("dialog") };
   }
 
@@ -349,8 +349,8 @@ describe("HealthPage traceability cell and event targets", () => {
     expect(bucketError).toHaveAttribute("id", "event-bucket-error");
     expect(bucket).toHaveAttribute("aria-invalid", "true");
 
-    await pickOption(user, bucket, "BREEDING");
-    await waitFor(() => expect(bucket).toHaveTextContent("BREEDING"));
+    await pickOption(user, bucket, "Breeding");
+    await waitFor(() => expect(bucket).toHaveTextContent("Breeding"));
     expect(bucket).not.toHaveAttribute("aria-invalid");
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -437,7 +437,7 @@ describe("HealthPage traceability cell and event targets", () => {
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: "Bucket *" }),
-      "BREEDING",
+      "Breeding",
     );
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
@@ -461,13 +461,13 @@ describe("HealthPage traceability cell and event targets", () => {
     const view = renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
     await screen.findByText("PPR vaccine");
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: "Bucket *" }),
-      "BREEDING",
+      "Breeding",
     );
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
     expect(await within(dialog).findByText(/Reviewed target snapshot/)).toBeInTheDocument();

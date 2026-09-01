@@ -210,25 +210,25 @@ describe("SimulationPage result metric tints", () => {
     // NPV >= 0, BCR >= 1, avg DSCR >= 1.2, margin >= 0, cash >= 0 and no
     // extra working capital are all "healthy"; min DSCR of 1.15 covers the
     // debt service but leaves no 1.2x headroom, so it warns rather than passes.
-    expect(tintChip("NPV")).toHaveClass("bg-emerald-100", "text-emerald-700");
-    expect(tintChip("BCR")).toHaveClass("bg-emerald-100", "text-emerald-700");
-    expect(tintChip("Avg DSCR")).toHaveClass("bg-emerald-100", "text-emerald-700");
-    expect(tintChip("Minimum DSCR")).toHaveClass("bg-amber-100", "text-amber-700");
+    expect(tintChip("NPV")).toHaveClass("bg-success-tint", "text-success-tint-foreground");
+    expect(tintChip("BCR")).toHaveClass("bg-success-tint", "text-success-tint-foreground");
+    expect(tintChip("Avg DSCR")).toHaveClass("bg-success-tint", "text-success-tint-foreground");
+    expect(tintChip("Minimum DSCR")).toHaveClass("bg-warning-tint", "text-warning-tint-foreground");
     expect(tintChip("Operating margin")).toHaveClass(
-      "bg-emerald-100",
-      "text-emerald-700",
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
     expect(tintChip("Minimum cash (month 7)")).toHaveClass(
-      "bg-emerald-100",
-      "text-emerald-700",
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
     expect(tintChip("Additional working capital")).toHaveClass(
-      "bg-emerald-100",
-      "text-emerald-700",
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
     expect(tintChip("Fodder deficit months")).toHaveClass(
-      "bg-emerald-100",
-      "text-emerald-700",
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
     // The minimum-cash card names the month the trough happened in, and the
     // fodder land requirement carries its unit.
@@ -252,22 +252,22 @@ describe("SimulationPage result metric tints", () => {
       feed_summary: { ...FEED_SUMMARY, fodder_deficit_months: 3 },
     });
 
-    expect(tintChip("NPV")).toHaveClass("bg-red-100", "text-red-700");
-    expect(tintChip("BCR")).toHaveClass("bg-red-100", "text-red-700");
-    expect(tintChip("Avg DSCR")).toHaveClass("bg-amber-100", "text-amber-700");
-    expect(tintChip("Minimum DSCR")).toHaveClass("bg-red-100", "text-red-700");
-    expect(tintChip("Operating margin")).toHaveClass("bg-red-100", "text-red-700");
+    expect(tintChip("NPV")).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(tintChip("BCR")).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(tintChip("Avg DSCR")).toHaveClass("bg-warning-tint", "text-warning-tint-foreground");
+    expect(tintChip("Minimum DSCR")).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(tintChip("Operating margin")).toHaveClass("bg-destructive/10", "text-destructive");
     expect(tintChip("Minimum cash (month 7)")).toHaveClass(
-      "bg-red-100",
-      "text-red-700",
+      "bg-destructive/10",
+      "text-destructive",
     );
     expect(tintChip("Additional working capital")).toHaveClass(
-      "bg-red-100",
-      "text-red-700",
+      "bg-destructive/10",
+      "text-destructive",
     );
     expect(tintChip("Fodder deficit months")).toHaveClass(
-      "bg-amber-100",
-      "text-amber-700",
+      "bg-warning-tint",
+      "text-warning-tint-foreground",
     );
     expect(screen.getByText("-₹50,000")).toBeInTheDocument();
     expect(screen.getByText("0.82")).toBeInTheDocument();
@@ -281,8 +281,8 @@ describe("SimulationPage result metric tints", () => {
       metrics: { ...METRICS, avg_dscr: 1.8, min_dscr: 1.35 },
     });
 
-    expect(tintChip("Avg DSCR")).toHaveClass("bg-emerald-100", "text-emerald-700");
-    expect(tintChip("Minimum DSCR")).toHaveClass("bg-emerald-100", "text-emerald-700");
+    expect(tintChip("Avg DSCR")).toHaveClass("bg-success-tint", "text-success-tint-foreground");
+    expect(tintChip("Minimum DSCR")).toHaveClass("bg-success-tint", "text-success-tint-foreground");
     expect(screen.getByText("1.35")).toBeInTheDocument();
   });
 
@@ -292,8 +292,8 @@ describe("SimulationPage result metric tints", () => {
       metrics: { ...METRICS, avg_dscr: 0.95, min_dscr: 0.7 },
     });
 
-    expect(tintChip("Avg DSCR")).toHaveClass("bg-red-100", "text-red-700");
-    expect(tintChip("Minimum DSCR")).toHaveClass("bg-red-100", "text-red-700");
+    expect(tintChip("Avg DSCR")).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(tintChip("Minimum DSCR")).toHaveClass("bg-destructive/10", "text-destructive");
     expect(screen.getByText("0.95")).toBeInTheDocument();
     expect(screen.getByText("0.70")).toBeInTheDocument();
   });
@@ -313,9 +313,9 @@ describe("SimulationPage result metric tints", () => {
 
     for (const label of ["BCR", "Avg DSCR", "Minimum DSCR", "Operating margin"]) {
       expect(tintChip(label)).toHaveClass("bg-muted", "text-muted-foreground");
-      expect(tintChip(label)).not.toHaveClass("bg-emerald-100");
-      expect(tintChip(label)).not.toHaveClass("bg-amber-100");
-      expect(tintChip(label)).not.toHaveClass("bg-red-100");
+      expect(tintChip(label)).not.toHaveClass("bg-success-tint");
+      expect(tintChip(label)).not.toHaveClass("bg-warning-tint");
+      expect(tintChip(label)).not.toHaveClass("bg-destructive/10");
     }
     // A break-even price the engine could not compute reads as a dash, not
     // as ₹0 or an empty card.
@@ -537,28 +537,26 @@ describe("SimulationPage narrative verdict badge", () => {
   it("paints a clear pass emerald", async () => {
     const badge = await renderVerdict("VIABLE");
     expect(badge).toHaveClass(
-      "rounded-full",
-      "px-2",
-      "py-0.5",
+      "rounded-4xl",
       "text-xs",
       "font-medium",
-      "bg-emerald-100",
-      "text-emerald-700",
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
   });
 
   it("paints a qualified pass amber", async () => {
     const badge = await renderVerdict("VIABLE WITH CAUTION");
-    expect(badge).toHaveClass("bg-amber-100", "text-amber-700");
-    expect(badge).not.toHaveClass("bg-emerald-100");
-    expect(badge).not.toHaveClass("bg-red-100");
+    expect(badge).toHaveClass("bg-warning-tint", "text-warning-tint-foreground");
+    expect(badge).not.toHaveClass("bg-success-tint");
+    expect(badge).not.toHaveClass("bg-destructive/10");
   });
 
   it("paints a failure red", async () => {
     const badge = await renderVerdict("NOT VIABLE");
-    expect(badge).toHaveClass("bg-red-100", "text-red-700");
-    expect(badge).not.toHaveClass("bg-emerald-100");
-    expect(badge).not.toHaveClass("bg-amber-100");
+    expect(badge).toHaveClass("bg-destructive/10", "text-destructive");
+    expect(badge).not.toHaveClass("bg-success-tint");
+    expect(badge).not.toHaveClass("bg-warning-tint");
   });
 });
 
@@ -863,7 +861,6 @@ describe("SimulationPage per-field run gates", () => {
 
 describe("SimulationPage scenario write feedback", () => {
   it("announces a deleted scenario", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.delete("/api/simulation/scenarios/8", () =>
         new HttpResponse(null, { status: 204 }),
@@ -873,6 +870,7 @@ describe("SimulationPage scenario write feedback", () => {
 
     const row = (await screen.findByText("Plan B")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Scenario deleted."),
@@ -881,7 +879,6 @@ describe("SimulationPage scenario write feedback", () => {
   });
 
   it("reports a delete that never reached the server and keeps the row", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
       http.delete("/api/simulation/scenarios/8", () => HttpResponse.error()),
     );
@@ -889,6 +886,7 @@ describe("SimulationPage scenario write feedback", () => {
 
     const row = (await screen.findByText("Plan B")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(await screen.findByRole("button", { name: "Delete scenario" }));
 
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith("Could not delete the scenario."),

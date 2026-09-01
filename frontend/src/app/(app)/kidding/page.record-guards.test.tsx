@@ -615,7 +615,7 @@ describe("KiddingPage branches", () => {
 
   it("asks for a mortality date without pre-flagging it as invalid", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
 
     const mortality = within(dialog).getByLabelText("Kid 1 mortality date *");
     expect(mortality).not.toHaveAttribute("aria-invalid");
@@ -633,25 +633,25 @@ describe("KiddingPage branches", () => {
   it("empties a mortality date the kid no longer qualifies for", async () => {
     const { user, dialog } = await openDialog();
     const status = within(dialog).getByLabelText("Kid 1 status");
-    await pickOption(user, status, "DIED");
+    await pickOption(user, status, "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: TODAY },
     });
 
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "ALIVE");
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Alive");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
 
     expect(within(dialog).getByLabelText("Kid 1 mortality date *")).toHaveValue("");
   });
 
   it("clears a stale mortality error when the kid stops being DIED", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
     expect(await within(dialog).findByText("Mortality date is required")).toBeInTheDocument();
 
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "STILLBORN");
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Stillborn");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
 
     expect(within(dialog).queryByText("Mortality date is required")).not.toBeInTheDocument();
     expect(within(dialog).getByLabelText("Kid 1 mortality date *")).not.toHaveAttribute(

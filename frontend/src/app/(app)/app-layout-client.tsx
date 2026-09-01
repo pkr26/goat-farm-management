@@ -2,8 +2,7 @@
 
 /**
  * Authenticated app shell: left sidebar (brand + permission-filtered grouped
- * nav) and a slim topbar (farm, theme, user, logout) — parity with v1's
- * base.html.
+ * nav) and a slim sticky topbar (farm switcher, theme, account, logout).
  */
 
 import {
@@ -15,6 +14,7 @@ import {
   HeartPulse,
   IndianRupee,
   LayoutDashboard,
+  LogOut,
   Milk,
   PawPrint,
   ShoppingCart,
@@ -29,11 +29,13 @@ import { Suspense, useEffect, useRef, type ReactNode } from "react";
 
 import { Logo } from "@/components/logo";
 import { AccountDialog } from "@/components/account-dialog";
+import { PermissionsError } from "@/components/permissions-error";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -50,6 +52,7 @@ import { useAuth } from "@/lib/auth-context";
 import { firstPermittedPath } from "@/lib/permission-navigation";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
+import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string; perm: string; icon: LucideIcon };
 
@@ -115,6 +118,42 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   },
 ];
 
+/** Route → document.title suffix; keeps browser tabs identifiable. */
+const ROUTE_TITLES: [RegExp, string][] = [
+  [/^\/dashboard/, "Dashboard"],
+  [/^\/animals\/new/, "Add animal"],
+  [/^\/animals\/\d+/, "Animal"],
+  [/^\/animals/, "Animals"],
+  [/^\/buckets/, "Buckets"],
+  [/^\/breeding\/[^/]+\/ultrasound/, "Ultrasound"],
+  [/^\/breeding/, "Breeding"],
+  [/^\/kidding\/new/, "Record birth"],
+  [/^\/kidding/, "Births"],
+  [/^\/health\/new/, "Add health event"],
+  [/^\/health\/schedule/, "Vaccination schedule"],
+  [/^\/health/, "Health"],
+  [/^\/feeding\/inventory/, "Feed inventory"],
+  [/^\/feeding\/recipes/, "Feed recipes"],
+  [/^\/feeding/, "Feeding"],
+  [/^\/milk/, "Milk"],
+  [/^\/purchases/, "Purchases"],
+  [/^\/tasks/, "Tasks"],
+  [/^\/finance/, "Finance"],
+  [/^\/simulation/, "Simulation"],
+  [/^\/reports/, "Reports"],
+  [/^\/team/, "Team"],
+  [/^\/no-access/, "No access"],
+];
+
+function useDocumentTitle(pathname: string) {
+  useEffect(() => {
+    const match = ROUTE_TITLES.find(([pattern]) => pattern.test(pathname));
+    document.title = match
+      ? `${match[1]} · PashuFarm`
+      : "PashuFarm — Livestock farm management";
+  }, [pathname]);
+}
+
 /** Match a module root or one of its nested routes, without treating a
  * similarly prefixed sibling (for example `/animals-archive`) as active. */
 function isActiveRoute(pathname: string, href: string): boolean {
@@ -132,8 +171,10 @@ function AppSidebar({
   landingHref,
   landingLabel,
   permsError,
+  permsRefetch,
 }: {
   groups: { label: string; items: NavItem[] }[];
+  permsRefetch: () => void;
   pathname: string;
   landingHref: string | null;
   landingLabel: string;
@@ -150,24 +191,20 @@ function AppSidebar({
         {landingHref ? (
           <Link
             href={landingHref}
-            aria-label={`GoatFarm — go to ${landingLabel}`}
+            aria-label={`PashuFarm — go to ${landingLabel}`}
             onClick={closeOnMobile}
           >
             <Logo />
           </Link>
         ) : (
-          <div aria-label="GoatFarm">
+          <div aria-label="PashuFarm">
             <Logo />
           </div>
         )}
       </SidebarHeader>
       <SidebarContent>
         {/* A failed permissions call must not look like "no access" (7-6). */}
-        {permsError && (
-          <p className="px-4 py-2 text-sm text-destructive">
-            Could not load your permissions — refresh the page to try again.
-          </p>
-        )}
+        {permsError && <PermissionsError onRetry={() => void permsRefetch()} />}
         {groups.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
@@ -181,7 +218,7 @@ function AppSidebar({
                       tooltip={item.label}
                       onClick={closeOnMobile}
                     >
-                      <item.icon />
+                      <item.icon aria-hidden="true" />
                       <span>{item.label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -191,7 +228,50 @@ function AppSidebar({
           </SidebarGroup>
         ))}
       </SidebarContent>
+      <SidebarFooter className="px-4 pb-4">
+        <p className="text-[0.68rem] leading-relaxed text-muted-foreground/70">
+          Goat & buffalo dairy farm management
+        </p>
+      </SidebarFooter>
     </Sidebar>
+  );
+}
+
+/** Pill-style farm indicator that links to the farm picker. Reads as a
+ *  switcher (name + type + chevrons) while staying a plain, keyboard-
+ *  accessible link. */
+function FarmSwitcher({
+  farmName,
+  typeLabel,
+  href,
+}: {
+  farmName: string;
+  typeLabel: string;
+  href: string;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-label={`Switch farm — current: ${farmName}`}
+      className={cn(
+        "group/farm flex h-9 min-w-0 max-w-72 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm font-medium shadow-xs transition-colors",
+        "hover:border-primary/40 hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
+      )}
+    >
+      <span className="truncate">{farmName}</span>
+      <span className="hidden shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[0.65rem] font-semibold text-primary sm:inline">
+        {typeLabel}
+      </span>
+      <span
+        aria-hidden="true"
+        className="ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/farm:translate-y-px"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-3.5">
+          <path d="m7 15 5 5 5-5" />
+          <path d="m7 9 5-5 5 5" />
+        </svg>
+      </span>
+    </Link>
   );
 }
 
@@ -203,11 +283,12 @@ function AppLayoutContent({
   defaultOpen: boolean;
 }) {
   const { user, farms, farmId, loading, signOut } = useAuth();
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError, refetch: permsRefetch } = usePermissions();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const farmRedirectIntent = useRef<string | null>(null);
+  useDocumentTitle(pathname);
 
   useEffect(() => {
     const shouldRedirect = !loading && Boolean(user) && !farmId;
@@ -224,9 +305,12 @@ function AppLayoutContent({
   if (loading || !user || !farmId) {
     return (
       <main className="flex min-h-screen items-center justify-center">
-        <p role="status" aria-live="polite" className="text-muted-foreground">
-          Loading…
-        </p>
+        <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
+          <span className="animate-pulse">
+            <Logo />
+          </span>
+          <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+        </div>
       </main>
     );
   }
@@ -270,27 +354,32 @@ function AppLayoutContent({
         landingHref={landingHref}
         landingLabel={landingItem?.label ?? "access status"}
         permsError={permsError}
+        permsRefetch={() => void permsRefetch()}
       />
       <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-md">
           <SidebarTrigger />
           {farm && (
-            <span className="truncate text-sm font-medium">{farm.name}</span>
+            <FarmSwitcher
+              farmName={farm.name}
+              typeLabel={vocabulary.typeLabel}
+              href={farmSelectHref}
+            />
           )}
-          <Link
-            href={farmSelectHref}
-            className="text-sm text-muted-foreground hover:text-primary"
-          >
-            switch farm
-          </Link>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5">
             <ThemeToggle />
-            <span className="hidden text-sm text-muted-foreground sm:inline">
-              {user.name ?? user.email}
-            </span>
+            <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
             <AccountDialog name={user.name ?? null} email={user.email} />
-            <Button variant="outline" size="sm" onClick={() => void signOut()}>
-              Logout
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              aria-label="Logout"
+              onClick={() => void signOut()}
+            >
+              <LogOut aria-hidden="true" className="size-3.5" />
+              <span className="hidden sm:inline">Logout</span>
+              <span className="sr-only sm:hidden">Logout</span>
             </Button>
           </div>
         </header>
@@ -318,9 +407,12 @@ export function AppLayoutClient({
     <Suspense
       fallback={
         <main className="flex min-h-screen items-center justify-center">
-          <p role="status" aria-live="polite" className="text-muted-foreground">
-            Loading…
-          </p>
+          <div className="flex flex-col items-center gap-3" role="status" aria-live="polite">
+            <span className="animate-pulse">
+              <Logo />
+            </span>
+            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+          </div>
         </main>
       }
     >

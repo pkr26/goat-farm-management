@@ -3,7 +3,7 @@
 /** Farm picker (also used for "switch farm") + new-farm creation. */
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Home, Loader2 } from "lucide-react";
+import { Loader2, Milk, PawPrint } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -164,7 +164,7 @@ function FarmSelectPageContent() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-3 bg-muted/40">
         <Loader2 className="size-6 animate-spin text-primary" />
-        <p className="text-muted-foreground">Loading…</p>
+        <p role="status" aria-live="polite" className="text-muted-foreground">Loading…</p>
       </main>
     );
   }
@@ -175,7 +175,7 @@ function FarmSelectPageContent() {
         <div className="space-y-3 text-center">
           <Logo className="justify-center" />
           <div className="space-y-1">
-            <h1 className="text-2xl font-semibold">Your farms</h1>
+            <h1 className="font-heading text-2xl font-semibold tracking-tight">Your farms</h1>
             <p className="text-sm text-muted-foreground">
               Choose a farm to continue, or create a new one below.
             </p>
@@ -183,44 +183,54 @@ function FarmSelectPageContent() {
         </div>
 
         {farms.length === 0 && (
-          <p className="text-center text-muted-foreground">
+          <p className="text-center text-sm text-muted-foreground">
             No farms yet — create your first one below.
           </p>
         )}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {farms.map((farm) => (
-            <button
-              key={farm.id}
-              type="button"
-              disabled={farmTransition.pending || selectingFarmId !== null}
-              onClick={() => void pick(farm)}
-              className="rounded-xl border bg-card p-4 text-left shadow-sm transition hover:border-primary hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                    <Home className="size-4" />
-                  </span>
-                  <span className="truncate font-medium">
+        {farms.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {farms.map((farm) => {
+              const isDairy =
+                (farm as FarmEntry & { farm_type?: string }).farm_type ===
+                "BUFFALO_DAIRY";
+              return (
+                <button
+                  key={farm.id}
+                  type="button"
+                  disabled={farmTransition.pending || selectingFarmId !== null}
+                  onClick={() => void pick(farm)}
+                  className="group/farm-card relative rounded-xl bg-card p-4 text-left shadow-xs ring-1 ring-foreground/[0.07] transition hover:-translate-y-0.5 hover:shadow-md hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-success-tint text-success-tint-foreground">
+                      {isDairy ? (
+                        <Milk className="size-[18px]" aria-hidden="true" />
+                      ) : (
+                        <PawPrint className="size-[18px]" aria-hidden="true" />
+                      )}
+                    </span>
+                    {farm.id === farmId && <Badge variant="success">current</Badge>}
+                  </div>
+                  <span className="mt-3 block truncate font-medium">
                     {selectingFarmId === farm.id ? "Opening…" : farm.name}
                   </span>
-                </span>
-                <span className="flex shrink-0 items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground">
-                    {farmTypeLabel((farm as FarmEntry & { farm_type?: string }).farm_type)}
-                  </span>
-                  {farm.id === farmId && <Badge>current</Badge>}
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {farm.location ?? "—"} · {farm.role ?? "Owner"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {(farm as FarmEntry & { timezone?: string }).timezone ?? "Asia/Kolkata"}
-              </p>
-            </button>
-          ))}
-        </div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {farm.location ?? "—"} · {farm.role ?? "Owner"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground/80">
+                    <span>
+                      {farmTypeLabel((farm as FarmEntry & { farm_type?: string }).farm_type)}
+                    </span>
+                    {" · "}
+                    <span>
+                      {(farm as FarmEntry & { timezone?: string }).timezone ?? "Asia/Kolkata"}
+                    </span>
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <Card>
           <CardHeader>
@@ -241,24 +251,28 @@ function FarmSelectPageContent() {
                 <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Farm type">
                   {(
                     [
-                      ["GOAT", "Goat farm", "Osmanabadi meat herd — kidding, weaning and live-weight sales."],
+                      ["GOAT", "Goat farm", "Osmanabadi meat herd — kidding, weaning and live-weight sales.", PawPrint],
                       [
                         "BUFFALO_DAIRY",
                         "Buffalo dairy",
                         "Murrah milking herd — AI breeding, calving, milk yields and lactation finance.",
+                        Milk,
                       ],
                     ] as const
-                  ).map(([value, title, description]) => (
+                  ).map(([value, title, description, Icon]) => (
                     <label
                       key={value}
-                      className="flex cursor-pointer items-start gap-2 rounded-lg border p-3 text-left transition has-[[input:checked]]:border-primary"
+                      className="flex cursor-pointer items-start gap-3 rounded-xl border bg-card p-3.5 text-left transition hover:border-primary/40 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-ring has-[input:checked]:border-primary has-[input:checked]:bg-accent/40 has-[input:checked]:ring-1 has-[input:checked]:ring-primary/30"
                     >
-                      <input
-                        type="radio"
-                        value={value}
-                        {...register("farm_type")}
-                        className="mt-1 accent-primary"
-                      />
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground has-[input:checked]:bg-primary/10 has-[input:checked]:text-primary">
+                        <input
+                          type="radio"
+                          value={value}
+                          {...register("farm_type")}
+                          className="sr-only"
+                        />
+                        <Icon className="size-4 pointer-events-none" aria-hidden="true" />
+                      </span>
                       <span className="space-y-0.5">
                         <span className="block text-sm font-medium">{title}</span>
                         <span className="block text-xs text-muted-foreground">{description}</span>
@@ -272,6 +286,7 @@ function FarmSelectPageContent() {
                 <Input
                   id="name"
                   maxLength={120}
+                  placeholder="e.g. Navipet Osmanabadi Farm"
                   aria-invalid={Boolean(errors.name) || undefined}
                   aria-describedby={errors.name ? "farm-name-error" : undefined}
                   {...register("name")}
@@ -287,6 +302,7 @@ function FarmSelectPageContent() {
                 <Input
                   id="location"
                   maxLength={120}
+                  placeholder="Village, district or landmark"
                   aria-invalid={Boolean(errors.location) || undefined}
                   aria-describedby={errors.location ? "farm-location-error" : undefined}
                   {...register("location")}
@@ -337,7 +353,7 @@ function FarmSelectPageContent() {
                   {serverError}
                 </p>
               )}
-              <Button type="submit" disabled={isSubmitting || farmTransition.pending}>
+              <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting || farmTransition.pending}>
                 {isSubmitting ? "Creating…" : "Create farm"}
               </Button>
               </fieldset>
@@ -351,7 +367,7 @@ function FarmSelectPageContent() {
 
 export default function FarmSelectPage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <FarmSelectPageContent />
     </Suspense>
   );

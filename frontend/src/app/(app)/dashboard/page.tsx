@@ -6,13 +6,13 @@ import {
   Baby,
   CircleCheckBig,
   HandCoins,
-  Layers,
   ListChecks,
   Mars,
   MoveRight,
   PawPrint,
   Scale,
   ScanLine,
+  ShoppingCart,
   TriangleAlert,
   Venus,
 } from "lucide-react";
@@ -20,6 +20,7 @@ import Link from "next/link";
 
 import { useDashboardApiDashboardGet } from "@/api/generated/endpoints";
 import type { AnimalIdentityOut, TaskOut } from "@/api/generated/models";
+import { Donut } from "@/components/charts";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -28,6 +29,13 @@ import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -42,6 +50,7 @@ import { farmToday, formatDate } from "@/lib/format";
 import { withReturnTo } from "@/lib/permission-navigation";
 import { permittedTaskActionPath, type PermissionCheck } from "@/lib/task-action-access";
 import { usePermissions } from "@/lib/use-permissions";
+import { PermissionsError } from "@/components/permissions-error";
 
 /** v1's Animal.display_name: tag plus optional name. */
 function animalName(a: AnimalIdentityOut): string {
@@ -104,7 +113,7 @@ export default function DashboardPage() {
   const femaleParentLabel =
     vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
   const { farms, farmId } = useAuth();
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("dashboard.view");
   const canViewAnimals = can("animals.view");
   const canViewBreeding = can("breeding.view");
@@ -126,13 +135,11 @@ export default function DashboardPage() {
   // factual "No suggestions." (M-1).
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -153,7 +160,7 @@ export default function DashboardPage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const farm = farms.find((f) => f.id === farmId);
@@ -187,12 +194,85 @@ export default function DashboardPage() {
         </p>
       )}
 
+      {/* First-run: a farm with no animals is the one moment the product
+       * must teach its own workflow instead of displaying zeros. */}
+      {/* A wound-down herd (everything sold/dead) is not "new" — only an
+          all-zero status register is. */}
+      {payload.total_active === 0 &&
+        Object.values(payload.status_totals).every((total) => !total) &&
+        canViewAnimals && (
+        <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.06] via-card to-card">
+          <CardHeader>
+            <CardTitle>Welcome to your new farm</CardTitle>
+            <CardDescription>
+              Set up in three steps — everything else on this page fills in as you go.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3">
+            {[
+              {
+                step: 1,
+                title: "Add your first animals",
+                description:
+                  "Tag every goat or buffalo you own — tags are how the whole farm connects.",
+                href: "/animals/new",
+                cta: "Add animal",
+                show: can("animals.create"),
+                icon: PawPrint,
+              },
+              {
+                step: 2,
+                title: "Record a purchase batch",
+                description:
+                  "Buying animals? A batch auto-creates their 45-day quarantine plan.",
+                href: "/purchases",
+                cta: "Open purchases",
+                show: can("purchases.view"),
+                icon: ShoppingCart,
+              },
+              {
+                step: 3,
+                title: "Log today's work",
+                description:
+                  "Feeding, health events and tasks live here — check in each morning.",
+                href: "/tasks",
+                cta: "Open tasks",
+                show: can("tasks.view"),
+                icon: ListChecks,
+              },
+            ]
+              .filter((item) => item.show)
+              .map((item) => (
+                <div
+                  key={item.step}
+                  className="flex flex-col gap-2 rounded-xl border bg-card/60 p-4"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="table-numeric flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {item.step}
+                    </span>
+                    <item.icon className="size-4 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                  <p className="text-sm font-medium">{item.title}</p>
+                  <p className="text-xs text-muted-foreground">{item.description}</p>
+                  <Link
+                    href={item.href}
+                    className={buttonVariants({ variant: "outline", size: "sm", className: "mt-auto w-fit" })}
+                  >
+                    {item.cta}
+                  </Link>
+                </div>
+              ))}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard
           label="Active animals"
           value={payload.total_active}
           icon={PawPrint}
-          tint="emerald"
+          tint="success"
         />
         <StatCard label="Females" value={payload.sex_counts.F ?? 0} icon={Venus} />
         <StatCard label="Males" value={payload.sex_counts.M ?? 0} icon={Mars} />
@@ -206,28 +286,28 @@ export default function DashboardPage() {
           value={taskTotal}
           icon={ListChecks}
           tint={
-            payload.overdue_tasks_total > 0 ? "red" : taskTotal > 0 ? "amber" : "default"
+            payload.overdue_tasks_total > 0 ? "destructive" : taskTotal > 0 ? "warning" : "default"
           }
         />
       </div>
 
       {payload.overdue_tasks_total > 0 && (
         <DataTableCard
-          className="ring-red-200 dark:ring-red-900"
+          className="ring-destructive/30"
           title={
-            <span className="flex items-center gap-2">
-              <TriangleAlert className="size-4 text-red-600 dark:text-red-400" />
+            <span className="flex items-center gap-2 text-destructive">
+              <TriangleAlert className="size-4" aria-hidden="true" />
               Overdue tasks ({payload.overdue_tasks_total})
             </span>
           }
         >
           <Table>
             <TableHeader className="sr-only">
-                <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Open</th></TableRow>
+              <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Open</th></TableRow>
               </TableHeader>
               <TableBody>
-              {payload.overdue_tasks.map((t) => (
-                <TableRow key={t.id} className="bg-red-50/60 dark:bg-red-950/20">
+                {payload.overdue_tasks.map((t) => (
+                  <TableRow key={t.id} className="bg-destructive/[0.04]">
                   <TableCell>
                     {formatDate(t.due_date)}{" "}
                     <span className="text-destructive">
@@ -510,8 +590,8 @@ export default function DashboardPage() {
           {/* null = withheld (no breeding access); the banner only ever
               asserts a count the caller is allowed to see */}
           {(payload.cull_candidates_total ?? 0) > 0 && (
-            <p className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-              <TriangleAlert className="size-4 shrink-0" />
+            <p className="flex items-center gap-2 rounded-lg bg-warning-tint px-3 py-2 text-sm text-warning-tint-foreground">
+              <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
               <span>
                 {payload.cull_candidates_total} cull candidate(s) —{" "}
                 {can("breeding.view") ? (
@@ -528,51 +608,61 @@ export default function DashboardPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Herd by bucket</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {payload.buckets.map((b) => {
-            const content = (
-              <>
-              <div className="flex items-start justify-between gap-2">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 [&_svg]:size-4.5">
-                  <Layers />
-                </span>
-                <span className="text-2xl font-semibold tracking-tight">{b.count}</span>
-              </div>
-              <div>
-                <div className="text-sm font-medium">{b.name}</div>
-                <div className="text-xs text-muted-foreground">{b.code}</div>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-accent/60">
-                <div
-                  className="h-full rounded-full bg-primary"
-                  style={{ width: `${Math.round((b.count / maxBucketCount) * 100)}%` }}
-                />
-              </div>
-              </>
-            );
-            return canViewAnimals ? (
-              <Link
-                key={b.code}
-                href={`/animals?bucket=${encodeURIComponent(b.code)}&status=ACTIVE`}
-                className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 transition hover:ring-primary"
-              >
-                {content}
-              </Link>
-            ) : (
-              <div
-                key={b.code}
-                className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
-              >
-                {content}
-              </div>
-            );
-          })}
-        </div>
+        <h2 className="font-heading text-lg font-semibold">Herd by bucket</h2>
+        <Card>
+          <CardContent className="grid gap-6 lg:grid-cols-2 lg:items-center">
+            <Donut
+              slices={payload.buckets.map((b) => ({ label: b.name, value: b.count }))}
+              centerValue={payload.total_active}
+              centerLabel="active animals"
+              showLegend={false}
+            />
+            <ul className="space-y-1">
+              {payload.buckets.map((b) => {
+                const row = (
+                  <>
+                    <span className="min-w-0 flex-1 truncate text-sm">{b.name}</span>
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.65rem] font-medium text-muted-foreground">
+                      {b.code}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block"
+                    >
+                      <span
+                        className="block h-full rounded-full bg-primary"
+                        style={{
+                          width: `${Math.round((b.count / maxBucketCount) * 100)}%`,
+                        }}
+                      />
+                    </span>
+                    <span className="table-numeric w-8 shrink-0 text-right text-sm font-semibold">
+                      {b.count}
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={b.code}>
+                    {canViewAnimals ? (
+                      <Link
+                        href={`/animals?bucket=${encodeURIComponent(b.code)}&status=ACTIVE`}
+                        className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-muted/60"
+                      >
+                        {row}
+                      </Link>
+                    ) : (
+                      <div className="flex items-center gap-3 px-2 py-1.5">{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Recent weight records</h2>
+        <h2 className="font-heading text-lg font-semibold">Recent weight records</h2>
         {/* null = withheld (no animals.view); a real 0 renders as a genuine
             empty state, not this permission notice */}
         {payload.recent_weights_total === null ? (

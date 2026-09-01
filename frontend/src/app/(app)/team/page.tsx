@@ -59,6 +59,7 @@ import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 /** Sentinel for "no role" (empty string is not a valid item value). */
 const NONE = "none";
@@ -919,7 +920,7 @@ function RoleDialog({
                             </span>
                           )}
                           {missingDependency && (
-                            <span className="block text-xs text-amber-700 dark:text-amber-300">
+                            <span className="block text-xs text-warning-tint-foreground">
                               Requires {team.permission_labels[dependency] ?? dependency}.
                             </span>
                           )}
@@ -1029,14 +1030,7 @@ function RoleCard({
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
         <div>
           <span className="font-medium">{role.name}</span>{" "}
-          {role.code && (
-            <Badge
-              variant="outline"
-              className="border-transparent bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-            >
-              preset
-            </Badge>
-          )}
+          {role.code && <Badge variant="warning">Preset</Badge>}
           <div className="text-sm text-muted-foreground">{role.description ?? "—"}</div>
           <div className="text-xs text-muted-foreground">
             {memberCount} member{memberCount === 1 ? "" : "s"}
@@ -1137,7 +1131,7 @@ function RoleCard({
 
 export default function TeamPage() {
   const { user } = useAuth();
-  const { can, isOwner, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, isOwner, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("team.manage");
   const queryClient = useQueryClient();
 
@@ -1166,13 +1160,11 @@ export default function TeamPage() {
   };
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -1191,7 +1183,7 @@ export default function TeamPage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const assignableRoles = payload.roles.filter(
@@ -1309,6 +1301,7 @@ export default function TeamPage() {
         description="A role bundles the pages and actions a worker can use."
         actions={
           <Button
+            variant="outline"
             disabled={authority.blocked}
             onClick={() => {
               if (authority.canStart()) setRoleDialog({ role: null });

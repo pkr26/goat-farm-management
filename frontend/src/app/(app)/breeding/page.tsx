@@ -4,7 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { HeartHandshake, Plus } from "lucide-react";
+import { CircleCheckBig, Clock, HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
@@ -60,12 +60,14 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, farmScopeEpochValue } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
@@ -96,15 +98,10 @@ function errorText(err: unknown): string {
   return err instanceof ApiError ? err.detail : "Something went wrong";
 }
 
-/** v1's tag-{outcome} styles as a tinted StatusBadge. */
-const OUTCOME_TINTS: Record<string, string> = {
-  CONFIRMED_PREGNANT:
-    "border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-  FAILED:
-    "border-transparent bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
-  ABORTED:
-    "border-transparent bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-};
+/** Display-case a vocabulary noun for label positions ("doe" → "Doe"). */
+function cap(noun: string): string {
+  return noun.charAt(0).toUpperCase() + noun.slice(1);
+}
 
 /** value → label map for the root `items` prop: without it, Base UI's
  * Select.Value renders the raw enum value in the closed trigger. */
@@ -113,11 +110,10 @@ const LOSS_CAUSE_ITEMS: Record<string, string> = Object.fromEntries(
 );
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
-  return (
-    <StatusBadge status={outcome} className={OUTCOME_TINTS[outcome]}>
-      {outcome.replace(/_/g, " ")}
-    </StatusBadge>
-  );
+  // The shared chip system already maps breeding outcomes to semantic tones
+  // (CONFIRMED_PREGNANT/PREGNANT → success, FAILED → destructive, the rest
+  // neutral) and humanises the code — no local tint table belongs here.
+  return <StatusBadge status={outcome} />;
 }
 
 const breedingSchema = z
@@ -170,6 +166,8 @@ function NewBreedingDialog({
   const createMutation = useCreateBreedingApiBreedingPost();
   const createFlight = useSingleFlight();
   const vocabulary = farmVocabulary(useFarmType());
+  const femaleLabel = cap(vocabulary.femaleAdult);
+  const maleLabel = cap(vocabulary.maleAdult);
   const [formError, setFormError] = useState<string | null>(null);
   // RemotePicker resolves a selected label from its loaded page, then this
   // prop, then its own state — and that state dies with the picker when the
@@ -279,7 +277,7 @@ function NewBreedingDialog({
               </p>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="breeding-doe">Doe *</Label>
+              <Label htmlFor="breeding-doe">{femaleLabel} *</Label>
               <Controller
                 control={control}
                 name="doe_id"
@@ -291,8 +289,8 @@ function NewBreedingDialog({
                     onValueChange={field.onChange}
                     onOptionChange={setDoeOption}
                     selectedOption={doeOption?.value === field.value ? doeOption : null}
-                    placeholder="Select doe"
-                    dialogTitle="Choose a breeding-ready doe"
+                    placeholder={`Select ${vocabulary.femaleAdult}`}
+                    dialogTitle={`Choose a breeding-ready ${vocabulary.femaleAdult}`}
                     aria-invalid={Boolean(errors.doe_id) || undefined}
                     aria-describedby={errors.doe_id ? "breeding-doe-error" : undefined}
                   />
@@ -311,14 +309,14 @@ function NewBreedingDialog({
               >
                 {(
                   [
-                    ["NATURAL", "Natural", `Herd ${vocabulary.maleAdult}`],
-                    ["AI", "AI", "Conventional semen"],
-                    ["AI_SEXED", "AI (sexed)", "~90% female calves"],
+                    ["NATURAL", enumLabel("method", "NATURAL"), `Herd ${vocabulary.maleAdult}`],
+                    ["AI", enumLabel("method", "AI"), "Conventional semen"],
+                    ["AI_SEXED", enumLabel("method", "AI_SEXED"), "~90% female calves"],
                   ] as const
                 ).map(([value, title, hint]) => (
                   <label
                     key={value}
-                    className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-left transition has-[[input:checked]]:border-primary"
+                    className="flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 text-left transition has-[input:checked]:border-primary"
                   >
                     <input
                       type="radio"
@@ -336,7 +334,7 @@ function NewBreedingDialog({
             </div>
             {method === "NATURAL" ? (
               <div className="space-y-1.5">
-                <Label htmlFor="breeding-buck">Buck *</Label>
+                <Label htmlFor="breeding-buck">{maleLabel} *</Label>
                 <Controller
                   control={control}
                   name="buck_id"
@@ -348,8 +346,8 @@ function NewBreedingDialog({
                       onValueChange={field.onChange}
                       onOptionChange={setBuckOption}
                       selectedOption={buckOption?.value === field.value ? buckOption : null}
-                      placeholder="Select buck"
-                      dialogTitle="Choose an active buck"
+                      placeholder={`Select ${vocabulary.maleAdult}`}
+                      dialogTitle={`Choose an active ${vocabulary.maleAdult}`}
                       disabled={!hasEligibleBuck}
                       aria-invalid={Boolean(errors.buck_id) || undefined}
                       aria-describedby={errors.buck_id ? "breeding-buck-error" : undefined}
@@ -361,8 +359,8 @@ function NewBreedingDialog({
                 )}
                 {!hasEligibleBuck && (
                   <p className="text-sm text-destructive">
-                    No eligible bucks are available. Bucks on hold, in quarantine, or otherwise
-                    restricted cannot be selected.
+                    No eligible {vocabulary.maleAdult}s are available. {maleLabel}s on hold, in
+                    quarantine, or otherwise restricted cannot be selected.
                   </p>
                 )}
               </div>
@@ -431,6 +429,7 @@ function UltrasoundDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const vocabulary = farmVocabulary(useFarmType());
   // A diagnostic outcome is never pre-filled: pre-checking "pregnant" lets an
   // operator who trusts the form save a negative scan as a confirmed pregnancy,
   // which moves the doe to PREGNANCY_EARLY and spawns pre-kidding follow-up
@@ -470,7 +469,7 @@ function UltrasoundDialog({
           ? `A not-pregnant result ${negativeResultGapDays} days after service is not observable — record it on the service day or the day after, or from day ${EARLIEST_RETURN_TO_HEAT_DAYS} (return to heat).`
           : null;
   const kidCountError = pregnant && !["1", "2", "3"].includes(kidCount)
-    ? "Select the detected kid count"
+    ? `Select the detected ${vocabulary.young} count`
     : null;
 
   async function onSubmit() {
@@ -508,7 +507,7 @@ function UltrasoundDialog({
         <DialogHeader>
           <DialogTitle>Ultrasound result</DialogTitle>
           <DialogDescription>
-            Doe {record.doe_tag ?? `#${record.doe_id}`} · bred{" "}
+            {cap(vocabulary.femaleAdult)} {record.doe_tag ?? `#${record.doe_id}`} · bred{" "}
             {formatDate(record.breeding_date)} by{" "}
             {record.buck_tag ?? `#${record.buck_id}`}
             {record.ultrasound_date
@@ -549,8 +548,8 @@ function UltrasoundDialog({
               Planned check: {formatDate(record.ultrasound_date)}. A pregnant result needs that
               scan. A not-pregnant one is recordable on the service day or the day after (the
               service was watched and failed), or from day {EARLIEST_RETURN_TO_HEAT_DAYS} onwards
-              (doe back in heat) — not in the gap between, where neither is observable. Use the
-              actual historical date for backdated entry.
+              ({vocabulary.femaleAdult} back in heat) — not in the gap between, where neither is
+              observable. Use the actual historical date for backdated entry.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -572,7 +571,9 @@ function UltrasoundDialog({
           </div>
           {pregnant && (
             <div className="space-y-1.5">
-              <Label htmlFor={`ultrasound-kid-count-${record.id}`}>Kid count detected</Label>
+              <Label htmlFor={`ultrasound-kid-count-${record.id}`}>
+                {cap(vocabulary.young)} count detected
+              </Label>
               <Select
                 value={kidCount}
                 disabled={saving}
@@ -624,6 +625,7 @@ function PregnancyLossDialog({
 }) {
   const mutation = useAbortPregnancyApiBreedingRecordIdAbortPost();
   const saveFlight = useSingleFlight();
+  const vocabulary = farmVocabulary(useFarmType());
   const earliestLossDate =
     record.ultrasound_result_date && record.ultrasound_result_date > record.breeding_date
       ? record.ultrasound_result_date
@@ -675,8 +677,9 @@ function PregnancyLossDialog({
         <DialogHeader>
           <DialogTitle>Record pregnancy loss</DialogTitle>
           <DialogDescription>
-            Doe {record.doe_tag ?? `#${record.doe_id}`} · bred {formatDate(record.breeding_date)}.
-            This closes the pregnancy and retains an auditable reason.
+            {cap(vocabulary.femaleAdult)} {record.doe_tag ?? `#${record.doe_id}`} · bred{" "}
+            {formatDate(record.breeding_date)}. This closes the pregnancy and retains an auditable
+            reason.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} noValidate>
@@ -768,7 +771,10 @@ function PregnancyLossDialog({
 
 function BreedingPageContent() {
   const queryClient = useQueryClient();
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const vocabulary = farmVocabulary(useFarmType());
+  const femaleLabel = cap(vocabulary.femaleAdult);
+  const maleLabel = cap(vocabulary.maleAdult);
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("breeding.view");
   const canManage = can("breeding.manage");
   const canViewAnimals = can("animals.view");
@@ -861,13 +867,11 @@ function BreedingPageContent() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -888,7 +892,7 @@ function BreedingPageContent() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   return (
@@ -946,23 +950,30 @@ function BreedingPageContent() {
         <EmptyState
           icon={HeartHandshake}
           title="No breeding records yet."
-          description="Add a breeding to start tracking ultrasound checks and expected kidding dates."
-        />
+          description={`Add a breeding to start tracking ultrasound checks and expected ${vocabulary.parturition} dates.`}
+        >
+          {canManage && (
+            <Button size="sm" onClick={() => setNewOpen(true)}>
+              <Plus />
+              Add breeding
+            </Button>
+          )}
+        </EmptyState>
       ) : (
         <DataTableCard
           title="Breeding records"
-          description="Ultrasound is due 32 days after breeding; confirmed pregnancies get an expected kidding date."
+          description={`Ultrasound is due 32 days after breeding; confirmed pregnancies get an expected ${vocabulary.parturition} date.`}
         >
           <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Bred</TableHead>
-                <TableHead>Doe</TableHead>
-                <TableHead>Buck</TableHead>
+                <TableHead>{femaleLabel}</TableHead>
+                <TableHead>{maleLabel}</TableHead>
                 <TableHead>Cycle</TableHead>
                 <TableHead>Ultrasound</TableHead>
-                <TableHead>Kids</TableHead>
-                <TableHead>Expected kidding</TableHead>
+                <TableHead>{cap(vocabulary.youngPlural)}</TableHead>
+                <TableHead>Expected {vocabulary.parturition}</TableHead>
                 <TableHead>Outcome</TableHead>
                 {canManage && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
@@ -974,27 +985,31 @@ function BreedingPageContent() {
                   <TableCell>
                     {canViewAnimals ? (
                       <Link href={`/animals/${r.doe_id}`} className="text-primary underline">
-                        {r.doe_tag ?? `Doe #${r.doe_id}`}
+                        {r.doe_tag ?? `${femaleLabel} #${r.doe_id}`}
                       </Link>
                     ) : (
-                      r.doe_tag ?? `Doe #${r.doe_id}`
+                      r.doe_tag ?? `${femaleLabel} #${r.doe_id}`
                     )}
                   </TableCell>
                   <TableCell>
                     {canViewAnimals ? (
                       <Link href={`/animals/${r.buck_id}`} className="text-primary underline">
-                        {r.buck_tag ?? `Buck #${r.buck_id}`}
+                        {r.buck_tag ?? `${maleLabel} #${r.buck_id}`}
                       </Link>
                     ) : (
-                      r.buck_tag ?? `Buck #${r.buck_id}`
+                      r.buck_tag ?? `${maleLabel} #${r.buck_id}`
                     )}
                   </TableCell>
                   <TableCell>{r.heat_cycle_number}</TableCell>
                   <TableCell>
                     {r.ultrasound_done ? (
-                      <span className="text-emerald-700 dark:text-emerald-400">done</span>
+                      <span className="inline-flex items-center gap-1 text-success">
+                        <CircleCheckBig aria-hidden="true" className="size-3.5" />
+                        done
+                      </span>
                     ) : r.ultrasound_date ? (
-                      <span className="text-amber-700 dark:text-amber-400">
+                      <span className="inline-flex items-center gap-1 text-warning-tint-foreground">
+                        <Clock aria-hidden="true" className="size-3.5" />
                         due {formatDate(r.ultrasound_date)}
                       </span>
                     ) : (
@@ -1050,7 +1065,9 @@ function BreedingPageContent() {
                         </Button>
                       )}
                       {r.has_kidding && (
-                        <span className="text-muted-foreground">Kidded</span>
+                        <span className="text-muted-foreground">
+                          {cap(vocabulary.parturitionPast)}
+                        </span>
                       )}
                       </div>
                     </TableCell>
@@ -1116,7 +1133,7 @@ function BreedingPageContent() {
 
 export default function BreedingPage() {
   return (
-    <Suspense fallback={<p className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
       <BreedingPageContent />
     </Suspense>
   );

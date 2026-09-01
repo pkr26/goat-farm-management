@@ -81,6 +81,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -119,6 +120,7 @@ import { ApiError } from "@/lib/api-client";
 import { formatFarmDateTime, formatLitres, formatMoney } from "@/lib/format";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 const DEFAULT_BREED = "osmanabadi";
 const DEFAULT_SYSTEM = BreedDefaultsApiSimulationDefaultsGetSystem.stall_fed;
@@ -683,7 +685,7 @@ function MetricCard({
   value: string;
   label: string;
   icon: LucideIcon;
-  tint?: "default" | "emerald" | "amber" | "red";
+  tint?: "default" | "success" | "warning" | "destructive";
   onInfo?: () => void;
 }) {
   return (
@@ -1053,7 +1055,7 @@ function sectionEntries(assumptions: SimulationAssumptions): [string, SectionVal
 }
 
 export default function SimulationPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("simulation.view");
   const canManage = can("simulation.manage");
   const canCalibrate = [
@@ -1256,6 +1258,9 @@ export default function SimulationPage() {
   const createMutation = useCreateScenarioApiSimulationScenariosPost();
   const updateMutation = useUpdateScenarioApiSimulationScenariosScenarioIdPatch();
   const deleteMutation = useDeleteScenarioApiSimulationScenariosScenarioIdDelete();
+  // Pending-delete confirmation replaces window.confirm: the native dialog
+  // bypasses the app's dialog language, focus management and theming.
+  const [pendingDelete, setPendingDelete] = useState<ScenarioRow | null>(null);
 
   function invalidateScenarios() {
     queryClient.invalidateQueries({
@@ -1862,10 +1867,13 @@ export default function SimulationPage() {
 
   async function onDeleteScenario(scenario: ScenarioRow) {
     await simulationAction.run(async () => {
-      if (!window.confirm(`Delete scenario "${scenario.name}"?`)) return;
+      setPendingDelete(null);
       try {
         await deleteMutation.mutateAsync({ scenarioId: scenario.id });
         toast.success("Scenario deleted.");
+        // The deleted row owned focus; the section heading is the nearest
+        // sensible home once it unmounts.
+        document.getElementById("sim-scenarios")?.focus({ preventScroll: true });
         // Read current state at completion: the operator may have loaded this
         // row while the DELETE was in flight. Never leave the editor/result
         // bound to a scenario that no longer exists, while preserving a
@@ -2235,7 +2243,7 @@ export default function SimulationPage() {
             value={formatMoney(m.npv)}
             label="NPV"
             icon={IndianRupee}
-            tint={m.npv >= 0 ? "emerald" : "red"}
+            tint={m.npv >= 0 ? "success" : "destructive"}
             onInfo={infoFor("npv")}
           />
           <MetricCard
@@ -2254,7 +2262,7 @@ export default function SimulationPage() {
             value={formatRatio(m.bcr)}
             label="BCR"
             icon={Scale}
-            tint={m.bcr === null ? "default" : m.bcr >= 1 ? "emerald" : "red"}
+            tint={m.bcr === null ? "default" : m.bcr >= 1 ? "success" : "destructive"}
             onInfo={infoFor("bcr")}
           />
           <MetricCard
@@ -2265,10 +2273,10 @@ export default function SimulationPage() {
               m.avg_dscr === null
                 ? "default"
                 : m.avg_dscr >= 1.2
-                  ? "emerald"
+                  ? "success"
                   : m.avg_dscr >= 1
-                    ? "amber"
-                    : "red"
+                    ? "warning"
+                    : "destructive"
             }
             onInfo={infoFor("avg_dscr")}
           />
@@ -2280,10 +2288,10 @@ export default function SimulationPage() {
               m.min_dscr === null
                 ? "default"
                 : m.min_dscr >= 1.2
-                  ? "emerald"
+                  ? "success"
                   : m.min_dscr >= 1
-                    ? "amber"
-                    : "red"
+                    ? "warning"
+                    : "destructive"
             }
             onInfo={infoFor("min_dscr")}
           />
@@ -2295,8 +2303,8 @@ export default function SimulationPage() {
               m.operating_margin === null
                 ? "default"
                 : m.operating_margin >= 0
-                  ? "emerald"
-                  : "red"
+                  ? "success"
+                  : "destructive"
             }
             onInfo={infoFor("operating_margin")}
           />
@@ -2304,7 +2312,7 @@ export default function SimulationPage() {
             value={m.payback_month === null ? "—" : String(m.payback_month)}
             label="Payback month"
             icon={CalendarClock}
-            tint="amber"
+            tint="warning"
             onInfo={infoFor("payback_month")}
           />
           <MetricCard
@@ -2315,7 +2323,7 @@ export default function SimulationPage() {
             }
             label="Break-even meat (₹/kg)"
             icon={Beef}
-            tint="amber"
+            tint="warning"
             onInfo={infoFor("break_even_meat_price_per_kg")}
           />
           <MetricCard
@@ -2334,7 +2342,7 @@ export default function SimulationPage() {
             value={formatMoney(m.subsidy_amount)}
             label="Subsidy"
             icon={HandCoins}
-            tint="emerald"
+            tint="success"
             onInfo={infoFor("subsidy_amount")}
           />
           <MetricCard
@@ -2359,14 +2367,14 @@ export default function SimulationPage() {
             value={formatMoney(m.minimum_cash_balance)}
             label={`Minimum cash (month ${m.minimum_cash_month})`}
             icon={Wallet}
-            tint={m.minimum_cash_balance < 0 ? "red" : "emerald"}
+            tint={m.minimum_cash_balance < 0 ? "destructive" : "success"}
             onInfo={infoFor("minimum_cash_balance")}
           />
           <MetricCard
             value={formatMoney(m.additional_working_capital_required)}
             label="Additional working capital"
             icon={HandCoins}
-            tint={m.additional_working_capital_required > 0 ? "red" : "emerald"}
+            tint={m.additional_working_capital_required > 0 ? "destructive" : "success"}
             onInfo={infoFor("additional_working_capital_required")}
           />
           <MetricCard
@@ -2378,7 +2386,7 @@ export default function SimulationPage() {
             value={String(r.feed_summary.fodder_deficit_months)}
             label="Fodder deficit months"
             icon={Wheat}
-            tint={r.feed_summary.fodder_deficit_months > 0 ? "amber" : "emerald"}
+            tint={r.feed_summary.fodder_deficit_months > 0 ? "warning" : "success"}
           />
         </div>
 
@@ -2399,17 +2407,17 @@ export default function SimulationPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-medium">{section.title}</h3>
                       {verdict && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        <Badge
+                          variant={
                             verdict === "VIABLE"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                              ? "success"
                               : verdict === "VIABLE WITH CAUTION"
-                                ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                                : "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
-                          }`}
+                                ? "warning"
+                                : "destructive"
+                          }
                         >
                           {verdict}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                     {section.paragraphs.map((paragraph, i) => (
@@ -2427,7 +2435,7 @@ export default function SimulationPage() {
         {capacityShortfall > 0 && (
           <div
             role="alert"
-            className="flex gap-3 border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+            className="flex gap-3 border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
           >
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <p>
@@ -2584,7 +2592,7 @@ export default function SimulationPage() {
                     key={row.month}
                     className={
                       row.events && row.events.length > 0
-                        ? "bg-amber-50 dark:bg-amber-950/40"
+                        ? "bg-warning-tint/50"
                         : undefined
                     }
                   >
@@ -2670,7 +2678,7 @@ export default function SimulationPage() {
                   value={formatMoney(r.monte_carlo.npv_mean)}
                   label="NPV mean"
                   icon={IndianRupee}
-                  tint={r.monte_carlo.npv_mean >= 0 ? "emerald" : "red"}
+                  tint={r.monte_carlo.npv_mean >= 0 ? "success" : "destructive"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.npv_std)}
@@ -2696,33 +2704,33 @@ export default function SimulationPage() {
                   value={`${(r.monte_carlo.prob_npv_negative * 100).toFixed(1)}%`}
                   label="P(NPV < 0)"
                   icon={TriangleAlert}
-                  tint={r.monte_carlo.prob_npv_negative > 0 ? "red" : "emerald"}
+                  tint={r.monte_carlo.prob_npv_negative > 0 ? "destructive" : "success"}
                 />
                 <MetricCard
                   value={formatPercent(r.monte_carlo.prob_liquidity_shortfall)}
                   label="P(cash shortfall)"
                   icon={Wallet}
                   tint={
-                    r.monte_carlo.prob_liquidity_shortfall > 0 ? "red" : "emerald"
+                    r.monte_carlo.prob_liquidity_shortfall > 0 ? "destructive" : "success"
                   }
                 />
                 <MetricCard
                   value={formatPercent(r.monte_carlo.prob_dscr_below_one)}
                   label="P(DSCR < 1)"
                   icon={ShieldAlert}
-                  tint={r.monte_carlo.prob_dscr_below_one > 0 ? "red" : "emerald"}
+                  tint={r.monte_carlo.prob_dscr_below_one > 0 ? "destructive" : "success"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.minimum_cash_p5)}
                   label="Minimum cash P5"
                   icon={Wallet}
-                  tint={r.monte_carlo.minimum_cash_p5 < 0 ? "red" : "emerald"}
+                  tint={r.monte_carlo.minimum_cash_p5 < 0 ? "destructive" : "success"}
                 />
                 <MetricCard
                   value={formatMoney(r.monte_carlo.minimum_cash_p50)}
                   label="Minimum cash P50"
                   icon={Wallet}
-                  tint={r.monte_carlo.minimum_cash_p50 < 0 ? "red" : "emerald"}
+                  tint={r.monte_carlo.minimum_cash_p50 < 0 ? "destructive" : "success"}
                 />
               </div>
               <MonteCarloHistogram
@@ -2817,18 +2825,17 @@ export default function SimulationPage() {
             )}
           </DialogContent>
         </Dialog>
+
       </div>
     );
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -2852,6 +2859,8 @@ export default function SimulationPage() {
               }
             >
               <GitCompareArrows />
+
+
               {compareQuery.isFetching ? "Comparing…" : "Compare selected"}
             </Button>
             {canManage && (
@@ -2896,7 +2905,49 @@ export default function SimulationPage() {
         }
       />
 
-      <Card>
+      {/* Sticky in-page navigator — the simulation is one long scroll;
+          this keeps every section one click away. */}
+      <nav
+        aria-label="Simulation sections"
+        className="sticky top-14 z-20 -mx-4 border-b bg-background/90 px-4 py-2 backdrop-blur-md md:-mx-6 md:px-6"
+      >
+        <ul className="flex gap-1 overflow-x-auto text-sm">
+          {([
+            ["sim-setup", "Setup"],
+            calibration ? (["sim-calibration", "Calibration"]) : null,
+            ["sim-assumptions", "Assumptions"],
+            ["sim-events", "Herd events"],
+            ["sim-sale-planner", "Sale planner"],
+            isDairyScenario ? (["sim-milk-planner", "Milk planner"]) : null,
+            result ? (["sim-results", "Results"]) : null,
+            ["sim-scenarios", "Scenarios"],
+          ].filter(Boolean) as [string, string][]).map(([href, label]) => (
+            <li key={href}>
+              <a
+                href={`#${href}`}
+                // The App Router suppresses the browser's native fragment
+                // scroll, so drive it explicitly; scroll-mt-28 on each
+                // target clears the sticky topbar and this nav.
+                onClick={(event) => {
+                  event.preventDefault();
+                  const target = document.getElementById(href);
+                  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  // Fragment navigation also moves focus; do the same since
+                  // the default scroll was suppressed.
+                  target?.focus({ preventScroll: true });
+                  window.history.replaceState(null, "", `#${href}`);
+                }}
+                className="inline-flex rounded-md px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+
+      <Card id="sim-setup" tabIndex={-1} className="scroll-mt-28 focus:outline-none">
         <CardHeader>
           <CardTitle>Setup</CardTitle>
           <CardDescription>
@@ -3035,6 +3086,9 @@ export default function SimulationPage() {
       {calibration && (
         <DataTableCard
           title="Farm calibration evidence"
+          id="sim-calibration"
+          tabIndex={-1}
+          className="scroll-mt-28 focus:outline-none"
           description={`Records through ${calibration.reference_date}, using a ${calibration.lookback_months}-month lookback.`}
           actions={
             <span className="text-sm font-medium tabular-nums">
@@ -3046,7 +3100,7 @@ export default function SimulationPage() {
           {calibration.warnings.length > 0 && (
             <div
               role="status"
-              className="flex gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              className="flex gap-2 rounded-lg border border-warning/40 bg-warning-tint/60 px-3 py-2 text-sm text-warning-tint-foreground"
             >
               <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <div className="space-y-1">
@@ -3102,7 +3156,7 @@ export default function SimulationPage() {
       )}
 
       <fieldset disabled={defaultsQuery.isFetching} className="contents">
-      <Card>
+      <Card id="sim-assumptions" tabIndex={-1} className="scroll-mt-28 focus:outline-none">
         <CardHeader>
           <CardTitle>Assumptions</CardTitle>
           <CardDescription>
@@ -3168,6 +3222,9 @@ export default function SimulationPage() {
 
       <DataTableCard
         title="Herd events"
+        id="sim-events"
+        tabIndex={-1}
+        className="scroll-mt-28 focus:outline-none"
         description="Purchases or sales that fire at a given simulation month."
         actions={
           <div className="flex items-center gap-2">
@@ -3446,6 +3503,9 @@ export default function SimulationPage() {
 
       <DataTableCard
         title="Sale planner"
+        id="sim-sale-planner"
+        tabIndex={-1}
+        className="scroll-mt-28 focus:outline-none"
         description="State what must be sold and when; the simulator checks whether the projected herd can supply it, and recommends the purchases that close the gap. The planner owns sale events: existing ones are excluded from the check and replaced when you apply a plan."
         actions={
           <div className="flex items-center gap-2">
@@ -3663,6 +3723,9 @@ export default function SimulationPage() {
       {isDairyScenario && (
         <DataTableCard
           title="Milk planner"
+          id="sim-milk-planner"
+          tabIndex={-1}
+          className="scroll-mt-28 focus:outline-none"
           description="State the litres per day the dairy must ship (a procurement contract or bulk buyer). The planner designs the herd that delivers it: how many animals at which lactation stages, the calving/AI calendar that keeps the tank flat, and the in-milk purchases that build it — biology included, since yield follows the lactation curve and dries off before the next calving."
           actions={
             <Button
@@ -3812,7 +3875,7 @@ export default function SimulationPage() {
                         <TableCell>{formatHead(row.freshenings)}</TableCell>
                         <TableCell>{formatHead(row.ai_services)}</TableCell>
                         <TableCell
-                          className={row.meets_target ? "" : "text-amber-600 dark:text-amber-400"}
+                          className={row.meets_target ? "" : "text-warning-tint-foreground"}
                         >
                           {formatLitres(row.projected_daily_litres)}
                         </TableCell>
@@ -3887,7 +3950,7 @@ export default function SimulationPage() {
 
       {result && (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold">Results</h2>
+          <h2 id="sim-results" tabIndex={-1} className="scroll-mt-28 font-heading text-lg font-semibold focus:outline-none">Results</h2>
           <p className="text-sm text-muted-foreground">Source: {result.source}</p>
           <p className="text-xs text-muted-foreground">
             Model {result.data.model_version} · assumptions fingerprint{" "}
@@ -3898,7 +3961,7 @@ export default function SimulationPage() {
           {resultIsStale && (
             <p
               role="status"
-              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              className="rounded-lg border border-warning/40 bg-warning-tint/60 px-3 py-2 text-sm text-warning-tint-foreground"
             >
               These results do not match the current{" "}
               {result.scenarioId === null ? "editor assumptions" : "saved scenario"} or run
@@ -3911,6 +3974,9 @@ export default function SimulationPage() {
 
       <DataTableCard
         title="Scenarios"
+        id="sim-scenarios"
+        tabIndex={-1}
+        className="scroll-mt-28 focus:outline-none"
         description={`Saved assumption sets to load, run, update or compare. Select 2–${MAX_COMPARE_SCENARIOS} valid scenarios (${selectedUsableIds.length} selected).`}
         contentClassName="space-y-4"
       >
@@ -4019,7 +4085,7 @@ export default function SimulationPage() {
                             variant="destructive"
                             size="sm"
                             disabled={simulationAction.pending}
-                            onClick={() => void onDeleteScenario(scenario)}
+                            onClick={() => setPendingDelete(scenario)}
                           >
                             Delete
                           </Button>
@@ -4126,6 +4192,51 @@ export default function SimulationPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+          open={pendingDelete !== null}
+          onOpenChange={(next) => {
+            if (!next) setPendingDelete(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete scenario?</DialogTitle>
+              <DialogDescription>
+                {pendingDelete !== null && (
+                  <>
+                    This permanently deletes{" "}
+                    <span className="font-medium text-foreground">
+                      {pendingDelete.name}
+                    </span>{" "}
+                    and its saved assumptions. Results already on screen stay
+                    until the next run.
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={simulationAction.pending}
+                onClick={() => setPendingDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={simulationAction.pending}
+                onClick={() => {
+                  if (pendingDelete) void onDeleteScenario(pendingDelete);
+                }}
+              >
+                {simulationAction.pending ? "Deleting…" : "Delete scenario"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </div>
   );
 }
@@ -4133,8 +4244,14 @@ export default function SimulationPage() {
 /** NPV histogram: flex bars, height proportional to the max bin count. */
 function MonteCarloHistogram({ counts, edges }: { counts: number[]; edges: number[] }) {
   const max = Math.max(...counts, 1);
+  const totalRuns = counts.reduce((sum, count) => sum + count, 0);
+  const peakBin = counts.indexOf(max);
   return (
-    <div className="flex h-24 items-end gap-px" aria-label="NPV histogram">
+    <div
+      className="flex h-24 items-end gap-px"
+      role="img"
+      aria-label={`NPV histogram: ${totalRuns} runs across ${counts.length} bins, most frequent ${formatMoney(edges[peakBin])} – ${formatMoney(edges[peakBin + 1])} with ${max} runs`}
+    >
       {counts.map((count, i) => (
         <div
           key={i}
@@ -4208,6 +4325,7 @@ function RiskBandTable({
           </TableBody>
         </Table>
       </div>
+
     </div>
   );
 }
@@ -4264,7 +4382,7 @@ function OptimizationResults({
       {result.recommended === null && (
         <div
           role="alert"
-          className="flex gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+          className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
         >
           <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           No evaluated candidate satisfies every financing and capacity constraint. The
@@ -4296,7 +4414,7 @@ function OptimizationResults({
               <TableRow key={`${label}:${optimizationCandidateIdentity(candidate)}`}>
                 <TableCell className="font-medium">{label}</TableCell>
                 <TableCell
-                  className={candidate.feasible ? "text-emerald-700" : "text-destructive"}
+                  className={candidate.feasible ? "text-success" : "text-destructive"}
                 >
                   {candidate.feasible ? "Feasible" : "Infeasible"}
                 </TableCell>

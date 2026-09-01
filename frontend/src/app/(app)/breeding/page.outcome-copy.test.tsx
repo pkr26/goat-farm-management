@@ -205,23 +205,18 @@ describe("BreedingPage copy and write bookkeeping", () => {
   it("tints every outcome badge with the colour of that outcome", async () => {
     await renderLoaded();
 
-    expect(screen.getByText("CONFIRMED PREGNANT")).toHaveClass(
-      "bg-emerald-100",
-      "text-emerald-800",
-      "dark:bg-emerald-950",
-      "dark:text-emerald-300",
+    // The shared StatusBadge chip resolves tones from the semantic tokens.
+    expect(screen.getByText("Confirmed Pregnant")).toHaveClass(
+      "bg-success-tint",
+      "text-success-tint-foreground",
     );
-    expect(screen.getByText("FAILED")).toHaveClass(
-      "bg-red-100",
-      "text-red-800",
-      "dark:bg-red-950",
-      "dark:text-red-300",
+    expect(screen.getByText("Failed")).toHaveClass(
+      "bg-destructive/10",
+      "text-destructive",
     );
-    expect(screen.getByText("ABORTED")).toHaveClass(
-      "bg-zinc-200",
-      "text-zinc-700",
-      "dark:bg-zinc-800",
-      "dark:text-zinc-300",
+    expect(screen.getByText("Aborted")).toHaveClass(
+      "bg-secondary",
+      "text-secondary-foreground",
     );
   });
 
@@ -229,7 +224,7 @@ describe("BreedingPage copy and write bookkeeping", () => {
     listPayload.records = [makeRecord({ id: 11, ultrasound_date: null })];
     renderWithProviders(<BreedingPage />);
 
-    const row = (await screen.findByText("PENDING")).closest("tr") as HTMLElement;
+    const row = (await screen.findByText("Pending")).closest("tr") as HTMLElement;
     // Bred | Doe | Buck | Cycle | Ultrasound | Kids | Expected | Outcome | …
     expect(within(row).getAllByRole("cell")[4].textContent).toBe("—");
   });
@@ -476,7 +471,7 @@ describe("BreedingPage copy and write bookkeeping", () => {
     const user = userEvent.setup();
     listPayload.records = [record];
     renderWithProviders(<BreedingPage />);
-    const row = (await screen.findByText("PENDING")).closest("tr") as HTMLElement;
+    const row = (await screen.findByText("Pending")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Ultrasound result" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Ultrasound result" }) };
   }
@@ -598,7 +593,7 @@ describe("BreedingPage copy and write bookkeeping", () => {
     const user = userEvent.setup();
     listPayload.records = [record];
     renderWithProviders(<BreedingPage />);
-    const row = (await screen.findByText("CONFIRMED PREGNANT")).closest("tr") as HTMLElement;
+    const row = (await screen.findByText("Confirmed Pregnant")).closest("tr") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Record loss" }));
     return { user, dialog: await screen.findByRole("dialog", { name: "Record pregnancy loss" }) };
   }

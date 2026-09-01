@@ -426,7 +426,7 @@ describe("KiddingPage copy and field wiring", () => {
     const { user, dialog } = await openDialog();
 
     expect(within(dialog).getByLabelText("Kid 1 sex")).toHaveTextContent("Female");
-    expect(within(dialog).getByLabelText("Kid 1 status")).toHaveTextContent("ALIVE");
+    expect(within(dialog).getByLabelText("Kid 1 status")).toHaveTextContent("Alive");
     expect(within(dialog).getByLabelText("Kid 2 sex")).toHaveTextContent("Female");
 
     await pickOption(user, within(dialog).getByLabelText("Kid 1 sex"), "Male");
@@ -513,7 +513,7 @@ describe("KiddingPage copy and field wiring", () => {
     fireEvent.change(within(dialog).getByLabelText(/kidding date/i), {
       target: { value: daysFromToday(-3) },
     });
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
 
     const mortality = within(dialog).getByLabelText("Kid 1 mortality date *");
     expect(mortality).toHaveAttribute("min", daysFromToday(-3));
@@ -522,7 +522,7 @@ describe("KiddingPage copy and field wiring", () => {
 
   it("waits for a submit before flagging a newly died kid's mortality date", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
 
     const mortality = within(dialog).getByLabelText("Kid 1 mortality date *");
     expect(mortality).not.toHaveAttribute("aria-invalid");
@@ -533,8 +533,8 @@ describe("KiddingPage copy and field wiring", () => {
 
   it("flags only the kid row whose mortality date is missing", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "DIED");
-    await pickOption(user, within(dialog).getByLabelText("Kid 2 status"), "DIED");
+    await pickOption(user, within(dialog).getByLabelText("Kid 1 status"), "Died");
+    await pickOption(user, within(dialog).getByLabelText("Kid 2 status"), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: TODAY },
     });
@@ -553,14 +553,14 @@ describe("KiddingPage copy and field wiring", () => {
   it("clears a stale mortality date when a kid leaves DIED and returns", async () => {
     const { user, dialog } = await openDialog();
     const status = () => within(dialog).getByLabelText("Kid 1 status");
-    await pickOption(user, status(), "DIED");
+    await pickOption(user, status(), "Died");
     fireEvent.change(within(dialog).getByLabelText("Kid 1 mortality date *"), {
       target: { value: TODAY },
     });
 
-    await pickOption(user, status(), "STILLBORN");
+    await pickOption(user, status(), "Stillborn");
     expect(within(dialog).queryByLabelText("Kid 1 mortality date *")).not.toBeInTheDocument();
-    await pickOption(user, status(), "DIED");
+    await pickOption(user, status(), "Died");
     expect(within(dialog).getByLabelText("Kid 1 mortality date *")).toHaveValue("");
 
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
@@ -571,12 +571,12 @@ describe("KiddingPage copy and field wiring", () => {
   it("retires the mortality error as soon as the kid leaves DIED", async () => {
     const { user, dialog } = await openDialog();
     const status = () => within(dialog).getByLabelText("Kid 1 status");
-    await pickOption(user, status(), "DIED");
+    await pickOption(user, status(), "Died");
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
     await within(dialog).findByText("Mortality date is required");
 
-    await pickOption(user, status(), "ALIVE");
-    await pickOption(user, status(), "DIED");
+    await pickOption(user, status(), "Alive");
+    await pickOption(user, status(), "Died");
 
     expect(within(dialog).queryByText("Mortality date is required")).not.toBeInTheDocument();
     expect(

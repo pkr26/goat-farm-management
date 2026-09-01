@@ -140,7 +140,7 @@ describe("AnimalsPage extended", () => {
     renderWithProviders(<AnimalsPage />);
     const rows = animals ?? [ANIMAL];
     if (rows.length === 0) {
-      await screen.findByText("No animals match these filters.");
+      await screen.findByText("No animals yet");
     } else {
       await screen.findByText(`${rows.length} animal(s)`);
     }
@@ -152,14 +152,14 @@ describe("AnimalsPage extended", () => {
   }
 
   describe("list rendering", () => {
-    it("renders every cell with display formatting (bucket spaces, weight kg)", async () => {
+    it("renders every cell with display formatting (human bucket and sex labels, weight kg)", async () => {
       await renderLoaded();
       const row = screen.getByText("G-001").closest("tr") as HTMLElement;
       const cells = within(row).getAllByRole("cell");
       expect(cells[1]).toHaveTextContent("Lakshmi");
-      expect(cells[2]).toHaveTextContent("F");
+      expect(cells[2]).toHaveTextContent("Female");
       expect(cells[3]).toHaveTextContent("Osmanabadi");
-      expect(cells[4]).toHaveTextContent("PREGNANCY EARLY");
+      expect(cells[4]).toHaveTextContent("Pregnancy A");
       expect(cells[5]).toHaveTextContent("ACTIVE");
       expect(cells[6]).toHaveTextContent("14");
       expect(cells[7]).toHaveTextContent("32.5 kg");
@@ -219,9 +219,16 @@ describe("AnimalsPage extended", () => {
       expect(await screen.findByText("Database unavailable")).toBeInTheDocument();
     });
 
-    it("shows the no-match empty state when the list is empty", async () => {
+    it("shows the empty-herd state with an Add animal CTA when no filters are active", async () => {
       await renderLoaded([]);
-      expect(await screen.findByText("No animals match these filters.")).toBeInTheDocument();
+      expect(await screen.findByText("No animals yet")).toBeInTheDocument();
+      expect(
+        screen.getByText("Add your first animal to start the herd register."),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Add animal" })).toHaveAttribute(
+        "href",
+        "/animals/new",
+      );
     });
   });
 
@@ -281,7 +288,7 @@ describe("AnimalsPage extended", () => {
     it("sends the chosen bucket filter", async () => {
       const user = userEvent.setup();
       await renderLoaded();
-      await pickOption(user, screen.getAllByRole("combobox")[0], "FEMALE KIDS");
+      await pickOption(user, screen.getAllByRole("combobox")[0], "Female kids");
       await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
     });
 

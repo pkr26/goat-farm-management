@@ -51,6 +51,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -59,6 +62,7 @@ import {
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { PermissionsError } from "@/components/permissions-error";
 
 function localToday(): string {
   return farmToday();
@@ -129,6 +133,9 @@ function BatchDetailDialog({
   canViewAnimals: boolean;
   onClose: () => void;
 }) {
+  // Bucket short labels are species-specific (goat wards vs dairy pens), so
+  // the chip resolves through the active farm's vocabulary.
+  const farmType = useFarmType();
   // A batch may hold up to MAX_BATCH_COUNT head, so its animals arrive as a
   // bounded page. The parent keys this component by batch id, so opening a
   // different batch remounts it and the offset starts at zero again.
@@ -162,7 +169,7 @@ function BatchDetailDialog({
               {query.error instanceof ApiError ? query.error.detail : "Could not load the batch."}
             </p>
           ) : (
-            <p className="py-6 text-center text-muted-foreground">Loading…</p>
+            <p role="status" aria-live="polite" className="py-6 text-center text-muted-foreground">Loading…</p>
           )
         ) : (
           detail && (
@@ -202,8 +209,8 @@ function BatchDetailDialog({
                               a.tag_number
                             )}
                           </TableCell>
-                          <TableCell>{a.sex}</TableCell>
-                          <TableCell>{a.current_bucket}</TableCell>
+                          <TableCell>{enumLabel("sex", a.sex)}</TableCell>
+                          <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
                           <TableCell>
                             <StatusBadge status={a.status}>{a.status}</StatusBadge>
                           </TableCell>
@@ -258,7 +265,8 @@ function BatchDetailDialog({
 }
 
 export default function PurchasesPage() {
-  const { can, loading: permsLoading, isError: permsError } = usePermissions();
+  const vocabulary = farmVocabulary(useFarmType());
+  const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("purchases.view");
   const canManage = can("purchases.manage");
   const canViewAnimals = can("animals.view");
@@ -346,13 +354,11 @@ export default function PurchasesPage() {
   }
 
   if (permsLoading) {
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
   if (permsError) {
     return (
-      <p className="text-sm text-destructive">
-        Could not load your permissions — refresh the page to try again.
-      </p>
+      <PermissionsError onRetry={() => void permsRefetch()} />
     );
   }
   if (!allowed) {
@@ -371,7 +377,7 @@ export default function PurchasesPage() {
         </div>
       );
     }
-    return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
   }
 
   const batches = payload.batches;
@@ -392,7 +398,7 @@ export default function PurchasesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Purchase batches"
-        description="Incoming groups of goats — each batch auto-creates its 45-day quarantine protocol."
+        description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
         actions={
           canManage && (
             <Button disabled={createFlight.pending} onClick={openNewBatch}>
@@ -508,7 +514,9 @@ export default function PurchasesPage() {
                 <dt className="text-muted-foreground">Batch</dt>
                 <dd className="text-right font-medium">
                   {pendingBatch.count} {pendingBatch.sex === PurchaseBatchInSex.F ? "female" : "male"}
-                  {pendingBatch.count === 1 ? " goat" : " goats"}
+                  {pendingBatch.count === 1
+                    ? ` ${vocabulary.species}`
+                    : ` ${vocabulary.speciesPlural}`}
                 </dd>
                 <dt className="text-muted-foreground">Purchase date</dt>
                 <dd className="text-right">{formatDate(pendingBatch.date)}</dd>

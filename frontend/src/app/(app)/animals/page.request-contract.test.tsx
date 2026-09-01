@@ -214,7 +214,7 @@ describe("AnimalsPage interaction fence", () => {
   it("stands the rows and pagination down the moment a tag search is typed", async () => {
     serveAnimals(Array.from({ length: 55 }, (_, index) => animal(index + 1)));
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 1 of 2 · Showing 1–50 of 55");
+    await screen.findByText("Showing 1–50 of 55 animals");
 
     fireEvent.change(searchBox(), { target: { value: "G-0" } });
 
@@ -224,9 +224,9 @@ describe("AnimalsPage interaction fence", () => {
     expect(screen.getByText("Updating animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("navigation", { name: "Animal list pagination" }),
+      screen.queryByRole("navigation", { name: "animals pagination" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Next page" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
 
     await waitFor(() => expect(seenParams.at(-1)?.get("q")).toBe("G-0"));
   });
@@ -253,7 +253,7 @@ describe("AnimalsPage interaction fence", () => {
 
     await waitFor(() => expect(seenParams.at(-1)?.get("q")).toBe("G-002"));
     expect(searchBox()).toHaveValue("G-002");
-    expect(screen.getByLabelText("Filter animals by bucket")).toHaveTextContent("RESTING");
+    expect(screen.getByLabelText("Filter animals by bucket")).toHaveTextContent("Resting");
     expect(screen.getByLabelText("Filter animals by sex")).toHaveTextContent("Female");
     expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("ACTIVE");
   });
@@ -288,12 +288,12 @@ describe("AnimalsPage interaction fence", () => {
     await screen.findByText("1 animal(s)");
     const bucketFilter = () => screen.getByLabelText("Filter animals by bucket");
 
-    await pickOption(user, bucketFilter(), "FEMALE KIDS");
+    await pickOption(user, bucketFilter(), "Female kids");
     await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
     await pickOption(user, bucketFilter(), "All buckets");
     await waitFor(() => expect(nav.state.search).toBe(""));
 
-    await pickOption(user, bucketFilter(), "FEMALE KIDS");
+    await pickOption(user, bucketFilter(), "Female kids");
 
     // This destination is still fresh in the cache and its URL has committed,
     // so there is nothing left to wait for: holding the fence up here would
@@ -353,7 +353,7 @@ describe("AnimalsPage refresh after a create", () => {
     serveAnimals(Array.from({ length: 60 }, (_, index) => animal(index + 1)));
     nav.state.search = "bucket=RESTING&page=2";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("Page 2 of 2 · Showing 51–60 of 60");
+    await screen.findByText("Showing 51–60 of 60 animals");
 
     const dialog = await openCreateDialog(user);
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
@@ -362,7 +362,7 @@ describe("AnimalsPage refresh after a create", () => {
     // The new animal sorts onto page one, so the list re-homes there while
     // keeping the bucket the operator was working in.
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith("/animals?bucket=RESTING"));
-    expect(await screen.findByText("Page 1 of 2 · Showing 1–50 of 60")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1–50 of 60 animals")).toBeInTheDocument();
   });
 
   it("refreshes without navigating when the create happens on page one", async () => {
@@ -406,14 +406,14 @@ describe("AnimalsPage page ceiling", () => {
     renderWithProviders(<AnimalsPage />);
 
     expect(
-      await screen.findByText("Page 20001 of 20002 · Showing 1000001–1000001 of 1000051"),
+      await screen.findByText("Showing 1000001–1000050 of 1000051 animals"),
     ).toBeInTheDocument();
     expect(seenParams[0].get("offset")).toBe("1000000");
 
-    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect(
-      await screen.findByText("Page 20002 of 20002 · Showing 1000051–1000051 of 1000051"),
+      await screen.findByText("Showing 1000051–1000051 of 1000051 animals"),
     ).toBeInTheDocument();
     expect(screen.getByText("G-1000051")).toBeInTheDocument();
     expect(nav.push).not.toHaveBeenCalled();

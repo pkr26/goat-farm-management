@@ -170,7 +170,7 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog");
 
     const dutyTrigger = within(dialog).getByLabelText("Linked duty (completes it)");
@@ -185,7 +185,7 @@ describe("HealthPage prefill display (regression: labels, not raw values)", () =
     const user = userEvent.setup();
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog");
 
     const dutyTrigger = within(dialog).getByLabelText("Linked duty (completes it)");
@@ -265,7 +265,7 @@ describe("HealthPage date default survives a farm-midnight rollover", () => {
     await screen.findByText("Event log");
 
     vi.setSystemTime(new Date("2026-08-10T12:30:00Z")); // 18:00 IST, next day
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
 
     const dateInput = await screen.findByLabelText("Date (defaults to today)");
     expect(dateInput).toHaveValue("2026-08-10");
@@ -315,7 +315,7 @@ describe("HealthPage collapsed Advanced section validation errors", () => {
   async function openDialogWithNextDue(user: User) {
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await user.click(screen.getByRole("button", { name: "+ Add event" }));
+    await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog");
     const details = within(dialog)
       .getByText("Advanced traceability & compliance")
