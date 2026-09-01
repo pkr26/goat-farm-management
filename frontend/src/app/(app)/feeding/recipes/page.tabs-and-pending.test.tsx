@@ -69,9 +69,12 @@ describe("RecipesPage branches", () => {
 
   it("shows the loading state while the permission probe is in flight", async () => {
     server.use(http.get("/api/auth/permissions", () => new Promise<Response>(() => {})));
-    renderWithProviders(<RecipesPage />);
+    const { container } = renderWithProviders(<RecipesPage />);
 
-    expect((await screen.findAllByText("Loading…")).length).toBeGreaterThan(0);
+    // The header stays up and a skeleton fills the data region — the page no
+    // longer collapses to a bare "Loading…" line while the probe is out.
+    expect(await screen.findByRole("heading", { name: "TMR recipes" })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     // An unresolved probe is not a denial — never accuse the operator of
     // lacking access before the answer arrives.
     expect(screen.queryByText(/don't have access to this page/)).not.toBeInTheDocument();
@@ -87,14 +90,15 @@ describe("RecipesPage branches", () => {
     );
     renderWithProviders(<RecipesPage />);
 
-    // Wait past the permission probe: only then is the page's "Loading…"
+    // Wait past the permission probe: only then is the page's loading region
     // reporting the recipes fetch rather than the probe.
     await waitFor(() => expect(requested).toHaveBeenCalled());
     // A request still on the wire is not a failure.
     await waitFor(() =>
       expect(screen.queryByText("Could not load recipes.")).not.toBeInTheDocument(),
     );
-    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "TMR recipes" })).toBeInTheDocument();
+    expect(screen.getByText("Loading recipes…")).toBeInTheDocument();
   });
 
   it("falls back to a generic message when the recipes request fails in transport", async () => {

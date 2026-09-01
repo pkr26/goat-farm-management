@@ -1033,7 +1033,7 @@ describe("TeamPage role cards", () => {
 
     const helper = cardOf("Helper");
     expect(within(helper).getByText("general farm help")).toBeInTheDocument();
-    expect(within(helper).getByText("1 member")).toBeInTheDocument();
+    expect(within(helper).getByText(/1 member/)).toBeInTheDocument();
     expect(within(helper).getByText("No permissions.")).toBeInTheDocument();
 
     const nightWatch = cardOf("Night Watch");
@@ -1054,7 +1054,7 @@ describe("TeamPage role cards", () => {
 
     const preset = cardOf("Manager");
     expect(within(preset).getByText("Preset")).toBeInTheDocument();
-    expect(within(preset).getByText("3 members")).toBeInTheDocument();
+    expect(within(preset).getByText(/3 members/)).toBeInTheDocument();
   });
 
   it("disables Delete for preset roles and roles with workers", async () => {

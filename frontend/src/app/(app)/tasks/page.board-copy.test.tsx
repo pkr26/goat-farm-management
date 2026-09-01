@@ -15,7 +15,13 @@ import { toast } from "sonner";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TaskOut } from "@/api/generated/models";
-import { ALL_PERMISSIONS, permissionsHandler, server } from "@/test/msw-server";
+import {
+  ALL_PERMISSIONS,
+  permissionsHandler,
+  server,
+  TEST_ACCESS_TOKEN,
+  TEST_USER,
+} from "@/test/msw-server";
 import { createTestQueryClient, renderWithProviders } from "@/test/render";
 import { addDays, farmToday, formatDate } from "@/lib/format";
 
@@ -320,11 +326,12 @@ describe("TasksPage board copy", () => {
 
     const row = rowOf("Vaccinate Radha");
     const openForm = within(row).getByRole("link", { name: "Open form" });
-    expect(openForm).toHaveClass("h-8");
+    // sm buttons are 36px touch targets now (see ui/button.tsx).
+    expect(openForm).toHaveClass("h-9");
     // Row actions are outline — one primary action per view.
     expect(openForm).toHaveClass("border-border");
     expect(openForm).not.toHaveClass("bg-primary");
-    expect(within(row).getByRole("button", { name: "Skip" })).toHaveClass("h-8");
+    expect(within(row).getByRole("button", { name: "Skip" })).toHaveClass("h-9");
   });
 
   // ---------- transition toasts and error recovery ----------
@@ -555,7 +562,9 @@ describe("TasksPage board copy", () => {
     );
     renderWithProviders(<TasksPage />);
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The page holds its header + skeleton, not a bare "Loading…" line.
+    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(
       screen.queryByText("You don't have access to this page."),
     ).not.toBeInTheDocument();
@@ -567,10 +576,15 @@ describe("TasksPage board copy", () => {
   it("renders the board even before the session user is known", async () => {
     // A cached permission answer can outlive the session it was fetched for
     // (expired refresh): the board must still render rather than assume a user.
+    const { gate, release } = createGate();
     server.use(
-      http.post("/api/auth/refresh", () =>
-        HttpResponse.json({ detail: "session expired" }, { status: 401 }),
-      ),
+      http.post("/api/auth/refresh", async () => {
+        await gate;
+        return HttpResponse.json({
+          access_token: TEST_ACCESS_TOKEN,
+          user: TEST_USER,
+        });
+      }),
     );
     const queryClient = createTestQueryClient();
     queryClient.setQueryData(["/api/auth/permissions"], {
@@ -580,6 +594,16 @@ describe("TasksPage board copy", () => {
     });
     renderWithProviders(<TasksPage />, queryClient);
 
+    // While the session is still unknown the RBAC gate also waits for the
+    // farm selection, so the board holds its header + skeleton — it must
+    // never read that window as "no access".
+    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(
+      screen.queryByText("You don't have access to this page."),
+    ).not.toBeInTheDocument();
+
+    release();
     expect(await screen.findByText("Morning feed count")).toBeInTheDocument();
     expect(listCalls).toBeGreaterThanOrEqual(1);
   });
@@ -811,32 +835,36 @@ describe("TasksPage new-duty dialog copy", () => {
   it("offers every duty category and shows the one chosen in the trigger", async () => {
     const { user, dialog } = await openDialog();
     const category = within(dialog).getByRole("combobox", { name: "Category" });
-    expect(category).toHaveTextContent("OTHER");
+    // The select shows humanized labels; the API codes stay the values.
+    expect(category).toHaveTextContent("Other");
 
     await user.click(category);
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
-      "FEED",
-      "CLEANING",
-      "OTHER",
+      "Feeding",
+      "Cleaning",
+      "Other",
     ]);
 
-    await user.click(screen.getByRole("option", { name: "FEED" }));
-    expect(category).toHaveTextContent("FEED");
+    await user.click(screen.getByRole("option", { name: "Feeding" }));
+    expect(category).toHaveTextContent("Feeding");
   });
 
-  it.each(["FEED", "CLEANING"])("creates a duty in the %s category", async (category) => {
+  it.each([
+    ["Feeding", "FEED"],
+    ["Cleaning", "CLEANING"],
+  ])("creates a duty in the %s category", async (label, apiCategory) => {
     const { user, dialog } = await openDialog();
     await user.type(fieldsOf(dialog).title, "Refill mineral licks");
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: "Category" }),
-      category,
+      label,
     );
     await user.click(fieldsOf(dialog).create);
 
     await waitFor(() => expect(createBody).not.toBeNull());
-    expect(createBody).toMatchObject({ category });
+    expect(createBody).toMatchObject({ category: apiCategory });
   });
 
   it("starts the animal picker on its none option and names the animal once chosen", async () => {

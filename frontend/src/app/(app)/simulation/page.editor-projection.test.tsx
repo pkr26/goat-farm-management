@@ -394,7 +394,7 @@ describe("SimulationPage assumption field projection", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.risk?.scenario_weights).toEqual([
       0.2, 0.3, 0.5, 0.6,
     ]);
@@ -667,7 +667,7 @@ describe("SimulationPage editor identity and recovery", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([]);
   });
 
@@ -694,7 +694,7 @@ describe("SimulationPage editor identity and recovery", () => {
 
     await user.type(ceiling, "750000");
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.optimization?.maximum_project_cost).toBe(750000);
 
     await user.clear(ceiling);
@@ -766,7 +766,7 @@ describe("SimulationPage editor identity and recovery", () => {
     // Age zero of the curve IS the birth weight; the scalar field follows it.
     expect(screen.getByLabelText("Birth Weight Kg")).toHaveValue(3);
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.growth?.birth_weight_kg).toBe(3);
     expect(captured.body?.assumptions.growth?.weight_by_age_months?.[0]).toBe(3);
     expect(captured.body?.assumptions.growth?.adult_weight_doe_kg).toBe(32);
@@ -797,7 +797,7 @@ describe("SimulationPage editor identity and recovery", () => {
     // The mirror writes no curve points the breed defaults never supplied.
     expect(screen.getByLabelText(/Weight By Age Months/)).toHaveValue("");
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.growth?.birth_weight_kg).toBe(3);
     expect(captured.body?.assumptions.growth?.weight_by_age_months).toEqual([]);
   });
@@ -863,7 +863,7 @@ describe("SimulationPage scenario comparison", () => {
 
     const rowFor = (label: string) =>
       within(table).getByText(label).closest("tr") as HTMLElement;
-    expect(within(rowFor("NPV")).getByText("₹2,34,567")).toBeInTheDocument();
+    expect(within(rowFor("NPV")).getAllByText("₹2,34,567")[0]).toBeInTheDocument();
     expect(within(rowFor("NPV")).getByText("-₹12,000")).toBeInTheDocument();
     expect(within(rowFor("IRR")).getByText("18.0%")).toBeInTheDocument();
     expect(within(rowFor("MIRR")).getByText("16.0%")).toBeInTheDocument();
@@ -871,10 +871,10 @@ describe("SimulationPage scenario comparison", () => {
     expect(within(rowFor("Avg DSCR")).getByText("1.80")).toBeInTheDocument();
     expect(within(rowFor("Minimum DSCR")).getByText("1.55")).toBeInTheDocument();
     expect(within(rowFor("Operating margin")).getByText("25.0%")).toBeInTheDocument();
-    expect(within(rowFor("Minimum cash")).getByText("₹43,000")).toBeInTheDocument();
+    expect(within(rowFor("Minimum cash")).getAllByText("₹43,000")[0]).toBeInTheDocument();
     expect(within(rowFor("Minimum cash")).getByText("-₹5,000")).toBeInTheDocument();
     expect(
-      within(rowFor("Additional working capital")).getByText("₹5,000"),
+      within(rowFor("Additional working capital")).getAllByText("₹5,000")[0],
     ).toBeInTheDocument();
     expect(within(rowFor("Payback month")).getByText("30")).toBeInTheDocument();
     // Every unavailable metric of the weaker scenario reads as a dash.
@@ -1209,13 +1209,13 @@ describe("SimulationPage result formatting", () => {
     });
 
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: "Explain Minimum cash (month 14)" }),
     );
     const cashDialog = await screen.findByRole("dialog");
-    expect(within(cashDialog).getByText("₹43,000")).toBeInTheDocument();
+    expect(within(cashDialog).getAllByText("₹43,000")[0]).toBeInTheDocument();
     // A cash-trough month is a month index, not rupees.
     expect(within(cashDialog).getByText("14")).toBeInTheDocument();
     expect(within(cashDialog).queryByText("₹14")).not.toBeInTheDocument();
@@ -1223,7 +1223,7 @@ describe("SimulationPage result formatting", () => {
 
     await user.click(screen.getByRole("button", { name: "Explain Project cost" }));
     const costDialog = await screen.findByRole("dialog");
-    expect(within(costDialog).getByText("₹5,00,000")).toBeInTheDocument();
+    expect(within(costDialog).getAllByText("₹5,00,000")[0]).toBeInTheDocument();
     // A string figure is the backend's own wording and passes through as-is.
     expect(within(costDialog).getByText("projected_peak")).toBeInTheDocument();
     expect(within(costDialog).getByText("58")).toBeInTheDocument();

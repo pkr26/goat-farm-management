@@ -220,8 +220,9 @@ describe("AnimalsPage interaction fence", () => {
 
     // The debounce has not fired yet, so every row on screen describes a
     // different query than the one the operator is typing. Neither the rows
-    // nor the page controls may act on the stale result set.
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    // nor the page controls may act on the stale result set. The pending
+    // search folds into dataLoading, so the polite label reads "Loading".
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("navigation", { name: "animals pagination" }),
@@ -255,7 +256,7 @@ describe("AnimalsPage interaction fence", () => {
     expect(searchBox()).toHaveValue("G-002");
     expect(screen.getByLabelText("Filter animals by bucket")).toHaveTextContent("Resting");
     expect(screen.getByLabelText("Filter animals by sex")).toHaveTextContent("Female");
-    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("ACTIVE");
+    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("Active");
   });
 
   it("drops navigations the browser overtook instead of fencing the list forever", async () => {
@@ -272,7 +273,8 @@ describe("AnimalsPage interaction fence", () => {
     nav.state.search = "bucket=RESTING";
     view.rerender(<AnimalsPage />);
 
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
     expect(searchBox()).toHaveValue("");
   });
@@ -297,8 +299,10 @@ describe("AnimalsPage interaction fence", () => {
 
     // This destination is still fresh in the cache and its URL has committed,
     // so there is nothing left to wait for: holding the fence up here would
-    // leave the list "Updating…" until the search debounce happened to run.
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    // leave the list behind the loading label until the search debounce
+    // happened to run.
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 });
@@ -342,7 +346,7 @@ describe("AnimalsPage ?new=1 stripping", () => {
 
     // Re-dispatching the still-outstanding strip would register a pending
     // navigation no commit can ever match, fencing the list forever.
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
     expect(nav.state.deferredReplacements).toHaveLength(2);
   });
 });
@@ -415,7 +419,8 @@ describe("AnimalsPage page ceiling", () => {
     expect(
       await screen.findByText("Showing 1000051–1000051 of 1000051 animals"),
     ).toBeInTheDocument();
-    expect(screen.getByText("G-1000051")).toBeInTheDocument();
+    // The tag is rendered by both the mobile card list and the table.
+    expect(screen.getAllByText("G-1000051")[0]).toBeInTheDocument();
     expect(nav.push).not.toHaveBeenCalled();
     expect(nav.replace).not.toHaveBeenCalled();
     expect(nav.state.search).toBe("page=20002");

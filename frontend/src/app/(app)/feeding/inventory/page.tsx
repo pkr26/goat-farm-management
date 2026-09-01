@@ -6,7 +6,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Package, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -22,6 +22,7 @@ import type { FeedInventoryOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -233,12 +234,23 @@ const mixSchema = z.object({
 type MixInput = z.input<typeof mixSchema>;
 type MixValues = z.output<typeof mixSchema>;
 
-/** Mix recipe batches (1 batch = 100 kg), decrementing inventory (feeding.manage). */
-function MixBatchDialog() {
-  const [open, setOpen] = useState(false);
+/** Mix recipe batches (1 batch = 100 kg), decrementing inventory (feeding.manage).
+ * Controlled by the page: the header action and the mixed-feed empty state
+ * both open the same single dialog instance. */
+function MixBatchDialog({
+  open,
+  onOpenChange,
+  flight,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Lifted so every opener can disable itself while a mix write is in flight. */
+  flight: ReturnType<typeof useSingleFlight>;
+}) {
   const [shortage, setShortage] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const mut = useMixBatchApiFeedingMixPost();
+  const mixFlight = flight;
 
   const recipesQuery = useListRecipesApiFeedingRecipesGet({ query: { enabled: open } });
   const recipes = recipesQuery.data?.status === 200 ? recipesQuery.data.data.recipes : [];
@@ -260,12 +272,19 @@ function MixBatchDialog() {
     defaultValues: { recipe_code: "", batches: 1 },
   });
   const wRecipeCode = useWatch({ control, name: "recipe_code" });
-  // The "Mix batch" trigger resets the form, which clears react-hook-form's
-  // `isSubmitting` — the submit button's only in-flight guard — and blanks
-  // recipe_code so the retyped request body no longer matches the in-flight
-  // one's Idempotency-Key. Guard outside react-hook-form so reset cannot
-  // reach it.
-  const mixFlight = useSingleFlight();
+  // The openers reset the form, which clears react-hook-form's `isSubmitting`
+  // — the submit button's only in-flight guard — and blanks recipe_code so the
+  // retyped request body no longer matches the in-flight one's Idempotency-Key.
+  // Guard outside react-hook-form so reset cannot reach it. The dialog stays
+  // mounted for the whole page, so the draft resets on every closed→open
+  // transition (previously the trigger button did this before opening). A
+  // stale shortage cannot survive that transition: every close path runs the
+  // Dialog onOpenChange below, which clears it.
+  useEffect(() => {
+    if (open) {
+      reset({ recipe_code: "", batches: 1 });
+    }
+  }, [open, reset]);
 
   async function onSubmit(values: MixValues) {
     await mixFlight.run(async () => {
@@ -275,7 +294,7 @@ function MixBatchDialog() {
         toast.success(`Mixed ${values.batches * 100} kg — inventory decremented.`);
         invalidateFarmData(queryClient);
         reset();
-        setOpen(false);
+        onOpenChange(false);
       } catch (err) {
         // Insufficient stock comes back as a 400 with the shortage detail — show it in the dialog.
         if (err instanceof ApiError && err.status === 400) {
@@ -291,21 +310,10 @@ function MixBatchDialog() {
     <Dialog
       open={open}
       onOpenChange={(v) => {
-        setOpen(v);
         if (!v) setShortage(null);
+        onOpenChange(v);
       }}
     >
-      <Button
-        variant="outline"
-        disabled={mixFlight.pending}
-        onClick={() => {
-          reset({ recipe_code: "", batches: 1 });
-          setShortage(null);
-          setOpen(true);
-        }}
-      >
-        Mix batch
-      </Button>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Mix a recipe batch</DialogTitle>
@@ -323,11 +331,7 @@ function MixBatchDialog() {
           <fieldset disabled={isSubmitting || mixFlight.pending} className="contents">
           <div className="space-y-1.5">
             <Label htmlFor="mix-recipe">Recipe</Label>
-            {recipesQuery.isLoading && (
-              <p role="status" className="text-sm text-muted-foreground">
-                Loading recipes…
-              </p>
-            )}
+            {recipesQuery.isLoading && <InlineLoading>Loading recipes…</InlineLoading>}
             {recipesQuery.isError && (
               <div role="alert" className="space-y-2 text-sm text-destructive">
                 <p>Could not load recipes. Retry before mixing a batch.</p>
@@ -407,6 +411,9 @@ export default function InventoryPage() {
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
+  /** One mix dialog shared by the header action and the empty-state CTA. */
+  const [mixOpen, setMixOpen] = useState(false);
+  const mixFlight = useSingleFlight();
 
   const query = useListInventoryApiFeedingInventoryGet({ query: { enabled: allowed } });
   const items = query.data?.status === 200 ? query.data.data : undefined;
@@ -416,8 +423,19 @@ export default function InventoryPage() {
   const finishedStock =
     finishedQuery.data?.status === 200 ? finishedQuery.data.data : undefined;
 
+  // The header and layout stay mounted while permissions settle — a page that
+  // collapses to a bare "Loading…" line reads as a broken app on slow rural
+  // connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Feed inventory"
+          description="Ingredient stock and ready-to-dispense mixed feed."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -428,7 +446,18 @@ export default function InventoryPage() {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
   if (query.isLoading && !items) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Feed inventory"
+          description="Ingredient stock and ready-to-dispense mixed feed."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading feed inventory…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -436,7 +465,17 @@ export default function InventoryPage() {
       <PageHeader
         title="Feed inventory"
         description="Ingredient stock and ready-to-dispense mixed feed."
-        actions={canManage && <MixBatchDialog />}
+        actions={
+          canManage && (
+            <Button
+              variant="outline"
+              disabled={mixFlight.pending}
+              onClick={() => setMixOpen(true)}
+            >
+              Mix batch
+            </Button>
+          )
+        }
       />
 
       <FeedingNav active="inventory" />
@@ -454,7 +493,7 @@ export default function InventoryPage() {
             </Button>
           </div>
         ) : items === undefined ? (
-          <p role="status" aria-live="polite" className="py-4 text-center text-sm text-muted-foreground">Loading…</p>
+          <InlineLoading className="py-4">Loading feed inventory…</InlineLoading>
         ) : items.length === 0 ? (
           <EmptyState
             icon={Package}
@@ -515,7 +554,7 @@ export default function InventoryPage() {
         description="Mixing adds to these recipe balances; recording a recipe dispense deducts from them."
       >
         {finishedQuery.isLoading ? (
-          <p className="py-4 text-sm text-muted-foreground">Loading mixed-feed stock…</p>
+          <InlineLoading className="py-4">Loading mixed-feed stock…</InlineLoading>
         ) : finishedQuery.isError ? (
           <p role="alert" className="text-sm text-destructive">
             {finishedQuery.error instanceof ApiError
@@ -527,7 +566,19 @@ export default function InventoryPage() {
             icon={Package}
             title="No mixed feed is ready."
             description="Use Mix batch to turn ingredient stock into a ready recipe balance."
-          />
+          >
+            {canManage && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={mixFlight.pending}
+                onClick={() => setMixOpen(true)}
+              >
+                Mix your first batch
+              </Button>
+            )}
+          </EmptyState>
         ) : (
           <Table>
             <TableHeader>
@@ -555,6 +606,8 @@ export default function InventoryPage() {
         Mixing a recipe batch decrements stock per recipe lines. Purchases with a price book a FEED
         expense automatically.
       </p>
+
+      {canManage && <MixBatchDialog open={mixOpen} onOpenChange={setMixOpen} flight={mixFlight} />}
     </div>
   );
 }

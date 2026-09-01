@@ -229,10 +229,15 @@ describe("BucketsPage", () => {
     expect(await screen.findByText("No buckets configured.")).toBeInTheDocument();
   });
 
-  it("shows a loading indicator while the board request is pending", async () => {
+  it("shows a loading skeleton with the header while the board request is pending", async () => {
     server.use(http.get("/api/buckets", () => new Promise<Response>(() => {})));
     renderWithProviders(<BucketsPage />);
-    expect((await screen.findAllByText("Loading…")).length).toBeGreaterThan(0);
+    // The header stays up and the data region is a polite skeleton — not a
+    // bare "Loading…" line. The status region only exists once the board
+    // request itself is pending (the permission skeleton has none), so wait
+    // for it rather than the heading, which both phases render.
+    expect(await screen.findByRole("status")).toHaveTextContent("Loading buckets…");
+    expect(screen.getByRole("heading", { level: 1, name: "Buckets" })).toBeInTheDocument();
   });
 
   it("shows the server detail on a 500 response", async () => {
@@ -257,7 +262,10 @@ describe("BucketsPage", () => {
 
   it("denies access without buckets.view and never calls the API", async () => {
     server.use(permissionsHandler(["animals.view"]));
-    renderWithProviders(<BucketsPage />);
+    const { waitForAuthIdle } = renderWithProviders(<BucketsPage />);
+    // The pre-auth paint also lacks the permission — assert only the settled
+    // denial, not the flash that the permissions skeleton replaces.
+    await waitForAuthIdle();
     expect(await screen.findByText(/don't have access to this page/)).toBeInTheDocument();
     expect(getCalls).toBe(0);
   });
@@ -275,10 +283,15 @@ describe("BucketsPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows a loading indicator while permissions resolve", async () => {
+  it("shows the page shell skeleton while permissions resolve", async () => {
     server.use(http.get("/api/auth/permissions", () => new Promise<Response>(() => {})));
     renderWithProviders(<BucketsPage />);
-    expect((await screen.findAllByText("Loading…")).length).toBeGreaterThan(0);
+    // The real header and skeleton stand in for the page — not a bare
+    // "Loading…" line, and not a denial.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Buckets" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/don't have access to this page/)).not.toBeInTheDocument();
   });
 
   it("loads the board with only buckets.view", async () => {

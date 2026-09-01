@@ -93,8 +93,8 @@ describe("RootLayout", () => {
 
   it("exports the document metadata Next renders into <head>", () => {
     expect(metadata.title).toEqual({
-      default: "PashuFarm — Livestock farm management",
-      template: "%s · PashuFarm",
+      default: "Herdly — Livestock farm management",
+      template: "%s · Herdly",
     });
     expect(metadata.description).toBe(
       "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",

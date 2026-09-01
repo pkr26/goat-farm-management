@@ -20,8 +20,8 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "PashuFarm — Livestock farm management",
-    template: "%s · PashuFarm",
+    default: "Herdly — Livestock farm management",
+    template: "%s · Herdly",
   },
   description:
     "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",

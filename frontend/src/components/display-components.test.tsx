@@ -60,14 +60,16 @@ describe("shared display components", () => {
       </EmptyState>,
     );
 
-    expect(screen.getByRole("heading", { level: 3, name: "No goats" })).toBeInTheDocument();
+    expect(screen.getByText("No goats")).toBeInTheDocument();
     expect(screen.getByText("0")).toHaveClass("text-muted-foreground");
     expect(screen.getByRole("button", { name: "Add one" })).toBeInTheDocument();
     expect(container.firstElementChild).toHaveClass("custom-empty");
 
     rerender(<EmptyState icon={Plus} title="Nothing here" />);
-    expect(container.querySelectorAll("p")).toHaveLength(0);
     expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(
+      container.querySelectorAll("p.text-muted-foreground"),
+    ).toHaveLength(0);
   });
 
   it("renders StatCard trend direction, tone, hints, and tint", () => {
@@ -179,12 +181,12 @@ describe("shared display components", () => {
 
   it("renders the logo mark with an optional wordmark", () => {
     const { container, rerender } = render(<Logo className="custom-logo" />);
-    expect(screen.getByText("PashuFarm")).toBeInTheDocument();
+    expect(screen.getByText("Herdly")).toBeInTheDocument();
     expect(container.firstElementChild).toHaveClass("custom-logo");
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
 
     rerender(<Logo withWordmark={false} />);
-    expect(screen.queryByText("PashuFarm")).not.toBeInTheDocument();
+    expect(screen.queryByText("Herdly")).not.toBeInTheDocument();
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
 });

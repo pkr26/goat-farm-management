@@ -735,7 +735,9 @@ describe("FeedingPage gating", () => {
     const { waitForAuthIdle } = renderWithProviders(<FeedingPage />);
     await waitForAuthIdle();
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The page keeps its real chrome up while permissions settle — the header
+    // plus a skeleton, never a bare "Loading…" line or an early denial.
+    expect(screen.getByRole("heading", { name: "Feeding — today" })).toBeInTheDocument();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
 
     releasePerms?.();

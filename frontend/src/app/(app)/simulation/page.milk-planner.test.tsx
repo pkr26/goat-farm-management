@@ -224,7 +224,7 @@ describe("SimulationPage milk planner", () => {
     expect(screen.getByText(/replacement bridge of 42\.0 head/)).toBeInTheDocument();
     // Projection rows render with litres and revenue.
     expect(screen.getByText("1,027")).toBeInTheDocument();
-    expect(screen.getByText("₹20,19,482")).toBeInTheDocument();
+    expect(screen.getAllByText("₹20,19,482")[0]).toBeInTheDocument();
     // Breeding-calendar note.
     expect(screen.getByText(/start AI about 11 months earlier/)).toBeInTheDocument();
   });

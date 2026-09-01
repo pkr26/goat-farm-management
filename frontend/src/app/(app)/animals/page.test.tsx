@@ -96,7 +96,7 @@ describe("AnimalsPage", () => {
   async function renderAndWaitForList() {
     renderWithProviders(<AnimalsPage />);
     // List row proves: permissions resolved as owner, farm selected, GET ran.
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
     expect(screen.getByText("1 animal(s)")).toBeInTheDocument();
   }
 
@@ -114,7 +114,7 @@ describe("AnimalsPage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/tag number/i)).toHaveAttribute(
       "placeholder",
-      "Auto-generated if left blank (e.g. G-7KP2D)",
+      "Auto-generated if blank (e.g. G-7KP2D)",
     );
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 

@@ -177,10 +177,13 @@ describe("PurchasesPage list request and states", () => {
         return HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS });
       }),
     );
-    renderWithProviders(<PurchasesPage />);
+    const { container } = renderWithProviders(<PurchasesPage />);
     await waitFor(() => expect(permCalls).toBe(1));
 
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // The header stays up and a skeleton fills the data region — the page no
+    // longer collapses to a bare "Loading…" line while the probe is out.
+    expect(screen.getByRole("heading", { name: "Purchase batches" })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
 
     gate.open();
@@ -200,7 +203,8 @@ describe("PurchasesPage list request and states", () => {
     renderWithProviders(<PurchasesPage />);
     await waitFor(() => expect(listCalls).toBe(1));
 
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Purchase batches" })).toBeInTheDocument();
+    expect(screen.getByText("Loading purchase batches…")).toBeInTheDocument();
     expect(screen.queryByText("Could not load purchase batches.")).not.toBeInTheDocument();
 
     gate.open();

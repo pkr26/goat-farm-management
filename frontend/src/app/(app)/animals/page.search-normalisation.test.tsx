@@ -140,7 +140,7 @@ describe("AnimalsPage search term normalisation", () => {
 
     // The padding belongs to the URL the operator arrived on, never to the
     // term the endpoint is asked about.
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
     expect(seenParams[0].get("q")).toBe("G-001");
 
     // That term already matches the URL, so the debounce has no replacement
@@ -148,7 +148,8 @@ describe("AnimalsPage search term normalisation", () => {
     await settle(400);
     expect(nav.replace).not.toHaveBeenCalled();
     expect(nav.push).not.toHaveBeenCalled();
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 
@@ -159,7 +160,7 @@ describe("AnimalsPage search term normalisation", () => {
     nav.state.search = `q=${"G".repeat(75)}`;
     renderWithProviders(<AnimalsPage />);
 
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
     expect(seenParams[0].get("q")).toBe(clamped);
     expect(searchBox()).toHaveValue(clamped);
     await waitFor(() => expect(nav.replace).toHaveBeenCalledWith(`/animals?q=${clamped}`));
@@ -167,7 +168,7 @@ describe("AnimalsPage search term normalisation", () => {
 
   it("rehydrates the search box from the term its own URL carries", async () => {
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
 
     fireEvent.change(searchBox(), { target: { value: "  G7  " } });
 
@@ -175,13 +176,14 @@ describe("AnimalsPage search term normalisation", () => {
     // The commit describes exactly the term the operator asked for, so it is
     // not a newer edit to protect: the box adopts the URL's own spelling.
     await waitFor(() => expect(searchBox()).toHaveValue("G7"));
-    await waitFor(() => expect(screen.getByText("G-001")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("G-001")[0]).toBeInTheDocument());
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 
   it("adopts a padded search term from a history navigation as a trimmed query", async () => {
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
     const before = seenParams.length;
 
     // Back/forward onto a URL whose q carries padding: the request that URL
@@ -193,7 +195,7 @@ describe("AnimalsPage search term normalisation", () => {
     expect(seenParams[before].get("q")).toBe("G-001");
     await settle(400);
     expect(nav.replace).not.toHaveBeenCalled();
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
   });
 
   it("keeps the list interactive when a ?new=1 strip commits a padded term", async () => {
@@ -211,13 +213,14 @@ describe("AnimalsPage search term normalisation", () => {
     nav.state.search = paramsKeyOf(nav.state.deferredReplacements[0]);
     view.rerender(<AnimalsPage />);
 
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
   });
 
   it("re-arms the ?new=1 strip after the first one commits", async () => {
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
     expect(nav.replace).not.toHaveBeenCalled();
 
     nav.state.search = "new=1";
@@ -317,7 +320,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     serveAnimals([animal(1)]);
     nav.state.search = "q=G7";
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
 
     // Padding the term already searched for produces no new URL, so the
     // padding survives in the box until something else navigates.
@@ -339,7 +342,7 @@ describe("AnimalsPage state applied before a URL commits", () => {
     const user = userEvent.setup();
     serveAnimals([animal(1)]);
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
 
     nav.state.deferReplace = true;
     fireEvent.change(searchBox(), { target: { value: "G8" } });
@@ -364,15 +367,17 @@ describe("AnimalsPage state applied before a URL commits", () => {
     await waitFor(() => expect(seenParams.length).toBeGreaterThan(before));
     expect(seenParams[before].get("offset")).toBe("50");
     expect(nav.state.deferredPushes).toEqual(["/animals?page=2"]);
-    // Rows stay fenced until Next commits the push.
-    expect(screen.getByRole("status")).toHaveTextContent("Updating animals…");
+    // Rows stay fenced until Next commits the push. The wrapper and the
+    // InlineLoading label are both polite status regions; the uncommitted
+    // navigation folds into dataLoading, so the label reads "Loading".
+    expect(screen.getAllByRole("status")[0]).toHaveTextContent("Loading animals…");
   });
 
   it("releases the fence when a browser navigation supersedes an uncommitted one", async () => {
     const user = userEvent.setup();
     serveAnimals([animal(1)]);
     const view = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
 
     nav.state.deferReplace = true;
     await pickOption(user, screen.getByLabelText("Filter animals by bucket"), "Female kids");
@@ -385,10 +390,11 @@ describe("AnimalsPage state applied before a URL commits", () => {
     nav.state.search = "status=SOLD";
     view.rerender(<AnimalsPage />);
 
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
     await settle(400);
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("SOLD");
+    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("Sold");
     expect(screen.getByLabelText("Filter animals by bucket")).toHaveTextContent("All buckets");
   });
 
@@ -480,7 +486,7 @@ describe("AnimalsPage create dialog payload", () => {
   it("trims the tag number and the audit reason it POSTs", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
     const dialog = await openDialog(user);
 
     await user.type(within(dialog).getByLabelText("Tag number"), "  G-101  ");
@@ -504,7 +510,7 @@ describe("AnimalsPage create dialog payload", () => {
   it("rejects a whitespace-only historical import reason", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
     const dialog = await openDialog(user);
     await startImport(user, dialog);
 
@@ -539,7 +545,7 @@ describe("AnimalsPage create dialog payload", () => {
   it("restores the dialog defaults after a successful create", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
     let dialog = await openDialog(user);
     await user.type(within(dialog).getByLabelText("Tag number"), "G-777");
     await pickOption(user, within(dialog).getByLabelText("Sex *"), "Male");
@@ -564,11 +570,11 @@ describe("AnimalsPage create dialog payload", () => {
   it("returns the bucket to QUARANTINE when the source switches back", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
     const dialog = await openDialog(user);
     await startImport(user, dialog);
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
-    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
+    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("Breeding");
 
     await pickOption(user, within(dialog).getByLabelText("Source *"), "Purchased");
     await pickOption(
@@ -579,7 +585,7 @@ describe("AnimalsPage create dialog payload", () => {
 
     // A purchase is pinned to QUARANTINE, so returning to an import must not
     // silently re-offer the bucket chosen before that detour.
-    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("QUARANTINE");
+    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("Quarantine");
     expect(within(dialog).queryByText(/BREEDING imports require/)).not.toBeInTheDocument();
   });
 });

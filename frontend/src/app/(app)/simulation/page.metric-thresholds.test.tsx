@@ -304,7 +304,7 @@ describe("SimulationPage metric tint thresholds", () => {
     // print the figure it did produce.
     expect(within(metricCard("Payback month")).getByText("30")).toBeInTheDocument();
     expect(
-      within(metricCard("Break-even meat (₹/kg)")).getByText("₹320"),
+      within(metricCard("Break-even meat (₹/kg)")).getAllByText("₹320")[0],
     ).toBeInTheDocument();
   });
 

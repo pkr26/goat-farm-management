@@ -11,6 +11,7 @@ import { useVaccinationScheduleApiHealthScheduleAnimalIdGet } from "@/api/genera
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -84,8 +85,19 @@ function VaccinationSchedulePageContent() {
     permittedAppPath(searchParams.get("returnTo"), can) ??
     `/health?schedule_animal_id=${encodeURIComponent(params.animalId)}`;
 
+  // The header stays mounted while the permission set settles — a page that
+  // collapses to a bare "Loading…" line reads as a broken app on slow
+  // rural connections. The animal's identity arrives with the payload.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Vaccination schedule"
+          description="Due dates and boosters from the vaccination templates that apply to this animal."
+        />
+        <PageSkeleton cards={1} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -113,7 +125,18 @@ function VaccinationSchedulePageContent() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Vaccination schedule"
+          description="Due dates and boosters from the vaccination templates that apply to this animal."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading vaccination schedule…</span>
+          <TableSkeleton rows={6} columns={6} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -158,7 +181,21 @@ function VaccinationSchedulePageContent() {
             icon={Syringe}
             title="No vaccination templates apply to this animal."
             description="Templates are matched on the animal's bucket and age."
-          />
+          >
+            {/* Real deep link: /health/new forwards ?animal_id= to the record
+             * dialog on /health, so the CTA carries this animal's context. */}
+            {canManage && (
+              <Link
+                href={withReturnTo(
+                  `/health/new?animal_id=${payload.animal_id}`,
+                  `/health/schedule/${payload.animal_id}?returnTo=${encodeURIComponent(returnTo)}`,
+                )}
+                className={buttonVariants({ size: "sm" })}
+              >
+                Record a health event
+              </Link>
+            )}
+          </EmptyState>
         ) : (
           <Table>
             <TableHeader>
@@ -202,7 +239,18 @@ function VaccinationSchedulePageContent() {
 
 export default function VaccinationSchedulePage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div className="space-y-6" role="status" aria-live="polite">
+          <PageHeader
+            title="Vaccination schedule"
+            description="Due dates and boosters from the vaccination templates that apply to this animal."
+          />
+          <span className="sr-only">Loading vaccination schedule…</span>
+          <PageSkeleton cards={1} />
+        </div>
+      }
+    >
       <VaccinationSchedulePageContent />
     </Suspense>
   );

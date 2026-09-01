@@ -303,14 +303,14 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
     it("describes the animal by breed, sex and humanised bucket", async () => {
       await renderProfile();
 
-      expect(screen.getByText("Osmanabadi · Female · PREGNANCY EARLY")).toBeInTheDocument();
+      expect(screen.getByText("Osmanabadi · Female · Pregnancy A")).toBeInTheDocument();
     });
 
     it("describes a buck as Male in the same header line", async () => {
       useProfileHandler(profileWith({ sex: "M", current_bucket: "MALE_KIDS" }));
       await renderProfile();
 
-      expect(screen.getByText("Osmanabadi · Male · MALE KIDS")).toBeInTheDocument();
+      expect(screen.getByText("Osmanabadi · Male · Male kids")).toBeInTheDocument();
     });
 
     it("renders only the tag and the status badge when the animal has no name", async () => {
@@ -438,25 +438,26 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       await renderProfile();
       const rows = bodyRows(cardFor("Bucket moves (3)"));
 
+      // Bucket cells carry the humanised enum labels.
       expect(cellTexts(rows[0])).toEqual([
         "20 Jun 2026",
         "21-06-2026 01:45",
         "—",
-        "QUARANTINE",
+        "Quarantine",
         "",
       ]);
       expect(cellTexts(rows[1])).toEqual([
         "1 Jul 2026",
         "01-07-2026 10:00",
-        "QUARANTINE",
-        "FEMALE KIDS",
+        "Quarantine",
+        "Female kids",
         "Weaned into the doeling pen",
       ]);
       expect(cellTexts(rows[2])).toEqual([
         "25 Jul 2026",
         "25-07-2026 11:30",
-        "FEMALE KIDS",
-        "PREGNANCY EARLY",
+        "Female kids",
+        "Pregnancy A",
         "Confirmed pregnant",
       ]);
     });
@@ -473,9 +474,10 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       await renderProfile();
       const rows = bodyRows(cardFor("Health events (2)"));
 
+      // Type cells carry the humanised event labels.
       expect(cellTexts(rows[0])).toEqual([
         "10 Jul 2026",
-        "VACCINE",
+        "Vaccination",
         "PPR vaccine",
         "₹45.50",
         "10 Jul 2027",
@@ -483,7 +485,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       ]);
       expect(cellTexts(rows[1])).toEqual([
         "12 Jul 2026",
-        "DEWORMING",
+        "Deworming",
         "—",
         "—",
         "—",

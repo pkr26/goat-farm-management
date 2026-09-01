@@ -199,7 +199,7 @@ describe("KiddingPage copy and field wiring", () => {
 
   // ---------- page-level copy and fallbacks ----------
 
-  it("keeps the loading placeholder up while permissions are still in flight", async () => {
+  it("keeps the page shell up while permissions are still in flight", async () => {
     const gate = deferred();
     server.use(
       http.get("/api/auth/permissions", async () => {
@@ -210,7 +210,12 @@ describe("KiddingPage copy and field wiring", () => {
     const { waitForAuthIdle } = renderWithProviders(<KiddingPage />);
     await waitForAuthIdle();
 
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // The real header and skeleton stand in for the page — not a bare
+    // "Loading…" line.
+    expect(screen.getByRole("heading", { level: 1, name: "Kidding" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Confirmed pregnancies due soon and recent kidding history."),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("You don't have access to this page."),
     ).not.toBeInTheDocument();

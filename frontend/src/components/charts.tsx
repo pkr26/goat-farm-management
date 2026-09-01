@@ -246,3 +246,270 @@ export function BarList({
     </ul>
   );
 }
+
+export interface TrendPoint {
+  label: string;
+  value: number;
+  /** Optional formatted display value (e.g. ₹ strings) for tooltips/text. */
+  display?: string;
+}
+
+/**
+ * Signed vertical bar chart around a zero baseline — monthly P&L, net cash
+ * flow, any series where direction is the message. Bars above the baseline
+ * use chart-1, below use chart-3, so the picture survives color-blindness
+ * (position encodes the sign, color only reinforces it).
+ */
+export function TrendChart({
+  points,
+  className,
+  ariaLabel,
+  height = 160,
+}: {
+  points: TrendPoint[];
+  className?: string;
+  ariaLabel?: string;
+  height?: number;
+}) {
+  const width = 560;
+  const pad = 4;
+  const maxAbs = Math.max(...points.map((p) => Math.abs(p.value)), 1);
+  const zeroY = height / 2;
+  const slot = points.length > 0 ? (width - pad * 2) / points.length : width;
+  const barWidth = Math.max(Math.min(slot * 0.66, 28), 3);
+  return (
+    <div className={cn("w-full", className)}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-40 w-full"
+        role="img"
+        aria-label={
+          ariaLabel ??
+          `Trend: ${points.map((p) => `${p.label} ${p.display ?? p.value}`).join(", ")}`
+        }
+        preserveAspectRatio="none"
+      >
+        <line
+          x1={pad}
+          y1={zeroY}
+          x2={width - pad}
+          y2={zeroY}
+          stroke="var(--border)"
+          strokeWidth="1"
+        />
+        {points.map((p, i) => {
+          const magnitude = (Math.abs(p.value) / maxAbs) * (height / 2 - pad);
+          const x = pad + slot * i + (slot - barWidth) / 2;
+          const isNeg = p.value < 0;
+          return (
+            <rect
+              key={p.label}
+              x={x}
+              y={isNeg ? zeroY : zeroY - magnitude}
+              width={barWidth}
+              height={Math.max(magnitude, p.value === 0 ? 0 : 1.5)}
+              rx={Math.min(3, barWidth / 2)}
+              fill={isNeg ? "var(--chart-3)" : "var(--chart-1)"}
+              opacity={0.9}
+            >
+              <title>{`${p.label}: ${p.display ?? p.value}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+      <div className="mt-1 flex justify-between text-[0.65rem] text-muted-foreground">
+        <span>{points[0]?.label}</span>
+        {points.length > 2 && (
+          <span className="hidden sm:inline">
+            {points[Math.floor(points.length / 2)]?.label}
+          </span>
+        )}
+        <span>{points[points.length - 1]?.label}</span>
+      </div>
+    </div>
+  );
+}
+
+export interface HistogramBin {
+  /** Bin lower-edge label (already formatted by the caller). */
+  label: string;
+  value: number;
+  /** Optional count unit for tooltips (e.g. "runs"). */
+  unit?: string;
+}
+
+export interface HistogramMarker {
+  label: string;
+  value: number;
+  /** Strong markers render heavier (e.g. the median). */
+  strong?: boolean;
+}
+
+/**
+ * Vertical histogram with optional percentile/reference markers — the
+ * Monte-Carlo NPV distribution. Strong markers are solid; the rest dashed.
+ * `domain` (min/max in bin-edge units) is required when markers are given.
+ */
+export function Histogram({
+  bins,
+  markers,
+  domain,
+  className,
+  ariaLabel,
+  height = 180,
+}: {
+  bins: HistogramBin[];
+  /** Reference lines drawn in bin-edge units. */
+  markers?: HistogramMarker[];
+  domain?: [number, number];
+  className?: string;
+  ariaLabel?: string;
+  height?: number;
+}) {
+  const width = 560;
+  const pad = 6;
+  const maxCount = Math.max(...bins.map((b) => b.value), 1);
+  const slot = bins.length > 0 ? (width - pad * 2) / bins.length : width;
+  const barWidth = Math.max(slot * 0.8, 2);
+  const markerX = (value: number) => {
+    if (!domain || domain[1] <= domain[0]) return null;
+    const [lo, hi] = domain;
+    return pad + ((value - lo) / (hi - lo)) * (width - pad * 2);
+  };
+  const markerLines = (markers ?? []).flatMap((marker) => {
+    const x = markerX(marker.value);
+    if (x === null) return [];
+    return [
+      <line
+        key={`${marker.label}-${marker.value}`}
+        x1={x}
+        y1={2}
+        x2={x}
+        y2={height - 2}
+        stroke="var(--foreground)"
+        strokeOpacity={marker.strong ? 0.75 : 0.45}
+        strokeWidth={marker.strong ? 1.5 : 1}
+        strokeDasharray={marker.strong ? undefined : "4 3"}
+      >
+        <title>{`${marker.label}: ${marker.value}`}</title>
+      </line>,
+    ];
+  });
+  return (
+    <div className={cn("w-full", className)}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-44 w-full"
+        role="img"
+        aria-label={
+          ariaLabel ??
+          `Distribution: ${bins.map((b) => `${b.label}: ${b.value}`).join(", ")}`
+        }
+        preserveAspectRatio="none"
+      >
+        {bins.map((b, i) => {
+          const h = (b.value / maxCount) * (height - pad);
+          const x = pad + slot * i + (slot - barWidth) / 2;
+          return (
+            <rect
+              key={b.label}
+              x={x}
+              y={height - pad - h}
+              width={barWidth}
+              height={Math.max(h, b.value > 0 ? 1 : 0)}
+              fill="var(--chart-1)"
+              opacity={0.85}
+              rx={Math.min(2, barWidth / 3)}
+            >
+              <title>{`${b.label}: ${b.value}${b.unit ? ` ${b.unit}` : ""}`}</title>
+            </rect>
+          );
+        })}
+        {markerLines}
+      </svg>
+    </div>
+  );
+}
+
+export interface CurvePoint {
+  /** x value (e.g. days in milk) and y value (e.g. litres). */
+  x: number;
+  y: number;
+  /** Optional x-axis label override for sparse tick labels. */
+  xLabel?: string;
+}
+
+/** Smooth line chart with a soft area fill — lactation curves, yields over
+ * time. Points beyond `xTicks` get sparse first/middle/last labels. */
+export function LineChart({
+  points,
+  className,
+  ariaLabel,
+  yLabel,
+  height = 180,
+}: {
+  points: CurvePoint[];
+  className?: string;
+  ariaLabel?: string;
+  yLabel?: string;
+  height?: number;
+}) {
+  const width = 560;
+  const padY = 10;
+  const padX = 8;
+  if (points.length < 2) {
+    return (
+      <div
+        className={cn(
+          "flex h-28 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground",
+          className,
+        )}
+      >
+        Not enough data to plot yet.
+      </div>
+    );
+  }
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const px = (x: number) => padX + ((x - minX) / spanX) * (width - padX * 2);
+  const py = (y: number) => height - padY - ((y - minY) / spanY) * (height - padY * 2);
+  const line = points.map((p) => `${px(p.x).toFixed(1)},${py(p.y).toFixed(1)}`).join(" ");
+  const area = `${padX},${height - padY} ${line} ${width - padX},${height - padY}`;
+  const last = points[points.length - 1];
+  const ticks = [points[0], points[Math.floor(points.length / 2)], last];
+  return (
+    <div className={cn("w-full", className)}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-44 w-full"
+        role="img"
+        aria-label={
+          ariaLabel ?? `${yLabel ?? "series"} from ${ticks.map((p) => `${p.xLabel ?? p.x}: ${p.y}`).join(" to ")}`
+        }
+        preserveAspectRatio="none"
+      >
+        <polygon points={area} fill="var(--chart-1)" opacity={0.1} />
+        <polyline
+          points={line}
+          fill="none"
+          stroke="var(--chart-1)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx={px(last.x)} cy={py(last.y)} r="3" fill="var(--chart-1)" />
+      </svg>
+      <div className="mt-1 flex justify-between text-[0.65rem] text-muted-foreground">
+        {ticks.map((p, i) => (
+          <span key={`${p.x}-${i}`}>{p.xLabel ?? p.x}</span>
+        ))}
+      </div>
+    </div>
+  );
+}

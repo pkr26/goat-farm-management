@@ -286,7 +286,7 @@ function FarmSelectPageContent() {
                 <Input
                   id="name"
                   maxLength={120}
-                  placeholder="e.g. Navipet Osmanabadi Farm"
+                  placeholder="e.g. Your farm or dairy name"
                   aria-invalid={Boolean(errors.name) || undefined}
                   aria-describedby={errors.name ? "farm-name-error" : undefined}
                   {...register("name")}

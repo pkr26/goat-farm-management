@@ -5,9 +5,9 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, ShoppingCart } from "lucide-react";
+import { CheckCircle2, PawPrint, Plus, ShoppingCart } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -22,6 +22,7 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
+import { InlineLoading, PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +63,12 @@ import {
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { useUrlState } from "@/lib/use-url-state";
 import { PermissionsError } from "@/components/permissions-error";
+
+/** Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET for the batch list —
+ * a larger offset is a 422, so clamp the URL value into range. */
+const MAX_LIST_OFFSET = 1_000_000;
 
 function localToday(): string {
   return farmToday();
@@ -169,7 +175,7 @@ function BatchDetailDialog({
               {query.error instanceof ApiError ? query.error.detail : "Could not load the batch."}
             </p>
           ) : (
-            <p role="status" aria-live="polite" className="py-6 text-center text-muted-foreground">Loading…</p>
+            <InlineLoading className="justify-center py-6">Loading batch…</InlineLoading>
           )
         ) : (
           detail && (
@@ -186,7 +192,12 @@ function BatchDetailDialog({
               <section className="space-y-2">
                 <h3 className="font-medium">Animals created ({detail.animals_total})</h3>
                 {detail.animals.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No animal stubs for this batch.</p>
+                  <EmptyState
+                    icon={PawPrint}
+                    title="No animal stubs for this batch."
+                    description="This batch was recorded without creating animals."
+                    className="py-8"
+                  />
                 ) : (
                   <Table>
                     <TableHeader>
@@ -232,7 +243,12 @@ function BatchDetailDialog({
               <section className="space-y-2">
                 <h3 className="font-medium">Open quarantine tasks ({openTasks.length})</h3>
                 {openTasks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No open quarantine tasks.</p>
+                  <EmptyState
+                    icon={CheckCircle2}
+                    title="No open quarantine tasks."
+                    description="Every quarantine task for this batch is completed."
+                    className="py-8"
+                  />
                 ) : (
                   <Table>
                     <TableHeader>
@@ -264,7 +280,7 @@ function BatchDetailDialog({
   );
 }
 
-export default function PurchasesPage() {
+function PurchasesPageContent() {
   const vocabulary = farmVocabulary(useFarmType());
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("purchases.view");
@@ -277,9 +293,34 @@ export default function PurchasesPage() {
   /** Open/submit cycle fence: a late success must not close/reset a dialog
    *  the operator has since reopened and re-filled (finance addAttempt). */
   const createAttempt = useRef(0);
-  const [detailId, setDetailId] = useState<number | null>(null);
-  const [offset, setOffset] = useState(0);
+  // F-7: the list page and the open batch detail live in the URL, so refresh,
+  // back/forward and shared links reopen the same view. State stays the
+  // source of truth; edits write through with defaults stripped.
+  const { get: getUrl, getNumber: getUrlNumber, set: setUrlState } = useUrlState();
+  const [detailId, setDetailId] = useState<number | null>(() => {
+    const raw = getUrl("batch");
+    const parsed = raw === null ? Number.NaN : Number(raw);
+    return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
+  });
+  const [offset, setOffset] = useState(() =>
+    getUrlNumber("offset", 0, 0, MAX_LIST_OFFSET),
+  );
   const limit = 50;
+
+  function openDetail(id: number) {
+    setDetailId(id);
+    setUrlState({ batch: id });
+  }
+
+  function closeDetail() {
+    setDetailId(null);
+    setUrlState({ batch: null });
+  }
+
+  function changeOffset(next: number) {
+    setOffset(next);
+    setUrlState({ offset: next || null });
+  }
 
   const query = useListBatchesApiPurchasesGet(
     { limit, offset },
@@ -353,8 +394,19 @@ export default function PurchasesPage() {
     });
   }
 
+  // The header and layout stay mounted while permissions settle — a page that
+  // collapses to a bare "Loading…" line reads as a broken app on slow rural
+  // connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Purchase batches"
+          description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
+        />
+        <PageSkeleton cards={1} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -377,7 +429,18 @@ export default function PurchasesPage() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Purchase batches"
+          description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading purchase batches…</span>
+          <TableSkeleton />
+        </div>
+      </div>
+    );
   }
 
   const batches = payload.batches;
@@ -425,7 +488,39 @@ export default function PurchasesPage() {
           title="All batches"
           description={`${payload.total} batch${payload.total === 1 ? "" : "es"} recorded`}
         >
-          <Table>
+          {/* Below md the 10-column batch table becomes a card per batch —
+           * panning a 980px table inside a 390px phone is not a list, it's a
+           * scroll toy. */}
+          <div className="space-y-2 md:hidden">
+            {batches.map((b) => (
+              <div key={b.id} className="rounded-xl border bg-card p-3 shadow-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">
+                    #{b.id} · {formatDate(b.date)}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openDetail(b.id)}
+                  >
+                    View
+                  </Button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {b.supplier ?? "No supplier"} · {b.count} head
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                  {b.total_price !== null ? formatMoney(b.total_price) : "No price recorded"}
+                  {b.open_tasks
+                    ? ` · ${b.open_tasks} open task${b.open_tasks === 1 ? "" : "s"}`
+                    : ""}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="hidden md:block">
+          <Table className="min-w-[980px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Batch</TableHead>
@@ -459,7 +554,7 @@ export default function PurchasesPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" variant="outline" onClick={() => setDetailId(b.id)}>
+                    <Button size="sm" variant="outline" onClick={() => openDetail(b.id)}>
                       View
                     </Button>
                   </TableCell>
@@ -467,6 +562,7 @@ export default function PurchasesPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
           {listSettling && (
             <p role="status" className="pt-3 text-sm text-muted-foreground">
               Updating purchase batches…
@@ -476,7 +572,7 @@ export default function PurchasesPage() {
             total={payload.total}
             limit={payload.limit}
             offset={payload.offset}
-            onOffsetChange={setOffset}
+            onOffsetChange={changeOffset}
             label="purchase batches"
             disabled={listSettling}
           />
@@ -489,7 +585,7 @@ export default function PurchasesPage() {
         key={detailId ?? "none"}
         batchId={detailId}
         canViewAnimals={canViewAnimals}
-        onClose={() => setDetailId(null)}
+        onClose={closeDetail}
       />
 
       <Dialog
@@ -730,5 +826,21 @@ export default function PurchasesPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Suspense boundary required because the content reads useSearchParams(). */
+export default function PurchasesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton cards={1} />
+        </div>
+      }
+    >
+      <PurchasesPageContent />
+    </Suspense>
   );
 }

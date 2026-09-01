@@ -495,7 +495,7 @@ describe("SimulationPage festival month list", () => {
     ).not.toBeInTheDocument();
     expect(festivals).not.toHaveAttribute("aria-invalid");
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([]);
 
     // 40 entries is the documented ceiling, so 40 must still pass.
@@ -531,7 +531,7 @@ describe("SimulationPage non-finite API figures", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
 
     const cardFor = (label: string) =>
       screen.getByText(label).closest("div.rounded-xl") as HTMLElement;
@@ -627,14 +627,14 @@ describe("SimulationPage explanation figures", () => {
     const user = userEvent.setup();
     await renderLoaded();
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Explain Project cost" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Capacity Basis")).toBeInTheDocument();
     expect(within(dialog).getByText("projected_peak")).toBeInTheDocument();
-    expect(within(dialog).getByText("₹5,00,000")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("₹5,00,000")[0]).toBeInTheDocument();
     expect(within(dialog).getByText("58")).toBeInTheDocument();
   });
 });

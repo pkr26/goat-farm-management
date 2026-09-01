@@ -10,6 +10,7 @@ import type { AnimalIdentityOut } from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Table,
@@ -81,8 +82,18 @@ export default function ReportsPage() {
   const query = useReportsApiDashboardReportsGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
+  // The header stays mounted while data settles — a page that collapses to a
+  // bare "Loading…" line reads as a broken app on slow rural connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Reports"
+          description="Key herd, breeding and mortality numbers at a glance."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -105,7 +116,18 @@ export default function ReportsPage() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Reports"
+          description="Key herd, breeding and mortality numbers at a glance."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading reports…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   const { breeding, mortality } = payload;

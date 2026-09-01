@@ -35,7 +35,10 @@ export function EmptyState({
       <span className="relative flex size-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground ring-1 ring-border [&_svg]:size-6">
         <Icon aria-hidden="true" />
       </span>
-      <h3 className="relative font-heading text-base font-medium">{title}</h3>
+      {/* A visual paragraph, not a section heading: EmptyState often renders
+       * directly under a page's h1 with no h2 in between, and an h3 there
+       * skips a level for screen-reader users. */}
+      <p className="relative font-heading text-base font-medium">{title}</p>
       {hasDescription && (
         <p className="relative max-w-sm text-sm text-muted-foreground">
           {description}

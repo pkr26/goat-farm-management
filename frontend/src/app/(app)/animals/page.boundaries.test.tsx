@@ -189,7 +189,7 @@ describe("AnimalsPage branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
     const dialog = await openImportDialog(user);
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
     setDate(within(dialog).getByLabelText("Date of birth"), "2020-01-01");
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
@@ -203,11 +203,11 @@ describe("AnimalsPage branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
     const dialog = await openImportDialog(user, "");
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
 
     expect(
       within(dialog).getByText(
-        "BREEDING imports require a doe age of at least 10 months and an entry weight of at least 22 kg.",
+        "BREEDING imports require a doe of at least 10 months and 22 kg.",
       ),
     ).toBeInTheDocument();
   });
@@ -222,11 +222,11 @@ describe("AnimalsPage branches", () => {
       within(dialog).getAllByRole("combobox")[1],
       "Historical born-on-farm import",
     );
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
 
     expect(
       within(dialog).getByText(
-        "BREEDING imports require a buck age of at least 12 months and an entry weight of at least 25 kg.",
+        "BREEDING imports require a buck of at least 12 months and 25 kg.",
       ),
     ).toBeInTheDocument();
   });
@@ -243,7 +243,7 @@ describe("AnimalsPage branches", () => {
       within(dialog).getAllByRole("combobox")[1],
       "Historical born-on-farm import",
     );
-    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("QUARANTINE");
+    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("Quarantine");
     expect(within(dialog).queryByText(/BREEDING imports require/)).not.toBeInTheDocument();
   });
 

@@ -266,7 +266,7 @@ describe("DashboardPage — first-run onboarding", () => {
   it("shows the welcome card with linked steps for a truly empty farm", async () => {
     server.use(dashboardHandler(makePayload()));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(
       screen.getByText("Welcome to your new farm"),
@@ -301,7 +301,7 @@ describe("DashboardPage — first-run onboarding", () => {
       dashboardHandler(makePayload()),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
     expect(screen.queryByText("Welcome to your new farm")).not.toBeInTheDocument();
   });
 });
@@ -310,7 +310,7 @@ describe("DashboardPage — task stat urgency", () => {
   it("tints the task stat red while anything is overdue", async () => {
     server.use(dashboardHandler(COMPLETE));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const icon = statIcon("Tasks due + overdue");
     expect(icon).toHaveClass("bg-destructive/10", "text-destructive");
@@ -325,7 +325,7 @@ describe("DashboardPage — task stat urgency", () => {
       ),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const icon = statIcon("Tasks due + overdue");
     expect(icon).toHaveClass("bg-warning-tint", "text-warning-tint-foreground");
@@ -346,7 +346,7 @@ describe("DashboardPage — task stat urgency", () => {
       ),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const icon = statIcon("Tasks due + overdue");
     expect(icon).toHaveClass("bg-muted", "text-muted-foreground");
@@ -359,7 +359,7 @@ describe("DashboardPage — fully listed sections", () => {
   it("states each section's exact total and claims no truncation", async () => {
     server.use(dashboardHandler(COMPLETE));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByText("Overdue tasks (1)")).toBeInTheDocument();
     expect(screen.getByText("Today's tasks (2)")).toBeInTheDocument();
@@ -389,7 +389,7 @@ describe("DashboardPage — capped preview banner", () => {
     async (_section, totals) => {
       server.use(dashboardHandler(makePayload({ ...COMPLETE, ...totals })));
       renderWithProviders(<DashboardPage />);
-      await screen.findByRole("heading", { name: /Dashboard/ });
+      await screen.findByRole("heading", { name: /— Dashboard/ });
 
       expect(
         screen.getByText(/operational previews are capped at 20 rows/),
@@ -404,7 +404,7 @@ describe("DashboardPage — truncated previews", () => {
       dashboardHandler(makePayload({ ...COMPLETE, overdue_tasks_total: 5 })),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const notice = screen.getByText(/Showing 1 of 5\./);
     expect(notice).toHaveTextContent("Showing 1 of 5. View all overdue tasks");
@@ -419,7 +419,7 @@ describe("DashboardPage — truncated previews", () => {
       dashboardHandler(makePayload({ ...COMPLETE, overdue_tasks_total: 5 })),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByText(/Showing 1 of 5\./)).toBeInTheDocument();
     expect(
@@ -432,7 +432,7 @@ describe("DashboardPage — truncated previews", () => {
       dashboardHandler(makePayload({ ...COMPLETE, kiddings_due_total: 6 })),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const notice = screen.getByText(/Showing 2 of 6\./);
     expect(notice).toHaveTextContent("Showing 2 of 6. View the kidding register");
@@ -447,7 +447,7 @@ describe("DashboardPage — truncated previews", () => {
       dashboardHandler(makePayload({ ...COMPLETE, kiddings_due_total: 6 })),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByText(/Showing 2 of 6\./)).toBeInTheDocument();
     expect(
@@ -464,7 +464,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
     // withheld null as "the preview holds everything".
     server.use(dashboardHandler({ ...COMPLETE, cull_candidates_total: null }));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByText("Kiddings require breeding access.")).toBeInTheDocument();
     // No count may be asserted for a section the payload withheld.
@@ -476,7 +476,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
   it("treats a null recent-weights total as withholding the move suggestions too", async () => {
     server.use(dashboardHandler({ ...COMPLETE, recent_weights_total: null }));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(
       screen.getByText("Move suggestions require animal and breeding access."),
@@ -493,7 +493,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
       dashboardHandler({ ...COMPLETE, suggestions_total: 9, recent_weights_total: null }),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(
       screen.getByText("Move suggestions require animal and breeding access."),
@@ -513,7 +513,7 @@ describe("DashboardPage — withheld sections vs. real counts", () => {
       ),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(
       screen.getByText("2 cull candidate(s) — flagged in breeding records"),
@@ -588,7 +588,7 @@ describe("DashboardPage — untagged doe rows", () => {
   it("links an untagged kidding row by its doe id", async () => {
     server.use(dashboardHandler(untagged()));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByRole("link", { name: "Doe #11" })).toHaveAttribute(
       "href",
@@ -602,7 +602,7 @@ describe("DashboardPage — untagged doe rows", () => {
       dashboardHandler(untagged()),
     );
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByText("Doe #11")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Doe #11" })).not.toBeInTheDocument();
@@ -654,16 +654,16 @@ describe("DashboardPage — shortcut styling and gating", () => {
     ];
     expect(actions).toHaveLength(6);
     for (const action of actions) {
-      expect(action).toHaveClass("border-border", "bg-background", "h-8");
+      expect(action).toHaveClass("border-border", "bg-background", "h-9");
       expect(action).not.toHaveClass("bg-primary");
-      expect(action).not.toHaveClass("h-9");
+      expect(action).toHaveClass("text-[0.8rem]");
     }
   });
 
   it("renders every card shortcut as a small ghost button", async () => {
     server.use(dashboardHandler(COMPLETE));
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /Dashboard/ });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const shortcuts = [
       screen.getByRole("link", { name: "View all" }),
@@ -672,10 +672,10 @@ describe("DashboardPage — shortcut styling and gating", () => {
     ];
     expect(shortcuts).toHaveLength(4);
     for (const shortcut of shortcuts) {
-      expect(shortcut).toHaveClass("hover:bg-muted", "h-8");
+      expect(shortcut).toHaveClass("hover:bg-muted", "h-9");
       expect(shortcut).not.toHaveClass("bg-primary");
       expect(shortcut).not.toHaveClass("bg-background");
-      expect(shortcut).not.toHaveClass("h-9");
+      expect(shortcut).toHaveClass("text-[0.8rem]");
     }
   });
 
@@ -689,9 +689,9 @@ describe("DashboardPage — shortcut styling and gating", () => {
     await screen.findByText(/No weight records yet/);
 
     const invite = screen.getByRole("link", { name: "Add your first animal" });
-    expect(invite).toHaveClass("border-border", "bg-background", "h-8");
+    expect(invite).toHaveClass("border-border", "bg-background", "h-9");
     expect(invite).not.toHaveClass("bg-primary");
-    expect(invite).not.toHaveClass("h-9");
+    expect(invite).toHaveClass("text-[0.8rem]");
   });
 
   it("hides the first-animal invite without animals.create", async () => {

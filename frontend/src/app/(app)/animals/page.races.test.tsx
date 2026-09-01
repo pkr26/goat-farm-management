@@ -175,7 +175,7 @@ describe("AnimalsPage — create dialog lifecycle", () => {
 
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
 
     await user.click(screen.getByRole("button", { name: "Add animal" }));
     const dialog = await screen.findByRole("dialog");

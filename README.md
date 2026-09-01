@@ -1,4 +1,4 @@
-# Goat & Buffalo Dairy Farm Management
+# Herdly — Goat & Buffalo Dairy Farm Management
 
 Multi-farm, multi-species web app for commercial livestock in Telangana,
 India: **Osmanabadi** goat (meat) herds and **Murrah buffalo** dairy (milk)

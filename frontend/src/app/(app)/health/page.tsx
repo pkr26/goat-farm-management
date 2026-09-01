@@ -4,7 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Plus, Syringe } from "lucide-react";
+import { CalendarClock, Plus, SearchX, Syringe } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -26,6 +26,7 @@ import {
   type HealthBulkTargetIn,
   type HealthBulkTargetPreviewOut,
   type HealthEventIn,
+  type HealthEventOut,
   type TaskOut,
 } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
@@ -38,6 +39,12 @@ import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
+import {
+  CardSkeleton,
+  InlineLoading,
+  PageSkeleton,
+  TableSkeleton,
+} from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -84,6 +91,7 @@ import {
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { useUrlState } from "@/lib/use-url-state";
 
 import { taskPrefill } from "./task-prefill";
 import { PermissionsError } from "@/components/permissions-error";
@@ -104,6 +112,9 @@ const ROUTE_ITEMS: Record<string, string> = {
   [NONE]: "—",
   ...Object.fromEntries(ROUTES.map((r) => [r, r])),
 };
+const EVENT_TYPE_ITEMS: Record<string, string> = Object.fromEntries(
+  EVENT_TYPES.map((t) => [t, enumLabel("eventType", t)]),
+);
 
 function localToday(): string {
   return farmToday();
@@ -129,6 +140,33 @@ function NextDue({ date }: { date: string }) {
       {formatDate(date)}
     </Badge>
   );
+}
+
+/** Animal/target label for one event row — shared by the desktop table cell
+ *  and the mobile card so the two never drift. */
+function EventAnimalLabel({
+  event,
+  canViewAnimals,
+}: {
+  event: HealthEventOut;
+  canViewAnimals: boolean;
+}) {
+  if (event.animal_tag && canViewAnimals) {
+    return (
+      <Link
+        href={withReturnTo(`/animals/${event.animal_id}`, "/health")}
+        className="text-primary underline"
+      >
+        {event.animal_tag}
+      </Link>
+    );
+  }
+  if (event.animal_tag) return <>{event.animal_tag}</>;
+  if (event.purchase_batch_id) return <>batch #{event.purchase_batch_id}</>;
+  if (event.animal_id !== null) return <>#{event.animal_id}</>;
+  // Animal-scoped rows keep #id; reaching this branch with every id null
+  // means the event targeted a whole bucket.
+  return <span className="text-muted-foreground">bucket-wide</span>;
 }
 
 const eventSchema = z
@@ -384,7 +422,12 @@ function HealthPageContent() {
   const hasDeepLink = ["task_id", "animal_id", "purchase_batch_id"].some((key) =>
     searchParams.has(key),
   );
-  const [eventOffset, setEventOffset] = useState(0);
+  // The event-log page lives in the URL (back/forward and refresh keep the
+  // page you were on); `offset` is dropped when it returns to the first page.
+  const { getNumber, set: setUrlState } = useUrlState();
+  const eventOffset = getNumber("offset", 0, 0, 1_000_000);
+  const setEventOffset = (next: number) =>
+    setUrlState({ offset: next > 0 ? next : null });
   const eventLimit = 50;
 
   const eventsQuery = useListEventsApiHealthEventsGet(
@@ -921,8 +964,19 @@ function HealthPageContent() {
     await eventSubmission.run(() => submitEvent(values));
   }
 
+  // The header and page structure stay mounted while the permission set
+  // settles — a page that collapses to a bare "Loading…" line reads as a
+  // broken app on slow rural connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Health"
+          description="Vaccinations, deworming and treatments across the herd."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -947,7 +1001,23 @@ function HealthPageContent() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Health"
+          description="Vaccinations, deworming and treatments across the herd."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading health events…</span>
+          {/* Mirrors the mounted page: the schedule picker card above the
+           * event-log table region. */}
+          <div className="space-y-6">
+            <CardSkeleton lines={2} />
+            <TableSkeleton rows={6} columns={6} />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const events = eventPayload.events;
@@ -1028,7 +1098,48 @@ function HealthPageContent() {
             )}
           </EmptyState>
         ) : (
-          <Table className="min-w-[900px]">
+          <>
+            {/* Below md the 10-column log becomes a card per event — panning
+             * a 900px table inside a 390px phone is not a log, it's a scroll
+             * toy. Cards carry the key fields (date, type, animal, next due). */}
+            <div className="space-y-2 md:hidden">
+              {events.map((e) => (
+                <div key={e.id} className="rounded-xl border bg-card p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <StatusBadge status={e.type}>{enumLabel("eventType", e.type)}</StatusBadge>
+                    <span className="text-xs text-muted-foreground">{formatDate(e.date)}</span>
+                  </div>
+                  <p className="mt-1 text-sm font-medium">
+                    <EventAnimalLabel event={e} canViewAnimals={canViewAnimals} />
+                  </p>
+                  {e.product_name && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{e.product_name}</p>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {e.next_due_date ? (
+                      <>
+                        Next due: <NextDue date={e.next_due_date} />
+                        {e.schedule_template_name && (
+                          <span className="block">
+                            {e.schedule_template_name}
+                            {e.next_due_authority ? ` · ${e.next_due_authority}` : ""}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      "No next due date"
+                    )}
+                  </p>
+                  {e.suspected_scheduled_disease && (
+                    <Badge variant="destructive" className="mt-1">
+                      Scheduled disease suspected
+                    </Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="hidden md:block">
+            <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
@@ -1051,24 +1162,7 @@ function HealthPageContent() {
                     <StatusBadge status={e.type}>{enumLabel("eventType", e.type)}</StatusBadge>
                   </TableCell>
                   <TableCell>
-                    {e.animal_tag && canViewAnimals ? (
-                      <Link
-                        href={withReturnTo(`/animals/${e.animal_id}`, "/health")}
-                        className="text-primary underline"
-                      >
-                        {e.animal_tag}
-                      </Link>
-                    ) : e.animal_tag ? (
-                      e.animal_tag
-                    ) : e.purchase_batch_id ? (
-                      `batch #${e.purchase_batch_id}`
-                    ) : e.animal_id !== null ? (
-                      `#${e.animal_id}`
-                    ) : (
-                      // Animal-scoped rows keep #id; reaching this branch with
-                      // every id null means the event targeted a whole bucket.
-                      <span className="text-muted-foreground">bucket-wide</span>
-                    )}
+                    <EventAnimalLabel event={e} canViewAnimals={canViewAnimals} />
                   </TableCell>
                   <TableCell>{e.product_name ?? "—"}</TableCell>
                   <TableCell>{e.disease_target ?? "—"}</TableCell>
@@ -1141,6 +1235,8 @@ function HealthPageContent() {
               ))}
             </TableBody>
           </Table>
+            </div>
+          </>
         )}
         {eventsSettling && (
           <p role="status" className="pt-3 text-sm text-muted-foreground">
@@ -1314,17 +1410,29 @@ function HealthPageContent() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="mt-2 text-xs">No active animals are in this reviewed target.</p>
+                  <EmptyState
+                    icon={SearchX}
+                    title="No active animals are in this reviewed target."
+                    description="Pick a different target above — recording this one would save nothing."
+                    className="mt-2 py-8"
+                  />
                 )}
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs font-medium">
                     Review exact animal IDs
                   </summary>
-                  <p className="mt-1 break-words font-mono text-xs">
-                    {bulkPreview.target_animal_ids.length > 0
-                      ? bulkPreview.target_animal_ids.join(", ")
-                      : "No active animal IDs were returned."}
-                  </p>
+                  {bulkPreview.target_animal_ids.length > 0 ? (
+                    <p className="mt-1 break-words font-mono text-xs">
+                      {bulkPreview.target_animal_ids.join(", ")}
+                    </p>
+                  ) : (
+                    <EmptyState
+                      icon={SearchX}
+                      title="No active animal IDs were returned."
+                      description="The reviewed snapshot is empty — choose a different target above."
+                      className="mt-1 py-8"
+                    />
+                  )}
                 </details>
               </div>
             )}
@@ -1349,6 +1457,7 @@ function HealthPageContent() {
                   onValueChange={(v) =>
                     setValue("type", v as EventValues["type"], { shouldValidate: true })
                   }
+                  items={EVENT_TYPE_ITEMS}
                 >
                   <SelectTrigger id="event-type" className="w-full">
                     <SelectValue />
@@ -1356,7 +1465,7 @@ function HealthPageContent() {
                   <SelectContent>
                     {EVENT_TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {t}
+                        {enumLabel("eventType", t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1456,9 +1565,7 @@ function HealthPageContent() {
                 )}
               </div>
               {canViewTasks && tasksQuery.isLoading && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Loading linked duties…
-                </p>
+                <InlineLoading>Loading linked duties…</InlineLoading>
               )}
               {canViewTasks && tasksQuery.isError && (
                 <div
@@ -1558,13 +1665,7 @@ function HealthPageContent() {
                               errors.schedule_template_name ? "schedule-template-error" : undefined
                             }
                           >
-                            <SelectValue
-                              placeholder={
-                                scheduleTemplates.isLoading
-                                  ? "Loading programmes…"
-                                  : "Select a seeded programme"
-                              }
-                            />
+                            <SelectValue placeholder="Select a seeded programme" />
                           </SelectTrigger>
                           <SelectContent>
                             {templateOptions.map((template) => (
@@ -1586,6 +1687,9 @@ function HealthPageContent() {
                       aria-describedby={errors.schedule_template_name ? "schedule-template-error" : undefined}
                       {...register("schedule_template_name")}
                     />
+                  )}
+                  {templateIsSeeded && scheduleTemplates.isLoading && (
+                    <InlineLoading>Loading programmes…</InlineLoading>
                   )}
                   {errors.schedule_template_name && (
                     <p id="schedule-template-error" role="alert" className="text-sm text-destructive">
@@ -1806,7 +1910,18 @@ function HealthPageContent() {
 
 export default function HealthPage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div className="space-y-6" role="status" aria-live="polite">
+          <PageHeader
+            title="Health"
+            description="Vaccinations, deworming and treatments across the herd."
+          />
+          <span className="sr-only">Loading health events…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      }
+    >
       <HealthPageContent />
     </Suspense>
   );

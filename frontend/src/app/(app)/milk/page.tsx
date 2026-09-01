@@ -12,10 +12,16 @@ import {
   useMilkListApiMilkGet,
   useMilkSummaryEndpointApiMilkSummaryGet,
 } from "@/api/generated/endpoints";
-import type { MilkRecordIn } from "@/api/generated/models";
+import type {
+  MilkAnimalSummaryOut,
+  MilkDayTotalOut,
+  MilkRecordIn,
+} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
+import { LineChart, Sparkline } from "@/components/charts";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -41,11 +47,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  SortableTableHead,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
-import { farmToday, formatLitres } from "@/lib/format";
+import { farmToday, formatDate, formatLitres } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -62,8 +70,20 @@ function shiftTime(shift: string): string {
   return "7:30 PM";
 }
 
+/** "2026-08-05" → "5 Aug" — the shared formatter's date without the year, for
+ *  chart tick labels that must stay narrow. */
+function shortDay(iso: string): string {
+  return formatDate(iso).replace(/ \d{4}$/, "");
+}
+
 export default function MilkPage() {
   const { can, loading, isError , refetch } = usePermissions();
+  // The permissions query is disabled until the auth bootstrap selects a
+  // farm; `loading` alone is false during that window while the permission
+  // set is still empty — deciding "no permission" then would flash a denial
+  // at a signed-in operator. The skeleton stays up until the session (and
+  // with it the permission fetch) is real.
+  const { loading: authLoading } = useAuth();
   const vocabulary = farmVocabulary(useFarmType());
   const queryClient = useQueryClient();
   const [animalId, setAnimalId] = useState("");
@@ -71,6 +91,12 @@ export default function MilkPage() {
   const [litres, setLitres] = useState("");
   const [fatPct, setFatPct] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  /** Client-side sort of the readings table — the API's newest-first order is
+   *  the default; clicking a header sorts what you can see. */
+  const [sortState, setSortState] = useState<{
+    column: "date" | "litres";
+    direction: "asc" | "desc";
+  } | null>(null);
   const submit = useSingleFlight();
 
   const allowed = can("milk.view");
@@ -99,7 +125,11 @@ export default function MilkPage() {
   const records =
     listing.data?.status === 200 ? listing.data.data.records : undefined;
 
-  const todayTotal = summaryData?.daily?.find((day: { date: string }) => day.date === today);
+  const todayTotal = summaryData?.daily.find((day: MilkDayTotalOut) => day.date === today);
+  /** Per-day herd litres across the summary window — feeds the sparkline and
+   *  the trend card, both of which need at least two points to be a trend. */
+  const dailySeries: MilkDayTotalOut[] = summaryData?.daily ?? [];
+  const sparklineLitres = dailySeries.slice(-14).map((day) => day.litres);
 
   async function onSubmit() {
     setFormError(null);
@@ -142,11 +172,18 @@ export default function MilkPage() {
     });
   }
 
-  if (loading) {
+  const femaleAdultLabel =
+    vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
+
+  if (loading || authLoading) {
     return (
-      <p className="py-10 text-center text-muted-foreground" role="status">
-        Loading…
-      </p>
+      <div className="space-y-6">
+        <PageHeader
+          title="Milk"
+          description={`${femaleAdultLabel} yields by milking shift, herd daily totals and ${SUMMARY_WINDOW_DAYS}-day averages.`}
+        />
+        <PageSkeleton stats={3} cards={3} />
+      </div>
     );
   }
   if (isError) {
@@ -169,8 +206,23 @@ export default function MilkPage() {
     );
   }
 
-  const femaleAdultLabel =
-    vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1);
+  const readingsSort = sortState;
+  const toggleSort = (column: string) => {
+    setSortState((prev) =>
+      prev?.column === column
+        ? prev.direction === "asc"
+          ? { column: column as "date" | "litres", direction: "desc" }
+          : null
+        : { column: column as "date" | "litres", direction: "asc" },
+    );
+  };
+  const sortedRecords = readingsSort
+    ? [...(records ?? [])].sort((a, b) => {
+        const dir = readingsSort.direction === "asc" ? 1 : -1;
+        if (readingsSort.column === "date") return a.date.localeCompare(b.date) * dir;
+        return (a.litres - b.litres) * dir;
+      })
+    : (records ?? []);
 
   return (
     <div className="space-y-6">
@@ -200,6 +252,11 @@ export default function MilkPage() {
               ? `${todayTotal.recorded_animals} ${vocabulary.species} milked${todayTotal.avg_fat_pct != null ? ` · ${todayTotal.avg_fat_pct.toFixed(1)}% fat` : ""}`
               : "No readings yet today"
           }
+          footer={
+            sparklineLitres.length >= 2 ? (
+              <Sparkline data={sparklineLitres} ariaLabel="Herd litres, last 14 days" />
+            ) : undefined
+          }
         />
         <StatCard
           icon={ChartColumn}
@@ -214,6 +271,28 @@ export default function MilkPage() {
           hint={`${vocabulary.typeLabel} benchmark 6.5–7.5%`}
         />
       </div>
+
+      {dailySeries.length >= 2 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Herd milk trend</CardTitle>
+            <CardDescription>
+              Daily herd litres across the {SUMMARY_WINDOW_DAYS}-day window.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LineChart
+              ariaLabel={`Herd milk trend, daily litres over the last ${SUMMARY_WINDOW_DAYS} days`}
+              yLabel="litres"
+              points={dailySeries.map((day, index) => ({
+                x: index,
+                y: day.litres,
+                xLabel: shortDay(day.date),
+              }))}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {canRecord && (
         <Card>
@@ -326,7 +405,7 @@ export default function MilkPage() {
               </Button>
             </div>
           ) : listing.isPending ? (
-            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+            <InlineLoading>Loading…</InlineLoading>
           ) : (records?.length ?? 0) === 0 ? (
             <EmptyState
               icon={Droplets}
@@ -339,20 +418,33 @@ export default function MilkPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{femaleAdultLabel}</TableHead>
+                  <SortableTableHead
+                    column="date"
+                    label="Date"
+                    direction={readingsSort?.column === "date" ? readingsSort.direction : null}
+                    onSort={toggleSort}
+                  />
                   <TableHead>Shift</TableHead>
-                  <TableHead className="text-right tabular-nums">Litres</TableHead>
-                  <TableHead className="text-right tabular-nums">Fat %</TableHead>
+                  <SortableTableHead
+                    column="litres"
+                    label="Litres"
+                    className="text-right"
+                    direction={readingsSort?.column === "litres" ? readingsSort.direction : null}
+                    onSort={toggleSort}
+                  />
+                  <TableHead className="text-right">Fat %</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(records ?? []).map((record) => (
+                {sortedRecords.map((record) => (
                   <TableRow key={record.id}>
                     <TableCell className="font-medium">{record.animal_tag}</TableCell>
+                    <TableCell>{formatDate(record.date)}</TableCell>
                     <TableCell>{enumLabel("shift", record.shift)}</TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-right">
                       {record.litres.toFixed(1)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-right">
                       {record.fat_pct != null ? record.fat_pct.toFixed(1) : "—"}
                     </TableCell>
                   </TableRow>
@@ -387,7 +479,7 @@ export default function MilkPage() {
               </Button>
             </div>
           ) : summary.isPending ? (
-            <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+            <InlineLoading>Loading…</InlineLoading>
           ) : (summaryData?.animals?.length ?? 0) === 0 ? (
             <EmptyState
               icon={ChartColumn}
@@ -400,24 +492,24 @@ export default function MilkPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{femaleAdultLabel}</TableHead>
-                  <TableHead className="text-right tabular-nums">Days milked</TableHead>
-                  <TableHead className="text-right tabular-nums">Total L</TableHead>
-                  <TableHead className="text-right tabular-nums">Avg L/day</TableHead>
-                  <TableHead className="text-right tabular-nums">Avg fat %</TableHead>
+                  <TableHead className="text-right">Days milked</TableHead>
+                  <TableHead className="text-right">Total L</TableHead>
+                  <TableHead className="text-right">Avg L/day</TableHead>
+                  <TableHead className="text-right">Avg fat %</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(summaryData?.animals ?? []).map((animal: { animal_id: number; animal_tag: string; total_litres: number; avg_daily_litres: number; days_recorded: number; avg_fat_pct: number | null }) => (
+                {(summaryData?.animals ?? []).map((animal: MilkAnimalSummaryOut) => (
                   <TableRow key={animal.animal_id}>
                     <TableCell className="font-medium">{animal.animal_tag}</TableCell>
-                    <TableCell className="text-right tabular-nums">{animal.days_recorded}</TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-right">{animal.days_recorded}</TableCell>
+                    <TableCell className="text-right">
                       {formatLitres(animal.total_litres)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-right">
                       {animal.avg_daily_litres.toFixed(1)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    <TableCell className="text-right">
                       {animal.avg_fat_pct != null ? animal.avg_fat_pct.toFixed(1) : "—"}
                     </TableCell>
                   </TableRow>

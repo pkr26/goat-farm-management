@@ -257,7 +257,11 @@ describe("VaccinationSchedulePage", () => {
     );
     renderWithProviders(<VaccinationSchedulePage />);
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The page holds its header + skeleton, not a bare "Loading…" line.
+    expect(
+      await screen.findByRole("heading", { name: "Vaccination schedule" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(
       screen.queryByText("You don't have access to this page."),
     ).not.toBeInTheDocument();

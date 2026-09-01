@@ -425,9 +425,9 @@ describe("SimulationPage Monte Carlo sign boundaries", () => {
     expect(metricTint("P5")).toHaveClass("bg-muted");
     expect(within(metricCard("P5")).getByText("-₹10,000")).toBeInTheDocument();
 
-    expect(within(metricCard("NPV mean")).getByText("₹0")).toBeInTheDocument();
-    expect(within(metricCard("Minimum cash P5")).getByText("₹0")).toBeInTheDocument();
-    expect(within(metricCard("Minimum cash P50")).getByText("₹0")).toBeInTheDocument();
+    expect(within(metricCard("NPV mean")).getAllByText("₹0")[0]).toBeInTheDocument();
+    expect(within(metricCard("Minimum cash P5")).getAllByText("₹0")[0]).toBeInTheDocument();
+    expect(within(metricCard("Minimum cash P50")).getAllByText("₹0")[0]).toBeInTheDocument();
     for (const label of ["P(NPV < 0)", "P(cash shortfall)", "P(DSCR < 1)"])
       expect(within(metricCard(label)).getByText("0.0%")).toBeInTheDocument();
     expect(
@@ -529,7 +529,7 @@ describe("SimulationPage sensitivity sign boundaries", () => {
       screen.queryByRole("columnheader", { name: "ΔNPV low" }),
     ).not.toBeInTheDocument();
     // The rest of the result is still there — only the empty card is gone.
-    expect(screen.getByText("₹2,34,567")).toBeInTheDocument();
+    expect(screen.getAllByText("₹2,34,567")[0]).toBeInTheDocument();
   });
 });
 
@@ -558,10 +558,12 @@ describe("SimulationPage permission gate", () => {
     expect(
       screen.queryByText("You don't have access to this page."),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("heading", { level: 1, name: "Simulation" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Simulation" })).toBeInTheDocument();
+    expect(screen.queryByText("Horizon Months")).not.toBeInTheDocument();
 
+    // The skeleton can paint before the (farm-gated) permissions request
+    // leaves; release only once it is actually in flight.
+    await waitFor(() => expect(releasePerms).toBeTypeOf("function"));
     releasePerms();
     expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
     expect(
@@ -719,7 +721,9 @@ describe("SimulationPage write gates", () => {
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
     await waitFor(() => expect(releaseRun).toBeTypeOf("function"));
 
-    expect(screen.getByRole("button", { name: "Running…" })).toBeDisabled();
+    const running = screen.getAllByRole("button", { name: "Running…" });
+    expect(running.length).toBeGreaterThan(0);
+    for (const button of running) expect(button).toBeDisabled();
     expect(screen.getByRole("button", { name: "Compare selected" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save as scenario" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Update Plan 1" })).toBeDisabled();

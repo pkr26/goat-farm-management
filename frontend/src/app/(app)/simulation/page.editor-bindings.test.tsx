@@ -376,7 +376,7 @@ describe("SimulationPage comma-separated lists", () => {
     ).not.toBeInTheDocument();
 
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([4, 9]);
   });
 });
@@ -424,7 +424,7 @@ describe("SimulationPage event row identity", () => {
     expect(screen.getByLabelText("Month")).toHaveValue(90);
 
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.events).toEqual([
       {
         month: 90,
@@ -753,7 +753,7 @@ describe("SimulationPage stored growth curve", () => {
     expect(runButton()).toBeEnabled();
 
     await user.click(runButton());
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.growth?.weight_by_age_months).toEqual(curve);
   });
 });

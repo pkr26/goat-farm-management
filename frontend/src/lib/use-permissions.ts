@@ -26,7 +26,11 @@ export function usePermissions() {
     !query.isError && query.data?.status === 200 ? query.data.data : undefined;
   const perms = new Set(payload?.permissions ?? []);
   return {
-    loading: query.isLoading,
+    // While the auth bootstrap hasn't produced a farm yet the permissions
+    // query is disabled — isLoading is false with an EMPTY set. Treating
+    // that window as "loaded" let every page flash "You don't have access"
+    // for a beat before the real answer arrived.
+    loading: query.isLoading || farmId === null,
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,

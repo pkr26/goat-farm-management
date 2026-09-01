@@ -977,7 +977,7 @@ describe("TeamPage role cards copy", () => {
     const card = roleCard("Manager");
     // The badge reads as the semantic warning variant, not a raw palette tint.
     const badge = within(card).getByText("Preset").closest("[data-slot=badge]");
-    expect(badge).toHaveAttribute("data-variant", "warning");
+    expect(badge).toHaveAttribute("data-variant", "secondary");
     expect(within(card).getByText("Manager").parentElement).toHaveTextContent("Manager Preset");
   });
 

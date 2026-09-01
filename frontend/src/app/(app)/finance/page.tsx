@@ -52,14 +52,17 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  SortableTableHead,
 } from "@/components/ui/table";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
+import { PageSkeleton } from "@/components/skeletons";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -523,6 +526,12 @@ function CorrectionDialog({
 
 function FinancePageContent() {
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
+  // The permissions query is disabled until the auth bootstrap selects a
+  // farm; `permsLoading` alone is false during that window while the
+  // permission set is still empty — deciding "no access" then would flash a
+  // denial at a signed-in operator. The skeleton stays up until the session
+  // (and with it the permission fetch) is real.
+  const { loading: authLoading } = useAuth();
   const allowed = can("finance.view");
   const canManage = can("finance.manage");
   const canViewAnimals = can("animals.view");
@@ -562,6 +571,12 @@ function FinancePageContent() {
   const [formError, setFormError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const limit = 50;
+  /** Client-side sort of the fetched ledger page — the API's recency order is
+   * the default; clicking a header sorts what you can see. */
+  const [sortState, setSortState] = useState<{
+    column: "date" | "amount";
+    direction: "asc" | "desc";
+  } | null>(null);
 
   /** Mirror the active filters into the URL without adding a history entry
    *  or scrolling the ledger out of view; unknown params are preserved. */
@@ -579,6 +594,16 @@ function FinancePageContent() {
     else params.delete("category");
     const rest = params.toString();
     router.replace(rest ? `${pathname}?${rest}` : pathname, { scroll: false });
+  }
+
+  /** One-shot filter reset shared by the Clear chip and the empty-state CTA:
+   * clears month/type/category and returns to the first page in one URL write. */
+  function clearLedgerFilters() {
+    setMonth("");
+    setTypeFilter(ALL);
+    setCategoryFilter(ALL);
+    setOffset(0);
+    replaceLedgerUrl("", ALL, ALL);
   }
 
   // Omit inactive filters entirely: the Orval URL builder serializes `null`
@@ -661,8 +686,19 @@ function FinancePageContent() {
     });
   }
 
-  if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+  // The header and page structure stay mounted while permissions settle — a
+  // page that collapses to a bare "Loading…" line reads as a broken app on
+  // slow rural connections.
+  if (permsLoading || authLoading) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Finance"
+          description="Income, expenses and monthly profit & loss for the farm."
+        />
+        <PageSkeleton stats={3} cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -685,10 +721,38 @@ function FinancePageContent() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Finance"
+          description="Income, expenses and monthly profit & loss for the farm."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading finance…</span>
+          <PageSkeleton stats={3} cards={2} />
+        </div>
+      </div>
+    );
   }
 
   const net = payload.total_income - payload.total_expense;
+  const sort = sortState;
+  const toggleSort = (column: string) => {
+    setSortState((prev) =>
+      prev?.column === column
+        ? prev.direction === "asc"
+          ? { column: column as "date" | "amount", direction: "desc" }
+          : null
+        : { column: column as "date" | "amount", direction: "asc" },
+    );
+  };
+  const sortedTransactions = sort
+    ? [...payload.transactions].sort((a, b) => {
+        const dir = sort.direction === "asc" ? 1 : -1;
+        if (sort.column === "date") return a.date.localeCompare(b.date) * dir;
+        return (a.amount - b.amount) * dir;
+      })
+    : payload.transactions;
 
   return (
     <div className="space-y-6">
@@ -730,6 +794,7 @@ function FinancePageContent() {
           <EmptyState
             icon={ReceiptText}
             title="No transactions yet."
+            description="Record income and expenses to build the monthly P&L."
             className="py-8"
           />
         ) : (
@@ -849,13 +914,7 @@ function FinancePageContent() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setMonth("");
-                setTypeFilter(ALL);
-                setCategoryFilter(ALL);
-                setOffset(0);
-                replaceLedgerUrl("", ALL, ALL);
-              }}
+              onClick={clearLedgerFilters}
             >
               Clear
             </Button>
@@ -869,7 +928,11 @@ function FinancePageContent() {
               icon={ReceiptText}
               title="No transactions match."
               description="Try clearing the filters."
-            />
+            >
+              <Button type="button" variant="outline" size="sm" onClick={clearLedgerFilters}>
+                Clear filters
+              </Button>
+            </EmptyState>
           ) : (
             // No filters active and nothing in range: the farm has no ledger yet.
             <EmptyState
@@ -888,10 +951,21 @@ function FinancePageContent() {
           <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
+                <SortableTableHead
+                  column="date"
+                  label="Date"
+                  direction={sort?.column === "date" ? sort.direction : null}
+                  onSort={toggleSort}
+                />
                 <TableHead>Type</TableHead>
                 <TableHead>Category</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
+                <SortableTableHead
+                  column="amount"
+                  label="Amount"
+                  className="text-right"
+                  direction={sort?.column === "amount" ? sort.direction : null}
+                  onSort={toggleSort}
+                />
                 <TableHead>Animal</TableHead>
                 <TableHead>Notes</TableHead>
                 <TableHead>Source / audit</TableHead>
@@ -899,7 +973,7 @@ function FinancePageContent() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payload.transactions.map((t) => (
+              {sortedTransactions.map((t) => (
                 <TableRow key={t.id} className={cn(t.voided_at && "bg-muted/40 opacity-70")}>
                   <TableCell>{formatDate(t.date)}</TableCell>
                   <TableCell>
@@ -1139,6 +1213,18 @@ function FinancePageContent() {
               </div>
             </div>
             <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSubmitting || addFlight.pending}
+                onClick={() => {
+                  setFormError(null);
+                  addAttempt.current += 1;
+                  setOpen(false);
+                }}
+              >
+                Cancel
+              </Button>
               <Button type="submit" disabled={isSubmitting || addFlight.pending}>
                 {isSubmitting || addFlight.pending
                   ? "Saving…"
@@ -1158,7 +1244,14 @@ function FinancePageContent() {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function FinancePage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton stats={3} cards={2} />
+        </div>
+      }
+    >
       <FinancePageContent />
     </Suspense>
   );

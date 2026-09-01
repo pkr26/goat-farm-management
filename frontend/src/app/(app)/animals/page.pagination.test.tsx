@@ -137,7 +137,9 @@ describe("AnimalsPage finite pagination", () => {
     expect(seenParams[0].get("limit")).toBe("50");
     expect(seenParams[0].get("offset")).toBe("0");
     expect(seenParams[0].get("include_all_statuses")).toBe("true");
-    expect(screen.getByText("G-050")).toBeInTheDocument();
+    // Below md the herd renders a card list alongside the table, so a tag
+    // matches both renderings — assert on the first occurrence.
+    expect(screen.getAllByText("G-050")[0]).toBeInTheDocument();
     expect(screen.queryByText("G-051")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
 
@@ -150,7 +152,7 @@ describe("AnimalsPage finite pagination", () => {
     ).toBeInTheDocument();
     expect(seenParams.at(-1)?.get("limit")).toBe("50");
     expect(seenParams.at(-1)?.get("offset")).toBe("50");
-    expect(screen.getByText("G-055")).toBeInTheDocument();
+    expect(screen.getAllByText("G-055")[0]).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     expect(nav.push).toHaveBeenLastCalledWith("/animals?page=2");
@@ -353,12 +355,13 @@ describe("AnimalsPage finite pagination", () => {
     // rows must stay unavailable because the later URL still owns the UI.
     nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[0]);
     view.rerender(<AnimalsPage />);
-    expect(await screen.findByText("Updating animals…")).toBeInTheDocument();
+    expect(await screen.findByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
 
     nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[1]);
     view.rerender(<AnimalsPage />);
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 
@@ -384,12 +387,14 @@ describe("AnimalsPage finite pagination", () => {
     nav.state.deferReplace = true;
     await chooseOption(user, "Filter animals by bucket", "Female kids");
 
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    // The uncommitted navigation keeps the list fenced: searchPending folds
+    // into dataLoading, so the polite label reads "Loading animals…".
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
     // The unchanged-search debounce also runs after a filter edit. It must
     // preserve the filter navigation's fence instead of clearing it.
     await new Promise((resolve) => window.setTimeout(resolve, 350));
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
   });
 
@@ -399,10 +404,11 @@ describe("AnimalsPage finite pagination", () => {
     await screen.findByText("Showing 1–50 of 55 animals");
 
     // On mount q and the URL's q are both empty. Treating that equality as a
-    // real replacement strands the screen in Updating because Next has no
-    // distinct URL commit to deliver.
+    // real replacement strands the screen behind the loading fence because
+    // Next has no distinct URL commit to deliver.
     await new Promise((resolve) => window.setTimeout(resolve, 350));
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 
@@ -438,7 +444,7 @@ describe("AnimalsPage finite pagination", () => {
     // B is fresh in cache and is no longer fetching. C is nevertheless still
     // pending, so exposing B's rows here would make stale navigation clickable.
     await new Promise((resolve) => window.setTimeout(resolve, 75));
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
   });
 
@@ -460,7 +466,7 @@ describe("AnimalsPage finite pagination", () => {
     nav.state.deferPush = true;
     await user.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
     expect(screen.queryByText("G-051")).not.toBeInTheDocument();
   });
 
@@ -485,7 +491,8 @@ describe("AnimalsPage finite pagination", () => {
     nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[2]);
     view.rerender(<AnimalsPage />);
 
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 
@@ -511,16 +518,19 @@ describe("AnimalsPage finite pagination", () => {
     // Clearing the superseded registry and lowering the fence are both
     // synchronous parts of cancellation; there will be no new URL commit to
     // repair either one later.
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
     await new Promise((resolve) => window.setTimeout(resolve, 350));
-    expect(screen.getByText("G-001")).toBeInTheDocument();
+    expect(screen.getAllByText("G-001")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
 
     // Model Next applying only the newest action, whose URL is unchanged.
     nav.state.search = "";
     view.rerender(<AnimalsPage />);
-    expect(await screen.findByText("G-001")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-001"))[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
   });
 
@@ -575,7 +585,7 @@ describe("AnimalsPage finite pagination", () => {
       }),
     );
     const { queryClient } = renderWithProviders(<AnimalsPage />);
-    await screen.findByText("G-001");
+    await screen.findAllByText("G-001");
 
     refreshPending = true;
     const invalidation = queryClient.invalidateQueries({ queryKey: ["/api/animals"] });
@@ -584,6 +594,6 @@ describe("AnimalsPage finite pagination", () => {
     expect(screen.queryByText("G-001")).not.toBeInTheDocument();
     finishRefresh?.();
     await invalidation;
-    expect(await screen.findByText("G-002")).toBeInTheDocument();
+    expect((await screen.findAllByText("G-002"))[0]).toBeInTheDocument();
   });
 });

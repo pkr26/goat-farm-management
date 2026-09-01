@@ -269,7 +269,7 @@ describe("SimulationPage result metric tints", () => {
       "bg-warning-tint",
       "text-warning-tint-foreground",
     );
-    expect(screen.getByText("-₹50,000")).toBeInTheDocument();
+    expect(screen.getAllByText("-₹50,000").length).toBeGreaterThan(0);
     expect(screen.getByText("0.82")).toBeInTheDocument();
     expect(screen.getByText("-10.0%")).toBeInTheDocument();
     expect(screen.getByText("-₹5,000")).toBeInTheDocument();
@@ -402,8 +402,8 @@ describe("SimulationPage metric explanations", () => {
 
     await user.click(screen.getByRole("button", { name: "Explain NPV" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("₹12,50,000")).toBeInTheDocument();
-    expect(within(dialog).getByText("₹6,40,000")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("₹12,50,000")[0]).toBeInTheDocument();
+    expect(within(dialog).getAllByText("₹6,40,000")[0]).toBeInTheDocument();
     expect(within(dialog).getByText("35.0%")).toBeInTheDocument();
     expect(within(dialog).queryByText("1250000")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("0.35")).not.toBeInTheDocument();
@@ -514,7 +514,7 @@ describe("SimulationPage result tables", () => {
     ).toEqual(["Feed Cost", "Meat Price Per Kg", "Conception Rate"]);
     const leader = within(sensitivity).getByText("Feed Cost").closest("tr") as HTMLElement;
     expect(within(leader).getByText("-₹1,20,000")).toHaveClass("text-destructive");
-    expect(within(leader).getByText("₹90,000")).not.toHaveClass("text-destructive");
+    expect(within(leader).getAllByText("₹90,000")[0]).not.toHaveClass("text-destructive");
   });
 });
 

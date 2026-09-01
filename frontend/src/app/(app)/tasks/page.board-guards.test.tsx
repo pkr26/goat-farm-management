@@ -865,7 +865,9 @@ describe("TasksPage branch guards", () => {
       renderWithProviders(<TasksPage />);
 
       await waitFor(() => expect(permissionsRequested).toBe(1));
-      expect(screen.getByText("Loading…")).toBeInTheDocument();
+      // The page holds its header + skeleton, not a bare "Loading…" line.
+      expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+      expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
       expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
 
       releasePermissions();

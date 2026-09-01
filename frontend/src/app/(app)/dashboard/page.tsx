@@ -21,10 +21,12 @@ import Link from "next/link";
 import { useDashboardApiDashboardGet } from "@/api/generated/endpoints";
 import type { AnimalIdentityOut, TaskOut } from "@/api/generated/models";
 import { Donut } from "@/components/charts";
+import { PageSkeleton } from "@/components/skeletons";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { useFarmType } from "@/hooks/use-farm-type";
+import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
@@ -107,7 +109,8 @@ function TaskLink({
 }
 
 export default function DashboardPage() {
-  const vocabulary = farmVocabulary(useFarmType());
+  const farmType = useFarmType();
+  const vocabulary = farmVocabulary(farmType);
   // Table headers and tag fallbacks start the sentence, so the female-parent
   // noun needs its display-case form ("Doe" / "Milking buffalo").
   const femaleParentLabel =
@@ -135,7 +138,13 @@ export default function DashboardPage() {
   // factual "No suggestions." (M-1).
 
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader title="Dashboard" description="Herd overview — tasks, breeding dates and recent weights." />
+        <PageSkeleton stats={5} cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -160,7 +169,15 @@ export default function DashboardPage() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Dashboard" description="Herd overview — tasks, breeding dates and recent weights." />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading the dashboard…</span>
+          <PageSkeleton stats={5} cards={2} />
+        </div>
+      </div>
+    );
   }
 
   const farm = farms.find((f) => f.id === farmId);
@@ -171,6 +188,10 @@ export default function DashboardPage() {
   const taskTotal = payload.todays_tasks_total + payload.overdue_tasks_total;
   const maxBucketCount = Math.max(1, ...payload.buckets.map((b) => b.count));
   const recentWeights = payload.recent_weights;
+  // A wall of identical red rows reads as alarm fatigue on the phone — cap
+  // the preview; the register link carries the full list.
+  const OVERDUE_PREVIEW_ROWS = 5;
+  const overdueShown = payload.overdue_tasks.slice(0, OVERDUE_PREVIEW_ROWS);
   const hasBoundedPreview =
     payload.todays_tasks.length < payload.todays_tasks_total ||
     payload.overdue_tasks.length < payload.overdue_tasks_total ||
@@ -181,13 +202,16 @@ export default function DashboardPage() {
     payload.recent_weights.length < (payload.recent_weights_total ?? 0);
 
   return (
-    <div className="space-y-6">
+    // Mobile-first ordering with flex order: actionable cards (overdue, then
+    // today) lead, passive stats follow. `md:order-none` restores source
+    // order on desktop.
+    <div className="flex flex-col gap-6">
       <PageHeader
         title={farm ? `${farm.name} — Dashboard` : "Dashboard"}
         description="Herd overview — tasks, breeding dates and recent weights."
       />
       {hasBoundedPreview && (
-        <p className="text-xs text-muted-foreground">
+        <p className="order-2 text-xs text-muted-foreground md:order-none">
           Dashboard operational previews are capped at {payload.preview_limit} rows; recent weights
           are capped at {payload.recent_weights_limit}. Exact totals are shown, and the operational
           links open the full registers.
@@ -201,7 +225,7 @@ export default function DashboardPage() {
       {payload.total_active === 0 &&
         Object.values(payload.status_totals).every((total) => !total) &&
         canViewAnimals && (
-        <Card className="border-primary/20 bg-gradient-to-br from-primary/[0.06] via-card to-card">
+        <Card className="order-3 border-primary/20 bg-gradient-to-br from-primary/[0.06] via-card to-card md:order-none">
           <CardHeader>
             <CardTitle>Welcome to your new farm</CardTitle>
             <CardDescription>
@@ -267,7 +291,7 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="order-6 grid grid-cols-2 gap-3 [&>*:nth-child(5)]:col-span-2 sm:grid-cols-3 sm:[&>*:nth-child(5)]:col-span-1 md:order-none lg:grid-cols-5">
         <StatCard
           label="Active animals"
           value={payload.total_active}
@@ -293,7 +317,7 @@ export default function DashboardPage() {
 
       {payload.overdue_tasks_total > 0 && (
         <DataTableCard
-          className="ring-destructive/30"
+          className="order-4 ring-destructive/30 md:order-none"
           title={
             <span className="flex items-center gap-2 text-destructive">
               <TriangleAlert className="size-4" aria-hidden="true" />
@@ -304,9 +328,9 @@ export default function DashboardPage() {
           <Table>
             <TableHeader className="sr-only">
               <TableRow><th scope="col">Due</th><th scope="col">Task</th><th scope="col">Open</th></TableRow>
-              </TableHeader>
-              <TableBody>
-                {payload.overdue_tasks.map((t) => (
+            </TableHeader>
+            <TableBody>
+              {overdueShown.map((t) => (
                   <TableRow key={t.id} className="bg-destructive/[0.04]">
                   <TableCell>
                     {formatDate(t.due_date)}{" "}
@@ -314,7 +338,9 @@ export default function DashboardPage() {
                       ({daysBetween(t.due_date, today)}d late)
                     </span>
                   </TableCell>
-                  <TableCell>{t.title}</TableCell>
+                  <TableCell>
+                    <span className="block max-w-56 truncate sm:max-w-none">{t.title}</span>
+                  </TableCell>
                   <TableCell className="text-right">
                     <TaskLink
                       task={t}
@@ -327,9 +353,9 @@ export default function DashboardPage() {
               ))}
             </TableBody>
           </Table>
-          {payload.overdue_tasks.length < payload.overdue_tasks_total && (
+          {overdueShown.length < payload.overdue_tasks_total && (
             <p className="pt-3 text-sm text-muted-foreground">
-              Showing {payload.overdue_tasks.length} of {payload.overdue_tasks_total}.{" "}
+              Showing {overdueShown.length} of {payload.overdue_tasks_total}.{" "}
               {can("tasks.view") && (
                 <Link href="/tasks?tab=overdue" className="text-primary underline">
                   View all overdue tasks
@@ -340,7 +366,7 @@ export default function DashboardPage() {
         </DataTableCard>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="order-5 grid gap-4 md:order-none lg:grid-cols-2">
         <DataTableCard
           title={`Today's tasks (${payload.todays_tasks_total})`}
           actions={can("tasks.view") ? (
@@ -366,7 +392,9 @@ export default function DashboardPage() {
               <TableBody>
                 {payload.todays_tasks.map((t) => (
                   <TableRow key={t.id}>
-                    <TableCell>{t.title}</TableCell>
+                    <TableCell>
+                      <span className="block max-w-56 truncate sm:max-w-none">{t.title}</span>
+                    </TableCell>
                     <TableCell className="text-right">
                       <TaskLink
                         task={t}
@@ -413,7 +441,7 @@ export default function DashboardPage() {
               description={`Ask an admin to grant breeding.view to see ${vocabulary.parturition}s due here.`}
             />
           ) : payload.kiddings_due.length === 0 ? (
-            <EmptyState icon={Baby} title="None." className="py-8" />
+            <EmptyState icon={Baby} title={`No ${vocabulary.parturition}s due.`} description={`Confirmed pregnancies appear here as their due dates approach.`} className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
@@ -487,7 +515,7 @@ export default function DashboardPage() {
           ) : undefined}
         >
           {payload.ultrasounds_due.length === 0 ? (
-            <EmptyState icon={ScanLine} title="None." className="py-8" />
+            <EmptyState icon={ScanLine} title="No ultrasounds due." description="Pregnancy-check scans scheduled in the next 7 days appear here." className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
@@ -552,7 +580,7 @@ export default function DashboardPage() {
               description="Ask an admin to grant animals.view and breeding.view to see which animals are ready to move."
             />
           ) : payload.suggestions.length === 0 ? (
-            <EmptyState icon={MoveRight} title="No suggestions." className="py-8" />
+            <EmptyState icon={MoveRight} title="No move suggestions." description="When an animal is ready for the next pen, the move appears here." className="py-8" />
           ) : (
             <Table>
               <TableHeader className="sr-only">
@@ -575,7 +603,10 @@ export default function DashboardPage() {
                     </TableCell>
                     <TableCell>{s.reason}</TableCell>
                     <TableCell className="text-right">
-                      <Badge variant="secondary">→ {s.to}</Badge>
+                      <Badge variant="secondary">
+                        <MoveRight className="size-3" aria-hidden="true" />
+                        {enumLabel("bucket", s.to, farmType)}
+                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -607,7 +638,7 @@ export default function DashboardPage() {
         </DataTableCard>
       </div>
 
-      <section className="space-y-3">
+      <section className="order-7 space-y-3 md:order-none">
         <h2 className="font-heading text-lg font-semibold">Herd by bucket</h2>
         <Card>
           <CardContent className="grid gap-6 lg:grid-cols-2 lg:items-center">
@@ -661,7 +692,7 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      <section className="space-y-3">
+      <section className="order-8 space-y-3 md:order-none">
         <h2 className="font-heading text-lg font-semibold">Recent weight records</h2>
         {/* null = withheld (no animals.view); a real 0 renders as a genuine
             empty state, not this permission notice */}

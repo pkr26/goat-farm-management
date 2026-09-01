@@ -336,8 +336,16 @@ describe("FinancePage permission gate", () => {
     const { waitForAuthIdle } = renderWithProviders(<FinancePage />);
     await waitForAuthIdle();
 
-    await waitFor(() => expect(screen.getByText("Loading…")).toBeInTheDocument());
+    // The page holds its loading skeleton (real header copy, no data) until
+    // the permission answer lands — it never guesses "no access" meanwhile.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Finance" })).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText("Income, expenses and monthly profit & loss for the farm."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total income")).not.toBeInTheDocument();
 
     release();
     expect(await screen.findByText("Total income")).toBeInTheDocument();

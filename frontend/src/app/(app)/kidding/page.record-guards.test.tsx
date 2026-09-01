@@ -225,7 +225,9 @@ describe("KiddingPage branches", () => {
     renderWithProviders(<KiddingPage />);
 
     await waitFor(() => expect(permissionsRequested).toBe(1));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // The real header and skeleton stand in for the page — not a bare
+    // "Loading…" line.
+    expect(screen.getByRole("heading", { level: 1, name: "Kidding" })).toBeInTheDocument();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
 
     releasePermissions();

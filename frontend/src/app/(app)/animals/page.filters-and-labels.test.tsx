@@ -208,8 +208,8 @@ describe("AnimalsPage filter sentinel and labels", () => {
     await pickOption(user, screen.getByLabelText("Filter animals by sex"), "Male");
     expect(screen.getByLabelText("Filter animals by sex")).toHaveTextContent("Male");
 
-    await pickOption(user, screen.getByLabelText("Filter animals by status"), "SOLD");
-    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("SOLD");
+    await pickOption(user, screen.getByLabelText("Filter animals by status"), "Sold");
+    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("Sold");
   });
 
   it("labels the dialog's source and bucket triggers with their display text", async () => {
@@ -227,8 +227,8 @@ describe("AnimalsPage filter sentinel and labels", () => {
       "Historical born-on-farm import",
     );
 
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "FEMALE KIDS");
-    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("FEMALE KIDS");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Female kids");
+    expect(within(dialog).getByLabelText("Bucket *")).toHaveTextContent("Female kids");
     expect(within(dialog).getByLabelText("Bucket *")).not.toHaveTextContent("FEMALE_KIDS");
   });
 
@@ -255,14 +255,14 @@ describe("AnimalsPage create dialog guards", () => {
 
     // The hint only belongs to a BREEDING import.
     expect(within(dialog).queryByText(/BREEDING imports require/)).not.toBeInTheDocument();
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "BREEDING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Breeding");
     expect(within(dialog).getByText(/BREEDING imports require/)).toHaveTextContent(
-      "BREEDING imports require a doe age of at least 10 months and an entry weight of at least 22 kg.",
+      "BREEDING imports require a doe of at least 10 months and 22 kg.",
     );
 
     await pickOption(user, within(dialog).getByLabelText("Sex *"), "Male");
     expect(within(dialog).getByText(/BREEDING imports require/)).toHaveTextContent(
-      "BREEDING imports require a buck age of at least 12 months and an entry weight of at least 25 kg.",
+      "BREEDING imports require a buck of at least 12 months and 25 kg.",
     );
   });
 
@@ -390,14 +390,14 @@ describe("AnimalsPage list URL contract", () => {
     renderWithProviders(<AnimalsPage />);
     await screen.findByText("1 animal(s)");
 
-    await pickOption(user, screen.getByLabelText("Filter animals by status"), "SOLD");
+    await pickOption(user, screen.getByLabelText("Filter animals by status"), "Sold");
     await waitFor(() => expect(nav.replace).toHaveBeenCalled());
     expect(lastReplacedParams().get("status")).toBe("SOLD");
 
     // The committed URL is what the params-sync effect reads back, so a
     // status missing from it would silently reset the select.
     await waitFor(() => expect(seenParams.at(-1)?.get("status")).toBe("SOLD"));
-    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("SOLD");
+    expect(screen.getByLabelText("Filter animals by status")).toHaveTextContent("Sold");
   });
 
   it("drops a legacy offset param from the list URL", async () => {
@@ -441,7 +441,7 @@ describe("AnimalsPage navigation fence", () => {
     await waitFor(() => expect(nav.state.deferredReplacements).toHaveLength(1));
     await waitFor(() => expect(seenParams.at(-1)?.get("q")).toBe("G-0"));
     await waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
 
     nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[0]);
     view.rerender(<AnimalsPage />);
@@ -450,7 +450,7 @@ describe("AnimalsPage navigation fence", () => {
     // has been typed: the rows are the operator's own search and are live at
     // once, without waiting for another debounce tick.
     expect(screen.getByRole("link", { name: "G-001" })).toBeInTheDocument();
-    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
   });
 
   it("releases the fence as soon as a filter URL with no search term commits", async () => {
@@ -463,7 +463,7 @@ describe("AnimalsPage navigation fence", () => {
     await waitFor(() => expect(nav.state.deferredReplacements).toHaveLength(1));
     await waitFor(() => expect(seenParams.at(-1)?.get("bucket")).toBe("FEMALE_KIDS"));
     await waitFor(() => expect(view.queryClient.isFetching()).toBe(0));
-    expect(screen.getByText("Updating animals…")).toBeInTheDocument();
+    expect(screen.getByText("Loading animals…")).toBeInTheDocument();
 
     nav.state.search = paramsKeyFromHref(nav.state.deferredReplacements[0]);
     view.rerender(<AnimalsPage />);
@@ -471,7 +471,7 @@ describe("AnimalsPage navigation fence", () => {
     // An empty search box and a URL without `q` describe the same state, so
     // this commit owes the operator their rows immediately.
     expect(screen.getByRole("link", { name: "G-001" })).toBeInTheDocument();
-    expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
   });
 
   it("does not re-navigate or leave page two for a deep-linked search term", async () => {

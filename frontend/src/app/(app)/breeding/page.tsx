@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CircleCheckBig, Clock, HeartHandshake, Plus } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -64,10 +64,11 @@ import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { useFarmType } from "@/hooks/use-farm-type";
-import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { PermissionsError } from "@/components/permissions-error";
+import { PageSkeleton } from "@/components/skeletons";
 
 /** Deep-link ids arrive as raw query strings; anything that is not a positive
  * safe integer is ignored. */
@@ -116,9 +117,10 @@ function OutcomeBadge({ outcome }: { outcome: string }) {
   return <StatusBadge status={outcome} />;
 }
 
-const breedingSchema = z
+const breedingSchema = (vocabulary: FarmVocabulary) =>
+  z
   .object({
-    doe_id: z.string().min(1, "Select a doe"),
+    doe_id: z.string().min(1, `Select a ${vocabulary.femaleAdult}`),
     // Buck is required for natural service; AI methods name a semen bull.
     buck_id: z.string(),
     method: z.enum(["NATURAL", "AI", "AI_SEXED"]),
@@ -133,14 +135,14 @@ const breedingSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["buck_id"],
-        message: "Select a buck for a natural service",
+        message: `Select a ${vocabulary.maleAdult} for a natural service`,
       });
     }
     if (values.method !== "NATURAL" && values.semen_sire_name?.trim() === undefined) {
       return; // semen identity is optional; the straw may not record it
     }
   });
-type BreedingValues = z.infer<typeof breedingSchema>;
+type BreedingValues = z.infer<ReturnType<typeof breedingSchema>>;
 
 function breedingDefaults(): BreedingValues {
   return {
@@ -188,7 +190,7 @@ function NewBreedingDialog({
     watch,
     formState: { errors, isSubmitting, dirtyFields },
   } = useForm<BreedingValues>({
-    resolver: zodResolver(breedingSchema),
+    resolver: zodResolver(useMemo(() => breedingSchema(vocabulary), [vocabulary])),
     defaultValues: breedingDefaults(),
   });
   const method = watch("method");
@@ -867,7 +869,16 @@ function BreedingPageContent() {
   }
 
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader
+          title="Breeding"
+          description="Breeding records, ultrasound checks and pregnancy outcomes."
+        />
+        <PageSkeleton stats={3} cards={1} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -892,7 +903,18 @@ function BreedingPageContent() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Breeding"
+          description="Breeding records, ultrasound checks and pregnancy outcomes."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading breeding records…</span>
+          <PageSkeleton stats={3} cards={1} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1133,7 +1155,14 @@ function BreedingPageContent() {
 
 export default function BreedingPage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton stats={3} cards={1} />
+        </div>
+      }
+    >
       <BreedingPageContent />
     </Suspense>
   );

@@ -27,6 +27,7 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
+import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -73,6 +74,11 @@ import { PermissionsError } from "@/components/permissions-error";
 import { enumLabel } from "@/lib/enum-labels";
 
 const CATEGORIES = Object.values(TaskCreateInCategory);
+/** value → label map for the root `items` prop: without it, Base UI's
+ * Select.Value renders the raw value in the closed trigger. */
+const CATEGORY_ITEMS: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c, enumLabel("taskCategory", c)]),
+);
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
 const NONE = "none";
 /** Tabs addressable via /tasks?tab=… deep links (dashboard links here). */
@@ -82,6 +88,18 @@ type TaskOffsets = Record<TaskTab, number>;
 type TaskOffsetKey = `${TaskTab}_offset`;
 
 const VALID_TABS = new Set<string>(TASK_TABS);
+/** Per-tab guidance for an empty board column: point at the sibling tab that
+ * actually carries work instead of dead-ending (no fake CTA — the tabs are
+ * one click away). */
+const TAB_EMPTY_GUIDANCE: Record<TaskTab, string> = {
+  today: "Nothing is due today. Late work shows on the Overdue tab.",
+  overdue: "Nothing is overdue. Today's duties show on the Today tab.",
+  upcoming:
+    "No duties scheduled ahead. Overdue and today's work appear on their own tabs as duties are spawned.",
+  awaiting:
+    "Nothing awaits verification. Duties land here for review once they are completed.",
+  completed: "No completed or skipped duties yet. Work you finish will land here.",
+};
 const TASK_PAGE_SIZE = 50;
 const MAX_TASK_OFFSET = 1_000_000;
 const TASK_OFFSET_KEYS: Record<TaskTab, TaskOffsetKey> = {
@@ -458,14 +476,20 @@ function TaskTable({
       <EmptyState
         icon={ListChecks}
         title={`No ${tab} tasks.`}
-        description="New duties and auto-generated protocol tasks will show up here."
+        description={
+          validTaskTab(tab)
+            ? TAB_EMPTY_GUIDANCE[tab]
+            : "New duties and auto-generated protocol tasks will show up here."
+        }
       />
     );
   }
   const completedTab = tab === "completed";
   return (
     <DataTableCard>
-      <Table>
+      {/* 6–8 columns: keep a floor so the board rows don't crush on tablets;
+       * the surrounding rows are already responsive down to phones. */}
+      <Table className="min-w-[720px]">
         <TableHeader>
           <TableRow>
             <TableHead>Due</TableHead>
@@ -867,8 +891,19 @@ function TasksPageContent() {
     router.push(taskListUrl({ pathname, paramsKey, tab: taskTab, offsets: nextOffsets }));
   }
 
+  // The header and page structure stay mounted while the permission set
+  // settles — a page that collapses to a bare "Loading…" line reads as a
+  // broken app on slow rural connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Tasks"
+          description="Duties and auto-generated protocol tasks, grouped by when they're due."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -891,7 +926,18 @@ function TasksPageContent() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Tasks"
+          description="Duties and auto-generated protocol tasks, grouped by when they're due."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading tasks…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   // Comparisons use the active farm's calendar day, not the browser's local
@@ -1094,6 +1140,7 @@ function TasksPageContent() {
                   onValueChange={(v) =>
                     setValue("category", v as DutyValues["category"], { shouldValidate: true })
                   }
+                  items={CATEGORY_ITEMS}
                 >
                   <SelectTrigger id="duty-category" className="w-full">
                     <SelectValue />
@@ -1101,7 +1148,7 @@ function TasksPageContent() {
                   <SelectContent>
                     {CATEGORIES.map((c) => (
                       <SelectItem key={c} value={c}>
-                        {c}
+                        {enumLabel("taskCategory", c)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1157,9 +1204,7 @@ function TasksPageContent() {
                   Assignment
                 </p>
                 {teamQuery.isLoading && (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    Loading assignment options…
-                  </p>
+                  <InlineLoading>Loading assignment options…</InlineLoading>
                 )}
                 {teamQuery.isError && (
                   <div
@@ -1273,7 +1318,18 @@ function TasksPageContent() {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function TasksPage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div className="space-y-6" role="status" aria-live="polite">
+          <PageHeader
+            title="Tasks"
+            description="Duties and auto-generated protocol tasks, grouped by when they're due."
+          />
+          <span className="sr-only">Loading tasks…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      }
+    >
       <TasksPageContent />
     </Suspense>
   );

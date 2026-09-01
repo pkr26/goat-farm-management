@@ -149,8 +149,8 @@ function useDocumentTitle(pathname: string) {
   useEffect(() => {
     const match = ROUTE_TITLES.find(([pattern]) => pattern.test(pathname));
     document.title = match
-      ? `${match[1]} · PashuFarm`
-      : "PashuFarm — Livestock farm management";
+      ? `${match[1]} · Herdly`
+      : "Herdly — Livestock farm management";
   }, [pathname]);
 }
 
@@ -191,13 +191,13 @@ function AppSidebar({
         {landingHref ? (
           <Link
             href={landingHref}
-            aria-label={`PashuFarm — go to ${landingLabel}`}
+            aria-label={`Herdly — go to ${landingLabel}`}
             onClick={closeOnMobile}
           >
             <Logo />
           </Link>
         ) : (
-          <div aria-label="PashuFarm">
+          <div aria-label="Herdly">
             <Logo />
           </div>
         )}
@@ -254,7 +254,9 @@ function FarmSwitcher({
       href={href}
       aria-label={`Switch farm — current: ${farmName}`}
       className={cn(
-        "group/farm flex h-9 min-w-0 max-w-72 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm font-medium shadow-xs transition-colors",
+        // Wide enough that real farm names don't truncate at laptop widths;
+        // the type chip is the first thing to yield (hidden below sm).
+        "group/farm flex h-9 min-w-0 max-w-96 items-center gap-2 rounded-lg border bg-card px-2.5 text-sm font-medium shadow-xs transition-colors",
         "hover:border-primary/40 hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
       )}
     >
@@ -357,6 +359,14 @@ function AppLayoutContent({
         permsRefetch={() => void permsRefetch()}
       />
       <SidebarInset>
+        {/* Keyboard users otherwise tab through the entire sidebar nav on
+         * every page before reaching content. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow"
+        >
+          Skip to content
+        </a>
         <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-md">
           <SidebarTrigger />
           {farm && (
@@ -385,8 +395,10 @@ function AppLayoutContent({
         </header>
         <div className="flex-1 bg-muted/40">
           <main
+            id="main-content"
             key={farmId}
-            className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6"
+            tabIndex={-1}
+            className="mx-auto w-full max-w-7xl px-4 py-6 outline-none md:px-6"
           >
             {children}
           </main>

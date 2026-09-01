@@ -115,3 +115,27 @@ export function PageSkeleton({
     </div>
   );
 }
+
+/** The one inline treatment for sub-regions a skeleton can't mirror
+ * (lines inside a dialog, option lists, single fields). Polite by default. */
+export function InlineLoading({
+  children = "Loading…",
+  className,
+}: {
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      className={cn("flex items-center gap-2 text-sm text-muted-foreground", className)}
+    >
+      <span
+        aria-hidden="true"
+        className="size-3.5 shrink-0 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground"
+      />
+      {children}
+    </p>
+  );
+}

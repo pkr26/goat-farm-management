@@ -154,7 +154,7 @@ describe("AnimalsPage bucket/sex parity guard", () => {
   it("refuses a doe-only bucket for a buck instead of POSTing it", async () => {
     const user = userEvent.setup();
     const dialog = await openImportDialog(user);
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "FEMALE KIDS");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Female kids");
 
     await flipSexAndSubmit(dialog, user, "Male");
 
@@ -169,7 +169,7 @@ describe("AnimalsPage bucket/sex parity guard", () => {
   it("names the bucket the guard rejected, so RESTING reads as doe-only too", async () => {
     const user = userEvent.setup();
     const dialog = await openImportDialog(user);
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "RESTING");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Resting");
 
     await flipSexAndSubmit(dialog, user, "Male");
 
@@ -185,7 +185,7 @@ describe("AnimalsPage bucket/sex parity guard", () => {
     const user = userEvent.setup();
     const dialog = await openImportDialog(user);
     await pickOption(user, within(dialog).getByLabelText("Sex *"), "Male");
-    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "MALE KIDS");
+    await pickOption(user, within(dialog).getByLabelText("Bucket *"), "Male kids");
 
     await flipSexAndSubmit(dialog, user, "Female");
 
@@ -203,10 +203,11 @@ describe("AnimalsPage bucket/sex parity guard", () => {
     // buckets must have. Offering one here would file an orphan.
     const user = userEvent.setup();
     const dialog = await openImportDialog(user);
-    const workflowOnly = ["PREGNANCY EARLY", "PREGNANCY LATE", "DELIVERY", "RECOVERY"];
+    // Options now carry the humanised enum labels.
+    const workflowOnly = ["Pregnancy A", "Pregnancy B", "Delivery", "Recovery"];
 
     await user.click(within(dialog).getByLabelText("Bucket *"));
-    expect(await screen.findByRole("option", { name: "QUARANTINE" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Quarantine" })).toBeInTheDocument();
     for (const bucket of workflowOnly) {
       expect(screen.queryByRole("option", { name: bucket })).not.toBeInTheDocument();
     }
@@ -214,7 +215,7 @@ describe("AnimalsPage bucket/sex parity guard", () => {
     await user.keyboard("{Escape}");
     await pickOption(user, within(dialog).getByLabelText("Sex *"), "Male");
     await user.click(within(dialog).getByLabelText("Bucket *"));
-    expect(await screen.findByRole("option", { name: "MALE KIDS" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Male kids" })).toBeInTheDocument();
     for (const bucket of workflowOnly) {
       expect(screen.queryByRole("option", { name: bucket })).not.toBeInTheDocument();
     }
@@ -323,10 +324,13 @@ describe("AnimalsPage page steps dispatched in one render pass", () => {
     expect(
       screen.getByText("Showing 1000051–1000100 of 1100000 animals"),
     ).toBeInTheDocument();
-    expect(screen.getByText("G-1000051")).toBeInTheDocument();
+    // The tag is rendered by both the mobile card list and the table.
+    expect(screen.getAllByText("G-1000051")[0]).toBeInTheDocument();
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
     await new Promise((resolve) => window.setTimeout(resolve, 350));
+    expect(screen.queryByText("Loading animals…")).not.toBeInTheDocument();
     expect(screen.queryByText("Updating animals…")).not.toBeInTheDocument();
-    expect(screen.getByText("G-1000051")).toBeInTheDocument();
+    expect(screen.getAllByText("G-1000051")[0]).toBeInTheDocument();
   });
 });

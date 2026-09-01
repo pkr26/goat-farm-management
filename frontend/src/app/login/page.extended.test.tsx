@@ -54,7 +54,7 @@ describe("LoginPage — rendering", () => {
     await renderPage();
 
     // Brand wordmark (Logo) appears in the desktop panel and the mobile header.
-    expect(screen.getAllByText("PashuFarm").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Herdly").length).toBeGreaterThan(0);
     expect(screen.getByText("Sign in to your account")).toBeInTheDocument();
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();

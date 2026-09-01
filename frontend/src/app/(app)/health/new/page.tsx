@@ -7,6 +7,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef } from "react";
 
+import { InlineLoading } from "@/components/skeletons";
+
 function HealthNewRedirectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -20,12 +22,14 @@ function HealthNewRedirectContent() {
     router.replace(url);
   }, [router, search]);
 
-  return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+  // A redirect has no page structure to mirror — the shared inline spinner
+  // beats a bare "Loading…" paragraph.
+  return <InlineLoading />;
 }
 
 export default function HealthNewRedirect() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<InlineLoading />}>
       <HealthNewRedirectContent />
     </Suspense>
   );

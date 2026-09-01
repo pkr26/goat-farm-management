@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -28,6 +28,7 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { PaginationControls } from "@/components/pagination-controls";
+import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -67,10 +68,15 @@ import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { useUrlState } from "@/lib/use-url-state";
 import { PermissionsError } from "@/components/permissions-error";
 
 /** Explicit virtual recipe used by quarantine animals on days 1–3. */
 const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
+
+/** Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET for the history
+ * pagination — a larger offset is a 422, so clamp the URL value into range. */
+const MAX_HISTORY_OFFSET = 1_000_000;
 
 type ShiftCell = { shift: string; kg: number; time: string };
 
@@ -279,7 +285,7 @@ const dispenseSchema = z.object({
 type DispenseInput = z.input<typeof dispenseSchema>;
 type DispenseValues = z.output<typeof dispenseSchema>;
 
-export default function FeedingPage() {
+function FeedingPageContent() {
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
   const canManage = can("feeding.manage");
@@ -295,12 +301,44 @@ export default function FeedingPage() {
     Object.values(DispenseInShift).map((s) => [s, enumLabel("shift", s)]),
   );
 
+  // F-7: the dispensing-history window lives in the URL, so refresh, back/
+  // forward and shared links reopen the same slice of the ledger. State stays
+  // the source of truth; edits write through with defaults stripped so a bare
+  // /feeding URL stays bare.
+  const { get: getUrl, getNumber: getUrlNumber, set: setUrlState } = useUrlState();
   const [dispenseOpen, setDispenseOpen] = useState(false);
-  const [historyOffset, setHistoryOffset] = useState(0);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [historyOffset, setHistoryOffset] = useState(() =>
+    getUrlNumber("offset", 0, 0, MAX_HISTORY_OFFSET),
+  );
+  const [dateFrom, setDateFrom] = useState(() => getUrl("date_from") ?? "");
+  const [dateTo, setDateTo] = useState(() => getUrl("date_to") ?? "");
   const historyLimit = 50;
   const invalidHistoryRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+
+  function changeDateFrom(value: string) {
+    setDateFrom(value);
+    setHistoryOffset(0);
+    setUrlState({ date_from: value || null, offset: null });
+  }
+
+  function changeDateTo(value: string) {
+    setDateTo(value);
+    setHistoryOffset(0);
+    setUrlState({ date_to: value || null, offset: null });
+  }
+
+  /** One-shot reset shared by the toolbar control and the empty-state CTA. */
+  function clearHistoryDates() {
+    setDateFrom("");
+    setDateTo("");
+    setHistoryOffset(0);
+    setUrlState({ date_from: null, date_to: null, offset: null });
+  }
+
+  function changeHistoryOffset(next: number) {
+    setHistoryOffset(next);
+    setUrlState({ offset: next || null });
+  }
 
   const query = useFeedingTodayApiFeedingPlanGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
@@ -379,8 +417,19 @@ export default function FeedingPage() {
     });
   }
 
+  // The header and layout stay mounted while permissions settle — a page that
+  // collapses to a bare "Loading…" line reads as a broken app on slow rural
+  // connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Feeding — today"
+          description="The 3-shift ration plan and what's been dispensed so far."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -406,7 +455,18 @@ export default function FeedingPage() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Feeding — today"
+          description="The 3-shift ration plan and what's been dispensed so far."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading feeding plan…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   const today = localToday();
@@ -559,7 +619,44 @@ export default function FeedingPage() {
                 })}
               </div>
             </div>
-            <Table>
+            {/* Below md the 9-column plan table becomes a card per ration —
+             * panning an 860px table inside a 390px phone is not a plan, it's
+             * a scroll toy. */}
+            <div className="space-y-2 md:hidden">
+              {payload.lines.map((line) => {
+                const shifts = line.shifts.map(toShiftCell);
+                let dispensed = 0;
+                let lineComplete = shifts.length > 0;
+                for (const shift of shifts) {
+                  const recorded =
+                    dispensedByAllocationShift.get(
+                      allocationShiftKey(line.bucket, line.recipe_code, shift.shift),
+                    ) ?? 0;
+                  dispensed += recorded;
+                  lineComplete = lineComplete && meetsPlannedQuantity(recorded, shift.kg);
+                }
+                return (
+                  <div
+                    key={`${line.bucket}:${line.recipe_code}`}
+                    className="rounded-xl border bg-card p-3 shadow-xs"
+                  >
+                    <p className="font-medium">
+                      {enumLabel("bucket", line.bucket, farmType)} — {line.recipe_name}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                      {line.heads} heads · {line.kg_per_head} kg/head ·{" "}
+                      {formatPersistedKg(line.daily_kg)} kg/day
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                      Recorded {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
+                      {lineComplete ? " · Done" : ""}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="hidden md:block">
+            <Table className="min-w-[860px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Bucket</TableHead>
@@ -625,6 +722,7 @@ export default function FeedingPage() {
               })}
             </TableBody>
             </Table>
+            </div>
           </div>
         )}
         <p className="mt-3 text-sm text-muted-foreground">
@@ -686,10 +784,7 @@ export default function FeedingPage() {
               max={dateTo || today}
               aria-invalid={invalidHistoryRange || undefined}
               aria-describedby={invalidHistoryRange ? "feeding-history-range-error" : undefined}
-              onChange={(event) => {
-                setDateFrom(event.target.value);
-                setHistoryOffset(0);
-              }}
+              onChange={(event) => changeDateFrom(event.target.value)}
             />
           </div>
           <div className="space-y-1.5">
@@ -702,21 +797,14 @@ export default function FeedingPage() {
               max={today}
               aria-invalid={invalidHistoryRange || undefined}
               aria-describedby={invalidHistoryRange ? "feeding-history-range-error" : undefined}
-              onChange={(event) => {
-                setDateTo(event.target.value);
-                setHistoryOffset(0);
-              }}
+              onChange={(event) => changeDateTo(event.target.value)}
             />
           </div>
           <Button
             type="button"
             variant="outline"
             disabled={!dateFrom && !dateTo}
-            onClick={() => {
-              setDateFrom("");
-              setDateTo("");
-              setHistoryOffset(0);
-            }}
+            onClick={clearHistoryDates}
           >
             Clear dates
           </Button>
@@ -727,12 +815,10 @@ export default function FeedingPage() {
           </p>
         )}
         {!invalidHistoryRange && historyQuery.isLoading && (
-          <p className="py-6 text-center text-sm text-muted-foreground">Loading history…</p>
+          <InlineLoading className="justify-center py-6">Loading history…</InlineLoading>
         )}
         {!invalidHistoryRange && historyQuery.isPlaceholderData && (
-          <p role="status" className="py-2 text-sm text-muted-foreground">
-            Updating dispensing history…
-          </p>
+          <InlineLoading className="py-2">Updating dispensing history…</InlineLoading>
         )}
         {!invalidHistoryRange && historyQuery.isError && (
           <p role="alert" className="py-3 text-sm text-destructive">
@@ -746,7 +832,13 @@ export default function FeedingPage() {
             icon={Wheat}
             title="No dispensing records in this date range."
             description="Clear or widen the dates, or record a dispensing entry."
-          />
+          >
+            {(dateFrom || dateTo) && (
+              <Button type="button" variant="outline" size="sm" onClick={clearHistoryDates}>
+                Clear dates
+              </Button>
+            )}
+          </EmptyState>
         )}
         {!invalidHistoryRange && history && history.records.length > 0 && (
           <>
@@ -778,7 +870,7 @@ export default function FeedingPage() {
               total={history.total}
               limit={history.limit}
               offset={history.offset}
-              onOffsetChange={setHistoryOffset}
+              onOffsetChange={changeHistoryOffset}
               label="dispensing records"
               disabled={historyQuery.isPlaceholderData}
             />
@@ -918,5 +1010,21 @@ export default function FeedingPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Suspense boundary required because the content reads useSearchParams(). */
+export default function FeedingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      }
+    >
+      <FeedingPageContent />
+    </Suspense>
   );
 }

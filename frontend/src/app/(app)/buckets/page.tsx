@@ -4,12 +4,13 @@
 
 import Link from "next/link";
 
-import { Layers } from "lucide-react";
+import { Boxes, Layers } from "lucide-react";
 
 import { useBucketsBoardApiBucketsGet } from "@/api/generated/endpoints";
 import type { BucketBoardRow } from "@/api/generated/models";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,7 +52,12 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
       </CardHeader>
       <CardContent>
         {row.animals.length === 0 ? (
-          <p className="text-muted-foreground">No animals in this bucket.</p>
+          <EmptyState
+            className="py-8"
+            icon={Boxes}
+            title="No animals in this bucket."
+            description="Animals appear here as they are moved into this bucket from the herd register."
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -121,8 +127,18 @@ export default function BucketsPage() {
   const query = useBucketsBoardApiBucketsGet({ query: { enabled: allowed } });
   const rows = query.data?.status === 200 ? query.data.data : undefined;
 
+  // The header stays mounted while data settles — a page that collapses to a
+  // bare "Loading…" line reads as a broken app on slow rural connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Buckets"
+          description="Daily feed plan and occupancy per bucket."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -140,7 +156,10 @@ export default function BucketsPage() {
         description="Daily feed plan and occupancy per bucket."
       />
       {query.isLoading ? (
-        <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading buckets…</span>
+          <PageSkeleton cards={2} />
+        </div>
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">

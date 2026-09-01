@@ -324,7 +324,7 @@ describe("SimulationPage generic section reflection", () => {
     expect(screen.getByLabelText("Month")).toHaveValue(6);
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     // Unreflected keys are still round-tripped rather than silently dropped.
     expect(captured.body?.assumptions.model_version).toBe("3.4.0");
     expect(captured.body?.assumptions.breed_profile).toBeNull();
@@ -518,7 +518,7 @@ describe("SimulationPage growth curve mirroring", () => {
     expect(screen.getByLabelText("Birth Weight Kg")).toHaveValue(3);
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.growth).toMatchObject({
       birth_weight_kg: 3,
       weight_by_age_months: [
@@ -550,7 +550,7 @@ describe("SimulationPage growth curve mirroring", () => {
     expect(screen.getByLabelText(/Weight By Age Months/)).toHaveValue("");
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.growth).toMatchObject({
       birth_weight_kg: 3.1,
       weight_by_age_months: [],
@@ -572,7 +572,7 @@ describe("SimulationPage growth curve mirroring", () => {
     await user.type(does, "51");
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.herd).toEqual({ ...DEFAULTS.herd, does: 51 });
     expect(captured.body?.assumptions.growth).toEqual(GROWTH);
   });
@@ -653,7 +653,7 @@ describe("SimulationPage horizon-bounded array drafts", () => {
     await user.clear(festivals);
     await user.type(festivals, "12, 24");
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([12, 24]);
   });
 
@@ -684,7 +684,7 @@ describe("SimulationPage horizon-bounded array drafts", () => {
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([90]);
   });
 });
@@ -711,7 +711,7 @@ describe("SimulationPage herd event identity", () => {
     expect(screen.getAllByLabelText("Kind")[0]).toHaveTextContent("Purchase");
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.events).toEqual([
       { month: 12, kind: "purchase", animal_class: "doe", count: 10, price_per_head: null },
       { month: 30, kind: "sale", animal_class: "doe", count: 10, price_per_head: null },

@@ -252,7 +252,7 @@ describe("DashboardPage — populated aggregates", () => {
 
   it("shows the herd stat cards (active total, sex split)", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     const statValue = (label: string) =>
       within(screen.getByText(label).parentElement as HTMLElement);
@@ -264,7 +264,7 @@ describe("DashboardPage — populated aggregates", () => {
 
   it("shows the all-time sold count from status_totals", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByText("7")).toBeInTheDocument();
     expect(screen.getByText("Sold (all time)")).toBeInTheDocument();
@@ -272,7 +272,7 @@ describe("DashboardPage — populated aggregates", () => {
 
   it("counts tasks due + overdue together in the task stat", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     // 2 due today + 1 overdue = 3.
     const card = screen.getByText("Tasks due + overdue").parentElement as HTMLElement;
@@ -463,7 +463,7 @@ describe("DashboardPage — populated aggregates", () => {
       "/animals/41?returnTo=%2Fdashboard",
     );
     expect(within(row).getByText("Weight 25.0 kg ≥ threshold")).toBeInTheDocument();
-    expect(within(row).getByText("→ FINISHER")).toBeInTheDocument();
+    expect(within(row).getByText("Finisher")).toBeInTheDocument();
   });
 
   it("renders a suggestion for an unnamed animal with just its tag", async () => {
@@ -544,7 +544,7 @@ describe("DashboardPage — populated aggregates", () => {
     );
 
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(authorization).toBe("Bearer test-access-token");
     expect(farmHeader).toBe("1");
@@ -568,7 +568,7 @@ describe("DashboardPage — empty farm", () => {
 
   it("shows zeroed stat cards with fallback 0s for missing counts", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     for (const label of [
       "Active animals",
@@ -589,17 +589,18 @@ describe("DashboardPage — empty farm", () => {
     expect(screen.queryByText("Overdue tasks")).not.toBeInTheDocument();
   });
 
-  it("shows 'None.' for both kiddings and ultrasounds due", async () => {
+  it("shows 'No kiddings due.' / 'No ultrasounds due.' for both kiddings and ultrasounds due", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
-    expect(screen.getAllByText("None.")).toHaveLength(2);
+    expect(screen.getByText("No kiddings due.")).toBeInTheDocument();
+    expect(screen.getByText("No ultrasounds due.")).toBeInTheDocument();
   });
 
   it("shows 'No suggestions.' and no cull warning", async () => {
     renderWithProviders(<DashboardPage />);
 
-    expect(await screen.findByText("No suggestions.")).toBeInTheDocument();
+    expect(await screen.findByText("No move suggestions.")).toBeInTheDocument();
     expect(screen.getByText("Ready to move (0)")).toBeInTheDocument();
     expect(screen.queryByText(/cull candidate/)).not.toBeInTheDocument();
   });
@@ -616,7 +617,7 @@ describe("DashboardPage — empty farm", () => {
 
   it("renders the bucket and weights sections without any rows", async () => {
     renderWithProviders(<DashboardPage />);
-    await screen.findByRole("heading", { name: /dashboard/i });
+    await screen.findByRole("heading", { name: /— Dashboard/ });
 
     expect(screen.getByRole("heading", { name: "Herd by bucket" })).toBeInTheDocument();
     expect(
@@ -662,7 +663,7 @@ describe("DashboardPage — loading, error and permission states", () => {
     renderWithProviders(<DashboardPage />);
 
     expect(await screen.findByText("Loading…")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /dashboard/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Active animals")).not.toBeInTheDocument();
   });
 
   it("surfaces the API error detail when the dashboard request fails", async () => {

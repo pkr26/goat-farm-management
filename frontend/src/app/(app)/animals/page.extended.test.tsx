@@ -154,7 +154,7 @@ describe("AnimalsPage extended", () => {
   describe("list rendering", () => {
     it("renders every cell with display formatting (human bucket and sex labels, weight kg)", async () => {
       await renderLoaded();
-      const row = screen.getByText("G-001").closest("tr") as HTMLElement;
+      const row = within(screen.getByRole("table")).getByText("G-001").closest("tr") as HTMLElement;
       const cells = within(row).getAllByRole("cell");
       expect(cells[1]).toHaveTextContent("Lakshmi");
       expect(cells[2]).toHaveTextContent("Female");
@@ -172,7 +172,7 @@ describe("AnimalsPage extended", () => {
 
     it("renders em dashes for null name, age and weight", async () => {
       await renderLoaded([SPARSE_ANIMAL]);
-      const row = screen.getByText("G-002").closest("tr") as HTMLElement;
+      const row = within(screen.getByRole("table")).getByText("G-002").closest("tr") as HTMLElement;
       const cells = within(row).getAllByRole("cell");
       expect(cells[1]).toHaveTextContent("—");
       expect(cells[6]).toHaveTextContent("—");
@@ -181,14 +181,14 @@ describe("AnimalsPage extended", () => {
 
     it("renders non-ACTIVE statuses with their status text", async () => {
       await renderLoaded([SPARSE_ANIMAL]);
-      const row = screen.getByText("G-002").closest("tr") as HTMLElement;
-      expect(within(row).getByText("SOLD")).toBeInTheDocument();
+      const row = within(screen.getByRole("table")).getByText("G-002").closest("tr") as HTMLElement;
+      expect(within(row).getByText("Sold", { exact: false })).toBeInTheDocument();
     });
 
     it("renders all rows and the total count", async () => {
       await renderLoaded([ANIMAL, SPARSE_ANIMAL, { ...ANIMAL, id: 3, tag_number: "G-003" }]);
       expect(screen.getByText("3 animal(s)")).toBeInTheDocument();
-      expect(screen.getByText("G-003")).toBeInTheDocument();
+      expect(screen.getAllByText("G-003")[0]).toBeInTheDocument();
     });
   });
 
@@ -302,14 +302,14 @@ describe("AnimalsPage extended", () => {
     it("sends the chosen status filter", async () => {
       const user = userEvent.setup();
       await renderLoaded();
-      await pickOption(user, screen.getAllByRole("combobox")[2], "SOLD");
+      await pickOption(user, screen.getAllByRole("combobox")[2], "Sold");
       await waitFor(() => expect(seenParams.at(-1)?.get("status")).toBe("SOLD"));
     });
 
     it("uses the explicit all-status contract when reset to All statuses", async () => {
       const user = userEvent.setup();
       await renderLoaded();
-      await pickOption(user, screen.getAllByRole("combobox")[2], "SOLD");
+      await pickOption(user, screen.getAllByRole("combobox")[2], "Sold");
       await waitFor(() => expect(seenParams.at(-1)?.get("status")).toBe("SOLD"));
       await pickOption(user, screen.getAllByRole("combobox")[2], "All statuses");
       await waitFor(() => {
@@ -383,12 +383,16 @@ describe("AnimalsPage extended", () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openCreateDialog(user);
-      expect(within(dialog).getByLabelText("Breed")).toHaveValue("Osmanabadi");
+      expect(within(dialog).getByLabelText("Breed")).toHaveValue("");
+      expect(within(dialog).getByLabelText("Breed")).toHaveAttribute(
+        "placeholder",
+        "e.g. Osmanabadi (the default when blank)",
+      );
       const combos = within(dialog).getAllByRole("combobox");
       expect(combos).toHaveLength(2);
       expect(combos[0]).toHaveTextContent("Female");
       expect(combos[1]).toHaveTextContent("Purchased");
-      expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("QUARANTINE");
+      expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("Quarantine");
       expect(within(dialog).getByLabelText(/purchase price/i)).toBeInTheDocument();
     });
 
@@ -407,7 +411,7 @@ describe("AnimalsPage extended", () => {
       const dialog = await openCreateDialog(user);
       await user.type(within(dialog).getByLabelText(/tag number/i), "G-QUARANTINE-1");
 
-      expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("QUARANTINE");
+      expect(within(dialog).getByLabelText("Bucket *")).toHaveValue("Quarantine");
       expect(within(dialog).getByLabelText("Bucket *")).toHaveAttribute("readonly");
       expect(
         within(dialog).getByText(/Complete the quarantine protocol before moving this animal/),
@@ -427,7 +431,7 @@ describe("AnimalsPage extended", () => {
       expect(within(dialog).queryByLabelText(/purchase price/i)).not.toBeInTheDocument();
       expect(within(dialog).getByLabelText("Historical import reason *")).toBeInTheDocument();
       expect(
-        within(dialog).getByText(/Normal births must be recorded through Kidding/),
+        within(dialog).getByText(/Normal births must be recorded through the kidding register/),
       ).toBeInTheDocument();
     });
 
@@ -441,7 +445,7 @@ describe("AnimalsPage extended", () => {
         "Historical born-on-farm import",
       );
       await user.click(within(dialog).getByLabelText("Bucket *"));
-      expect(await screen.findByRole("option", { name: "BREEDING" })).toBeInTheDocument();
+      expect(await screen.findByRole("option", { name: "Breeding" })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "PREGNANCY EARLY" })).not.toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "PREGNANCY LATE" })).not.toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "DELIVERY" })).not.toBeInTheDocument();
@@ -632,7 +636,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Breeding provenance fixture",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
@@ -762,7 +766,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Breeding eligibility fixture",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(within(dialog).getByLabelText(/date of birth/i), new Date().toISOString().slice(0, 10));
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "24");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
@@ -785,7 +789,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Breeding eligibility fixture",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(within(dialog).getByLabelText(/date of birth/i), "2020-01-01");
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "21");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
@@ -808,7 +812,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Exact breeding boundary fixture",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(within(dialog).getByLabelText(/date of birth/i), calendarMonthsAgo(10));
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "22");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
@@ -834,7 +838,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Breeding day boundary fixture",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(
         within(dialog).getByLabelText(/date of birth/i),
         addDays(calendarMonthsAgo(10), 1),
@@ -861,7 +865,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Buck breeding boundary fixture",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "BREEDING");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[2], "Breeding");
       setDate(within(dialog).getByLabelText(/date of birth/i), calendarMonthsAgo(11));
       setDate(within(dialog).getByLabelText("Entry weight (kg)"), "24");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
@@ -978,16 +982,16 @@ describe("AnimalsPage extended", () => {
 
       // Female (the default): MALE_KIDS is reserved for bucks.
       await user.click(within(dialog).getByLabelText("Bucket *"));
-      expect(await screen.findByRole("option", { name: "FEMALE KIDS" })).toBeInTheDocument();
-      expect(screen.getByRole("option", { name: "RESTING" })).toBeInTheDocument();
-      expect(screen.queryByRole("option", { name: "MALE KIDS" })).not.toBeInTheDocument();
-      await user.click(screen.getByRole("option", { name: "FEMALE KIDS" }));
+      expect(await screen.findByRole("option", { name: "Female kids" })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: "Resting" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Male kids" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("option", { name: "Female kids" }));
 
       await pickOption(user, within(dialog).getAllByRole("combobox")[0], "Male");
       await user.click(within(dialog).getByLabelText("Bucket *"));
-      expect(await screen.findByRole("option", { name: "MALE KIDS" })).toBeInTheDocument();
-      expect(screen.queryByRole("option", { name: "FEMALE KIDS" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("option", { name: "RESTING" })).not.toBeInTheDocument();
+      expect(await screen.findByRole("option", { name: "Male kids" })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Female kids" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Resting" })).not.toBeInTheDocument();
       // The now-illegal selection falls back to a bucket the server accepts.
       expect(within(dialog).getByLabelText("Bucket *")).not.toHaveTextContent("FEMALE KIDS");
     });

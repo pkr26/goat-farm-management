@@ -179,7 +179,7 @@ async function renderWithResult(result = RESULT) {
   renderWithProviders(<SimulationPage />);
   expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Run simulation" }));
-  expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+  expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
   return user;
 }
 
@@ -198,7 +198,7 @@ describe("SimulationPage explainability", () => {
     ).toBeInTheDocument();
     // Figures: currency formatting for money keys, percent for rate keys,
     // and null values skipped.
-    expect(within(dialog).getByText("₹2,34,567")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("₹2,34,567")[0]).toBeInTheDocument();
     expect(within(dialog).getByText("Discount Rate")).toBeInTheDocument();
     expect(within(dialog).getByText("12.0%")).toBeInTheDocument();
     expect(within(dialog).queryByText("Ignored")).not.toBeInTheDocument();
@@ -227,7 +227,7 @@ describe("SimulationPage explainability", () => {
 
     await user.click(screen.getByRole("button", { name: "Explain Loan" }));
     const loanDialog = await screen.findByRole("dialog");
-    expect(within(loanDialog).getByText("₹2,50,000")).toBeInTheDocument();
+    expect(within(loanDialog).getAllByText("₹2,50,000")[0]).toBeInTheDocument();
     expect(within(loanDialog).getByText("85.0%")).toBeInTheDocument();
     expect(within(loanDialog).getByText("72")).toBeInTheDocument();
     expect(within(loanDialog).queryByText("₹0.85")).not.toBeInTheDocument();

@@ -236,7 +236,7 @@ describe("HealthPage traceability cell and event targets", () => {
   async function renderLoaded() {
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await screen.findByText("PPR vaccine");
+    await within(screen.getByRole("table")).findByText("PPR vaccine");
   }
 
   async function openDialog() {
@@ -265,7 +265,9 @@ describe("HealthPage traceability cell and event targets", () => {
       }),
     ];
     await renderLoaded();
-    const cell = traceabilityCell(screen.getByText("PPR vaccine").closest("tr")!);
+    const cell = traceabilityCell(
+      within(screen.getByRole("table")).getByText("PPR vaccine").closest("tr")!,
+    );
 
     expect(within(cell).getByText("Scheduled disease suspected")).toBeInTheDocument();
     expect(within(cell).getByText("Lot: LOT-9")).toBeInTheDocument();
@@ -284,7 +286,9 @@ describe("HealthPage traceability cell and event targets", () => {
 
   it("collapses an event with no traceability data to exactly one dash", async () => {
     await renderLoaded();
-    const cell = traceabilityCell(screen.getByText("PPR vaccine").closest("tr")!);
+    const cell = traceabilityCell(
+      within(screen.getByRole("table")).getByText("PPR vaccine").closest("tr")!,
+    );
 
     expect(cell).toHaveTextContent(/^—$/);
   });
@@ -306,7 +310,9 @@ describe("HealthPage traceability cell and event targets", () => {
     async (_field, overrides) => {
       events = [makeEvent(overrides)];
       await renderLoaded();
-      const cell = traceabilityCell(screen.getByText("PPR vaccine").closest("tr")!);
+      const cell = traceabilityCell(
+      within(screen.getByRole("table")).getByText("PPR vaccine").closest("tr")!,
+    );
 
       expect(cell).not.toHaveTextContent("—");
       expect(cell.textContent?.trim()).not.toBe("");
@@ -402,7 +408,7 @@ describe("HealthPage traceability cell and event targets", () => {
     await waitFor(() => expect(picker).toHaveTextContent("Batch #2"));
     expect(within(dialog).getByLabelText("Disease target")).toHaveValue("Deworming");
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(
-      "DEWORMING",
+      "Deworming",
     );
 
     await pickOption(user, picker, /Batch #2/);
@@ -410,7 +416,7 @@ describe("HealthPage traceability cell and event targets", () => {
     expect(duty).toHaveTextContent("Deworm batch #2");
     expect(within(dialog).getByLabelText("Disease target")).toHaveValue("Deworming");
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(
-      "DEWORMING",
+      "Deworming",
     );
   });
 
@@ -460,7 +466,7 @@ describe("HealthPage traceability cell and event targets", () => {
     const user = userEvent.setup();
     const view = renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await screen.findByText("PPR vaccine");
+    await within(screen.getByRole("table")).findByText("PPR vaccine");
     await user.click(screen.getByRole("button", { name: "Add event" }));
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("radio", { name: "Whole bucket" }));

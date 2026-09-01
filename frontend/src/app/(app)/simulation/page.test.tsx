@@ -345,14 +345,14 @@ describe("SimulationPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
 
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(screen.getByText("IRR")).toBeInTheDocument();
-    expect(screen.getByText("18.0%")).toBeInTheDocument();
+    expect(screen.getAllByText("18.0%").length).toBeGreaterThan(0);
     expect(screen.getByText("Payback month")).toBeInTheDocument();
     // Annual P&L: year 1 row with revenue, opex and net cash flow.
-    const yearRow = (await screen.findByText("₹1,20,000")).closest("tr") as HTMLElement;
+    const yearRow = (await screen.findAllByText("₹1,20,000"))[0].closest("tr") as HTMLElement;
     expect(within(yearRow).getByText("1")).toBeInTheDocument();
-    expect(within(yearRow).getByText("₹90,000")).toBeInTheDocument();
+    expect(within(yearRow).getAllByText("₹90,000")[0]).toBeInTheDocument();
     // EBITDA and net cash flow are both 30,000 in the fixture.
     expect(within(yearRow).getAllByText("₹30,000")).toHaveLength(2);
   });
@@ -547,8 +547,13 @@ describe("SimulationPage", () => {
     expect(screen.getByText(/horizon_months must be at least 12/)).toBeInTheDocument();
     expect(screen.getByText(/stored assumptions are unavailable/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Load" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Run" })).toHaveLength(2);
-    for (const button of screen.getAllByRole("button", { name: /^(Load|Run)$/ }))
+    const rowRuns = screen.getAllByRole("button", { name: "Run" }).filter(
+      (button) => !button.closest("nav"),
+    );
+    expect(rowRuns).toHaveLength(2);
+    for (const button of screen.getAllByRole("button", { name: /^(Load|Run)$/ }).filter(
+      (b) => !b.closest("nav"),
+    ))
       expect(button).toBeDisabled();
     for (const button of screen.getAllByRole("button", { name: "Delete" }))
       expect(button).toBeEnabled();
@@ -1008,7 +1013,7 @@ describe("SimulationPage", () => {
     bounds("Gestation Months", { min: "1", max: "12", step: "1", unit: "months" });
     bounds("Adult", { min: "0", max: "0.9" });
     bounds("Doe Cull Rate Annual", { min: "0", max: "1", unit: "fraction" });
-    bounds("Buck Doe Ratio", { min: "1", max: "100", step: "1", unit: "does per buck" });
+    bounds("Buck Doe Ratio", { min: "1", max: "100", step: "1", unit: "females per male" });
     bounds("Birth Weight Kg", { max: "1000", unit: "kg" });
     bounds("Sale Age Months", { min: "6", max: "24", step: "1", unit: "months" });
     bounds("Meat Price Per Kg", { min: "0", max: "1000000000", unit: "₹" });
@@ -1124,7 +1129,9 @@ describe("SimulationPage", () => {
       );
       const user = userEvent.setup();
       await renderLoaded([SCENARIO]);
-      await user.click(screen.getByRole("button", { name: "Run" }));
+      // The scenario ROW's Run button (the sticky nav's Run is ad-hoc).
+      const planBRow = screen.getByText("Plan B").closest("tr") as HTMLElement;
+      await user.click(within(planBRow).getByRole("button", { name: "Run" }));
       expect(await screen.findByText("Source: Saved scenario “Plan B”")).toBeInTheDocument();
       return user;
     }
@@ -1182,16 +1189,21 @@ describe("SimulationPage", () => {
       await user.click(screen.getByRole("checkbox", { name: "Sensitivity" }));
       await user.click(screen.getByRole("checkbox", { name: "Optimization" }));
 
-      const run = screen.getByRole("button", { name: "Run" });
+      const planBRunRow = screen.getByText("Plan B").closest("tr") as HTMLElement;
+      const run = within(planBRunRow).getByRole("button", { name: "Run" });
       await user.click(run);
       expect(await screen.findByText("saved engine exploded")).toBeInTheDocument();
       await waitFor(() =>
-        expect(screen.getByRole("button", { name: "Run" })).toBeEnabled(),
+        expect(
+          within(planBRunRow).getByRole("button", { name: "Run" }),
+        ).toBeEnabled(),
       );
 
       await user.click(run);
       expect(await screen.findByText("Source: Saved scenario “Plan B”")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
+      expect(
+        within(planBRunRow).getByRole("button", { name: "Run" }),
+      ).toBeEnabled();
       expect(Object.fromEntries(captured.params ?? [])).toEqual({
         monte_carlo: "true",
         sensitivity: "true",

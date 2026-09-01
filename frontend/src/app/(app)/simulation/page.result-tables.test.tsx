@@ -463,17 +463,25 @@ describe("SimulationPage Monte Carlo presentation", () => {
       ),
     ).toBeInTheDocument();
 
-    // Bar heights are proportional to the busiest bin, with a visible floor
-    // for any bin that holds runs at all.
-    const bars = Array.from(screen.getByLabelText(/^NPV histogram/).children);
+    // Bars are SVG rects proportional to the busiest bin (zero-height for
+    // empty bins), each carrying its range/count title; P5/P50/P95 render
+    // as marker lines alongside.
+    const chart = screen.getByLabelText(/^NPV histogram/);
+    const bars = Array.from(chart.children).filter(
+      (el) => el.tagName.toLowerCase() === "rect",
+    );
     expect(bars).toHaveLength(20);
-    expect(bars[0]).toHaveStyle({ height: "0%" });
-    expect(bars[1]).toHaveStyle({ height: "4%" });
-    expect(bars[19]).toHaveStyle({ height: "100%" });
-    expect(bars[19]).toHaveAttribute(
-      "title",
+    expect(bars[0]).toHaveAttribute("height", "0");
+    expect(Number(bars[1].getAttribute("height"))).toBeGreaterThan(0);
+    const tallest = Math.max(...bars.map((b) => Number(b.getAttribute("height"))));
+    expect(Number(bars[19].getAttribute("height"))).toBe(tallest);
+    expect(bars[19].querySelector("title")).toHaveTextContent(
       "₹3,75,000 – ₹4,00,000: 40 runs",
     );
+    const markers = Array.from(chart.children).filter(
+      (el) => el.tagName.toLowerCase() === "line",
+    );
+    expect(markers).toHaveLength(3);
 
     // Annual checkpoints: first month, each anniversary, and the final month.
     const bands = screen.getByText("Annual uncertainty checkpoints")
@@ -722,7 +730,8 @@ describe("SimulationPage in-flight labels", () => {
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
     await waitFor(() => expect(releaseRun).toBeTypeOf("function"));
-    expect(screen.getByRole("button", { name: "Running…" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Running…" }).length).toBeGreaterThan(0);
+    for (const b of screen.getAllByRole("button", { name: "Running…" })) expect(b).toBeDisabled();
 
     releaseRun();
     expect(
@@ -1112,7 +1121,7 @@ describe("SimulationPage assumptions editor", () => {
     await waitFor(() => expect(animalClass).toHaveTextContent("Buck"));
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.events).toEqual([
       {
         month: 12,
@@ -1143,7 +1152,9 @@ describe("SimulationPage result provenance", () => {
     renderWithProviders(<SimulationPage />);
     expect(await screen.findByText("Horizon Months")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Run" }));
+    // The SCENARIO ROW's Run (the sticky bar's Run is the ad-hoc editor run).
+    const planARow = screen.getByText("Plan A").closest("tr") as HTMLElement;
+    await user.click(within(planARow).getByRole("button", { name: "Run" }));
     expect(
       await screen.findByText("Source: Saved scenario “Plan A”"),
     ).toBeInTheDocument();

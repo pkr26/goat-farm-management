@@ -216,14 +216,14 @@ describe("AnimalProfilePage guards", () => {
     it("describes the doe by her own breed, sex and bucket", async () => {
       await renderProfile();
 
-      expect(screen.getByText("Osmanabadi · Female · PREGNANCY EARLY")).toBeInTheDocument();
+      expect(screen.getByText("Osmanabadi · Female · Pregnancy A")).toBeInTheDocument();
     });
 
     it("describes a buck as Male", async () => {
       useProfileHandler(profileWith({ sex: "M", current_bucket: "MALE_KIDS" }));
       await renderProfile();
 
-      expect(screen.getByText("Osmanabadi · Male · MALE KIDS")).toBeInTheDocument();
+      expect(screen.getByText("Osmanabadi · Male · Male kids")).toBeInTheDocument();
     });
   });
 
@@ -810,9 +810,12 @@ describe("AnimalProfilePage guards", () => {
 
       await queryClient.refetchQueries({ queryKey: ["/api/animals/1"] });
 
-      expect(await screen.findByRole("status")).toHaveTextContent(
-        "Could not refresh this profile — showing the last loaded data.",
-      );
+      // Assert on the banner copy itself: a sibling polite status (the
+      // restriction-audit InlineLoading) can still be committing at this
+      // instant and would win an undirected role query.
+      expect(
+        await screen.findByText("Could not refresh this profile — showing the last loaded data."),
+      ).toBeInTheDocument();
       expect(screen.getByRole("heading", { level: 1, name: /G-001/ })).toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "Retry animal profile" }),

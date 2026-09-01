@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { useListRecipesApiFeedingRecipesGet } from "@/api/generated/endpoints";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,18 +24,32 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { FeedingNav } from "@/components/feeding-nav";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions } from "@/lib/use-permissions";
 import { PermissionsError } from "@/components/permissions-error";
 
 export default function RecipesPage() {
   const { can, loading: permsLoading, isError: permsError , refetch: permsRefetch } = usePermissions();
   const allowed = can("feeding.view");
+  const farmType = useFarmType();
 
   const query = useListRecipesApiFeedingRecipesGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
 
+  // The header and layout stay mounted while permissions settle — a page that
+  // collapses to a bare "Loading…" line reads as a broken app on slow rural
+  // connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="TMR recipes"
+          description="Total mixed ration formulas and the bucket each one feeds."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -57,7 +72,18 @@ export default function RecipesPage() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="TMR recipes"
+          description="Total mixed ration formulas and the bucket each one feeds."
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading recipes…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -128,7 +154,7 @@ export default function RecipesPage() {
             {payload.allocation.map((row) => (
               <TableRow key={row.bucket}>
                 <TableCell>
-                  <Badge variant="secondary">{row.bucket}</Badge>
+                  <Badge variant="secondary">{enumLabel("bucket", row.bucket, farmType)}</Badge>
                 </TableCell>
                 <TableCell>{row.allocation}</TableCell>
               </TableRow>

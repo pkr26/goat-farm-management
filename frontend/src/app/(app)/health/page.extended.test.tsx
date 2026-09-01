@@ -284,14 +284,14 @@ describe("HealthPage", () => {
   async function renderLoaded() {
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await screen.findByText("PPR vaccine");
+    await within(screen.getByRole("table")).findByText("PPR vaccine");
   }
 
   // ---------- event log ----------
 
   it("renders the event log with formatted date, ₹ cost and next-due", async () => {
     await renderLoaded();
-    const row = screen.getByText("PPR vaccine").closest("tr")!;
+    const row = within(screen.getByRole("table")).getByText("PPR vaccine").closest("tr")!;
     expect(within(row).getByText("15 Jul 2026")).toBeInTheDocument();
     expect(within(row).getByText("Vaccination")).toBeInTheDocument();
     expect(within(row).getByRole("link", { name: "G-003" })).toHaveAttribute(
@@ -314,12 +314,13 @@ describe("HealthPage", () => {
     ];
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await screen.findByText("Overdue dose");
+    const log = screen.getByRole("table");
+    await within(log).findByText("Overdue dose");
 
-    const overdueRow = screen.getByText("Overdue dose").closest("tr")!;
-    const todayRow = screen.getByText("Due today").closest("tr")!;
-    const sevenDayRow = screen.getByText("Due in seven").closest("tr")!;
-    const laterRow = screen.getByText("Due later").closest("tr")!;
+    const overdueRow = within(log).getByText("Overdue dose").closest("tr")!;
+    const todayRow = within(log).getByText("Due today").closest("tr")!;
+    const sevenDayRow = within(log).getByText("Due in seven").closest("tr")!;
+    const laterRow = within(log).getByText("Due later").closest("tr")!;
     expect(within(overdueRow).getByText(formatDate(addDays(TODAY, -1)))).toHaveClass(
       "bg-destructive/10",
     );
@@ -343,7 +344,9 @@ describe("HealthPage", () => {
       }),
     ];
     renderWithProviders(<HealthPage />);
-    const row = (await screen.findByText("Vaccination")).closest("tr")!;
+    // The mobile card list repeats the type label — scope to the desktop table.
+    const log = await screen.findByRole("table");
+    const row = (await within(log).findByText("Vaccination")).closest("tr")!;
     expect(within(row).getAllByText("—").length).toBeGreaterThanOrEqual(6);
   });
 
@@ -366,7 +369,7 @@ describe("HealthPage", () => {
     ];
 
     await renderLoaded();
-    const row = screen.getByText("PPR vaccine").closest("tr")!;
+    const row = within(screen.getByRole("table")).getByText("PPR vaccine").closest("tr")!;
     expect(within(row).getByText(/Annual PPR programme · Farm veterinarian/)).toBeInTheDocument();
     expect(within(row).getByText("Scheduled disease suspected")).toBeInTheDocument();
     expect(within(row).getByText("Lot: LOT-PPR-26")).toBeInTheDocument();
@@ -381,8 +384,9 @@ describe("HealthPage", () => {
       makeEvent({ id: 4, animal_id: 9, animal_tag: null }),
     ];
     renderWithProviders(<HealthPage />);
-    expect(await screen.findByText("batch #2")).toBeInTheDocument();
-    expect(screen.getByText("#9")).toBeInTheDocument();
+    const log = await screen.findByRole("table");
+    expect(await within(log).findByText("batch #2")).toBeInTheDocument();
+    expect(within(log).getByText("#9")).toBeInTheDocument();
   });
 
   it("shows the empty state when no events exist", async () => {
@@ -1306,7 +1310,7 @@ describe("HealthPage", () => {
     await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-004/);
     const combos = () => within(dialog).getAllByRole("combobox");
     // Order: animal, type, route, linked duty.
-    await pickOption(user, combos()[1], "DEWORMING");
+    await pickOption(user, combos()[1], "Deworming");
     await pickOption(user, combos()[2], "IM");
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
@@ -1514,7 +1518,7 @@ describe("HealthPage", () => {
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
     // Type switched to the duty's category.
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Deworming");
 
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -1553,7 +1557,7 @@ describe("HealthPage", () => {
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm Kaveri/);
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("Deworm Kaveri");
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Deworming");
     await pickOption(
       user,
       within(dialog).getByRole("combobox", { name: "Animal *" }),
@@ -1561,7 +1565,7 @@ describe("HealthPage", () => {
     );
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("VACCINE");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Vaccination");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
@@ -1593,7 +1597,7 @@ describe("HealthPage", () => {
     );
 
     expect(within(dialog).getByLabelText(/Linked duty/)).toHaveTextContent("— none —");
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("VACCINE");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Vaccination");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
     await reviewAndConfirmBulk(user, dialog);
 
@@ -1696,13 +1700,13 @@ describe("HealthPage", () => {
     await pickOption(user, dutySelect, /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Deworming");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("Deworming");
 
     await pickOption(user, dutySelect, /none/);
 
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
-    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("VACCINE");
+    expect(within(dialog).getAllByRole("combobox")[1]).toHaveTextContent("Vaccination");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("");
   });
 

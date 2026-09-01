@@ -17,10 +17,14 @@ import { addDays, farmToday } from "@/lib/format";
 
 import FeedingPage from "./page";
 
+// Mutable navigation state so a test can seed the URL the page boots from
+// (F-7: the history window survives refresh via the search string).
+const nav = vi.hoisted(() => ({ search: "", replace: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: nav.replace, prefetch: vi.fn() }),
   usePathname: () => "/feeding",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(nav.search),
   useParams: () => ({}),
 }));
 
@@ -302,14 +306,16 @@ describe("FeedingPage errors and RBAC", () => {
     expect(await screen.findByText("plan blew up")).toBeInTheDocument();
   });
 
-  it("falls back to a generic message for non-JSON failures", async () => {
+  it("surfaces the transport error's status text for a bodyless 500", async () => {
     server.use(
       http.get("/api/feeding/plan", () => new HttpResponse(null, { status: 500 })),
       recipesHandler(),
     );
     renderWithProviders(<FeedingPage />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Internal Server Error");
     expect(
-      await screen.findByText((t) => t.includes("Could not load") || t.length > 0),
+      within(alert).getByRole("button", { name: "Retry feeding plan" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("No active animals")).not.toBeInTheDocument();
   });
@@ -354,7 +360,8 @@ describe("FeedingPage errors and RBAC", () => {
         });
       }),
     );
-    renderWithProviders(<FeedingPage />);
+    const { waitForAuthIdle } = renderWithProviders(<FeedingPage />);
+    await waitForAuthIdle();
 
     expect(
       await screen.findByText("You don't have access to this page."),
@@ -400,6 +407,8 @@ describe("FeedingPage dispensing history", () => {
 
   beforeEach(() => {
     historyParams = new URLSearchParams();
+    nav.search = "";
+    nav.replace.mockClear();
     server.use(
       planHandler({ lines: [LINE_BREEDING], records: [] }),
       recipesHandler(),
@@ -483,6 +492,35 @@ describe("FeedingPage dispensing history", () => {
 
     await moveToSecondPage();
     await user.click(screen.getByRole("button", { name: "Clear dates" }));
+    await waitFor(() => expect(historyParams.get("offset")).toBe("0"));
+  });
+
+  it("restores the history window from the URL and writes edits back", async () => {
+    // F-7: dateFrom/dateTo/offset persist in the search string, so a refresh
+    // (or a shared link) reopens the same slice of the ledger.
+    nav.search = "date_from=2026-01-01&date_to=2026-01-31&offset=50";
+    await renderLoaded();
+
+    await waitFor(() => {
+      expect(historyParams.get("date_from")).toBe("2026-01-01");
+      expect(historyParams.get("date_to")).toBe("2026-01-31");
+      expect(historyParams.get("offset")).toBe("50");
+    });
+    expect(screen.getByLabelText("From date")).toHaveValue("2026-01-01");
+    expect(screen.getByLabelText("To date")).toHaveValue("2026-01-31");
+    // Defaults never pollute the URL: nothing was written before an edit.
+    expect(nav.replace).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-01-05" },
+    });
+    await waitFor(() =>
+      expect(nav.replace).toHaveBeenCalledWith(
+        "/feeding?date_from=2026-01-05&date_to=2026-01-31",
+        { scroll: false },
+      ),
+    );
+    // A date edit returns the ledger to its first page.
     await waitFor(() => expect(historyParams.get("offset")).toBe("0"));
   });
 

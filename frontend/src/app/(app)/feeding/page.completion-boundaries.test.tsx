@@ -318,7 +318,8 @@ describe("FeedingPage gating branches", () => {
     // The plan is only requested once permissions have resolved, so reaching
     // the handler proves this is the plan gate rather than the permission one.
     await waitFor(() => expect(planStarted).toBe(true));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Feeding — today" })).toBeInTheDocument();
+    expect(screen.getByText("Loading feeding plan…")).toBeInTheDocument();
     expect(screen.queryByText("Could not load the feeding plan.")).not.toBeInTheDocument();
 
     release?.();
@@ -341,7 +342,9 @@ describe("FeedingPage gating branches", () => {
     const { waitForAuthIdle } = renderWithProviders(<FeedingPage />);
     await waitForAuthIdle();
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The page keeps its real chrome up while permissions settle — the header
+    // plus a skeleton, never a denial before the answer arrives.
+    expect(screen.getByRole("heading", { name: "Feeding — today" })).toBeInTheDocument();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
 
     release?.();
@@ -359,7 +362,8 @@ describe("FeedingPage gating branches", () => {
         return HttpResponse.json({ records: [], total: 0, limit: 50, offset: 0 });
       }),
     );
-    renderWithProviders(<FeedingPage />);
+    const { waitForAuthIdle } = renderWithProviders(<FeedingPage />);
+    await waitForAuthIdle();
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(historyCalls).toBe(0);

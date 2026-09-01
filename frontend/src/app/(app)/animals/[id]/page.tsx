@@ -28,9 +28,10 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton, InlineLoading } from "@/components/skeletons";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -59,6 +60,9 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { useFarmType } from "@/hooks/use-farm-type";
 import { farmToday, formatDate, formatFarmDateTime, formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
@@ -983,6 +987,8 @@ function ProfileBody({
 }) {
   const { can } = usePermissions();
   const a = profile.animal;
+  const farmType = useFarmType();
+  const vocabulary = farmVocabulary(farmType);
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
   const canViewBreeding = can("breeding.view");
@@ -1024,7 +1030,7 @@ function ProfileBody({
               <StatusBadge status={a.status}>{a.status}</StatusBadge>
             </span>
           }
-          description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${a.current_bucket.replace(/_/g, " ")}`}
+          description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${enumLabel("bucket", a.current_bucket, farmType)}`}
           actions={
             active && (
               <>
@@ -1105,7 +1111,7 @@ function ProfileBody({
             description="Immutable placement and clearance actions grouped by restriction episode."
           >
             {restrictionHistoryQuery.isLoading ? (
-              <p className="text-sm text-muted-foreground">Loading restriction audit…</p>
+              <InlineLoading>Loading restriction audit…</InlineLoading>
             ) : restrictionHistoryQuery.isError ? (
               <div role="alert" className="flex flex-wrap items-center gap-3">
                 <p className="text-sm text-destructive">
@@ -1266,7 +1272,7 @@ function ProfileBody({
             <EmptyState
               icon={Scale}
               title="No weight records yet."
-              description="Record the first weight to start tracking growth."
+              description="Use the “Record weight” action above to log the first entry and start the growth curve."
               className="py-8"
             />
           ) : (
@@ -1325,8 +1331,8 @@ function ProfileBody({
                   <TableRow key={m.id}>
                     <TableCell>{formatDate(m.effective_date)}</TableCell>
                     <TableCell>{formatFarmDateTime(m.moved_at)}</TableCell>
-                    <TableCell>{m.from_bucket?.replace(/_/g, " ") ?? "—"}</TableCell>
-                    <TableCell>{m.to_bucket.replace(/_/g, " ")}</TableCell>
+                    <TableCell>{m.from_bucket ? enumLabel("bucket", m.from_bucket, farmType) : "—"}</TableCell>
+                    <TableCell>{enumLabel("bucket", m.to_bucket, farmType)}</TableCell>
                     <TableCell>{m.reason ?? ""}</TableCell>
                   </TableRow>
                 ))}
@@ -1351,7 +1357,14 @@ function ProfileBody({
               title="No health events."
               description="Treatments, vaccines and dewormings will appear here."
               className="py-8"
-            />
+            >
+              <Link
+                href="/health/new"
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                Add a health event
+              </Link>
+            </EmptyState>
           ) : (
             <Table>
               <TableHeader>
@@ -1368,7 +1381,7 @@ function ProfileBody({
                 {profile.health_events.map((h) => (
                   <TableRow key={h.id}>
                     <TableCell>{formatDate(h.date)}</TableCell>
-                    <TableCell>{h.type}</TableCell>
+                    <TableCell>{enumLabel("eventType", h.type)}</TableCell>
                     <TableCell>{h.product_name ?? h.disease_target ?? "—"}</TableCell>
                     <TableCell className="text-right">{formatMoney(h.cost)}</TableCell>
                     <TableCell>{formatDate(h.next_due_date)}</TableCell>
@@ -1405,12 +1418,12 @@ function ProfileBody({
         )}
 
         {(a.sex === "F" || profile.kids_total > 0) && (
-          <DataTableCard title={`Kids (${profile.kids_total})`}>
+          <DataTableCard title={`${vocabulary.youngPlural.charAt(0).toUpperCase() + vocabulary.youngPlural.slice(1)} (${profile.kids_total})`}>
             {profile.kids.length === 0 ? (
               <EmptyState
                 icon={Baby}
-                title="No kids recorded."
-                description="Offspring from this animal will appear here."
+                title={`No ${vocabulary.youngPlural} recorded.`}
+                description={`Offspring from this animal appear here as ${vocabulary.parturition} records are added.`}
                 className="py-8"
               />
             ) : (
@@ -1434,7 +1447,7 @@ function ProfileBody({
                           {k.tag_number}
                         </Link>
                       </TableCell>
-                      <TableCell>{k.sex}</TableCell>
+                      <TableCell>{enumLabel("sex", k.sex)}</TableCell>
                       <TableCell>{formatDate(k.date_of_birth)}</TableCell>
                       <TableCell>
                         <StatusBadge status={k.status}>{k.status}</StatusBadge>
@@ -1535,7 +1548,13 @@ function AnimalProfilePageContent() {
         : "Back to animals";
 
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader title="Animal" description="Profile, history and lifecycle actions." />
+        <PageSkeleton cards={3} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -1582,7 +1601,13 @@ function AnimalProfilePageContent() {
   // actionable branch instead of an unrecoverable spinner.
   if (!profile) {
     if (query.isError) return profileErrorBox;
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader title="Animal" description="Profile, history and lifecycle actions." />
+        <PageSkeleton cards={3} />
+      </div>
+    );
   }
   if (query.isError && fatalProfileError) return profileErrorBox;
   return (
@@ -1622,7 +1647,14 @@ function AnimalProfilePageContent() {
 export default function AnimalProfilePage() {
   const params = useParams<{ id: string }>();
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton cards={3} />
+        </div>
+      }
+    >
       {/* Keyed by the route param: the App Router reuses this mounted tree
           when only [id] changes (dam/sire/kid links navigate profile →
           profile), and placeholderData keeps the previous profile rendered

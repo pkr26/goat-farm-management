@@ -7,6 +7,9 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
+import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
+
 export default function BreedingUltrasoundRedirect() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -20,5 +23,18 @@ export default function BreedingUltrasoundRedirect() {
     router.replace(url);
   }, [router, params.id]);
 
-  return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+  // The redirect is near-instant, but a bare "Loading…" line reads as a broken
+  // app on a slow connection — mirror the destination page's shape instead.
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Breeding"
+        description="Opening the ultrasound check for this breeding record…"
+      />
+      <div role="status" aria-live="polite">
+        <span className="sr-only">Loading the ultrasound check…</span>
+        <PageSkeleton cards={2} />
+      </div>
+    </div>
+  );
 }

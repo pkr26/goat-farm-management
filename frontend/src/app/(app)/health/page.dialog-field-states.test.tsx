@@ -212,7 +212,7 @@ describe("HealthPage dialog field and in-flight states", () => {
     await openAdvanced(user, dialog);
     // TREATMENT takes a free-text schedule name (VACCINE/DEWORMING take a
     // seeded programme from a select), so this exercises the text input.
-    await pickOption(user, within(dialog).getByLabelText("Type"), "TREATMENT");
+    await pickOption(user, within(dialog).getByLabelText("Type"), "Treatment");
     const schedule = within(dialog).getByLabelText("Schedule/template name");
     expect(schedule.tagName).toBe("INPUT");
     expect(schedule).not.toHaveAttribute("aria-invalid");

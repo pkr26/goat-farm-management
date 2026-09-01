@@ -265,7 +265,7 @@ describe("SimulationPage herd events", () => {
     expect(screen.getByLabelText("Horizon Months")).toHaveValue(120);
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.meta?.horizon_months).toBe(120);
   });
 
@@ -339,7 +339,7 @@ describe("SimulationPage herd events", () => {
     await user.type(screen.getByLabelText("Price per head"), "0");
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
 
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.events).toEqual([
       {
         month: 60,
@@ -1367,7 +1367,7 @@ describe("SimulationPage numeric input guards", () => {
     await user.clear(priceInput);
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.events?.[0]).toMatchObject({
       price_per_head: null,
     });
@@ -1467,7 +1467,7 @@ describe("SimulationPage results and scenario management", () => {
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
 
     // NPV still formats; IRR/BCR fall back to the dash placeholder.
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     for (const label of ["IRR", "BCR"]) {
       const card = screen.getByText(label).closest("div.rounded-xl");
       expect(card).not.toBeNull();
@@ -1502,7 +1502,7 @@ describe("SimulationPage results and scenario management", () => {
     await renderLoaded({ scenarios: [scenario] });
 
     const deleteButton = await screen.findByRole("button", { name: "Delete" });
-    const runButton = screen.getByRole("button", { name: "Run" });
+    const runButton = within(screen.getByRole("navigation", { name: "Simulation sections" })).getByRole("button", { name: "Run" });
     await user.click(deleteButton);
     // The confirmation dialog names the scenario before anything is deleted.
     expect(
@@ -1670,7 +1670,7 @@ describe("SimulationPage advanced financial controls", () => {
     await user.type(threshold, "100001");
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
 
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.costs?.labour_per_head_threshold).toBe(100001);
   });
 
@@ -1766,13 +1766,13 @@ describe("SimulationPage advanced financial controls", () => {
     await user.clear(low);
     await user.type(low, "1.5");
     expect(
-      screen.getByText("Doe scale low must be less than or equal to doe scale high."),
+      screen.getByText("Herd scale low must be less than or equal to herd scale high (measured in does)."),
     ).toBeInTheDocument();
 
     await user.clear(low);
     await user.type(low, "1.25");
     expect(
-      screen.queryByText("Doe scale low must be less than or equal to doe scale high."),
+      screen.queryByText("Herd scale low must be less than or equal to herd scale high (measured in does)."),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run simulation" })).toBeEnabled();
   });
@@ -1968,7 +1968,7 @@ describe("SimulationPage advanced financial controls", () => {
     await user.type(costGrowth, "-0.02");
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.sales).toMatchObject({
       monthly_meat_price_multipliers: [1, 1.01, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.99],
       festival_sale_months: [12, 24],
@@ -2087,7 +2087,7 @@ describe("SimulationPage advanced financial controls", () => {
       },
     });
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
 
     await user.click(screen.getByText("Sales"));
     const seasonality = screen.getByLabelText(/Monthly Meat Price Multipliers/);
@@ -2347,7 +2347,7 @@ describe("SimulationPage advanced financial controls", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.events?.[0]).toMatchObject({ month: 90 });
     expect(captured.body?.assumptions.sales?.festival_sale_months).toEqual([90]);
   });

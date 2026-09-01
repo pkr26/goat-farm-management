@@ -385,7 +385,9 @@ describe("AnimalProfilePage", () => {
     it("shows Male for sex M", async () => {
       useProfileHandler(profileWith({ sex: "M" }));
       await renderProfile();
-      expect(screen.getByText("Male")).toBeInTheDocument();
+      // The kids table also humanises its sex cells, so pin the Details card.
+      const card = screen.getByText("Details").closest('[data-slot="card"]') as HTMLElement;
+      expect(within(card).getByText("Male")).toBeInTheDocument();
     });
 
     it("restores the permitted originating page instead of always returning to the herd list", async () => {
@@ -680,7 +682,8 @@ describe("AnimalProfilePage", () => {
       const card = screen.getByText("Bucket moves (2)").closest('[data-slot="card"]') as HTMLElement;
       const body = within(card);
       expect(body.getByText("Confirmed pregnant")).toBeInTheDocument();
-      const rows = body.getAllByText("QUARANTINE");
+      // Bucket cells carry the humanised enum labels.
+      const rows = body.getAllByText("Quarantine");
       expect(rows.length).toBeGreaterThanOrEqual(2); // to-bucket and from-bucket cells
       // The business date must not be inferred from the audit timestamp: a move
       // effective on 20 Jun was recorded after midnight in the farm timezone.
@@ -814,9 +817,12 @@ describe("AnimalProfilePage", () => {
       );
 
       await queryClient.refetchQueries({ queryKey: ["/api/animals/1"] });
-      expect(await screen.findByRole("status")).toHaveTextContent(
-        "Could not refresh this profile — showing the last loaded data.",
-      );
+      // Assert on the banner copy itself: a sibling polite status (the
+      // restriction-audit InlineLoading) can still be committing at this
+      // instant and would win an undirected role query.
+      expect(
+        await screen.findByText("Could not refresh this profile — showing the last loaded data."),
+      ).toBeInTheDocument();
       expect(screen.getByRole("heading", { level: 1, name: /G-001/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Record weight" })).toBeDisabled();
 

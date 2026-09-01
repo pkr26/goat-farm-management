@@ -296,7 +296,11 @@ describe("HealthPage dialog state ownership", () => {
     );
     renderWithProviders(<HealthPage />);
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The page holds its header + skeleton, not a bare "Loading…" line.
+    expect(
+      await screen.findByRole("heading", { name: "Health" }),
+    ).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(
       screen.queryByText("You don't have access to this page."),
     ).not.toBeInTheDocument();
@@ -315,7 +319,7 @@ describe("HealthPage dialog state ownership", () => {
       within(dialog).getByRole("combobox", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "TREATMENT");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
       target: { value: addDays(TODAY, 30) },
     });
@@ -347,7 +351,7 @@ describe("HealthPage dialog state ownership", () => {
       within(dialog).getByRole("combobox", { name: "Animal *" }),
       /G-003 · Kaveri/,
     );
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "TREATMENT");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
     const details = within(dialog)
       .getByText("Advanced traceability & compliance")
       .closest("details") as HTMLDetailsElement;
@@ -500,7 +504,7 @@ describe("HealthPage dialog state ownership", () => {
       ),
     );
 
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "TREATMENT");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
     tabsFail = false;
     await user.click(within(dialog).getByRole("button", { name: "Retry linked duties" }));
     await waitFor(() =>
@@ -511,7 +515,7 @@ describe("HealthPage dialog state ownership", () => {
     await settle();
 
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(
-      "TREATMENT",
+      "Treatment",
     );
     expect(within(dialog).getByLabelText("Linked duty (completes it)")).toHaveTextContent(
       /Deworm Kaveri/,
@@ -564,7 +568,7 @@ describe("HealthPage dialog state ownership", () => {
     // Re-linking the same duty by hand and then correcting the type is an
     // edit the abandoned deep link has no business undoing.
     await pickOption(user, dutySelect, /Deworm Kaveri/);
-    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "TREATMENT");
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Type" }), "Treatment");
     tabsFail = false;
     await user.click(within(dialog).getByRole("button", { name: "Retry linked duties" }));
     await settle();
@@ -575,7 +579,7 @@ describe("HealthPage dialog state ownership", () => {
       ).not.toBeInTheDocument(),
     );
     expect(within(dialog).getByRole("combobox", { name: "Type" })).toHaveTextContent(
-      "TREATMENT",
+      "Treatment",
     );
   });
 

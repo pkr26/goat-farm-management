@@ -95,7 +95,8 @@ describe("RecipesPage", () => {
     const row = screen
       .getByText("dry roughage only (days 1–3) → MAINTENANCE")
       .closest("tr") as HTMLElement;
-    expect(within(row).getByText("QUARANTINE")).toBeInTheDocument();
+    // Buckets render through the enum vocabulary, never as raw codes.
+    expect(within(row).getByText("Quarantine")).toBeInTheDocument();
   });
 
   it("links the feeding nav tabs", async () => {
@@ -145,7 +146,8 @@ describe("RecipesPage", () => {
         return HttpResponse.json(PAYLOAD);
       }),
     );
-    renderWithProviders(<RecipesPage />);
+    const { waitForAuthIdle } = renderWithProviders(<RecipesPage />);
+    await waitForAuthIdle();
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(calls).toBe(0);

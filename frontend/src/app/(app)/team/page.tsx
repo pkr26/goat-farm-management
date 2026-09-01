@@ -4,7 +4,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Users } from "lucide-react";
+import { Lock, ShieldCheck, Users } from "lucide-react";
 import { useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import type { MembershipOut, RoleOut, TeamOut } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -599,6 +600,14 @@ function AddWorkerDialog({
           </div>
           <DialogFooter>
             <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting || createFlight.pending}
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
               type="submit"
               disabled={
                 authority.blocked ||
@@ -699,6 +708,14 @@ function ResetPasswordDialog({
             )}
           </div>
           <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting || resetFlight.pending}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
             <Button
               type="submit"
               disabled={authority.blocked || isSubmitting || resetFlight.pending}
@@ -941,6 +958,14 @@ function RoleDialog({
           </div>
           <DialogFooter>
             <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting || saveFlight.pending}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
               type="submit"
               disabled={authority.blocked || isSubmitting || saveFlight.pending}
             >
@@ -1032,10 +1057,16 @@ function RoleCard({
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
         <div>
           <span className="font-medium">{role.name}</span>{" "}
-          {role.code && <Badge variant="warning">Preset</Badge>}
+          {role.code && (
+            <Badge variant="secondary">
+              <Lock aria-hidden="true" className="size-3" />
+              Preset
+            </Badge>
+          )}
           <div className="text-sm text-muted-foreground">{role.description ?? "—"}</div>
           <div className="text-xs text-muted-foreground">
             {memberCount} member{memberCount === 1 ? "" : "s"}
+            {role.code && " · built in — edits allowed, deletion not"}
           </div>
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0">
@@ -1162,7 +1193,16 @@ export default function TeamPage() {
   };
 
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader
+          title="Team"
+          description="Manage the workers on this farm, their roles and what each role can do."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -1185,7 +1225,18 @@ export default function TeamPage() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+        title="Team"
+        description="Manage the workers on this farm, their roles and what each role can do."
+      />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading the team…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   const assignableRoles = payload.roles.filter(
@@ -1262,7 +1313,21 @@ export default function TeamPage() {
             icon={Users}
             title="No workers yet"
             description="Add your first worker — they'll see only what their role allows."
-          />
+          >
+            {isOwner && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={authority.blocked}
+                onClick={() => {
+                  if (!authority.canStart()) return;
+                  setWorkerOpen(true);
+                }}
+              >
+                Add worker
+              </Button>
+            )}
+          </EmptyState>
         ) : (
           <Table className="min-w-[760px]">
             <TableHeader>
@@ -1300,7 +1365,12 @@ export default function TeamPage() {
 
       <DataTableCard
         title="Roles"
-        description="A role bundles the pages and actions a worker can use."
+        description={
+          <>
+            A role bundles the pages and actions a worker can use. Preset roles are built in —
+            edit them, but they can&apos;t be deleted.
+          </>
+        }
         actions={
           <Button
             variant="outline"
@@ -1318,7 +1388,18 @@ export default function TeamPage() {
             icon={ShieldCheck}
             title="No roles yet."
             description="Create a role to control what workers can see and do."
-          />
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={authority.blocked}
+              onClick={() => {
+                if (authority.canStart()) setRoleDialog({ role: null });
+              }}
+            >
+              Create a role
+            </Button>
+          </EmptyState>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {payload.roles.map((r) => (

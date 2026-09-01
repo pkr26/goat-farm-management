@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -104,6 +105,51 @@ function TableCaption({
   )
 }
 
+export type SortDirection = "asc" | "desc"
+
+/**
+ * A TableHead that sorts its column. Renders a full-width button with the
+ * proper aria-sort on the surrounding th; pass the active direction from the
+ * page's sort state. Clicking cycles asc → desc (the only two orders the
+ * list endpoints' recency defaults need to restore).
+ */
+function SortableTableHead({
+  column,
+  label,
+  direction,
+  onSort,
+  className,
+  ...props
+}: {
+  /** Stable key the page uses to identify the column. */
+  column: string
+  label: React.ReactNode
+  /** Current direction for THIS column; omit/null when another column (or no
+   * column) is active — renders the neutral two-arrow icon. */
+  direction?: SortDirection | null
+  onSort: (column: string) => void
+} & React.ComponentProps<"th">) {
+  const ariaSort =
+    direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"
+  const Icon = direction === "asc" ? ArrowUp : direction === "desc" ? ArrowDown : ArrowDownUp
+  return (
+    <TableHead
+      aria-sort={ariaSort}
+      className={cn("[&>button]:focus-visible:ring-[3px] [&>button]:focus-visible:ring-ring/50 [&>button]:focus-visible:outline-none", className)}
+      {...props}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className="inline-flex h-9 items-center gap-1 rounded text-left font-medium text-inherit transition-colors hover:text-foreground"
+      >
+        {label}
+        <Icon aria-hidden="true" className="size-3.5 opacity-60" />
+      </button>
+    </TableHead>
+  )
+}
+
 export {
   Table,
   TableHeader,
@@ -113,4 +159,5 @@ export {
   TableRow,
   TableCell,
   TableCaption,
+  SortableTableHead,
 }

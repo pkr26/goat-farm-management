@@ -16,6 +16,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -120,7 +121,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
       const href = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = href;
-      anchor.download = `pashufarm-account-export-${farmToday()}.json`;
+      anchor.download = `herdly-account-export-${farmToday()}.json`;
       try {
         document.body.appendChild(anchor);
         anchor.click();
@@ -250,12 +251,17 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="gap-2 px-1.5 font-normal"
-        aria-label={`Account — ${name ?? email}`}
-        onClick={() => setOpen(true)}
+      {/* A registered trigger (not a detached setOpen button) so base-ui can
+       * restore focus to this exact button when the dialog closes. */}
+      <DialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2 px-1.5 font-normal"
+            aria-label={`Account — ${name ?? email}`}
+          />
+        }
       >
         <span
           aria-hidden="true"
@@ -265,7 +271,7 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
         </span>
         <span className="hidden max-w-32 truncate md:inline">{name ?? email}</span>
         <KeyRound aria-hidden className="size-3.5 text-muted-foreground" />
-      </Button>
+      </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Account & password</DialogTitle>

@@ -316,7 +316,7 @@ describe("SimulationPage scenario deletion bindings", () => {
     expect(screen.getByText("Editing scenario: Kept plan")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update Kept plan" })).toBeEnabled();
     expect(screen.getByText("Source: Saved scenario “Kept plan”")).toBeInTheDocument();
-    expect(screen.getByText("₹2,34,567")).toBeInTheDocument();
+    expect(screen.getAllByText("₹2,34,567")[0]).toBeInTheDocument();
   });
 });
 
@@ -532,7 +532,7 @@ describe("SimulationPage editor field identity", () => {
 
     expect(autoPurchase).toBeChecked();
     await user.click(screen.getByRole("button", { name: "Run simulation" }));
-    expect(await screen.findByText("₹2,34,567")).toBeInTheDocument();
+    expect((await screen.findAllByText("₹2,34,567"))[0]).toBeInTheDocument();
     expect(captured.body?.assumptions.herd?.auto_purchase_bucks).toBe(true);
   });
 });

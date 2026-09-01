@@ -120,11 +120,15 @@ async function renderLoaded(payload: ReportsPayload = PAYLOAD) {
 }
 
 describe("ReportsPage branches", () => {
-  it("shows the loading state while the permission probe is in flight", async () => {
+  it("shows the page shell skeleton while the permission probe is in flight", async () => {
     server.use(http.get("/api/auth/permissions", () => new Promise<Response>(() => {})));
     renderWithProviders(<ReportsPage />);
 
-    expect((await screen.findAllByText("Loading…")).length).toBeGreaterThan(0);
+    // The real header and skeleton stand in for the page — not a bare
+    // "Loading…" line.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Reports" }),
+    ).toBeInTheDocument();
     // An unresolved probe is not a denial.
     expect(screen.queryByText(/don't have access to this page/)).not.toBeInTheDocument();
   });
@@ -139,14 +143,15 @@ describe("ReportsPage branches", () => {
     );
     renderWithProviders(<ReportsPage />);
 
-    // Wait past the permission probe: only then is the page's "Loading…"
+    // Wait past the permission probe: only then is the page's loading skeleton
     // reporting the reports fetch rather than the probe.
     await waitFor(() => expect(requested).toHaveBeenCalled());
     // A request still on the wire is not a failure.
     await waitFor(() =>
       expect(screen.queryByText("Could not load the reports.")).not.toBeInTheDocument(),
     );
-    expect(screen.getAllByText("Loading…").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading reports…");
+    expect(screen.getByRole("heading", { level: 1, name: "Reports" })).toBeInTheDocument();
   });
 
   it("falls back to a generic message when the reports request fails in transport", async () => {

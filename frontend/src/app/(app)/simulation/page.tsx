@@ -38,7 +38,7 @@ import {
   Repeat,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
 import { toast } from "sonner";
 
 import {
@@ -80,6 +80,11 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton, TableSkeleton, InlineLoading } from "@/components/skeletons";
+import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
+import { Histogram } from "@/components/charts";
+import { useFarmType } from "@/hooks/use-farm-type";
+import { useUrlState } from "@/lib/use-url-state";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -320,7 +325,7 @@ const FIELD_UNITS: Record<string, string> = {
   "costs.planned_capacity_head": "head",
   // An integer head-count ratio (1 buck per N does), not a 0-1 fraction: the
   // heuristic chain's trailing `ratio` test would otherwise caption it one.
-  "culling.buck_doe_ratio": "does per buck",
+  "culling.buck_doe_ratio": "females per male",
   // Sexed-semen dairy levers (next contract regen — see FIELD_BOUNDS).
   "reproduction.sexed_semen_services": "services",
   "reproduction.sexed_female_fraction": "%",
@@ -553,23 +558,27 @@ function formatPlanCount(value: number): string {
     : "—";
 }
 
-function formatPlanClass(animalClass: string): string {
-  return EVENT_CLASS_ITEMS[animalClass] ?? animalClass;
+function eventClassItems(vocabulary: FarmVocabulary): Record<string, string> {
+  const young = vocabulary.young;
+  return {
+    doe: vocabulary.femaleAdult.charAt(0).toUpperCase() + vocabulary.femaleAdult.slice(1),
+    buck: vocabulary.maleAdult.charAt(0).toUpperCase() + vocabulary.maleAdult.slice(1),
+    female_kid: `Female ${young}`,
+    male_kid: `Male ${young}`,
+    female_weaner: "Female weaner",
+    male_weaner: "Male weaner",
+    female_grower: "Female grower",
+    male_grower: "Male grower",
+  };
+}
+
+function formatPlanClass(animalClass: string, vocabulary: FarmVocabulary): string {
+  return eventClassItems(vocabulary)[animalClass] ?? animalClass;
 }
 
 const EVENT_KIND_ITEMS: Record<string, string> = {
   purchase: "Purchase",
   sale: "Sale",
-};
-const EVENT_CLASS_ITEMS: Record<string, string> = {
-  doe: "Doe",
-  buck: "Buck",
-  female_kid: "Female kid",
-  male_kid: "Male kid",
-  female_weaner: "Female weaner",
-  male_weaner: "Male weaner",
-  female_grower: "Female grower",
-  male_grower: "Male grower",
 };
 
 /** Inline validation for the herd events editor; horizon comes from meta. */
@@ -1155,7 +1164,18 @@ export default function SimulationPage() {
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [compareIds, setCompareIds] = useState<string | null>(null);
-  const [scenarioOffset, setScenarioOffset] = useState(0);
+  // Scenario paging survives refresh and the browser Back button.
+  const { getNumber: scenarioOffsetParam, set: setScenarioParams } = useUrlState();
+  const [scenarioOffset, setScenarioOffsetState] = useState(() =>
+    scenarioOffsetParam("scenarios", 0, 0, 1_000_000),
+  );
+  const setScenarioOffset = useCallback(
+    (offset: number) => {
+      setScenarioOffsetState(offset);
+      setScenarioParams({ scenarios: offset > 0 ? offset : null });
+    },
+    [setScenarioParams],
+  );
 
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -1238,7 +1258,7 @@ export default function SimulationPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setScenarioOffset(lastOffset);
     setCompareIds(null);
-  }, [scenarioOffset, scenarioPage]);
+  }, [scenarioOffset, scenarioPage, setScenarioOffset]);
 
   const compareQuery = useCompareScenariosApiSimulationScenariosCompareGet(
     { ids: compareIds ?? "" },
@@ -1352,6 +1372,12 @@ export default function SimulationPage() {
 
   /** Horizon from the meta section; gates event-month validation. */
   const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
+  const isDairyScenario =
+    (assumptions?.sales?.lactation_milk_litres ?? 0) > 0 &&
+    (assumptions?.reproduction?.lactation_months ?? 0) > 0;
+  // Simulation copy follows the SCENARIO's species, not the farm's — the
+  // planner lets a goat farm explore dairy economics and vice versa.
+  const simVocabulary = farmVocabulary(isDairyScenario ? "BUFFALO_DAIRY" : "GOAT");
   const eventErrors = validateEvents(events, horizonMonths);
   const assumptionErrors: string[] = [];
   if (assumptions) {
@@ -1419,7 +1445,9 @@ export default function SimulationPage() {
       typeof optimizationAssumptions.doe_scale_high === "number" &&
       optimizationAssumptions.doe_scale_low > optimizationAssumptions.doe_scale_high
     )
-      assumptionErrors.push("Doe scale low must be less than or equal to doe scale high.");
+      assumptionErrors.push(
+        `Herd scale low must be less than or equal to herd scale high (measured in ${simVocabulary.femaleAdult}s).`,
+      );
 
     const growth = assumptions.growth;
     const weightCurve = growth?.weight_by_age_months;
@@ -1442,7 +1470,7 @@ export default function SimulationPage() {
       (growth.adult_weight_doe_kg < yearling || growth.adult_weight_buck_kg < yearling)
     )
       assumptionErrors.push(
-        "Adult doe and buck weights must be at least the highest yearling weight.",
+        `Adult ${simVocabulary.femaleAdult} and ${simVocabulary.maleAdult} weights must be at least the highest yearling weight.`,
       );
 
     const risk = assumptions.risk;
@@ -1652,9 +1680,6 @@ export default function SimulationPage() {
 
   const milkReportIsStale =
     milkReport !== null && milkInputsSnapshot !== JSON.stringify(milkPlanInputs);
-  const isDairyScenario =
-    (assumptions?.sales?.lactation_milk_litres ?? 0) > 0 &&
-    (assumptions?.reproduction?.lactation_months ?? 0) > 0;
 
   /** Turn a checked plan into events: keep purchases, REPLACE existing sale
    * events with the targets, and add the planner's recommended purchases.
@@ -2509,7 +2534,7 @@ export default function SimulationPage() {
           description="Accrual profit, tax, debt service and project cash flow by year."
         >
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="min-w-[1400px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Year</TableHead>
@@ -2563,7 +2588,7 @@ export default function SimulationPage() {
           description={`Herd and cash-flow detail over ${r.months.length} months.`}
         >
           <div className="max-h-96 overflow-auto rounded-lg border">
-            <Table>
+            <Table className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Month</TableHead>
@@ -2736,6 +2761,9 @@ export default function SimulationPage() {
               <MonteCarloHistogram
                 counts={r.monte_carlo.npv_histogram_counts}
                 edges={r.monte_carlo.npv_histogram_edges}
+                p5={r.monte_carlo.npv_p5}
+                p50={r.monte_carlo.npv_p50}
+                p95={r.monte_carlo.npv_p95}
               />
               <p className="text-sm text-muted-foreground">
                 Mean path events: {formatRatio(r.monte_carlo.mean_disease_outbreaks, 2)}
@@ -2758,7 +2786,7 @@ export default function SimulationPage() {
             title="Sensitivity (ΔNPV)"
             description="Parameters ranked by their largest absolute NPV swing."
           >
-            <Table>
+            <Table className="min-w-[680px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Parameter</TableHead>
@@ -2831,7 +2859,16 @@ export default function SimulationPage() {
   }
 
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader
+          title="Simulation"
+          description="Project herd growth, cash flow and viability from editable bio-economic assumptions."
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -2909,9 +2946,42 @@ export default function SimulationPage() {
           this keeps every section one click away. */}
       <nav
         aria-label="Simulation sections"
-        className="sticky top-14 z-20 -mx-4 border-b bg-background/90 px-4 py-2 backdrop-blur-md md:-mx-6 md:px-6"
+        className="sticky top-14 z-20 -mx-4 flex items-center gap-2 border-b bg-background/90 px-4 py-2 backdrop-blur-md md:-mx-6 md:px-6"
       >
-        <ul className="flex gap-1 overflow-x-auto text-sm">
+        {/* Run stays reachable from anywhere on this long page, with the
+            last run's headline numbers beside it. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {result && (
+            <>
+              {/* Value-only chips: the metric names live in title/aria
+                  labels so they never collide with the results section's
+                  metric labels in text queries or screen readers. */}
+              <span
+                aria-label={`Net present value (last run): ${formatMoney(result.data.metrics.npv)}`}
+                title="Net present value (last run)"
+                className="hidden items-center rounded-md bg-muted px-2 py-1 text-xs sm:inline-flex"
+              >
+                <span className="table-numeric font-medium">{formatMoney(result.data.metrics.npv)}</span>
+              </span>
+              <span
+                aria-label={`Internal rate of return (last run): ${formatPercent(result.data.metrics.irr)}`}
+                title="Internal rate of return (last run)"
+                className="hidden items-center rounded-md bg-muted px-2 py-1 text-xs md:inline-flex"
+              >
+                <span className="table-numeric font-medium">{formatPercent(result.data.metrics.irr)}</span>
+              </span>
+            </>
+          )}
+          <Button
+            size="sm"
+            onClick={() => void onRun()}
+            disabled={!assumptions || hasEditorErrors || simulationAction.pending}
+          >
+            <Play aria-hidden="true" />
+            {runMutation.isPending ? "Running…" : "Run"}
+          </Button>
+        </div>
+        <ul className="flex min-w-0 gap-1 overflow-x-auto text-sm">
           {([
             ["sim-setup", "Setup"],
             calibration ? (["sim-calibration", "Calibration"]) : null,
@@ -3117,7 +3187,7 @@ export default function SimulationPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Assumption</TableHead>
@@ -3160,12 +3230,12 @@ export default function SimulationPage() {
         <CardHeader>
           <CardTitle>Assumptions</CardTitle>
           <CardDescription>
-            Model inputs grouped by section, mirroring the backend defaults payload.
+            Model inputs grouped by section — values start from your farm&apos;s calibration or the breed-system defaults.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!assumptions && !defaultsQuery.isError && (
-            <p className="text-muted-foreground">Loading defaults…</p>
+            <InlineLoading>Loading defaults…</InlineLoading>
           )}
           {assumptions?.meta && (
             <div className="flex flex-wrap items-center gap-2">
@@ -3262,7 +3332,7 @@ export default function SimulationPage() {
             description="Add purchases or sales that fire at a given simulation month."
           />
         ) : (
-          <Table>
+          <Table className="min-w-[760px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Month</TableHead>
@@ -3323,13 +3393,13 @@ export default function SimulationPage() {
                           animal_class: v as HerdEventAssumptions["animal_class"],
                         })
                       }
-                      items={EVENT_CLASS_ITEMS}
+                      items={eventClassItems(simVocabulary)}
                     >
                       <SelectTrigger aria-label="Class" size="sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                        {Object.entries(eventClassItems(simVocabulary)).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -3477,13 +3547,13 @@ export default function SimulationPage() {
                     animal_class: v as HerdEventAssumptions["animal_class"],
                   }))
                 }
-                items={EVENT_CLASS_ITEMS}
+                items={eventClassItems(simVocabulary)}
               >
                 <SelectTrigger id="recurrence-class" size="sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                  {Object.entries(eventClassItems(simVocabulary)).map(([value, label]) => (
                     <SelectItem key={value} value={value}>
                       {label}
                     </SelectItem>
@@ -3541,11 +3611,11 @@ export default function SimulationPage() {
             description={
               isDairyScenario
                 ? "Plan 12–24 months ahead. The sale planner is primarily a meat-herd tool — on a dairy it fits cull and surplus-animal sales, while milk income follows the lactation curve."
-                : "Plan 12–24 months ahead: a goat sold in month T was born around T−10 and conceived around T−15."
+                : `Plan 12–24 months ahead: a ${simVocabulary.species} sold in month T was born around T−10 and conceived around T−15.`
             }
           />
         ) : (
-          <Table>
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Month</TableHead>
@@ -3577,13 +3647,13 @@ export default function SimulationPage() {
                           animal_class: v as PlanTargetIn["animal_class"],
                         })
                       }
-                      items={EVENT_CLASS_ITEMS}
+                      items={eventClassItems(simVocabulary)}
                     >
                       <SelectTrigger aria-label="Class" size="sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(EVENT_CLASS_ITEMS).map(([value, label]) => (
+                        {Object.entries(eventClassItems(simVocabulary)).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -3657,7 +3727,7 @@ export default function SimulationPage() {
                 {planReportIsStale ? "Stale — recheck" : "Apply to events"}
               </Button>
             </div>
-            <Table>
+            <Table className="min-w-[720px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Month</TableHead>
@@ -3676,7 +3746,7 @@ export default function SimulationPage() {
                   return (
                     <TableRow key={`plan-fill-${fill.month}-${index}`}>
                       <TableCell>{fill.month}</TableCell>
-                      <TableCell>{formatPlanClass(fill.animal_class)}</TableCell>
+                      <TableCell>{formatPlanClass(fill.animal_class, simVocabulary)}</TableCell>
                       <TableCell>{formatPlanCount(fill.requested)}</TableCell>
                       <TableCell>
                         {fill.met ? "✓" : "⚠"} {formatPlanCount(fill.filled)}
@@ -3701,7 +3771,7 @@ export default function SimulationPage() {
                 {planReport.recommended_purchases
                   .map(
                     (purchase) =>
-                      `${formatPlanCount(purchase.count)} doe(s) in month ${purchase.month}`,
+                      `${formatPlanCount(purchase.count)} ${simVocabulary.femaleAdult}(s) in month ${purchase.month}`,
                   )
                   .join(", ")}{" "}
                 to back the plan.
@@ -3851,7 +3921,7 @@ export default function SimulationPage() {
               )}
 
               <div className="max-h-80 overflow-auto">
-                <Table>
+                <Table className="min-w-[860px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Month</TableHead>
@@ -3877,7 +3947,18 @@ export default function SimulationPage() {
                         <TableCell
                           className={row.meets_target ? "" : "text-warning-tint-foreground"}
                         >
-                          {formatLitres(row.projected_daily_litres)}
+                          <span className="inline-flex items-center gap-1.5">
+                            {formatLitres(row.projected_daily_litres)}
+                            {!row.meets_target && (
+                              <>
+                                <TriangleAlert
+                                  className="size-3.5 shrink-0"
+                                  aria-hidden="true"
+                                />
+                                <span className="text-xs font-medium">below target</span>
+                              </>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell>{formatLitres(row.gap_daily_litres)}</TableCell>
                         <TableCell>{formatMoney(row.projected_monthly_revenue)}</TableCell>
@@ -3985,7 +4066,7 @@ export default function SimulationPage() {
             {errorMessage(scenariosQuery.error, "Could not load saved scenarios.")}
           </p>
         ) : scenariosQuery.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading scenarios…</p>
+          <TableSkeleton rows={4} columns={4} />
         ) : scenarioTotal === 0 ? (
           <EmptyState
             icon={FolderOpen}
@@ -4241,26 +4322,39 @@ export default function SimulationPage() {
   );
 }
 
-/** NPV histogram: flex bars, height proportional to the max bin count. */
-function MonteCarloHistogram({ counts, edges }: { counts: number[]; edges: number[] }) {
-  const max = Math.max(...counts, 1);
+/** NPV distribution on the shared chart kit, with P5/P50/P95 markers. */
+function MonteCarloHistogram({
+  counts,
+  edges,
+  p5,
+  p50,
+  p95,
+}: {
+  counts: number[];
+  edges: number[];
+  p5?: number;
+  p50?: number;
+  p95?: number;
+}) {
   const totalRuns = counts.reduce((sum, count) => sum + count, 0);
+  const max = Math.max(...counts, 1);
   const peakBin = counts.indexOf(max);
+  const bins = counts.map((count, i) => ({
+    label: `${formatMoney(edges[i])} – ${formatMoney(edges[i + 1])}`,
+    value: count,
+    unit: "runs",
+  }));
   return (
-    <div
-      className="flex h-24 items-end gap-px"
-      role="img"
-      aria-label={`NPV histogram: ${totalRuns} runs across ${counts.length} bins, most frequent ${formatMoney(edges[peakBin])} – ${formatMoney(edges[peakBin + 1])} with ${max} runs`}
-    >
-      {counts.map((count, i) => (
-        <div
-          key={i}
-          className="flex-1 rounded-t bg-primary/70"
-          style={{ height: `${Math.max((count / max) * 100, count > 0 ? 4 : 0)}%` }}
-          title={`${formatMoney(edges[i])} – ${formatMoney(edges[i + 1])}: ${count} runs`}
-        />
-      ))}
-    </div>
+    <Histogram
+      bins={bins}
+      domain={[edges[0], edges[edges.length - 1]]}
+      markers={[
+        p50 !== undefined ? { label: "Median (P50)", value: p50, strong: true } : null,
+        p5 !== undefined ? { label: "P5", value: p5 } : null,
+        p95 !== undefined ? { label: "P95", value: p95 } : null,
+      ].filter(Boolean) as { label: string; value: number; strong?: boolean }[]}
+      ariaLabel={`NPV histogram: ${totalRuns} runs across ${counts.length} bins, most frequent ${formatMoney(edges[peakBin])} – ${formatMoney(edges[peakBin + 1])} with ${max} runs`}
+    />
   );
 }
 
@@ -4286,7 +4380,7 @@ function RiskBandTable({
     <div className="space-y-2">
       <h3 className="text-sm font-medium">Annual uncertainty checkpoints</h3>
       <div className="overflow-x-auto rounded-lg border">
-        <Table>
+        <Table className="min-w-[760px]">
           <TableHeader>
             <TableRow>
               <TableHead>Month</TableHead>
@@ -4346,6 +4440,7 @@ function OptimizationResults({
 }: {
   result: NonNullable<SimulationResult["optimization"]>;
 }) {
+  const vocabulary = farmVocabulary(useFarmType());
   const baselineIdentity = optimizationCandidateIdentity(result.baseline);
   const recommendedIdentity = result.recommended
     ? optimizationCandidateIdentity(result.recommended)
@@ -4390,12 +4485,12 @@ function OptimizationResults({
         </div>
       )}
       <div className="overflow-x-auto">
-        <Table>
+        <Table className="min-w-[820px]">
           <TableHeader>
             <TableRow>
               <TableHead>Decision set</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Does / bucks / ceiling</TableHead>
+              <TableHead className="text-right">{`${vocabulary.femaleAdult}s / ${vocabulary.maleAdult}s / ceiling`}</TableHead>
               <TableHead className="text-right">Sale age</TableHead>
               <TableHead className="text-right">Retention</TableHead>
               <TableHead className="text-right">Debt share</TableHead>

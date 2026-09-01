@@ -146,16 +146,21 @@ describe("InventoryPage loading and error states", () => {
       }),
       inventoryHandler([ITEM_MAIZE]),
     );
-    renderWithProviders(<InventoryPage />);
+    const { container } = renderWithProviders(<InventoryPage />);
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The header stays up and a skeleton fills the data region — the page no
+    // longer collapses to a bare "Loading…" line while the probe is out.
+    expect(
+      await screen.findByRole("heading", { name: "Feed inventory" }),
+    ).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(screen.queryByText("You don't have access to this page.")).not.toBeInTheDocument();
 
     release();
     expect(await screen.findByText("Crushed maize")).toBeInTheDocument();
   });
 
-  it("keeps showing Loading… while the inventory request is in flight", async () => {
+  it("keeps the skeleton up while the inventory request is in flight", async () => {
     const { parked, release } = parkedHandler();
     let inventoryCalls = 0;
     server.use(
@@ -170,7 +175,8 @@ describe("InventoryPage loading and error states", () => {
     // The request only leaves once permissions have resolved, so this is the
     // query's own pending state rather than the permission one.
     await waitFor(() => expect(inventoryCalls).toBe(1));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Feed inventory" })).toBeInTheDocument();
+    expect(screen.getByText("Loading feed inventory…")).toBeInTheDocument();
     expect(screen.queryByText("Could not load feed inventory.")).not.toBeInTheDocument();
 
     release();
@@ -287,7 +293,8 @@ describe("InventoryPage table columns", () => {
         return HttpResponse.json([]);
       }),
     );
-    renderWithProviders(<InventoryPage />);
+    const { waitForAuthIdle } = renderWithProviders(<InventoryPage />);
+    await waitForAuthIdle();
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(finishedCalls).toBe(0);

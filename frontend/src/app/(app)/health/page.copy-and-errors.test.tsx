@@ -272,7 +272,9 @@ describe("HealthPage copy and error wiring", () => {
     ];
     renderWithProviders(<HealthPage />);
 
-    const row = (await screen.findByText("Vaccination")).closest("tr")!;
+    // The mobile card list repeats the type label — scope to the desktop table.
+    const row = (await within(await screen.findByRole("table")).findByText("Vaccination"))
+      .closest("tr")!;
     // Date, Type, Animal, Product, Target, Dose, Route, Cost, Next due, Holds.
     const cells = within(row).getAllByRole("cell");
     expect(cells[3]).toHaveTextContent(/^—$/);
@@ -295,7 +297,8 @@ describe("HealthPage copy and error wiring", () => {
     renderWithProviders(<HealthPage />);
 
     await screen.findByText("Event log");
-    const schedule = await screen.findByText(/Annual PPR programme/);
+    // The mobile card repeats the schedule line — scope to the desktop table.
+    const schedule = await within(screen.getByRole("table")).findByText(/Annual PPR programme/);
     expect(schedule).toHaveTextContent(/^Annual PPR programme$/);
   });
 
@@ -674,7 +677,7 @@ describe("HealthPage copy and error wiring", () => {
   it("records the free-text programme a treatment event names", async () => {
     const { user, dialog } = await openDialog();
     await pickOption(user, within(dialog).getAllByRole("combobox")[0], /G-003 · Kaveri/);
-    await pickOption(user, within(dialog).getByLabelText("Type"), "TREATMENT");
+    await pickOption(user, within(dialog).getByLabelText("Type"), "Treatment");
     await openAdvanced(user, dialog);
     fireEvent.change(within(dialog).getByLabelText("Next due date"), {
       target: { value: addDays(TODAY, 30) },
@@ -775,11 +778,17 @@ describe("HealthPage copy and error wiring", () => {
     const { user, dialog } = await openDialog();
     await openAdvanced(user, dialog);
 
+    // While the catalogue is in flight the select keeps its neutral
+    // placeholder and the shared InlineLoading labels the wait beside it.
     const trigger = within(dialog).getByLabelText("Schedule/template name");
-    expect(trigger).toHaveTextContent("Loading programmes…");
+    expect(trigger).toHaveTextContent("Select a seeded programme");
+    expect(within(dialog).getByText("Loading programmes…")).toBeInTheDocument();
 
     releaseTemplates();
 
-    await waitFor(() => expect(trigger).toHaveTextContent("Select a seeded programme"));
+    await waitFor(() =>
+      expect(within(dialog).queryByText("Loading programmes…")).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveTextContent("Select a seeded programme");
   });
 });

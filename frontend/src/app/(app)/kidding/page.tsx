@@ -21,11 +21,12 @@ import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/skeletons";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -619,6 +620,7 @@ function KiddingPageContent() {
   const allowed = can("kidding.view");
   const canManage = can("kidding.manage");
   const canViewAnimals = can("animals.view");
+  const canViewBreeding = can("breeding.view");
   const [recordFor, setRecordFor] = useState<BreedingRecordOut | null>(null);
   // Scope dismissal to one URL intent. A query-only navigation can reuse this
   // component for a different pregnancy and must still open its dialog.
@@ -715,8 +717,19 @@ function KiddingPageContent() {
     invalidateFarmData(queryClient);
   }
 
+  // The header and page shape stay mounted while data settles — a page that
+  // collapses to a bare "Loading…" line reads as a broken app on slow rural
+  // connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={vocabulary.parturitionCap}
+          description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
+        />
+        <PageSkeleton cards={2} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -741,7 +754,18 @@ function KiddingPageContent() {
         </div>
       );
     }
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={vocabulary.parturitionCap}
+          description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}
+        />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading {vocabulary.parturition} data…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      </div>
+    );
   }
 
   // "Xd late" compares against the active farm's calendar day.
@@ -875,7 +899,22 @@ function KiddingPageContent() {
           <EmptyState
             icon={CalendarClock}
             title="No confirmed pregnancies due in the next 30 days."
-          />
+            description={
+              <>
+                Confirmed pregnancies appear here as their due dates approach — record
+                ultrasound results in Breeding.
+              </>
+            }
+          >
+            {canViewBreeding && (
+              <Link
+                href="/breeding"
+                className={buttonVariants({ variant: "default", size: "sm" })}
+              >
+                Go to Breeding
+              </Link>
+            )}
+          </EmptyState>
         ) : (
           <Table className="min-w-[720px]">
             <TableHeader>
@@ -1011,7 +1050,14 @@ function KiddingPageContent() {
 
 export default function KiddingPage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton cards={2} />
+        </div>
+      }
+    >
       <KiddingPageContent />
     </Suspense>
   );

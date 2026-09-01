@@ -181,7 +181,8 @@ describe("PurchasesPage RBAC", () => {
         return HttpResponse.json({ batches: [], total: 0, limit: 50, offset: 0 });
       }),
     );
-    renderWithProviders(<PurchasesPage />);
+    const { waitForAuthIdle } = renderWithProviders(<PurchasesPage />);
+    await waitForAuthIdle();
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(calls).toBe(0);

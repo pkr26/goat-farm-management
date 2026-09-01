@@ -426,7 +426,7 @@ describe("HealthPage dialog branches", () => {
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Deworm batch #2/);
 
     expect(within(dialog).getByRole("radio", { name: "Purchase batch" })).toBeChecked();
-    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Deworming");
     await user.click(within(dialog).getByRole("button", { name: "Review target animals" }));
 
     await waitFor(() =>
@@ -442,7 +442,7 @@ describe("HealthPage dialog branches", () => {
     await pickOption(user, within(dialog).getByLabelText(/Linked duty/), /Herd-wide deworm/);
 
     // The duty still drives type and product…
-    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Deworming");
     expect(within(dialog).getByLabelText(/product name/i)).toHaveValue("Albendazole");
     // …but it names no target, so the operator still picks one.
     expect(within(dialog).getByRole("radio", { name: "Single animal" })).toBeChecked();
@@ -515,7 +515,7 @@ describe("HealthPage dialog branches", () => {
     fireEvent.change(within(dialog).getByLabelText(/disease target/i), {
       target: { value: "Liver fluke" },
     });
-    await pickOption(user, within(dialog).getByLabelText("Type"), "TREATMENT");
+    await pickOption(user, within(dialog).getByLabelText("Type"), "Treatment");
 
     await pickOption(user, dutySelect, /none/);
 
@@ -524,7 +524,7 @@ describe("HealthPage dialog branches", () => {
     expect(within(dialog).getByRole("combobox", { name: "Animal *" })).toHaveTextContent(
       "G-003 · Kaveri",
     );
-    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("TREATMENT");
+    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Treatment");
     expect(within(dialog).getByLabelText(/product name/i)).toHaveValue("Ivermectin 1%");
     expect(within(dialog).getByLabelText(/disease target/i)).toHaveValue("Liver fluke");
     await user.click(within(dialog).getByRole("button", { name: "Save event" }));
@@ -576,7 +576,7 @@ describe("HealthPage dialog branches", () => {
     );
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
 
-    await pickOption(user, within(dialog).getByLabelText("Type"), "DEWORMING");
+    await pickOption(user, within(dialog).getByLabelText("Type"), "Deworming");
     await pickOption(
       user,
       within(dialog).getByLabelText("Schedule/template name"),
@@ -588,7 +588,7 @@ describe("HealthPage dialog branches", () => {
 
     // TREATMENT is not template-validated by the API, so the same field
     // becomes free text rather than an empty, unusable programme list.
-    await pickOption(user, within(dialog).getByLabelText("Type"), "TREATMENT");
+    await pickOption(user, within(dialog).getByLabelText("Type"), "Treatment");
     fireEvent.change(within(dialog).getByLabelText("Schedule/template name"), {
       target: { value: "Vet prescription 2026-08" },
     });

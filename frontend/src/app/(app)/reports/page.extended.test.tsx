@@ -272,7 +272,10 @@ describe("ReportsPage", () => {
         return HttpResponse.json(PAYLOAD);
       }),
     );
-    renderWithProviders(<ReportsPage />);
+    const { waitForAuthIdle } = renderWithProviders(<ReportsPage />);
+    // The pre-auth paint also lacks the permission — assert only the settled
+    // denial, not the flash that the permissions skeleton replaces.
+    await waitForAuthIdle();
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(calls).toBe(0);

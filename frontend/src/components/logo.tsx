@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /** Single source of truth for the product name. */
-export const APP_NAME = "PashuFarm";
+export const APP_NAME = "Herdly";
 
 /**
  * Brand mark: a horned livestock head — the wide crescent horns read as the
@@ -9,7 +9,7 @@ export const APP_NAME = "PashuFarm";
  * for goat herds. Same line-art language as the app icon set (1.8 stroke,
  * round caps) so it sits naturally at 16–24px.
  */
-function PashuMark({ className }: { className?: string }) {
+function HerdMark({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -46,7 +46,7 @@ export function Logo({
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
       <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <PashuMark className="size-5" />
+        <HerdMark className="size-5" />
       </span>
       {withWordmark && (
         <span className="font-heading text-lg font-semibold tracking-tight">

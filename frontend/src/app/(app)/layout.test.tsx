@@ -132,7 +132,7 @@ describe("AppLayout — header", () => {
 
     expect(await screen.findByText("Test Goat Farm")).toBeInTheDocument();
     expect(
-      await screen.findByRole("link", { name: "PashuFarm — go to Dashboard" }),
+      await screen.findByRole("link", { name: "Herdly — go to Dashboard" }),
     ).toHaveAttribute("href", "/dashboard");
     expect(screen.getByRole("link", { name: /^Switch farm/ })).toHaveAttribute(
       "href",
@@ -500,7 +500,7 @@ describe("AppLayout — permission-gated nav", () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     expect(
-      await screen.findByRole("link", { name: "PashuFarm — go to Health" }),
+      await screen.findByRole("link", { name: "Herdly — go to Health" }),
     ).toHaveAttribute("href", "/health");
     expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
   });
@@ -537,7 +537,7 @@ describe("AppLayout — permission-gated nav", () => {
     // Let the permissions query settle (it resolves to an empty set).
     await waitFor(() => expect(navLinks()).toHaveLength(0));
     expect(
-      screen.getByRole("link", { name: "PashuFarm — go to access status" }),
+      screen.getByRole("link", { name: "Herdly — go to access status" }),
     ).toHaveAttribute("href", "/no-access");
   });
 
@@ -565,8 +565,8 @@ describe("AppLayout — permission-gated nav", () => {
       await screen.findByText("Could not load your permissions — refresh the page to try again."),
     ).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Dashboard" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /PashuFarm — go to/ })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("PashuFarm")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Herdly — go to/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Herdly")).toBeInTheDocument();
   });
 
   it("nav links point at their module routes", async () => {
@@ -703,7 +703,7 @@ describe("AppLayout — permission-gated nav", () => {
     server.use(permissionsHandler([]));
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await screen.findByRole("link", { name: "PashuFarm — go to access status" });
+    await screen.findByRole("link", { name: "Herdly — go to access status" });
     expect(
       screen.queryByText(/Could not load your permissions/),
     ).not.toBeInTheDocument();

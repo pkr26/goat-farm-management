@@ -30,6 +30,7 @@ import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageHeader } from "@/components/page-header";
+import { InlineLoading, PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -55,11 +56,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  SortableTableHead,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { ApiError } from "@/lib/api-client";
 import { enumLabel } from "@/lib/enum-labels";
+import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday } from "@/lib/format";
 import {
   isPersistableNonnegativeMoney,
@@ -104,12 +107,12 @@ const BUCKET_REQUIRED_SEX: Record<string, string> = {
 const bucketAllowsSex = (bucket: string, sex: string) =>
   (BUCKET_REQUIRED_SEX[bucket] ?? sex) === sex;
 
-const bucketLabel = (b: string) => b.replace(/_/g, " ");
-/** value → label maps for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw value in the closed trigger. */
-const BUCKET_ITEMS: Record<string, string> = Object.fromEntries(
-  BUCKETS.map((b) => [b, bucketLabel(b)]),
-);
+const bucketLabel = (b: string, farmType?: string | null) => enumLabel("bucket", b, farmType);
+/** value → label map for the root `items` prop: without it, Base UI's
+ * Select.Value renders the raw value in the closed trigger. Built per dialog
+ * from the farm type — dairy pens vs goat wards. */
+const bucketItems = (farmType?: string | null): Record<string, string> =>
+  Object.fromEntries(BUCKETS.map((b) => [b, bucketLabel(b, farmType)]));
 const SEX_ITEMS: Record<string, string> = {
   [AnimalCreateInSex.F]: "Female",
   [AnimalCreateInSex.M]: "Male",
@@ -121,7 +124,9 @@ const SOURCE_ITEMS: Record<string, string> = {
 const SEX_FILTER_ITEMS: Record<string, string> = { [ALL]: "Both sexes", ...SEX_ITEMS };
 const STATUS_FILTER_ITEMS: Record<string, string> = {
   [ALL]: "All statuses",
-  ...Object.fromEntries(Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => [s, s])),
+  ...Object.fromEntries(
+    Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => [s, enumLabel("status", s)]),
+  ),
 };
 
 /** Zero is meaningful for optional weights; anything smaller rounds away. */
@@ -150,7 +155,10 @@ function completedMonths(dateOfBirth: string, referenceDate: string): number | n
   return months;
 }
 
-const createSchema = z
+/** Species-aware create schema: breeding-entry gates and nouns come from the
+ * farm's vocabulary so a buffalo dairy never sees goat thresholds. */
+const createAnimalSchema = (vocabulary: FarmVocabulary) =>
+  z
   .object({
     tag_number: z.string().max(50).optional().or(z.literal("")),
     name: z.string().max(80).optional(),
@@ -238,8 +246,12 @@ const createSchema = z
     }
     if (values.current_bucket !== AnimalCreateInCurrentBucket.BREEDING) return;
 
-    const minimumAge = values.sex === AnimalCreateInSex.M ? 12 : 10;
-    const minimumWeight = values.sex === AnimalCreateInSex.M ? 25 : 22;
+    // Species gates mirror backend/app/models/species.py — a 22-month-old
+    // Murrah heifer must not be judged by goat thresholds (and vice versa).
+    const rules =
+      values.sex === AnimalCreateInSex.M ? vocabulary.breedingEntry.male : vocabulary.breedingEntry.female;
+    const minimumAge = rules.minMonths;
+    const minimumWeight = rules.minWeightKg;
     const recordedDob = values.date_of_birth || values.estimated_dob;
     if (!recordedDob) {
       ctx.addIssue({
@@ -253,7 +265,7 @@ const createSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["date_of_birth"],
-          message: `A ${values.sex === AnimalCreateInSex.M ? "buck" : "doe"} must be at least ${minimumAge} months old to enter BREEDING`,
+          message: `A ${values.sex === AnimalCreateInSex.M ? vocabulary.maleAdult : vocabulary.femaleAdult} must be at least ${minimumAge} months old to enter BREEDING`,
         });
       }
     }
@@ -265,8 +277,8 @@ const createSchema = z
       });
     }
   });
-type CreateInput = z.input<typeof createSchema>;
-type CreateValues = z.output<typeof createSchema>;
+type CreateInput = z.input<ReturnType<typeof createAnimalSchema>>;
+type CreateValues = z.output<ReturnType<typeof createAnimalSchema>>;
 
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
@@ -326,6 +338,9 @@ function CreateAnimalDialog({
   const [open, setOpen] = useState(startOpen);
   const createMut = useCreateAnimalApiAnimalsPost();
   const createFlight = useSingleFlight();
+  const farmType = useFarmType();
+  const vocabulary = farmVocabulary(farmType);
+  const schema = useMemo(() => createAnimalSchema(vocabulary), [vocabulary]);
   const {
     register,
     handleSubmit,
@@ -334,7 +349,7 @@ function CreateAnimalDialog({
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<CreateInput, unknown, CreateValues>({
-    resolver: zodResolver(createSchema),
+    resolver: zodResolver(schema),
     // Provenance fields are mutually exclusive. Unregistering conditional
     // inputs prevents a value entered under one source from being submitted
     // after the operator switches to the other source.
@@ -343,7 +358,10 @@ function CreateAnimalDialog({
       sex: AnimalCreateInSex.F,
       source: AnimalCreateInSource.PURCHASED,
       current_bucket: AnimalCreateInCurrentBucket.QUARANTINE,
-      breed: "Osmanabadi",
+      // Deliberately empty: the species default shows in the placeholder and
+      // is applied on submit — a prefilled value reads as user input and gets
+      // saved without a second look.
+      breed: "",
     },
   });
   const source = useWatch({ control, name: "source" });
@@ -377,7 +395,7 @@ function CreateAnimalDialog({
               values.source === AnimalCreateInSource.PURCHASED
                 ? AnimalCreateInCurrentBucket.QUARANTINE
                 : (values.current_bucket as AnimalCreateInCurrentBucket),
-            breed: values.breed?.trim() || "Osmanabadi",
+            breed: values.breed?.trim() || vocabulary.defaultBreed,
             date_of_birth: emptyToNull(values.date_of_birth),
             estimated_dob: emptyToNull(values.estimated_dob),
             birth_type: (values.birth_type || null) as AnimalCreateInBirthType,
@@ -420,7 +438,7 @@ function CreateAnimalDialog({
               <Label htmlFor="tag_number">Tag number</Label>
               <Input
                 id="tag_number"
-                placeholder="Auto-generated if left blank (e.g. G-7KP2D)"
+                placeholder={`Auto-generated if blank (e.g. ${vocabulary.tagPrefix}-7KP2D)`}
                 maxLength={50}
                 aria-invalid={Boolean(errors.tag_number) || undefined}
                 aria-describedby={errors.tag_number ? "create-tag-error" : undefined}
@@ -493,12 +511,12 @@ function CreateAnimalDialog({
                 <>
                   <Input
                     id="animal-bucket"
-                    value="QUARANTINE"
+                    value={bucketLabel(AnimalCreateInCurrentBucket.QUARANTINE, farmType)}
                     readOnly
                     aria-describedby="purchased-quarantine-note"
                   />
                   <p id="purchased-quarantine-note" className="text-xs text-muted-foreground">
-                    Purchased animals must enter QUARANTINE. Complete the quarantine protocol
+                    Purchased animals must enter quarantine. Complete the quarantine protocol
                     before moving this animal into the production herd.
                   </p>
                 </>
@@ -507,7 +525,7 @@ function CreateAnimalDialog({
                   control={control}
                   name="current_bucket"
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange} items={BUCKET_ITEMS}>
+                    <Select value={field.value} onValueChange={field.onChange} items={bucketItems(farmType)}>
                       <SelectTrigger id="animal-bucket" className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -515,7 +533,7 @@ function CreateAnimalDialog({
                         {HISTORICAL_IMPORT_BUCKETS.filter((b) => bucketAllowsSex(b, sex)).map(
                           (b) => (
                             <SelectItem key={b} value={b}>
-                              {bucketLabel(b)}
+                              {bucketLabel(b, farmType)}
                             </SelectItem>
                           ),
                         )}
@@ -532,9 +550,17 @@ function CreateAnimalDialog({
               {source === AnimalCreateInSource.BORN &&
                 currentBucket === AnimalCreateInCurrentBucket.BREEDING && (
                   <p className="text-xs text-muted-foreground">
-                    BREEDING imports require a {sex === AnimalCreateInSex.M ? "buck" : "doe"} age
-                    of at least {sex === AnimalCreateInSex.M ? 12 : 10} months and an entry weight
-                    of at least {sex === AnimalCreateInSex.M ? 25 : 22} kg.
+                    BREEDING imports require{" "}
+                    {sex === AnimalCreateInSex.M ? "a " + vocabulary.maleAdult : "a " + vocabulary.femaleAdult}{" "}
+                    of at least{" "}
+                    {sex === AnimalCreateInSex.M
+                      ? vocabulary.breedingEntry.male.minMonths
+                      : vocabulary.breedingEntry.female.minMonths}{" "}
+                    months and{" "}
+                    {sex === AnimalCreateInSex.M
+                      ? vocabulary.breedingEntry.male.minWeightKg
+                      : vocabulary.breedingEntry.female.minWeightKg}{" "}
+                    kg.
                   </p>
                 )}
             </div>
@@ -542,6 +568,7 @@ function CreateAnimalDialog({
               <Label htmlFor="breed">Breed</Label>
               <Input
                 id="breed"
+                placeholder={`e.g. ${vocabulary.defaultBreed} (the default when blank)`}
                 maxLength={60}
                 aria-invalid={Boolean(errors.breed) || undefined}
                 aria-describedby={errors.breed ? "create-breed-error" : undefined}
@@ -581,8 +608,9 @@ function CreateAnimalDialog({
               <>
                 <div className="col-span-2 space-y-1.5 rounded-lg border p-3">
                   <p className="text-sm text-muted-foreground">
-                    Historical import only. Normal births must be recorded through Kidding so the
-                    dam, sire and kidding record remain linked.
+                    Historical import only. Normal births must be recorded through the{" "}
+                    {vocabulary.parturition} register so the dam, sire and {vocabulary.parturition}{" "}
+                    record remain linked.
                   </p>
                   <Label htmlFor="historical_import_reason">Historical import reason *</Label>
                   <Textarea
@@ -722,7 +750,19 @@ function CreateAnimalDialog({
             {errors.notes && <p className="text-sm text-destructive">{errors.notes.message}</p>}
           </div>
 
+          <p className="text-xs text-muted-foreground">Fields marked * are required.</p>
           <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting || createFlight.pending}
+              onClick={() => {
+                reset();
+                setOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
             <Button type="submit" disabled={isSubmitting || createFlight.pending}>
               {isSubmitting || createFlight.pending ? "Saving…" : "Save animal"}
             </Button>
@@ -769,6 +809,13 @@ function AnimalsPageContent() {
     new Map(),
   );
   const [page, setPage] = useState(() => pageFromSearchParams(searchParams));
+  /** Client-side sort of the fetched page — the API's recency order is the
+   * default; clicking a header sorts what you can see. */
+  type SortColumn = "tag" | "age" | "weight";
+  const [sortState, setSortState] = useState<{
+    column: SortColumn;
+    direction: "asc" | "desc";
+  } | null>(null);
   const pageNavigationPending = useRef(false);
   const recordComponentNavigation = useCallback((url: string) => {
     // Next 16 gives a newly dispatched navigation priority over the currently
@@ -1014,6 +1061,28 @@ function AnimalsPageContent() {
     replaceListUrl(animalListUrl({ pathname, paramsKey, ...next }));
   }
 
+  /** One-shot filter reset: clears every filter and the search box in a
+   * single URL write (per-field changeFilter calls would race on q). */
+  function clearFilters() {
+    setBucket(ALL);
+    setSex(ALL);
+    setStatus(ALL);
+    setQ("");
+    setDebouncedQ("");
+    setPage(1);
+    replaceListUrl(
+      animalListUrl({
+        pathname,
+        paramsKey,
+        bucket: ALL,
+        sex: ALL,
+        status: ALL,
+        q: "",
+        page: 1,
+      }),
+    );
+  }
+
   function changePage(nextPage: number) {
     if (
       pageNavigationPending.current ||
@@ -1056,8 +1125,20 @@ function AnimalsPageContent() {
     invalidateFarmData(queryClient);
   }
 
+  // The header, actions and filters stay mounted while data settles — a page
+  // that collapses to a bare "Loading…" line reads as a broken app on slow
+  // rural connections.
   if (permsLoading) {
-    return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+    return (
+      <div className="space-y-6" role="status" aria-live="polite">
+        <span className="sr-only">Loading…</span>
+        <PageHeader
+          title="Animals"
+          description="Your herd at a glance — filter by bucket, sex or status, or search by tag."
+        />
+        <PageSkeleton cards={1} />
+      </div>
+    );
   }
   if (permsError) {
     return (
@@ -1067,6 +1148,29 @@ function AnimalsPageContent() {
   if (!allowed) {
     return <p className="text-muted-foreground">You don&apos;t have access to this page.</p>;
   }
+
+  const dataLoading = query.isLoading || searchPending || pageOutOfRange;
+  const sort = sortState;
+  const toggleSort = (column: string) => {
+    setSortState((prev) =>
+      prev?.column === column
+        ? prev.direction === "asc"
+          ? { column: column as SortColumn, direction: "desc" }
+          : null
+        : { column: column as SortColumn, direction: "asc" },
+    );
+  };
+  const sortedAnimals =
+    payload && sort
+      ? [...payload.animals].sort((a, b) => {
+          const dir = sort.direction === "asc" ? 1 : -1;
+          if (sort.column === "tag") return a.tag_number.localeCompare(b.tag_number) * dir;
+          if (sort.column === "age") {
+            return ((a.age_months ?? -1) - (b.age_months ?? -1)) * dir;
+          }
+          return ((a.latest_weight_kg ?? -1) - (b.latest_weight_kg ?? -1)) * dir;
+        })
+      : (payload?.animals ?? []);
 
   return (
     <div className="space-y-6">
@@ -1128,7 +1232,7 @@ function AnimalsPageContent() {
             <SelectItem value={ALL}>All statuses</SelectItem>
             {Object.values(ListAnimalsApiAnimalsGetStatus).map((s) => (
               <SelectItem key={s} value={s}>
-                {s}
+                {enumLabel("status", s)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -1147,16 +1251,13 @@ function AnimalsPageContent() {
         </div>
       </div>
 
-      {searchPending ? (
-        <p role="status" className="py-10 text-center text-muted-foreground">
-          Updating animals…
-        </p>
-      ) : query.isLoading ? (
-        <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>
-      ) : query.isFetching ? (
-        <p role="status" className="py-10 text-center text-muted-foreground">
-          Updating animals…
-        </p>
+      {dataLoading || query.isFetching ? (
+        <div role="status" aria-live="polite" className="space-y-3">
+          {/* Stale rows stand down during a refetch (they may describe the
+           * previous filter/page); the spinner line is the polite signal. */}
+          <InlineLoading>{dataLoading ? "Loading animals…" : "Updating animals…"}</InlineLoading>
+          <TableSkeleton />
+        </div>
       ) : query.isError ? (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-destructive">
@@ -1166,17 +1267,17 @@ function AnimalsPageContent() {
             Retry animals
           </Button>
         </div>
-      ) : pageOutOfRange ? (
-        <p role="status" className="py-10 text-center text-muted-foreground">
-          Returning to the last available page…
-        </p>
       ) : !payload || payload.animals.length === 0 ? (
         filtersActive ? (
           <EmptyState
             icon={SearchX}
             title="No animals match these filters."
             description="Try clearing the filters."
-          />
+          >
+            <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          </EmptyState>
         ) : (
           <EmptyState
             icon={PawPrint}
@@ -1194,46 +1295,96 @@ function AnimalsPageContent() {
           </EmptyState>
         )
       ) : (
-        <DataTableCard title="Herd" description={`${payload.total} animal(s)`}>
-          <Table className="min-w-[760px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tag</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Sex</TableHead>
-                <TableHead>Breed</TableHead>
-                <TableHead>Bucket</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Age (mo)</TableHead>
-                <TableHead className="text-right">Weight</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {payload.animals.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell>
-                    <Link
-                      href={`/animals/${a.id}`}
-                      className="font-medium text-foreground hover:text-primary"
-                    >
-                      {a.tag_number}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{a.name ?? "—"}</TableCell>
-                  <TableCell>{enumLabel("sex", a.sex)}</TableCell>
-                  <TableCell>{a.breed}</TableCell>
-                  <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={a.status}>{a.status}</StatusBadge>
-                  </TableCell>
-                  <TableCell className="text-right">{a.age_months ?? "—"}</TableCell>
-                  <TableCell className="text-right">
-                    {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
-                  </TableCell>
+        <DataTableCard
+          title="Herd"
+          description={`${payload.total} animal(s)`}
+          contentClassName={query.isFetching ? "opacity-60 transition-opacity" : undefined}
+          ariaBusy={query.isFetching}
+        >
+          {/* Below md the 8-column table becomes a card per animal — panning
+           * a 760px table inside a 390px phone is not a list, it's a scroll
+           * toy. */}
+          <div className="space-y-2 md:hidden">
+            {sortedAnimals.map((a) => (
+              <Link
+                key={a.id}
+                href={`/animals/${a.id}`}
+                className="block rounded-xl border bg-card p-3 transition-colors hover:bg-muted/50"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-medium">{a.tag_number}</span>
+                  <StatusBadge status={a.status}>{a.status}</StatusBadge>
+                </div>
+                {a.name && <p className="text-sm text-muted-foreground">{a.name}</p>}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {enumLabel("sex", a.sex)} · {enumLabel("bucket", a.current_bucket, farmType)} ·{" "}
+                  {a.breed}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {a.age_months !== null ? `${a.age_months} mo · ` : ""}
+                  {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "weight not recorded"}
+                </p>
+              </Link>
+            ))}
+          </div>
+          <div className="hidden md:block">
+            <Table className="min-w-[760px]">
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead
+                    column="tag"
+                    label="Tag"
+                    direction={sort?.column === "tag" ? sort.direction : null}
+                    onSort={toggleSort}
+                  />
+                  <TableHead>Name</TableHead>
+                  <TableHead>Sex</TableHead>
+                  <TableHead>Breed</TableHead>
+                  <TableHead>Bucket</TableHead>
+                  <TableHead>Status</TableHead>
+                  <SortableTableHead
+                    column="age"
+                    label="Age (mo)"
+                    className="text-right"
+                    direction={sort?.column === "age" ? sort.direction : null}
+                    onSort={toggleSort}
+                  />
+                  <SortableTableHead
+                    column="weight"
+                    label="Weight"
+                    className="text-right"
+                    direction={sort?.column === "weight" ? sort.direction : null}
+                    onSort={toggleSort}
+                  />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {sortedAnimals.map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell>
+                      <Link
+                        href={`/animals/${a.id}`}
+                        className="font-medium text-foreground hover:text-primary"
+                      >
+                        {a.tag_number}
+                      </Link>
+                    </TableCell>
+                    <TableCell>{a.name ?? "—"}</TableCell>
+                    <TableCell>{enumLabel("sex", a.sex)}</TableCell>
+                    <TableCell>{a.breed}</TableCell>
+                    <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={a.status}>{a.status}</StatusBadge>
+                    </TableCell>
+                    <TableCell className="text-right">{a.age_months ?? "—"}</TableCell>
+                    <TableCell className="text-right">
+                      {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </DataTableCard>
       )}
 
@@ -1253,7 +1404,14 @@ function AnimalsPageContent() {
 /** Suspense boundary required because the content reads useSearchParams(). */
 export default function AnimalsPage() {
   return (
-    <Suspense fallback={<p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>}>
+    <Suspense
+      fallback={
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton cards={1} />
+        </div>
+      }
+    >
       <AnimalsPageContent />
     </Suspense>
   );

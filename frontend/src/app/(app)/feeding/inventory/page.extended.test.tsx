@@ -162,7 +162,8 @@ describe("InventoryPage RBAC", () => {
         return HttpResponse.json([]);
       }),
     );
-    renderWithProviders(<InventoryPage />);
+    const { waitForAuthIdle } = renderWithProviders(<InventoryPage />);
+    await waitForAuthIdle();
 
     expect(await screen.findByText("You don't have access to this page.")).toBeInTheDocument();
     expect(calls).toBe(0);

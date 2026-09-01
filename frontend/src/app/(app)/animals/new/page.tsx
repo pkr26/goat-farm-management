@@ -6,6 +6,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
+import { InlineLoading } from "@/components/skeletons";
+
 export default function AnimalsNewRedirect() {
   const router = useRouter();
   const redirectStarted = useRef(false);
@@ -19,5 +21,7 @@ export default function AnimalsNewRedirect() {
     router.replace("/animals?new=1");
   }, [router]);
 
-  return <p role="status" aria-live="polite" className="py-10 text-center text-muted-foreground">Loading…</p>;
+  // A redirect has no page structure to mirror — the shared inline spinner
+  // beats a bare "Loading…" paragraph.
+  return <InlineLoading />;
 }

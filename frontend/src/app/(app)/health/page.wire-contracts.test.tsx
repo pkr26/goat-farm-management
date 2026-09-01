@@ -270,7 +270,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
   async function renderLoaded() {
     renderWithProviders(<HealthPage />);
     await screen.findByText("Event log");
-    await screen.findByText("PPR vaccine");
+    await within(screen.getByRole("table")).findByText("PPR vaccine");
   }
 
   async function openDialog() {
@@ -285,12 +285,24 @@ describe("HealthPage wire contracts and closed-control labels", () => {
   it("asks for one 50-row event window and re-asks at the next offset", async () => {
     eventTotal = 120;
     const user = userEvent.setup();
-    await renderLoaded();
+    // The page turn now lives in the URL. The mocked router does not commit
+    // search params, so the test plays the browser's part: assert the write,
+    // then land the URL it describes and re-render, exactly as a real
+    // useSearchParams commit would.
+    const { rerender } = renderWithProviders(<HealthPage />);
+    await screen.findByText("Event log");
+    await within(screen.getByRole("table")).findByText("PPR vaccine");
 
     await waitFor(() => expect(eventQueries).toEqual(["?limit=50&offset=0"]));
     expect(screen.getByText("Showing 1–50 of 120 health events")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
+
+    await waitFor(() =>
+      expect(replaceMock).toHaveBeenCalledWith("/health?offset=50", { scroll: false }),
+    );
+    window.history.replaceState({}, "", "/health?offset=50");
+    rerender(<HealthPage />);
 
     await waitFor(() =>
       expect(eventQueries).toEqual(["?limit=50&offset=0", "?limit=50&offset=50"]),
@@ -353,18 +365,20 @@ describe("HealthPage wire contracts and closed-control labels", () => {
 
   // ---------- event types ----------
 
-  it.each(["TREATMENT", "FOOTBATH", "VITAMIN"])(
-    "records a %s event under its own API type",
-    async (eventType) => {
-      const { user, dialog } = await openDialog();
-      await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
-      await pickOption(user, within(dialog).getByLabelText("Type"), eventType);
-      await user.click(within(dialog).getByRole("button", { name: "Save event" }));
+  it.each([
+    // [visible label, API wire code] — the select shows humanized labels now.
+    ["Treatment", "TREATMENT"],
+    ["Foot bath", "FOOTBATH"],
+    ["Vitamin / supplement", "VITAMIN"],
+  ])("records a %s event under its own API type", async (label, apiType) => {
+    const { user, dialog } = await openDialog();
+    await pickOption(user, within(dialog).getByRole("combobox", { name: "Animal *" }), /G-003/);
+    await pickOption(user, within(dialog).getByLabelText("Type"), label);
+    await user.click(within(dialog).getByRole("button", { name: "Save event" }));
 
-      await waitFor(() => expect(postBody).not.toBeNull());
-      expect(postBody).toMatchObject({ type: eventType, animal_id: 3 });
-    },
-  );
+    await waitFor(() => expect(postBody).not.toBeNull());
+    expect(postBody).toMatchObject({ type: apiType, animal_id: 3 });
+  });
 
   // ---------- deep-link dismissal ----------
 
@@ -438,7 +452,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
       "Deworm G-003 — Fenbendazole oral",
     );
     expect(within(dialog).queryByText(/Could not link duty/)).not.toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("DEWORMING");
+    expect(within(dialog).getByLabelText("Type")).toHaveTextContent("Deworming");
 
     await userEvent.setup().click(within(dialog).getByRole("button", { name: "Save event" }));
     await waitFor(() => expect(postBody).not.toBeNull());
@@ -529,7 +543,7 @@ describe("HealthPage wire contracts and closed-control labels", () => {
 
   it("offers the seeded deworming programmes once the type switches", async () => {
     const { user, dialog } = await openDialog();
-    await pickOption(user, within(dialog).getByLabelText("Type"), "DEWORMING");
+    await pickOption(user, within(dialog).getByLabelText("Type"), "Deworming");
     await user.click(within(dialog).getByText("Advanced traceability & compliance"));
 
     await user.click(

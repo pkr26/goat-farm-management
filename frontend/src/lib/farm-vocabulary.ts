@@ -10,6 +10,14 @@
 
 export type FarmType = "GOAT" | "BUFFALO_DAIRY";
 
+/** Species breeding-entry rules, mirroring backend/app/models/species.py
+ * (GOAT_PROFILE / BUFFALO_DAIRY_PROFILE). The frontend form gates must show
+ * the same numbers the backend enforces, with the right nouns. */
+export interface BreedingEntryRules {
+  female: { minMonths: number; minWeightKg: number };
+  male: { minMonths: number; minWeightKg: number };
+}
+
 export interface FarmVocabulary {
   /** "Goat farm" / "Buffalo dairy" — used on cards and pickers. */
   typeLabel: string;
@@ -35,6 +43,12 @@ export interface FarmVocabulary {
   breedingGateCopy: string;
   /** True when the farm's operations include a milking parlour. */
   dairy: boolean;
+  /** Breed preselected for new animals (backend species default_breed). */
+  defaultBreed: string;
+  /** Prefix of auto-generated tag numbers (e.g. "G-7KP2D" / "B-3XM8Q"). */
+  tagPrefix: string;
+  /** Minimum age/weight to import an animal straight into BREEDING. */
+  breedingEntry: BreedingEntryRules;
 }
 
 const GOAT_VOCABULARY: FarmVocabulary = {
@@ -51,6 +65,12 @@ const GOAT_VOCABULARY: FarmVocabulary = {
   dueLabel: "Kidding due",
   breedingGateCopy: "A doe must be at least 10 months old and 22 kg to breed; bucks 12 months and 25 kg.",
   dairy: false,
+  defaultBreed: "Osmanabadi",
+  tagPrefix: "G",
+  breedingEntry: {
+    female: { minMonths: 10, minWeightKg: 22 },
+    male: { minMonths: 12, minWeightKg: 25 },
+  },
 };
 
 const BUFFALO_VOCABULARY: FarmVocabulary = {
@@ -68,6 +88,12 @@ const BUFFALO_VOCABULARY: FarmVocabulary = {
   breedingGateCopy:
     "Heifers are bred at 22–24 months and ≥340 kg (AI at 60 days post-calving; max 3 services before cull review).",
   dairy: true,
+  defaultBreed: "Murrah",
+  tagPrefix: "B",
+  breedingEntry: {
+    female: { minMonths: 22, minWeightKg: 340 },
+    male: { minMonths: 24, minWeightKg: 350 },
+  },
 };
 
 const VOCABULARIES: Record<string, FarmVocabulary> = {
