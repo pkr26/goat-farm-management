@@ -38,12 +38,12 @@ from app.models import (
     TaskStatus,
     User,
 )
+from app.permissions import preset_codes_for_farm_type
 from app.seed import (
     CONC,
     DRY_STOVER,
     FARM_INGREDIENTS,
     GREEN,
-    ROLE_PRESETS,
     WET,
     seed_default_roles,
     seed_farm_inventory,
@@ -212,8 +212,11 @@ async def test_concurrent_role_seed_serializes_on_farm_row(
 
     async with get_sessionmaker()() as db:
         seeded = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
-    assert len(seeded) == len(ROLE_PRESETS)
-    assert {role.code for role in seeded} == {preset["code"] for preset in ROLE_PRESETS}
+    # The farm under repair is a default GOAT farm; dairy parlour presets
+    # are not part of its seeded vocabulary.
+    expected_codes = preset_codes_for_farm_type("GOAT")
+    assert len(seeded) == len(expected_codes)
+    assert {role.code for role in seeded} == expected_codes
 
 
 # ---------------------------------------------------------------------------

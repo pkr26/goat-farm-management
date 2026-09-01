@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 
 from app.db import get_sessionmaker
 from app.models import Animal, BreedingRecord, BucketMove, HealthEvent, Role, Task, User
+from app.permissions import preset_codes_for_farm_type
 from app.security import password_policy_error
 from app.seed import seed_default_roles
 from app.services import complete_task
@@ -592,7 +593,8 @@ async def test_seed_default_roles_idempotent(client: httpx.AsyncClient) -> None:
         result = await db.execute(
             select(func.count()).select_from(Role).where(Role.farm_id == farm_id)
         )
-        assert result.scalar_one() == 5
+        # A default goat farm seeds its whole (goat-scoped) preset vocabulary.
+        assert result.scalar_one() == len(preset_codes_for_farm_type("GOAT"))
 
 
 async def test_complete_task_stamps_attribution(client: httpx.AsyncClient) -> None:

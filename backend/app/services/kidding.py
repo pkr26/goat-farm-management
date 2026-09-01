@@ -309,6 +309,7 @@ async def record_kidding(
         await _add_task(
             db,
             farm.id,
+            farm.farm_type,
             f"Move {doe.tag_number} to RESTING after the fresh period",
             recovery_anchor + timedelta(days=profile.postpartum_recovery_days),
             TaskCategory.BUCKET_MOVE,
@@ -319,6 +320,7 @@ async def record_kidding(
             await _add_task(
                 db,
                 farm.id,
+                farm.farm_type,
                 f"Wean calves of {doe.tag_number} off milk; → FOUNDATION",
                 kidding_date + timedelta(days=profile.weaning_days),
                 TaskCategory.WEANING,
@@ -329,6 +331,7 @@ async def record_kidding(
         await _add_task(
             db,
             farm.id,
+            farm.farm_type,
             f"Wean kids of {doe.tag_number}; doe → RESTING",
             kidding_date + timedelta(days=profile.weaning_days),
             TaskCategory.WEANING,
@@ -345,6 +348,7 @@ async def record_kidding(
         await _add_task(
             db,
             farm.id,
+            farm.farm_type,
             f"Move {doe.tag_number} to RESTING after postpartum recovery",
             recovery_anchor + timedelta(days=profile.postpartum_recovery_days),
             TaskCategory.BUCKET_MOVE,
@@ -566,6 +570,7 @@ async def replan_dam_after_last_kid_death(
         await _add_task(
             db,
             farm.id,
+            farm.farm_type,
             f"Move {dam.tag_number} to RESTING after postpartum recovery",
             due,
             TaskCategory.BUCKET_MOVE,

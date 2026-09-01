@@ -31,7 +31,9 @@ WORKER_PW = "workerpass123"
 COOKIE = get_settings().refresh_cookie_name
 
 # Exact permission bundles per preset role (mirror of ROLE_PRESETS in
-# app/permissions.py, frozen here as the contract under test).
+# app/permissions.py, frozen here as the contract under test). The test farm
+# is a default GOAT farm, so this is its goat-scoped preset vocabulary: the
+# dairy parlour presets (MILKER, MILK_QC, CALF_ATTENDANT) never seed there.
 PRESET_PERMS: dict[str, set[str]] = {
     "MOVER": {
         "dashboard.view",
@@ -58,29 +60,98 @@ PRESET_PERMS: dict[str, set[str]] = {
         "tasks.view",
         "tasks.complete",
     },
-    "CLEANER": {"dashboard.view", "tasks.view", "tasks.complete"},
-    "CLEANER_MANAGER": {"dashboard.view", "tasks.view", "tasks.complete", "tasks.verify"},
+    # The owner's deputy: every operational module, but no payroll, scenario
+    # management or team admin.
+    "MANAGER": {
+        "dashboard.view",
+        "animals.view",
+        "animals.create",
+        "animals.move",
+        "animals.weight",
+        "animals.status",
+        "buckets.view",
+        "breeding.view",
+        "breeding.manage",
+        "kidding.view",
+        "kidding.manage",
+        "health.view",
+        "health.manage",
+        "purchases.view",
+        "purchases.manage",
+        "feeding.view",
+        "feeding.manage",
+        "milk.view",
+        "milk.manage",
+        "milk.quality",
+        "tasks.view",
+        "tasks.create",
+        "tasks.complete",
+        "tasks.verify",
+        "finance.view",
+        "simulation.view",
+        "reports.view",
+    },
+    "BUYER": {
+        "dashboard.view",
+        "animals.view",
+        "animals.create",
+        "buckets.view",
+        "health.view",
+        "purchases.view",
+        "purchases.manage",
+        "tasks.view",
+        "tasks.complete",
+    },
+    # Sees yields (ration context) but never records milk or fat: a feed error
+    # must not be correctable by editing the milk ledger.
     "FEEDER": {
         "dashboard.view",
         "feeding.view",
         "feeding.manage",
         "milk.view",
-        "milk.manage",
         "buckets.view",
         "tasks.view",
         "tasks.complete",
+    },
+    "CLEANER": {"dashboard.view", "tasks.view", "tasks.complete"},
+    "CLEANER_MANAGER": {"dashboard.view", "tasks.view", "tasks.complete", "tasks.verify"},
+    "ACCOUNTANT": {
+        "dashboard.view",
+        "animals.view",
+        "finance.view",
+        "finance.manage",
+        "reports.view",
+    },
+    "VIEWER": {
+        "dashboard.view",
+        "animals.view",
+        "buckets.view",
+        "breeding.view",
+        "kidding.view",
+        "health.view",
+        "purchases.view",
+        "feeding.view",
+        "milk.view",
+        "tasks.view",
+        "finance.view",
+        "simulation.view",
+        "reports.view",
     },
 }
 
 PRESET_NAMES = {
     "MOVER": "Animal Mover",
     "VET": "Veterinarian",
+    "MANAGER": "Farm Manager",
+    "BUYER": "Procurement Officer",
+    "FEEDER": "Feeder",
     "CLEANER": "Cleaner",
     "CLEANER_MANAGER": "Cleaner Manager",
-    "FEEDER": "Feeder",
+    "ACCOUNTANT": "Accountant",
+    "VIEWER": "Auditor (read-only)",
 }
 
-# The full permission catalog (27 codes; SPEC says "~24").
+# The full permission catalog (30 codes; SPEC says "~24").
 ALL_PERMS = {
     "dashboard.view",
     "animals.view",
@@ -101,6 +172,7 @@ ALL_PERMS = {
     "feeding.manage",
     "milk.view",
     "milk.manage",
+    "milk.quality",
     "tasks.view",
     "tasks.create",
     "tasks.complete",
@@ -641,7 +713,7 @@ async def test_permissions_owner_has_everything(client: httpx.AsyncClient) -> No
     assert body["is_owner"] is True
     assert set(body["permissions"]) == ALL_PERMS
     assert body["permissions"] == sorted(body["permissions"])
-    assert len(body["permissions"]) == 29  # full catalog size
+    assert len(body["permissions"]) == 30  # full catalog size
 
 
 @pytest.mark.parametrize("role_code", sorted(PRESET_PERMS))
@@ -697,7 +769,7 @@ async def test_permissions_requires_auth_and_farm(client: httpx.AsyncClient) -> 
 # ---------------------------------------------------------------------------
 # Team page: seeded presets, catalogs, member counts, ordering
 # ---------------------------------------------------------------------------
-async def test_team_page_seeds_five_presets_with_exact_bundles(client: httpx.AsyncClient) -> None:
+async def test_team_page_seeds_goat_presets_with_exact_bundles(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     page = await team_page(client, owner)
     roles = {r["code"]: r for r in page["roles"]}
@@ -2072,7 +2144,7 @@ async def test_role_capacity_recounts_after_legacy_farm_repair(
         await db.delete(missing)
         await db.commit()
     existing = len((await team_page(client, owner))["roles"])
-    assert existing == 4
+    assert existing == len(PRESET_PERMS) - 1  # every goat preset but the deleted FEEDER
     monkeypatch.setattr(get_settings(), "max_roles_per_farm", existing + 1)
 
     holder = get_sessionmaker()()
@@ -2247,7 +2319,7 @@ async def test_create_role_unicode_and_injection_names(client: httpx.AsyncClient
         assert resp.status_code == 201, resp.text
         assert resp.json()["name"] == name
     page = await team_page(client, owner)
-    assert len(page["roles"]) == 7  # 5 presets + 2 custom
+    assert len(page["roles"]) == len(PRESET_PERMS) + 2  # goat presets + 2 custom
 
 
 async def test_update_role_happy_path(client: httpx.AsyncClient) -> None:

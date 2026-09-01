@@ -53,6 +53,7 @@ export const ALL_PERMISSIONS = [
   "feeding.manage",
   "milk.view",
   "milk.manage",
+  "milk.quality",
   "tasks.view",
   "tasks.create",
   "tasks.complete",

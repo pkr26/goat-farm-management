@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
-import { server, TEST_FARMS } from "@/test/msw-server";
+import { server, TEST_FARMS, ALL_PERMISSIONS, permissionsHandler } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import MilkPage from "./page";
@@ -70,6 +70,47 @@ describe("MilkPage — species gate", () => {
     // The empty state only renders after permissions resolved, so the queries
     // have had every opportunity to start — and must not have.
     expect(milkCalls).toBe(0);
+  });
+});
+
+describe("MilkPage — fat test gate", () => {
+  it("disables the fat field for a recorder without the quality permission", async () => {
+    server.use(
+      dairyFarmHandler(),
+      permissionsHandler(
+        ALL_PERMISSIONS.filter((code) => code !== "milk.quality"),
+      ),
+      http.get("/api/milk/summary", () => HttpResponse.json(SUMMARY)),
+      http.get("/api/milk", () =>
+        HttpResponse.json({ records: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
+
+    renderWithProviders(<MilkPage />);
+
+    const fatInput = await screen.findByLabelText("Fat % (quality role only)");
+    expect(fatInput).toBeDisabled();
+    expect(
+      screen.getByText(
+        "Only the milk quality / manager roles record fat tests. A re-recorded yield keeps its tested fat as-is.",
+      ),
+    ).toBeInTheDocument();
+    // Litres stay recordable: the parlour recorder can still do their job.
+    expect(screen.getByLabelText("Litres")).toBeEnabled();
+  });
+
+  it("keeps the fat field editable for a role holding the quality permission", async () => {
+    server.use(
+      dairyFarmHandler(),
+      http.get("/api/milk/summary", () => HttpResponse.json(SUMMARY)),
+      http.get("/api/milk", () =>
+        HttpResponse.json({ records: [], total: 0, limit: 50, offset: 0 }),
+      ),
+    );
+
+    renderWithProviders(<MilkPage />);
+
+    expect(await screen.findByLabelText("Fat % (optional)")).toBeEnabled();
   });
 });
 

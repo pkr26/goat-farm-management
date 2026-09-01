@@ -660,7 +660,7 @@ async def test_finance_mover_worker_forbidden(client: httpx.AsyncClient) -> None
 
 async def test_finance_worker_view_only_cannot_write(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    rid = await custom_role_id(client, owner, "Accountant", ["finance.view"])
+    rid = await custom_role_id(client, owner, "Bookkeeper", ["finance.view"])
     worker = await worker_headers(client, owner, rid, "acct@farm.in")
     assert (await client.get("/api/finance", headers=worker)).status_code == 200
     resp = await client.post("/api/finance/new", json=txn_payload(), headers=worker)

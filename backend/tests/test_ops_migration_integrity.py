@@ -25,8 +25,8 @@ PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
-# Autogenerate-drift checks must run at the CURRENT head (milk audit + fat pricing).
-HEAD = "c5a8e1f3b7d2"
+# Autogenerate-drift checks must run at the CURRENT head (preset role-code widening).
+HEAD = "f8a2c4e6b1d9"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 
@@ -689,6 +689,21 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
         # deployment-time autogenerate drift detection must stay clean.
         await _alembic(database, "upgrade", HEAD)
         await _alembic(database, "check")
+        # A preset introduced after f8a2c4e6b1d9's vocabulary must normalize to
+        # an ordinary custom role on the way down — never orphan the duties
+        # and memberships that reference its row id.
+        connection = await asyncpg.connect(database_url)
+        try:
+            post_f8_role_id = await connection.fetchval(
+                """
+                INSERT INTO roles (farm_id, code, name, permissions, created_at)
+                VALUES ($1, 'MILKER', 'Milking Attendant', '[]', timezone('UTC', now()))
+                RETURNING id
+                """,
+                farm_id,
+            )
+        finally:
+            await connection.close()
         await _alembic(database, "downgrade", PRESET_ROLE_PARENT)
         connection = await asyncpg.connect(database_url)
         try:
@@ -710,6 +725,12 @@ async def test_preset_role_code_migration_repairs_duplicates_and_preserves_refer
             # identities, so the safe normalization remains in place.
             assert (
                 await connection.fetchval("SELECT code FROM roles WHERE id = $1", duplicate_role_id)
+                is None
+            )
+            # ...and the post-f8 preset code was normalized the same way, with
+            # the row itself surviving for its FK references.
+            assert (
+                await connection.fetchval("SELECT code FROM roles WHERE id = $1", post_f8_role_id)
                 is None
             )
         finally:

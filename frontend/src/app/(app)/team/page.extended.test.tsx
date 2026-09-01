@@ -1408,6 +1408,8 @@ describe("TeamPage role create/edit dialogs (owner holds all permissions)", () =
       "health.manage": "health.view",
       "purchases.manage": "purchases.view",
       "feeding.manage": "feeding.view",
+      "milk.manage": "milk.view",
+      "milk.quality": "milk.manage",
       "tasks.create": "tasks.view",
       "tasks.complete": "tasks.view",
       "tasks.verify": "tasks.view",

@@ -60,7 +60,7 @@ from app.models import (
     User,
     VaccineTemplate,
 )
-from app.permissions import ROLE_PRESETS
+from app.permissions import ROLE_PRESETS, preset_codes_for_farm_type
 from app.security import validate_jwt_keypair
 from app.seed import (
     BUCKET_DEFINITIONS,
@@ -79,7 +79,7 @@ from app.seed import (
 from app.services._common import _default_role_id_for_category
 from app.utils import utcnow
 
-from .conftest import owner_with_farm
+from .conftest import create_farm, owner_with_farm, register
 
 VALID_IDEMPOTENCY_HMAC_SECRET = "production-idempotency-hmac-secret-0000000001"
 VALID_PREVIOUS_IDEMPOTENCY_HMAC_SECRET = "previous-production-idempotency-hmac-secret-0001"
@@ -125,7 +125,51 @@ async def test_generated_task_role_lookup_ignores_tombstoned_preset(
         await db.commit()
 
     async with get_sessionmaker()() as db:
-        assert await _default_role_id_for_category(db, farm_id, "VACCINE") is None
+        assert await _default_role_id_for_category(db, farm_id, "GOAT", "VACCINE") is None
+
+
+async def test_weaning_duty_routes_by_farm_type(client: httpx.AsyncClient) -> None:
+    """Goat weaning (a day-60 pen move) is mover work; dairy weaning (the
+    calf shed's day-~90 job) routes to the calf attendant, and falls back to
+    the mover when the calf role has no live seeded row."""
+    goat_owner = await owner_with_farm(client, email="weaning-route-goat@example.test")
+    goat_id = int(goat_owner["X-Farm-Id"])
+    dairy_owner = await create_farm(
+        client,
+        await register(client, "weaning-route-dairy@example.test"),
+        "Routing Dairy",
+        farm_type="BUFFALO_DAIRY",
+    )
+    dairy_id = int(dairy_owner["X-Farm-Id"])
+
+    async def role_id(db: AsyncSession, farm_id: int, code: str) -> int:
+        return (
+            await db.execute(select(Role.id).where(Role.farm_id == farm_id, Role.code == code))
+        ).scalar_one()
+
+    async with get_sessionmaker()() as db:
+        assert (
+            await _default_role_id_for_category(db, goat_id, "GOAT", "WEANING")
+            == await role_id(db, goat_id, "MOVER")
+        )
+        assert (
+            await _default_role_id_for_category(db, dairy_id, "BUFFALO_DAIRY", "WEANING")
+            == await role_id(db, dairy_id, "CALF_ATTENDANT")
+        )
+        # Unmapped categories and non-dairy overrides are unaffected.
+        assert (
+            await _default_role_id_for_category(db, dairy_id, "BUFFALO_DAIRY", "VACCINE")
+            == await role_id(db, dairy_id, "VET")
+        )
+
+        calf = await db.get(Role, await role_id(db, dairy_id, "CALF_ATTENDANT"))
+        assert calf is not None
+        calf.deleted_at = utcnow()
+        await db.commit()
+        assert (
+            await _default_role_id_for_category(db, dairy_id, "BUFFALO_DAIRY", "WEANING")
+            == await role_id(db, dairy_id, "MOVER")
+        )
 
 
 async def test_readyz_returns_documented_unavailable_body_when_pool_fails(
@@ -1268,7 +1312,7 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
             role.code: role.id
             for role in (await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars()
         }
-        assert set(roles) == {preset["code"] for preset in ROLE_PRESETS}
+        assert set(roles) == PRESET_ROLE_CODES
         tasks = {
             task.title: task
             for task in (await db.execute(select(Task).where(Task.farm_id == farm_id))).scalars()
@@ -1288,7 +1332,7 @@ async def test_seed_startup_backfills_roles_and_is_idempotent() -> None:
         roles_after = (
             (await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars().all()
         )
-        assert len(roles_after) == len(ROLE_PRESETS)
+        assert len(roles_after) == len(PRESET_ROLE_CODES)
         task_after = (
             await db.execute(
                 select(Task).where(Task.farm_id == farm_id, Task.title == "PPR vaccine due")
@@ -1376,7 +1420,10 @@ async def test_task_backfill_converges_and_never_restamps_an_assigned_duty() -> 
 # --- legacy-repair worker robustness -----------------------------------------
 
 
-PRESET_ROLE_CODES = {preset["code"] for preset in ROLE_PRESETS}
+# Every farm these repair tests builds is a default (GOAT) farm, so the
+# expected preset vocabulary is the goat-scoped one — dairy parlour presets
+# (MILKER, CALF_ATTENDANT, MILK_QC) never seed on a goat farm.
+PRESET_ROLE_CODES = preset_codes_for_farm_type("GOAT")
 CANONICAL_INGREDIENTS = {ingredient for ingredient, _category in FARM_INGREDIENTS}
 
 
@@ -1424,7 +1471,7 @@ async def test_preset_role_repair_survives_a_custom_role_holding_a_preset_name()
     async with get_sessionmaker()() as db:
         roles = list((await db.execute(select(Role).where(Role.farm_id == poisoned_id))).scalars())
         # Every preset code exists; the colliding preset took a decorated name.
-        assert {role.code for role in roles if role.code} == {item["code"] for item in ROLE_PRESETS}
+        assert {role.code for role in roles if role.code} == PRESET_ROLE_CODES
         vet = next(role for role in roles if role.code == "VET")
         assert vet.name != preset["name"]
         assert preset["name"] in vet.name
@@ -1433,7 +1480,7 @@ async def test_preset_role_repair_survives_a_custom_role_holding_a_preset_name()
         assert {
             role.code
             for role in (await db.execute(select(Role).where(Role.farm_id == healthy_id))).scalars()
-        } == {item["code"] for item in ROLE_PRESETS}
+        } == PRESET_ROLE_CODES
         inventory = (
             await db.execute(select(FeedInventory).where(FeedInventory.farm_id == healthy_id))
         ).scalars()
@@ -1516,7 +1563,84 @@ async def test_partially_seeded_role_set_is_completed() -> None:
         rows = list((await db.execute(select(Role).where(Role.farm_id == farm_id))).scalars())
         # Exactly one row per preset: the two pre-existing ones were not
         # duplicated and no preset was skipped by a rolled-back savepoint.
-        assert len(rows) == len(ROLE_PRESETS)
+        assert len(rows) == len(PRESET_ROLE_CODES)
+
+
+async def test_repair_seeds_dairy_presets_only_on_dairy_farms() -> None:
+    """The repair's claim predicate is farm-type aware end to end: a legacy
+    dairy farm missing every preset is claimed and receives the full dairy
+    vocabulary (milker, milk QC, calf attendant included)."""
+    from app.permissions import preset_codes_for_farm_type as _codes_for
+
+    async with get_sessionmaker()() as db:
+        owner = User(email="dairy-repair-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        dairy = Farm(
+            name="Legacy Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY"
+        )
+        db.add(dairy)
+        await db.flush()
+        await seed_farm_inventory(db, dairy.id)
+        await db.commit()
+        dairy_id = dairy.id
+
+    async with get_sessionmaker()() as db:
+        claimed = await repair_legacy_farms_batch(db, batch_size=10)
+        await db.commit()
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        assert await _farm_role_codes(db, dairy_id) == _codes_for("BUFFALO_DAIRY")
+        assert {"MILKER", "MILK_QC", "CALF_ATTENDANT"} <= await _farm_role_codes(db, dairy_id)
+
+
+async def test_backfill_routes_dairy_weaning_to_calf_attendant() -> None:
+    """The legacy duty backfill resolves a dairy farm's orphan WEANING duty to
+    the calf attendant (the dairy override), not the mover fallback."""
+    async with get_sessionmaker()() as db:
+        owner = User(email="dairy-backfill-owner@farm.in", password_hash="argon2-placeholder")
+        db.add(owner)
+        await db.flush()
+        dairy = Farm(
+            name="Backfill Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY"
+        )
+        db.add(dairy)
+        await db.flush()
+        await seed_default_roles(db, dairy.id)
+        calf_role = (
+            await db.execute(
+                select(Role).where(Role.farm_id == dairy.id, Role.code == "CALF_ATTENDANT")
+            )
+        ).scalar_one()
+        db.add(
+            Task(
+                farm_id=dairy.id,
+                title="Wean calves of BUF-001 off milk; → FOUNDATION",
+                due_date=date(2026, 1, 10),
+                category=TaskCategory.WEANING.value,
+                status=TaskStatus.PENDING.value,
+                auto_generated=True,
+            )
+        )
+        await db.commit()
+        dairy_id = dairy.id
+
+    async with get_sessionmaker()() as db:
+        claimed = await backfill_task_assignments_batch(db, batch_size=10)
+        await db.commit()
+    assert claimed == 1
+
+    async with get_sessionmaker()() as db:
+        task = (
+            await db.execute(select(Task).where(Task.farm_id == dairy_id))
+        ).scalar_one()
+        calf_role = (
+            await db.execute(
+                select(Role).where(Role.farm_id == dairy_id, Role.code == "CALF_ATTENDANT")
+            )
+        ).scalar_one()
+        assert task.assigned_role_id == calf_role.id
 
 
 async def test_tombstoned_preset_name_is_reused() -> None:
@@ -1878,7 +2002,7 @@ async def test_task_backfill_share_locks_membership_role_snapshot() -> None:
 async def test_task_backfill_claims_a_duty_only_for_its_own_live_category_preset() -> None:
     """The preset probe must pair each category with ITS OWN live role code.
 
-    Every other fixture farm holds either all five presets or none, so a probe
+    Every other fixture farm holds either the full goat preset set or none, so a probe
     that matched any category against any preset code — or that ignored
     `deleted_at` — still found a live role and looked correct. A CLEANING duty
     is repairable only by a live CLEANER on the same farm: claiming it on a
@@ -2064,7 +2188,11 @@ async def test_task_backfill_claim_is_ordered_bounded_and_skips_locked() -> None
     assert len(claim) == 1
     assert "ORDER BY tasks.id" in claim[0]
     assert "LIMIT" in claim[0]
-    assert claim[0].rstrip().endswith("FOR UPDATE SKIP LOCKED")
+    # OF tasks is load-bearing: the claim joins Farm for the type probe, and a
+    # bare FOR UPDATE would lock those farm rows for the whole worker
+    # transaction — the Task->Farm / Farm->Task deadlock cycle the phased
+    # repair exists to prevent.
+    assert claim[0].rstrip().endswith("FOR UPDATE OF tasks SKIP LOCKED")
 
     async with get_sessionmaker()() as db:
         skipped = await db.get(Task, contended_id)

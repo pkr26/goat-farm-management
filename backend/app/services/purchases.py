@@ -73,6 +73,7 @@ async def schedule_quarantine_tasks(db: AsyncSession, farm: Farm, batch: Purchas
         await _add_task(
             db,
             farm.id,
+            farm.farm_type,
             item["title"],
             item["due_date"],
             TaskCategory(item["category"]),

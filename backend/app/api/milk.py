@@ -155,6 +155,18 @@ async def add_milk_record(
 
     async def mutate() -> MilkRecordOut:
         _require_dairy_farm(farm)
+        # Separation of duties on the fat number: litres are keyed by whoever
+        # holds milk.manage (the parlour recorder), but fat_pct is the input
+        # procurement pricing pays on (₹/kg fat), so setting or changing it
+        # needs milk.quality. A recorder without it can still correct litres:
+        # their re-submit passes the already-tested fat through untouched
+        # instead of erasing it.
+        fat_pct = payload.fat_pct
+        if fat_pct is not None and "milk.quality" not in perms:
+            raise HTTPException(
+                status_code=403,
+                detail="Recording a fat test requires the milk quality permission",
+            )
         if payload.date > today(farm.timezone):
             raise HTTPException(status_code=422, detail="Milk date cannot be in the future")
         # Lock the animal row: it both verifies farm membership and serializes
@@ -175,6 +187,22 @@ async def add_milk_record(
             )
         if animal.sex != "F":
             raise HTTPException(status_code=422, detail="Milk is recorded for female animals")
+        if fat_pct is None and "milk.quality" not in perms:
+            # Resolve the preserved fat UNDER the animal lock: reading it
+            # earlier lets a quality role's fat test commit in between and be
+            # erased by this correction — the exact loss the carry-forward
+            # exists to prevent. Every writer of this milking takes the same
+            # lock first, so the value read here is the latest committed one.
+            fat_pct = (
+                await db.execute(
+                    select(MilkRecord.fat_pct).where(
+                        MilkRecord.farm_id == farm.id,
+                        MilkRecord.animal_id == payload.animal_id,
+                        MilkRecord.date == payload.date,
+                        MilkRecord.shift == payload.shift,
+                    )
+                )
+            ).scalar_one_or_none()
         try:
             record = await record_milk(
                 db,
@@ -183,7 +211,7 @@ async def add_milk_record(
                 payload.date,
                 payload.shift,
                 payload.litres,
-                payload.fat_pct,
+                fat_pct,
                 payload.notes,
                 created_by_id=user.id,
                 correction_reason=payload.correction_reason,

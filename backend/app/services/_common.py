@@ -14,7 +14,7 @@ from ..models import (
     TaskCategory,
     TaskStatus,
 )
-from ..permissions import TASK_CATEGORY_ROLE_MAP
+from ..permissions import task_role_codes
 
 
 def _clear_task_rejection(task: Task) -> None:
@@ -40,29 +40,39 @@ async def _pending_tasks_for(
 
 
 async def _default_role_id_for_category(
-    db: AsyncSession, farm_id: int, category: str
+    db: AsyncSession, farm_id: int, farm_type: str, category: str
 ) -> int | None:
-    """Map a task category to the farm's preset role (MOVER/VET/...) if seeded."""
-    role_code = TASK_CATEGORY_ROLE_MAP.get(category)
-    if not role_code:
+    """Map a task category to the farm's preset role (MOVER/VET/...), if seeded.
+
+    task_role_codes returns the candidates for the farm's type in priority
+    order (dairy WEANING -> CALF_ATTENDANT before the MOVER fallback); the
+    first candidate with a live seeded role wins.
+    """
+    codes = task_role_codes(farm_type, category)
+    if not codes:
         return None
     result = await db.execute(
         select(Role).where(
             Role.farm_id == farm_id,
-            Role.code == role_code,
+            Role.code.in_(codes),
             Role.deleted_at.is_(None),
         )
     )
-    # uq_roles_farm_preset_code makes the stable preset identity cardinality
-    # exactly zero-or-one. Do not hide schema damage behind an arbitrary
-    # ``first()`` selection.
-    role = result.scalar_one_or_none()
-    return role.id if role else None
+    # uq_roles_farm_preset_code makes each candidate's cardinality exactly
+    # zero-or-one; grouping by code just maps the rows for the priority walk
+    # below (first live candidate wins).
+    roles_by_code = {role.code: role for role in result.scalars().all()}
+    for code in codes:
+        role = roles_by_code.get(code)
+        if role is not None:
+            return role.id
+    return None
 
 
 async def _add_task(
     db: AsyncSession,
     farm_id: int,
+    farm_type: str,
     title: str,
     due_date: date,
     category: TaskCategory,
@@ -79,7 +89,9 @@ async def _add_task(
         purchase_batch_id=purchase_batch_id,
         breeding_record_id=breeding_record_id,
         auto_generated=True,
-        assigned_role_id=await _default_role_id_for_category(db, farm_id, category.value),
+        assigned_role_id=await _default_role_id_for_category(
+            db, farm_id, farm_type, category.value
+        ),
     )
     db.add(task)
     return task

@@ -80,6 +80,9 @@ export default function MilkPage() {
   // than waiting on the backend's 4xx.
   const parlourEnabled = allowed && vocabulary.dairy;
   const canRecord = can("milk.manage");
+  // Fat is the number ₹/kg-fat procurement pricing pays on, so it is keyed by
+  // the quality/manager roles — not by the attendant who records litres.
+  const canTestFat = can("milk.quality");
   const today = farmToday();
 
   const summary = useMilkSummaryEndpointApiMilkSummaryGet(
@@ -109,7 +112,11 @@ export default function MilkPage() {
       setFormError("Litres must be between 0 and 100 for one milking.");
       return;
     }
-    const parsedFat = fatPct.trim() === "" ? undefined : Number(fatPct);
+    // Fat is only ever submitted by the quality role. A stale value left in
+    // the (disabled) field after a mid-session permission loss is dropped,
+    // not fatal: null carries the tested fat forward server-side, and the
+    // recorder could not clear the disabled input to recover otherwise.
+    const parsedFat = canTestFat && fatPct.trim() !== "" ? Number(fatPct) : undefined;
     if (parsedFat !== undefined && (!Number.isFinite(parsedFat) || parsedFat < 3 || parsedFat > 12)) {
       setFormError(`Fat % runs 3–12 for ${vocabulary.species} milk.`);
       return;
@@ -258,7 +265,9 @@ export default function MilkPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="milk-fat">Fat % (optional)</Label>
+                <Label htmlFor="milk-fat">
+                  Fat % {canTestFat ? "(optional)" : "(quality role only)"}
+                </Label>
                 <Input
                   id="milk-fat"
                   type="number"
@@ -268,7 +277,15 @@ export default function MilkPage() {
                   inputMode="decimal"
                   value={fatPct}
                   onChange={(event) => setFatPct(event.target.value)}
+                  disabled={!canTestFat}
+                  aria-describedby={canTestFat ? undefined : "milk-fat-help"}
                 />
+                {!canTestFat && (
+                  <p id="milk-fat-help" className="text-xs text-muted-foreground">
+                    Only the milk quality / manager roles record fat tests. A
+                    re-recorded yield keeps its tested fat as-is.
+                  </p>
+                )}
               </div>
             </div>
             {formError && (

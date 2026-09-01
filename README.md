@@ -193,9 +193,14 @@ passes. Resume API replicas only after that succeeds.
   `GET /api/simulation/defaults/breeds`, which serve global breed/production
   assumptions and need authentication alone (no farm context, no permission).
 - RBAC: owners hold every permission; workers get a role's permission bundle
-  (presets: Animal Mover, Veterinarian, Cleaner, Cleaner Manager, Feeder —
-  editable, plus custom roles). `GET /api/auth/permissions` returns the
-  caller's effective set for the active farm; the nav and buttons mirror it.
+  (presets: Farm Manager, Animal Mover, Veterinarian, Procurement Officer,
+  Feeder, Cleaner, Cleaner Manager, Accountant, Auditor — plus the dairy-only
+  Milking Attendant, Milk Quality Supervisor and Calf-shed Attendant seeded on
+  buffalo farms; all editable, plus custom roles). `milk.quality` splits fat
+  testing from yield recording — the ₹/kg-fat pricing input is keyed by the
+  quality/manager roles, never the parlour recorder. `GET
+  /api/auth/permissions` returns the caller's effective set for the active
+  farm; the nav and buttons mirror it.
 - Legacy `pbkdf2_sha256$iterations$salt_hex$digest_hex` password hashes
   (pre-migration users) verify transparently and are upgraded to Argon2id on
   first login. The supported import range is an iteration count from 1

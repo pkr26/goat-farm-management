@@ -436,6 +436,7 @@ async def create_breeding_record(
     await _add_task(
         db,
         farm.id,
+        farm.farm_type,
         f"Pregnancy check: {doe.tag_number} (bred {breeding_date.strftime('%d-%m')})",
         ultrasound_date,
         TaskCategory.ULTRASOUND,
@@ -583,6 +584,7 @@ async def record_ultrasound_result(
             await _add_task(
                 db,
                 br.farm_id,
+                farm_type,
                 f"{PRE_CALVING_THERAPY_TITLE}: {doe.tag_number}",
                 ekd - timedelta(days=60),
                 TaskCategory.VACCINE,
@@ -592,6 +594,7 @@ async def record_ultrasound_result(
             await _add_task(
                 db,
                 br.farm_id,
+                farm_type,
                 f"Move {doe.tag_number} to DELIVERY (dry off, calving in ~2 weeks)",
                 ekd - timedelta(days=21),
                 TaskCategory.BUCKET_MOVE,
@@ -602,6 +605,7 @@ async def record_ultrasound_result(
             await _add_task(
                 db,
                 br.farm_id,
+                farm_type,
                 f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
                 ekd - timedelta(days=40),
                 TaskCategory.VACCINE,
@@ -611,6 +615,7 @@ async def record_ultrasound_result(
             await _add_task(
                 db,
                 br.farm_id,
+                farm_type,
                 f"Move {doe.tag_number} to DELIVERY (kidding in ~2 weeks)",
                 ekd - timedelta(days=15),
                 TaskCategory.BUCKET_MOVE,
@@ -620,6 +625,7 @@ async def record_ultrasound_result(
         await _add_task(
             db,
             br.farm_id,
+            farm_type,
             f"{profile.parturition.capitalize()} due: {doe.tag_number}",
             ekd,
             TaskCategory.KIDDING_DUE,

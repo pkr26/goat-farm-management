@@ -82,10 +82,15 @@ from app.models import (
 )
 from app.permissions import (
     ALL_PERMISSIONS,
+    DAIRY_TASK_CATEGORY_ROLE_MAP,
+    FARM_TYPES,
     PERMISSION_GROUPS,
     PERMISSIONS,
+    ROLE_PRESET_CODES,
     ROLE_PRESETS,
     TASK_CATEGORY_ROLE_MAP,
+    TASK_ROLE_CODES,
+    preset_codes_for_farm_type,
 )
 from app.schemas.animals import (
     AnimalCreateIn,
@@ -237,7 +242,42 @@ def test_every_permission_has_distinct_nonempty_label() -> None:
 def test_role_preset_codes_unique() -> None:
     codes = [p["code"] for p in ROLE_PRESETS]
     assert len(codes) == len(set(codes))
-    assert set(codes) == {"MOVER", "VET", "CLEANER", "CLEANER_MANAGER", "FEEDER"}
+    assert set(codes) == {
+        # universal crew + office presets
+        "MANAGER",
+        "MOVER",
+        "VET",
+        "BUYER",
+        "FEEDER",
+        "CLEANER",
+        "CLEANER_MANAGER",
+        "ACCOUNTANT",
+        "VIEWER",
+        # dairy parlour presets (seeded on BUFFALO_DAIRY farms only)
+        "MILKER",
+        "MILK_QC",
+        "CALF_ATTENDANT",
+    }
+    assert set(codes) == ROLE_PRESET_CODES
+
+
+def test_preset_farm_type_scoping_partitions_the_catalog() -> None:
+    """Every preset seeds on at least one farm type, the dairy parlour presets
+    seed on dairy farms only, and the two scoped vocabularies cover the
+    catalog between them."""
+    dairy_only = {"MILKER", "MILK_QC", "CALF_ATTENDANT"}
+    assert (
+        preset_codes_for_farm_type("BUFFALO_DAIRY")
+        == preset_codes_for_farm_type("GOAT") | dairy_only
+    )
+    for preset in ROLE_PRESETS:
+        scoped = preset.get("farm_types")
+        if scoped is not None:
+            assert set(scoped) <= set(FARM_TYPES)
+            assert preset["code"] in preset_codes_for_farm_type(scoped[0])
+        else:
+            for farm_type in FARM_TYPES:
+                assert preset["code"] in preset_codes_for_farm_type(farm_type)
 
 
 @pytest.mark.parametrize("preset", ROLE_PRESETS, ids=lambda p: p["code"])
@@ -245,8 +285,12 @@ def test_role_preset_permissions_are_valid_catalog_codes(preset: dict) -> None:
     assert preset["name"].strip()
     assert preset["permissions"], "preset with no permissions is useless"
     assert set(preset["permissions"]) <= ALL_PERMISSIONS
-    # every preset role can at least see the dashboard and its duties
-    assert {"dashboard.view", "tasks.view", "tasks.complete"} <= set(preset["permissions"])
+    # every preset can at least see the dashboard
+    assert "dashboard.view" in preset["permissions"]
+    # every preset a generated duty can route to must be able to open and
+    # close that duty (officers/auditors receive no duties by design)
+    if preset["code"] in TASK_ROLE_CODES:
+        assert {"tasks.view", "tasks.complete"} <= set(preset["permissions"])
 
 
 def test_task_category_role_map_targets_valid_categories_and_presets() -> None:
@@ -273,6 +317,16 @@ def test_task_category_role_map_targets_valid_categories_and_presets() -> None:
 def test_task_category_role_map_matches_spec(category: str, role_code: str) -> None:
     # SPEC: ultrasound/vaccine → VET, bucket moves/weaning → MOVER, feed → FEEDER
     assert TASK_CATEGORY_ROLE_MAP[category] == role_code
+
+
+def test_dairy_weaning_override_targets_the_calf_attendant() -> None:
+    # Dairy weaning (day ~90) is calf-shed work; the base MOVER mapping stays
+    # the goat/universal default and the fallback.
+    assert set(DAIRY_TASK_CATEGORY_ROLE_MAP) <= set(TASK_CATEGORY_ROLE_MAP)
+    assert set(DAIRY_TASK_CATEGORY_ROLE_MAP.values()) <= set(
+        p["code"] for p in ROLE_PRESETS
+    )
+    assert DAIRY_TASK_CATEGORY_ROLE_MAP == {"WEANING": "CALF_ATTENDANT"}
 
 
 # ---------------------------------------------------------------------------

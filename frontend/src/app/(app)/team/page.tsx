@@ -127,6 +127,8 @@ const PERMISSION_DEPENDENCIES: Record<string, string> = {
   "health.manage": "health.view",
   "purchases.manage": "purchases.view",
   "feeding.manage": "feeding.view",
+  "milk.manage": "milk.view",
+  "milk.quality": "milk.manage",
   "tasks.create": "tasks.view",
   "tasks.complete": "tasks.view",
   "tasks.verify": "tasks.view",

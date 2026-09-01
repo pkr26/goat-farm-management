@@ -841,3 +841,201 @@ def test_dairy_culls_book_at_dry_off_and_keep_milking_until_then():
     assert dairy.months[14].culls_head == pytest.approx(6.0)
     assert dairy.months[14].cull_revenue > 0.0
     assert dairy.months[14].milk_revenue == 0.0
+
+
+# --- dairy RBAC: parlour roles and farm-type-scoped presets ---------------------
+
+
+async def _worker_with_role(client, owner, role_code: str, email: str) -> dict:
+    """Add a worker holding a seeded preset role and return login headers."""
+    from .conftest import login
+
+    resp = await client.get("/api/team", headers=owner)
+    assert resp.status_code == 200, resp.text
+    role_id = next(r["id"] for r in resp.json()["roles"] if r["code"] == role_code)
+    resp = await client.post(
+        "/api/team/workers",
+        json={"name": "Worker", "email": email, "password": "workerpass123", "role_id": role_id},
+        headers=owner,
+    )
+    assert resp.status_code == 201, resp.text
+    worker = await login(client, email, "workerpass123")
+    return worker | {"X-Farm-Id": owner["X-Farm-Id"]}
+
+
+async def test_dairy_presets_are_scoped_by_farm_type(client):
+    """Dairy parlour presets seed only on dairy farms; the universal
+    management/office presets seed everywhere."""
+    from app.permissions import preset_codes_for_farm_type
+
+    goat_owner = await owner_with_farm(client, email="scope-goat@farm.in")
+    dairy_owner = await _dairy_owner(client, email="scope-dairy@farm.in")
+
+    goat_resp = await client.get("/api/team", headers=goat_owner)
+    assert goat_resp.status_code == 200, goat_resp.text
+    dairy_resp = await client.get("/api/team", headers=dairy_owner)
+    assert dairy_resp.status_code == 200, dairy_resp.text
+    goat_codes = {r["code"] for r in goat_resp.json()["roles"]}
+    dairy_codes = {r["code"] for r in dairy_resp.json()["roles"]}
+    assert goat_codes == preset_codes_for_farm_type("GOAT")
+    assert dairy_codes == preset_codes_for_farm_type("BUFFALO_DAIRY")
+    assert {"MILKER", "MILK_QC", "CALF_ATTENDANT"} <= dairy_codes
+    assert not {"MILKER", "MILK_QC", "CALF_ATTENDANT"} & goat_codes
+    # The new universal presets land on both farm types.
+    assert {"MANAGER", "BUYER", "ACCOUNTANT", "VIEWER"} <= goat_codes & dairy_codes
+
+
+async def test_milker_records_yield_but_only_quality_roles_set_fat(client):
+    """Separation of duties on the fat number: the parlour recorder keys
+    litres, the ₹/kg-fat input is owned by the quality/manager roles, and a
+    recorder's litre correction cannot erase a tested fat."""
+    owner = await _dairy_owner(client, email="dairy-rbac@farm.in")
+    animal = await _create_animal(client, owner)
+    milker = await _worker_with_role(client, owner, "MILKER", "milker@farm.in")
+    qc = await _worker_with_role(client, owner, "MILK_QC", "qc@farm.in")
+    today = date.today().isoformat()
+
+    def payload(litres, fat=None, reason=None):
+        body = {
+            "animal_id": animal["id"],
+            "date": today,
+            "shift": "MORNING",
+            "litres": litres,
+        }
+        if fat is not None:
+            body["fat_pct"] = fat
+        if reason is not None:
+            body["correction_reason"] = reason
+        return body
+
+    # The recorder keys the yield without a fat test.
+    resp = await client.post("/api/milk/new", json=payload(8.5), headers=milker)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["fat_pct"] is None
+
+    # The recorder cannot set the fat number that pricing pays on.
+    resp = await client.post(
+        "/api/milk/new", json=payload(8.5, fat=7.1, reason="retry"), headers=milker
+    )
+    assert resp.status_code == 403
+    assert "fat test" in resp.json()["detail"]
+
+    # The quality supervisor enters the fat test for the same milking.
+    resp = await client.post(
+        "/api/milk/new", json=payload(8.6, fat=6.8, reason="Add fat test"), headers=qc
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["fat_pct"] == 6.8
+
+    # The recorder corrects a mis-keyed yield: litres change, fat survives.
+    resp = await client.post(
+        "/api/milk/new", json=payload(8.9, reason="Mis-keyed litres"), headers=milker
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["litres"] == 8.9
+    assert resp.json()["fat_pct"] == 6.8
+
+
+# --- frozen dairy preset bundles (contract mirror, goat side lives in
+# --- test_team_extended.PRESET_PERMS) -------------------------------------------
+
+
+DAIRY_PRESET_PERMS: dict[str, set[str]] = {
+    "MILKER": {
+        "dashboard.view",
+        "animals.view",
+        "buckets.view",
+        "milk.view",
+        "milk.manage",
+        "tasks.view",
+        "tasks.complete",
+    },
+    # The quality supervisor owns the ₹/kg-fat input; the recorder never does.
+    "MILK_QC": {
+        "dashboard.view",
+        "animals.view",
+        "buckets.view",
+        "milk.view",
+        "milk.manage",
+        "milk.quality",
+        "tasks.view",
+        "tasks.complete",
+    },
+    "CALF_ATTENDANT": {
+        "dashboard.view",
+        "animals.view",
+        "animals.move",
+        "buckets.view",
+        "kidding.view",
+        "milk.view",
+        "tasks.view",
+        "tasks.complete",
+    },
+}
+
+DAIRY_PRESET_NAMES = {
+    "MILKER": "Milking Attendant",
+    "MILK_QC": "Milk Quality Supervisor",
+    "CALF_ATTENDANT": "Calf-shed Attendant",
+}
+
+
+async def test_dairy_preset_bundles_are_frozen(client):
+    """The dairy-only presets' permission bundles are frozen here as the
+    contract under test: editing a seeded dairy preset in app/permissions.py
+    must be a deliberate act that updates this mirror."""
+    owner = await _dairy_owner(client, email="dairy-frozen@farm.in")
+    resp = await client.get("/api/team", headers=owner)
+    assert resp.status_code == 200, resp.text
+    roles = {r["code"]: r for r in resp.json()["roles"]}
+    for code, perms in DAIRY_PRESET_PERMS.items():
+        assert code in roles, f"{code} missing from the dairy farm's presets"
+        assert set(roles[code]["permissions"]) == perms
+        assert roles[code]["name"] == DAIRY_PRESET_NAMES[code]
+        assert roles[code]["description"]
+
+
+async def test_dairy_weaning_duty_lands_on_calf_attendant(client):
+    """End to end: a real calving on a dairy farm spawns the day-~90 milk
+    weaning duty on the Calf-shed Attendant, not the mover (goat routing)."""
+    owner = await _dairy_owner(client, email="dairy-weaning@farm.in")
+    animal = await _create_animal(client, headers=owner)
+    confirmed = await _breed_and_confirm(client, owner, animal["id"])
+    resp = await client.post(
+        "/api/kidding",
+        json={
+            "breeding_record_id": confirmed["id"],
+            "date": confirmed["expected_kidding_date"],
+            "ease": "NORMAL",
+            "kids": [{"sex": "F", "status": "ALIVE", "birth_weight": 34.0}],
+        },
+        headers=owner,
+    )
+    assert resp.status_code in (200, 201), resp.text
+
+    tabs = (await client.get("/api/tasks", headers=owner)).json()
+    duties = [t for tab in tabs.values() if isinstance(tab, list) for t in tab]
+    weaning = [t for t in duties if t["category"] == "WEANING" and "Wean calves" in t["title"]]
+    assert weaning, f"no dairy weaning duty spawned; duties: {[t['title'] for t in duties]}"
+    assert weaning[0]["assigned_role_name"] == "Calf-shed Attendant"
+    assert weaning[0]["assigned_role_id"] is not None
+
+
+async def test_feeder_cannot_record_milk_on_a_dairy(client):
+    """FEEDER lost milk.manage: a feed error must not be correctable by
+    editing the milk ledger, at the API level and not just in the bundle."""
+    owner = await _dairy_owner(client, email="dairy-feeder@farm.in")
+    animal = await _create_animal(client, headers=owner)
+    feeder = await _worker_with_role(client, owner, "FEEDER", "feeder-dairy@farm.in")
+    resp = await client.post(
+        "/api/milk/new",
+        json={
+            "animal_id": animal["id"],
+            "date": date.today().isoformat(),
+            "shift": "MORNING",
+            "litres": 8.0,
+        },
+        headers=feeder,
+    )
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"] == "Missing permission: milk.manage"

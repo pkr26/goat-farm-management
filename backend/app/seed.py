@@ -30,7 +30,13 @@ from .models import (
     VaccineTemplate,
 )
 from .models.species import FARM_TYPES
-from .permissions import ROLE_PRESETS, TASK_CATEGORY_ROLE_MAP
+from .permissions import (
+    ROLE_PRESETS,
+    TASK_CATEGORY_ROLE_MAP,
+    TASK_ROLE_CODES,
+    preset_codes_for_farm_type,
+    task_role_codes,
+)
 
 logger = logging.getLogger("goatfarm.seed")
 
@@ -676,14 +682,21 @@ def _free_preset_role_name(preset_name: str, code: str, taken: set[str]) -> str:
 def _add_missing_preset_roles(
     db: AsyncSession,
     farm_id: int,
+    farm_type: str,
     existing_codes: set[str | None],
     active_names: set[str],
 ) -> None:
     """Queue inserts for the preset roles a farm doesn't have yet (flush by
     caller).  `active_names` is updated with each chosen name so two presets
-    cannot collide with each other either."""
+    cannot collide with each other either.
+
+    Presets scoped to other farm types (dairy parlour roles on a goat farm)
+    are skipped: they are undeletable once seeded, so seeding them anywhere
+    they cannot be used would just clutter the team page forever."""
     for preset in ROLE_PRESETS:
         if preset["code"] in existing_codes:
+            continue
+        if farm_type not in preset.get("farm_types", FARM_TYPES):
             continue
         name = _free_preset_role_name(preset["name"], preset["code"], active_names)
         active_names.add(name)
@@ -735,14 +748,18 @@ async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
     advisory lock would invert against those callers and deadlock — which is
     exactly what `test_concurrent_role_seed_serializes_on_farm_row` pins.
     """
-    await db.execute(select(Farm.id).where(Farm.id == farm_id).with_for_update())
+    farm_type = (
+        await db.execute(
+            select(Farm.farm_type).where(Farm.id == farm_id).with_for_update()
+        )
+    ).scalar_one()
     result = await db.execute(
         select(Role.code, Role.name, Role.deleted_at).where(Role.farm_id == farm_id)
     )
     codes, names = _role_identity_rows(
         [(code, name, deleted_at) for code, name, deleted_at in result.all()]
     )
-    _add_missing_preset_roles(db, farm_id, codes, names)
+    _add_missing_preset_roles(db, farm_id, farm_type, codes, names)
     await db.flush()
 
 
@@ -756,11 +773,24 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
     """Repair at most one finite, lock-skipping batch of legacy farms."""
     if not 1 <= batch_size <= 500:
         raise ValueError("batch_size must be between 1 and 500")
-    preset_codes = [preset["code"] for preset in ROLE_PRESETS]
     ingredients, _names_by_type = _species_ingredient_values()
+    # A farm needs the repair when ANY preset its farm type should hold is
+    # missing — scoped per farm type, so a goat farm is never claimed just
+    # because it lacks the dairy parlour presets.
     missing_role = [
-        ~select(Role.id).where(Role.farm_id == Farm.id, Role.code == code).correlate(Farm).exists()
-        for code in preset_codes
+        and_(
+            Farm.farm_type == farm_type,
+            or_(
+                *[
+                    ~select(Role.id)
+                    .where(Role.farm_id == Farm.id, Role.code == code)
+                    .correlate(Farm)
+                    .exists()
+                    for code in sorted(preset_codes_for_farm_type(farm_type))
+                ]
+            ),
+        )
+        for farm_type in FARM_TYPES
     ]
     # A farm's canonical ingredient list is its own farm type's; both the
     # expected count and the counted stock are species-scoped.
@@ -784,19 +814,19 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
         .correlate(Farm)
         .scalar_subquery()
     )
-    farm_ids = list(
-        (
-            await db.execute(
-                select(Farm.id)
-                .where(or_(*missing_role, inventory_count < expected_count))
-                .order_by(Farm.id)
-                .limit(batch_size)
-                .with_for_update(skip_locked=True)
-            )
-        ).scalars()
-    )
-    if not farm_ids:
+    farm_rows = (
+        await db.execute(
+            select(Farm.id, Farm.farm_type)
+            .where(or_(*missing_role, inventory_count < expected_count))
+            .order_by(Farm.id)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+    ).all()
+    if not farm_rows:
         return 0
+    farm_ids = [farm_id for farm_id, _farm_type in farm_rows]
+    farm_types = {farm_id: farm_type for farm_id, farm_type in farm_rows}
 
     role_rows = await db.execute(
         select(Role.farm_id, Role.code, Role.name, Role.deleted_at).where(
@@ -815,7 +845,9 @@ async def repair_legacy_farms_batch(db: AsyncSession, *, batch_size: int) -> int
         # after this call.
         try:
             async with db.begin_nested():
-                _add_missing_preset_roles(db, selected_farm_id, codes, names)
+                _add_missing_preset_roles(
+                    db, selected_farm_id, farm_types[selected_farm_id], codes, names
+                )
                 await db.flush()
         except IntegrityError:
             logger.warning(
@@ -878,20 +910,26 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         .correlate(Task)
         .exists()
     )
+    # A generated duty routes to its farm type's candidate preset codes —
+    # dairy WEANING prefers CALF_ATTENDANT with MOVER as the fallback — so the
+    # eligibility probe pairs every category with the codes its farm type can
+    # resolve to.
     preset_role_exists = or_(
         *[
             and_(
                 Task.category == category,
+                Farm.farm_type == farm_type,
                 select(Role.id)
                 .where(
                     Role.farm_id == Task.farm_id,
-                    Role.code == role_code,
+                    Role.code.in_(task_role_codes(farm_type, category)),
                     Role.deleted_at.is_(None),
                 )
                 .correlate(Task)
                 .exists(),
             )
-            for category, role_code in TASK_CATEGORY_ROLE_MAP.items()
+            for category in TASK_CATEGORY_ROLE_MAP
+            for farm_type in FARM_TYPES
         ]
     )
     resolvable = or_(
@@ -902,10 +940,16 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         (
             await db.execute(
                 select(Task)
+                .join(Farm, Farm.id == Task.farm_id)
                 .where(candidate, resolvable)
                 .order_by(Task.id)
                 .limit(batch_size)
-                .with_for_update(skip_locked=True)
+                # of=Task: a bare FOR UPDATE would also lock the joined Farm
+                # rows for this whole worker transaction, resurrecting the
+                # Task->Farm / Farm->Task deadlock cycle the phased repair
+                # below exists to prevent and stalling every farm-FK insert
+                # on the claimed farms.
+                .with_for_update(skip_locked=True, of=Task)
             )
         ).scalars()
     )
@@ -944,7 +988,7 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         membership_roles = {
             (farm_id, user_id): role_id for farm_id, user_id, role_id in membership_rows.all()
         }
-    role_codes = set(TASK_CATEGORY_ROLE_MAP.values())
+    role_codes = set(TASK_ROLE_CODES)
     role_rows = await db.execute(
         select(Role.farm_id, Role.code, Role.id).where(
             Role.farm_id.in_(farm_ids),
@@ -953,6 +997,12 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         )
     )
     roles = {(farm_id, code): role_id for farm_id, code, role_id in role_rows.all()}
+    farm_type_rows = await db.execute(
+        select(Farm.id, Farm.farm_type).where(Farm.id.in_(farm_ids))
+    )
+    farm_types = {
+        farm_id: farm_type for farm_id, farm_type in farm_type_rows.all()
+    }
     assigned = 0
     for task in tasks:
         role_id = (
@@ -961,8 +1011,10 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
             else None
         )
         if role_id is None:
-            role_code = TASK_CATEGORY_ROLE_MAP.get(task.category)
-            role_id = roles.get((task.farm_id, role_code))
+            for code in task_role_codes(farm_types[task.farm_id], task.category):
+                role_id = roles.get((task.farm_id, code))
+                if role_id is not None:
+                    break
         if role_id is not None:
             task.assigned_role_id = role_id
             assigned += 1
