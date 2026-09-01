@@ -77,11 +77,7 @@ import { PermissionsError } from "@/components/permissions-error";
 const BUCKETS = Object.values(MoveInToBucket);
 const PROFILE_HISTORY_LIMIT = 25;
 const RESTRICTION_HISTORY_LIMIT = 25;
-/** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw value in the closed trigger. */
-const BUCKET_ITEMS: Record<string, string> = Object.fromEntries(
-  BUCKETS.map((b) => [b, b.replace(/_/g, " ")]),
-);
+
 /** Sex each bucket is reserved for, mirroring backend/app/schemas/animals.py
  * (and the ck_animals_bucket_sex CHECK). Buckets absent here take both. */
 const BUCKET_REQUIRED_SEX: Record<string, string> = {
@@ -298,6 +294,7 @@ function MoveBucketDialog({
   actionFlight: ProfileActionFlight;
   profileSettling: boolean;
 }) {
+  const farmType = useFarmType();
   const [open, setOpen] = useState(false);
   const mut = useMoveBucketApiAnimalsAnimalIdMovePost();
   const {
@@ -360,7 +357,13 @@ function MoveBucketDialog({
               control={control}
               name="to_bucket"
               render={({ field }) => (
-                <Select value={field.value ?? ""} onValueChange={field.onChange} items={BUCKET_ITEMS}>
+                <Select
+                  value={field.value ?? ""}
+                  onValueChange={field.onChange}
+                  items={Object.fromEntries(
+                    BUCKETS.map((b) => [b, enumLabel("bucket", b, farmType)]),
+                  )}
+                >
                   <SelectTrigger
                     id="move-to-bucket"
                     className="w-full"
@@ -374,7 +377,7 @@ function MoveBucketDialog({
                       (b) => b !== currentBucket && bucketAllowsSex(b, sex),
                     ).map((b) => (
                       <SelectItem key={b} value={b}>
-                        {b.replace(/_/g, " ")}
+                        {enumLabel("bucket", b, farmType)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -991,6 +994,7 @@ function ProfileBody({
   const vocabulary = farmVocabulary(farmType);
   const active = a.status === "ACTIVE";
   const canViewHealth = can("health.view");
+  const canManageHealth = can("health.manage");
   const canViewBreeding = can("breeding.view");
   // Weight, move, status and restriction clearance all mutate the same animal
   // lifecycle. One synchronous lock prevents a dismissed slow dialog from
@@ -1027,7 +1031,7 @@ function ProfileBody({
             <span className="inline-flex flex-wrap items-center gap-2">
               {a.tag_number}
               {a.name ? ` · ${a.name}` : ""}
-              <StatusBadge status={a.status}>{a.status}</StatusBadge>
+              <StatusBadge status={a.status} />
             </span>
           }
           description={`${a.breed} · ${a.sex === "F" ? "Female" : "Male"} · ${enumLabel("bucket", a.current_bucket, farmType)}`}
@@ -1147,7 +1151,7 @@ function ProfileBody({
                           {action.restriction_version}
                         </TableCell>
                         <TableCell>
-                          <StatusBadge status={action.action}>{action.action}</StatusBadge>
+                          <StatusBadge status={action.action} />
                         </TableCell>
                         <TableCell>{formatFarmDateTime(action.acted_at)}</TableCell>
                         <TableCell>{action.action_reference}</TableCell>
@@ -1177,7 +1181,7 @@ function ProfileBody({
           <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             <Detail label="Sex">{a.sex === "F" ? "Female" : "Male"}</Detail>
             <Detail label="Breed">{a.breed}</Detail>
-            <Detail label="Bucket">{a.current_bucket.replace(/_/g, " ")}</Detail>
+            <Detail label="Bucket">{enumLabel("bucket", a.current_bucket, farmType)}</Detail>
             <Detail label="Days in bucket">{a.days_in_current_bucket ?? "—"}</Detail>
             <Detail label="Date of birth">
               {a.date_of_birth
@@ -1187,14 +1191,14 @@ function ProfileBody({
                   : "—"}
             </Detail>
             <Detail label="Age">{a.age_months != null ? `${a.age_months} months` : "—"}</Detail>
-            <Detail label="Birth type">{a.birth_type ?? "—"}</Detail>
+            <Detail label="Birth type">{a.birth_type ? enumLabel("birthType", a.birth_type) : "—"}</Detail>
             <Detail label="Birth weight">
               {a.birth_weight != null ? `${a.birth_weight} kg` : "—"}
             </Detail>
             <Detail label="Latest weight">
               {a.latest_weight_kg != null ? `${a.latest_weight_kg.toFixed(1)} kg` : "—"}
             </Detail>
-            <Detail label="Source">{a.source}</Detail>
+            <Detail label="Source">{enumLabel("source", a.source)}</Detail>
             {a.source === "PURCHASED" && (
               <>
                 <Detail label="Purchase date">{formatDate(a.purchase_date)}</Detail>
@@ -1272,7 +1276,7 @@ function ProfileBody({
             <EmptyState
               icon={Scale}
               title="No weight records yet."
-              description="Use the “Record weight” action above to log the first entry and start the growth curve."
+              description={can("animals.weight") ? "Use the “Record weight” action above to log the first entry and start the growth curve." : "A user with the weight permission can log the first entry and start the growth curve."}
               className="py-8"
             />
           ) : (
@@ -1358,12 +1362,14 @@ function ProfileBody({
               description="Treatments, vaccines and dewormings will appear here."
               className="py-8"
             >
-              <Link
-                href="/health/new"
-                className={buttonVariants({ variant: "outline", size: "sm" })}
-              >
-                Add a health event
-              </Link>
+              {canManageHealth && (
+                <Link
+                  href={withReturnTo("/health/new", `/animals/${a.id}`)}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  Add a health event
+                </Link>
+              )}
             </EmptyState>
           ) : (
             <Table>
@@ -1450,7 +1456,7 @@ function ProfileBody({
                       <TableCell>{enumLabel("sex", k.sex)}</TableCell>
                       <TableCell>{formatDate(k.date_of_birth)}</TableCell>
                       <TableCell>
-                        <StatusBadge status={k.status}>{k.status}</StatusBadge>
+                        <StatusBadge status={k.status} />
                       </TableCell>
                     </TableRow>
                   ))}

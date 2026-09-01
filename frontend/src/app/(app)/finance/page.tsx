@@ -846,7 +846,7 @@ function FinancePageContent() {
 
       <DataTableCard
         title="Transactions"
-        description="Filter the ledger by month, type or category."
+        description={`Filter the ledger by month, type or category.${sort ? " Sorting applies to the current page." : ""}`}
         contentClassName="space-y-4"
       >
         {ledgerSettling && (

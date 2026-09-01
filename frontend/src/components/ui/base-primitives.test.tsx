@@ -703,6 +703,9 @@ describe("Toaster", () => {
     const item = title.closest("li");
     expect(item).toBeInTheDocument();
     expect(item).toHaveAttribute("data-type", "success");
+    // The project no longer stamps a custom toast class (the old "cn-toast"
+    // existed in stylesheet only); pin its absence so it can't sneak back.
+    expect(item).not.toHaveClass("cn-toast");
 
     const region = document.querySelector("[data-sonner-toaster]");
     expect(region).toHaveClass("toaster", "group");

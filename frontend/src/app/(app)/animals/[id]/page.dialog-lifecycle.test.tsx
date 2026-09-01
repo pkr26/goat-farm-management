@@ -232,9 +232,9 @@ describe("AnimalProfilePage behaviour", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "PREGNANCY LATE");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Pregnancy B");
       // The closed trigger shows the humanised label, not the raw enum value.
-      expect(within(dialog).getByRole("combobox")).toHaveTextContent("PREGNANCY LATE");
+      expect(within(dialog).getByRole("combobox")).toHaveTextContent("Pregnancy B");
       await user.type(within(dialog).getByLabelText(/reason/i), "Scan confirms late gestation");
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
 

@@ -289,7 +289,7 @@ describe("FeedingPage plan table", () => {
   it("shows the static shift schedule note", async () => {
     await renderLoaded();
     expect(
-      screen.getByText(/Shifts: MORNING 6:30 AM \(sweep bunks first\)/),
+      screen.getByText(/Shifts: Morning 6:30 AM \(sweep bunks first\)/),
     ).toBeInTheDocument();
   });
 });
@@ -850,7 +850,7 @@ describe("FeedingPage kg/head override dialog", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -869,7 +869,7 @@ describe("FeedingPage kg/head override dialog", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -886,7 +886,7 @@ describe("FeedingPage kg/head override dialog", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Daily ration — Breeding")).toBeInTheDocument();
 
@@ -908,7 +908,7 @@ describe("FeedingPage kg/head override dialog", () => {
     );
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -941,7 +941,7 @@ describe("FeedingPage kg/head override dialog", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     let dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -950,7 +950,7 @@ describe("FeedingPage kg/head override dialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(currentKg).toBe(1.8));
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(1.8);
   });
@@ -974,7 +974,7 @@ describe("FeedingPage kg/head override dialog", () => {
     const { queryClient } = renderWithProviders(<FeedingPage />);
     await screen.findByText("Lactating 60/40");
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     let dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -990,7 +990,7 @@ describe("FeedingPage kg/head override dialog", () => {
     expect(input).toHaveValue(1.8);
 
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(2.2);
   });
@@ -1010,7 +1010,7 @@ describe("FeedingPage kg/head override dialog", () => {
     );
     const user = userEvent.setup();
     await renderLoaded();
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -1021,7 +1021,7 @@ describe("FeedingPage kg/head override dialog", () => {
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    const trigger = screen.getByRole("button", { name: "Edit" });
+    const trigger = screen.getAllByRole("button", { name: "Edit" })[0];
     expect(trigger).toBeDisabled();
     await user.click(trigger);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

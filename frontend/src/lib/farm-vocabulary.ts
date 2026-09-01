@@ -18,6 +18,21 @@ export interface BreedingEntryRules {
   male: { minMonths: number; minWeightKg: number };
 }
 
+/** Species facts the UI states in copy (gestation bands, weaning offsets).
+ * Mirrors backend/app/models/species.py — drift here shows operators biology
+ * the server does not enforce. */
+export interface SpeciesFacts {
+  /** Recording sanity band after the fact (min/max_gestation_days). */
+  gestationWindowDays: { min: number; max: number };
+  /** Planned pregnancy-check task offset (pregnancy_check_after_service_days). */
+  pregnancyCheckDays: number;
+  /** Weaning task offset after parturition (weaning_days). */
+  weaningDays: number;
+  /** True when newborn young stay with the dam (RECOVERY) instead of being
+   * separated into sexed pens (young_stay_with_dam). */
+  youngStayWithDam: boolean;
+}
+
 export interface FarmVocabulary {
   /** "Goat farm" / "Buffalo dairy" — used on cards and pickers. */
   typeLabel: string;
@@ -27,6 +42,8 @@ export interface FarmVocabulary {
   speciesPlural: string;
   /** Adult female: "doe" / "milking buffalo". */
   femaleAdult: string;
+  /** Adult female plural: "does" / "milking buffalo". */
+  femaleAdultPlural: string;
   /** Adult male: "buck" / "bull". */
   maleAdult: string;
   /** Young animal singular/plural: "kid(s)" / "calf(calves)". */
@@ -45,10 +62,14 @@ export interface FarmVocabulary {
   dairy: boolean;
   /** Breed preselected for new animals (backend species default_breed). */
   defaultBreed: string;
-  /** Prefix of auto-generated tag numbers (e.g. "G-7KP2D" / "B-3XM8Q"). */
+  /** Prefix of auto-generated tag numbers. The backend issues "G-XXXXX"
+   * for every species (services/animals.generate_unique_tag); purchase tags
+   * use a separate "B<batch>" scheme, so this stays "G" for both. */
   tagPrefix: string;
   /** Minimum age/weight to import an animal straight into BREEDING. */
   breedingEntry: BreedingEntryRules;
+  /** Gestation/weaning facts stated in kidding and breeding copy. */
+  facts: SpeciesFacts;
 }
 
 const GOAT_VOCABULARY: FarmVocabulary = {
@@ -56,6 +77,7 @@ const GOAT_VOCABULARY: FarmVocabulary = {
   species: "goat",
   speciesPlural: "goats",
   femaleAdult: "doe",
+  femaleAdultPlural: "does",
   maleAdult: "buck",
   young: "kid",
   youngPlural: "kids",
@@ -71,6 +93,12 @@ const GOAT_VOCABULARY: FarmVocabulary = {
     female: { minMonths: 10, minWeightKg: 22 },
     male: { minMonths: 12, minWeightKg: 25 },
   },
+  facts: {
+    gestationWindowDays: { min: 100, max: 200 },
+    pregnancyCheckDays: 32,
+    weaningDays: 60,
+    youngStayWithDam: true,
+  },
 };
 
 const BUFFALO_VOCABULARY: FarmVocabulary = {
@@ -78,6 +106,7 @@ const BUFFALO_VOCABULARY: FarmVocabulary = {
   species: "buffalo",
   speciesPlural: "buffalo",
   femaleAdult: "milking buffalo",
+  femaleAdultPlural: "milking buffalo",
   maleAdult: "bull",
   young: "calf",
   youngPlural: "calves",
@@ -89,10 +118,16 @@ const BUFFALO_VOCABULARY: FarmVocabulary = {
     "Heifers are bred at 22–24 months and ≥340 kg (AI at 60 days post-calving; max 3 services before cull review).",
   dairy: true,
   defaultBreed: "Murrah",
-  tagPrefix: "B",
+  tagPrefix: "G",
   breedingEntry: {
     female: { minMonths: 22, minWeightKg: 340 },
     male: { minMonths: 24, minWeightKg: 350 },
+  },
+  facts: {
+    gestationWindowDays: { min: 270, max: 350 },
+    pregnancyCheckDays: 60,
+    weaningDays: 90,
+    youngStayWithDam: false,
   },
 };
 

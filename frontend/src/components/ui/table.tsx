@@ -110,8 +110,8 @@ export type SortDirection = "asc" | "desc"
 /**
  * A TableHead that sorts its column. Renders a full-width button with the
  * proper aria-sort on the surrounding th; pass the active direction from the
- * page's sort state. Clicking cycles asc → desc (the only two orders the
- * list endpoints' recency defaults need to restore).
+ * page's sort state. Clicking cycles asc → desc → unsorted, so the
+ * endpoints' default recency order stays reachable.
  */
 function SortableTableHead({
   column,

@@ -311,9 +311,9 @@ describe("AnimalProfilePage dialog branches", () => {
       const trigger = within(dialog).getByRole("combobox");
       expect(trigger).toHaveTextContent("Choose bucket…");
 
-      await pickOption(user, trigger, "RESTING");
+      await pickOption(user, trigger, "Resting");
 
-      expect(trigger).toHaveTextContent("RESTING");
+      expect(trigger).toHaveTextContent("Resting");
       expect(trigger).not.toHaveTextContent("Choose bucket…");
     });
 

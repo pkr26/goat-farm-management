@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, PawPrint, Plus, ShoppingCart } from "lucide-react";
 import Link from "next/link";
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useCallback, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -63,12 +63,8 @@ import {
 } from "@/lib/persisted-numbers";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { useUrlState } from "@/lib/use-url-state";
+import { MAX_PAGE_OFFSET, useUrlState, type UrlStateUpdate } from "@/lib/use-url-state";
 import { PermissionsError } from "@/components/permissions-error";
-
-/** Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET for the batch list —
- * a larger offset is a 422, so clamp the URL value into range. */
-const MAX_LIST_OFFSET = 1_000_000;
 
 function localToday(): string {
   return farmToday();
@@ -293,33 +289,65 @@ function PurchasesPageContent() {
   /** Open/submit cycle fence: a late success must not close/reset a dialog
    *  the operator has since reopened and re-filled (finance addAttempt). */
   const createAttempt = useRef(0);
-  // F-7: the list page and the open batch detail live in the URL, so refresh,
-  // back/forward and shared links reopen the same view. State stays the
-  // source of truth; edits write through with defaults stripped.
-  const { get: getUrl, getNumber: getUrlNumber, set: setUrlState } = useUrlState();
+  // F-7: the list page and the open batch detail live in the URL, so
+  // refresh and shared links reopen the same view. State stays the source of
+  // truth; edits write through with defaults stripped. The URL is only ever
+  // replaced (never pushed) — Back returns to the page, not to a previous
+  // page number.
+  const { get: getUrl, getNumber: getUrlNumber, set: setUrlState, searchParams } =
+    useUrlState();
   const [detailId, setDetailId] = useState<number | null>(() => {
     const raw = getUrl("batch");
     const parsed = raw === null ? Number.NaN : Number(raw);
     return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
   });
   const [offset, setOffset] = useState(() =>
-    getUrlNumber("offset", 0, 0, MAX_LIST_OFFSET),
+    getUrlNumber("offset", 0, 0, MAX_PAGE_OFFSET),
   );
   const limit = 50;
 
+  const paramsKey = searchParams.toString();
+  const lastWrittenParamsRef = useRef(paramsKey);
+  // Latest-ref the URL readers: adoption must key on the params string
+  // itself changing, not on the reader identities (which churn every render
+  // when a navigation mock hands out fresh params objects).
+  const getUrlRef = useRef(getUrl);
+  const getUrlNumberRef = useRef(getUrlNumber);
+  useEffect(() => {
+    getUrlRef.current = getUrl;
+    getUrlNumberRef.current = getUrlNumber;
+  });
+  useEffect(() => {
+    if (lastWrittenParamsRef.current === paramsKey) return;
+    lastWrittenParamsRef.current = paramsKey;
+    const raw = getUrlRef.current("batch");
+    const parsed = raw === null ? Number.NaN : Number(raw);
+    setDetailId(Number.isInteger(parsed) && parsed >= 1 ? parsed : null);
+    setOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));
+  }, [paramsKey]);
+  /** Write-through that remembers which params string this page authored,
+   * so the adopt-effect above only fires for external URL changes. */
+  const writeUrlState = useCallback(
+    (updates: UrlStateUpdate) => {
+      const qs = setUrlState(updates);
+      if (qs !== null) lastWrittenParamsRef.current = qs;
+    },
+    [setUrlState],
+  );
+
   function openDetail(id: number) {
     setDetailId(id);
-    setUrlState({ batch: id });
+    writeUrlState({ batch: id });
   }
 
   function closeDetail() {
     setDetailId(null);
-    setUrlState({ batch: null });
+    writeUrlState({ batch: null });
   }
 
   function changeOffset(next: number) {
     setOffset(next);
-    setUrlState({ offset: next || null });
+    writeUrlState({ offset: next || null });
   }
 
   const query = useListBatchesApiPurchasesGet(
@@ -515,6 +543,13 @@ function PurchasesPageContent() {
                   {b.open_tasks
                     ? ` · ${b.open_tasks} open task${b.open_tasks === 1 ? "" : "s"}`
                     : ""}
+                </p>
+                {/* Parity with the table's analytics columns — a phone
+                 * shouldn't hide what was bought. */}
+                <p className="mt-1 text-xs text-muted-foreground tabular-nums">
+                  {b.avg_age_months !== null ? `${b.avg_age_months} mo` : "—"} avg age ·{" "}
+                  {b.avg_weight_kg !== null ? `${b.avg_weight_kg} kg` : "—"} avg weight ·{" "}
+                  {b.animals_created ?? 0} animal{b.animals_created === 1 ? "" : "s"} created
                 </p>
               </div>
             ))}

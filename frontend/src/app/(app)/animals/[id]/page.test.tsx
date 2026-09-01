@@ -327,7 +327,7 @@ describe("AnimalProfilePage", () => {
       await renderProfile();
       const h1 = screen.getByRole("heading", { level: 1 });
       expect(h1).toHaveTextContent("G-001 · Lakshmi");
-      expect(within(h1).getByText("ACTIVE")).toBeInTheDocument();
+      expect(within(h1).getByText("Active")).toBeInTheDocument();
     });
 
     it("omits the name from the heading when null", async () => {
@@ -343,14 +343,14 @@ describe("AnimalProfilePage", () => {
       const body = within(card);
       expect(body.getByText("Female")).toBeInTheDocument();
       expect(body.getByText("Osmanabadi")).toBeInTheDocument();
-      expect(body.getByText("PREGNANCY EARLY")).toBeInTheDocument();
+      expect(body.getByText("Pregnancy A")).toBeInTheDocument();
       expect(body.getByText("12")).toBeInTheDocument(); // days in bucket
       expect(body.getByText("10 May 2025")).toBeInTheDocument();
       expect(body.getByText("14 months")).toBeInTheDocument();
-      expect(body.getByText("TWIN")).toBeInTheDocument();
+      expect(body.getByText("Twin")).toBeInTheDocument();
       expect(body.getByText("2.4 kg")).toBeInTheDocument();
       expect(body.getByText("32.5 kg")).toBeInTheDocument();
-      expect(body.getByText("BORN")).toBeInTheDocument();
+      expect(body.getByText("Born on farm")).toBeInTheDocument();
     });
 
     it("prefers the exact DOB over the estimated one", async () => {
@@ -932,7 +932,7 @@ describe("AnimalProfilePage", () => {
               {
                 id: offset + 1,
                 restriction_version: offset === 0 ? 3 : 2,
-                action: offset === 0 ? "CLEARED" : "PLACED",
+                action: offset === 0 ? "CLEARED" : "Placed",
                 acted_at: offset === 0 ? "2026-08-07T10:15:00Z" : "2026-07-01T09:00:00Z",
                 acted_by_id: 7,
                 action_reference: offset === 0 ? "VET-CLEAR-3" : "HEALTH-EVENT-41",
@@ -1377,9 +1377,9 @@ describe("AnimalProfilePage", () => {
       const options = await screen.findAllByRole("option");
       const names = options.map((o) => o.textContent);
       expect(names).toHaveLength(8); // 10 buckets minus current minus MALE_KIDS
-      expect(names).not.toContain("PREGNANCY EARLY");
-      expect(names).not.toContain("MALE KIDS");
-      expect(names).toContain("RESTING");
+      expect(names).not.toContain("Pregnancy A");
+      expect(names).not.toContain("Male kids");
+      expect(names).toContain("Resting");
       await user.keyboard("{Escape}");
     });
 
@@ -1391,9 +1391,9 @@ describe("AnimalProfilePage", () => {
       await user.click(within(dialog).getByRole("combobox"));
       const options = await screen.findAllByRole("option");
       const names = options.map((o) => o.textContent);
-      expect(names).not.toContain("FEMALE KIDS");
-      expect(names).not.toContain("RESTING");
-      expect(names).toContain("MALE KIDS");
+      expect(names).not.toContain("Female kids");
+      expect(names).not.toContain("Resting");
+      expect(names).toContain("Male kids");
       await user.keyboard("{Escape}");
     });
 
@@ -1411,7 +1411,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
       await user.type(within(dialog).getByLabelText(/reason/i), "Not pregnant after all");
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
       await waitFor(() => expect(moveBodies).toHaveLength(1));
@@ -1425,7 +1425,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
       const reason = within(dialog).getByLabelText(/reason/i);
       setInput(reason, "r".repeat(256));
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
@@ -1441,7 +1441,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RECOVERY");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Recovery");
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
       await waitFor(() => expect(moveBodies).toHaveLength(1));
       expect(moveBodies[0]).toEqual({ to_bucket: "RECOVERY", reason: null });
@@ -1456,7 +1456,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
       await waitFor(() =>
         expect(toastMock.error).toHaveBeenCalledWith("Animal must complete quarantine first"),
@@ -1469,7 +1469,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
 
       await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("Something went wrong"));
@@ -1491,7 +1491,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
       await waitFor(() => expect(moveBodies).toHaveLength(1));
       expect(dialog.querySelector("fieldset")).toBeDisabled();
@@ -1511,7 +1511,7 @@ describe("AnimalProfilePage", () => {
       const user = userEvent.setup();
       const { queryClient } = await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
 
       const finishRefresh = await startHeldProfileRefresh(queryClient);
       const trigger = screen.getByRole("button", { name: "Move bucket", hidden: true });

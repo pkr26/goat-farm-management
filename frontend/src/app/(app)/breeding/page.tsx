@@ -254,8 +254,9 @@ function NewBreedingDialog({
         <DialogHeader>
           <DialogTitle>Add breeding</DialogTitle>
           <DialogDescription>
-            A pregnancy-check task is auto-created ({vocabulary.dairy ? "~60" : "32"} days after
-            the service{vocabulary.dairy ? "; buffaloes are bred back during lactation" : ""}).
+            A pregnancy-check task is auto-created ({vocabulary.facts.pregnancyCheckDays} days
+            after the service{vocabulary.dairy ? "; buffaloes are bred back during lactation" : ""}
+            ).
           </DialogDescription>
         </DialogHeader>
         {candidateAvailability === null ? (
@@ -984,7 +985,7 @@ function BreedingPageContent() {
       ) : (
         <DataTableCard
           title="Breeding records"
-          description={`Ultrasound is due 32 days after breeding; confirmed pregnancies get an expected ${vocabulary.parturition} date.`}
+          description={`Ultrasound is due ${vocabulary.facts.pregnancyCheckDays} days after breeding; confirmed pregnancies get an expected ${vocabulary.parturition} date.`}
         >
           <Table className="min-w-[900px]">
             <TableHeader>

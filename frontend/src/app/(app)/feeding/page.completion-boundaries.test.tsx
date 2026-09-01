@@ -554,7 +554,7 @@ describe("FeedingPage ration editor branches", () => {
     await waitFor(() => expect(planCalls).toBeGreaterThan(1));
     await waitFor(() => expect(planRow()).toHaveTextContent("2.4"));
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(2.4);
   });
@@ -566,7 +566,7 @@ describe("FeedingPage ration editor branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     let dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -578,7 +578,7 @@ describe("FeedingPage ration editor branches", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(3);
   });
@@ -599,7 +599,7 @@ describe("FeedingPage ration editor branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -615,7 +615,7 @@ describe("FeedingPage ration editor branches", () => {
 
     release?.();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("ration is locked"));
-    const trigger = screen.getByRole("button", { name: "Edit" });
+    const trigger = screen.getAllByRole("button", { name: "Edit" })[0];
     await waitFor(() => expect(trigger).toBeEnabled());
 
     await user.click(trigger);
@@ -639,7 +639,7 @@ describe("FeedingPage ration editor branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -661,7 +661,7 @@ describe("FeedingPage ration editor branches", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     expect(input).not.toHaveAttribute("aria-invalid");

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BarList, Donut, Sparkline } from "@/components/charts";
+import { BarList, Donut, Histogram, LineChart, Sparkline } from "@/components/charts";
 
 describe("Donut", () => {
   it("summarizes every visible slice in its accessible label and legend", () => {
@@ -93,5 +93,113 @@ describe("BarList", () => {
     const bars = container.querySelectorAll("div.h-1\\.5 > div");
     expect(bars).toHaveLength(1);
     expect(bars[0].getAttribute("style")).not.toContain("width: NaN");
+  });
+});
+
+describe("Histogram", () => {
+  const bins = Array.from({ length: 20 }, (_, i) => ({
+    label: `bin-${i}`,
+    value: i,
+    unit: "runs",
+  }));
+
+  it("renders a marker line inside the plot for in-domain percentiles", () => {
+    const { container } = render(
+      <Histogram
+        bins={bins}
+        domain={[0, 19]}
+        markers={[
+          { label: "P5", value: 0.95 },
+          { label: "Median (P50)", value: 9.5, strong: true },
+          { label: "P95", value: 18.05 },
+        ]}
+      />,
+    );
+    const lines = container.querySelectorAll("line[stroke-dasharray], line:not([stroke-dasharray])");
+    // Three marker lines exist, none left the viewBox.
+    const markers = Array.from(container.querySelectorAll("svg > line"));
+    expect(markers).toHaveLength(3);
+    for (const marker of markers) {
+      expect(Number(marker.getAttribute("x1"))).toBeGreaterThanOrEqual(6);
+      expect(Number(marker.getAttribute("x1"))).toBeLessThanOrEqual(554);
+    }
+    void lines;
+  });
+
+  it("clamps out-of-domain markers into the plot instead of losing them", () => {
+    const { container } = render(
+      <Histogram bins={bins} domain={[0, 19]} markers={[{ label: "Over", value: 40 }]} />,
+    );
+    const markers = container.querySelectorAll("svg > line");
+    expect(markers).toHaveLength(1);
+    expect(Number(markers[0].getAttribute("x1"))).toBeLessThanOrEqual(554);
+  });
+
+  it("uses the marker's formatted display value in its tooltip", () => {
+    const { container } = render(
+      <Histogram
+        bins={bins}
+        domain={[0, 19]}
+        markers={[{ label: "P50", value: 9.5, display: "₹9.5L", strong: true }]}
+      />,
+    );
+    expect(container.querySelector("svg > line title")?.textContent).toBe("P50: ₹9.5L");
+  });
+
+  it("ignores non-finite bin values instead of collapsing the chart", () => {
+    const { container } = render(
+      <Histogram bins={[{ label: "bad", value: Number.NaN }, ...bins]} domain={[0, 19]} />,
+    );
+    expect(container.querySelectorAll("rect")).toHaveLength(20);
+  });
+});
+
+describe("LineChart", () => {
+  const points = [
+    { x: 0, y: 1, xLabel: "Aug 3" },
+    { x: 1, y: 2, xLabel: "Aug 4" },
+    { x: 2, y: 0.5, xLabel: "Aug 5" },
+  ];
+
+  it("renders one tick label per sparse tick point in series order", () => {
+    const { container } = render(<LineChart points={points} yLabel="litres" />);
+    const ticks = Array.from(container.querySelectorAll(".mt-1 span")).map(
+      (node) => node.textContent,
+    );
+    expect(ticks).toEqual(["Aug 3", "Aug 4", "Aug 5"]);
+  });
+
+  it("collapses duplicate ticks on a two-point series", () => {
+    const { container } = render(
+      <LineChart
+        points={[
+          { x: 0, y: 1, xLabel: "Aug 3" },
+          { x: 1, y: 3, xLabel: "Aug 4" },
+        ]}
+      />,
+    );
+    const ticks = Array.from(container.querySelectorAll(".mt-1 span")).map(
+      (node) => node.textContent,
+    );
+    expect(ticks).toEqual(["Aug 3", "Aug 4"]);
+  });
+
+  it("shows the y-axis unit visually and attaches per-point tooltips", () => {
+    const { container } = render(<LineChart points={points} yLabel="litres" />);
+    expect(container.querySelector("p")?.textContent).toBe("litres");
+    const titles = Array.from(container.querySelectorAll("circle title")).map(
+      (node) => node.textContent,
+    );
+    expect(titles).toEqual(["Aug 3: 1 litres", "Aug 4: 2 litres", "Aug 5: 0.5 litres"]);
+  });
+
+  it("renders its stated height on the svg", () => {
+    const { container } = render(<LineChart points={points} height={120} />);
+    expect(container.querySelector("svg")?.getAttribute("style")).toContain("height: 120px");
+  });
+
+  it("falls back to the empty state with fewer than two finite points", () => {
+    render(<LineChart points={[{ x: 0, y: 1 }, { x: 1, y: Number.NaN }]} />);
+    expect(screen.getByText("Not enough data to plot yet.")).toBeInTheDocument();
   });
 });

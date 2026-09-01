@@ -7,8 +7,25 @@ import { cn } from "@/lib/utils";
  * Loading placeholders that mirror real page structure, so navigation
  * feels continuous instead of collapsing to a bare "Loading…" line.
  * The page header, actions and layout stay visible wherever possible —
- * these fill only the data region.
+ * these fill only the data region. Containers carry aria-busy (and the
+ * bars themselves are decorative); pages that want an explicit spoken
+ * announcement wrap the region in their own role="status" live region.
  */
+
+/** Wrapper that marks a skeleton region busy for assistive technology. */
+function LoadingRegion({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div aria-busy="true" className={className}>
+      {children}
+    </div>
+  );
+}
 
 export function CardSkeleton({
   lines = 3,
@@ -18,7 +35,7 @@ export function CardSkeleton({
   className?: string;
 }) {
   return (
-    <div
+    <LoadingRegion
       className={cn(
         "space-y-3 rounded-xl bg-card p-5 shadow-xs ring-1 ring-foreground/[0.07]",
         className,
@@ -28,13 +45,13 @@ export function CardSkeleton({
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton key={i} className="h-3.5" style={{ width: `${88 - i * 14}%` }} />
       ))}
-    </div>
+    </LoadingRegion>
   );
 }
 
 export function StatSkeleton({ className }: { className?: string }) {
   return (
-    <div
+    <LoadingRegion
       className={cn(
         "flex items-start gap-3.5 rounded-xl bg-card p-5 shadow-xs ring-1 ring-foreground/[0.07]",
         className,
@@ -45,7 +62,7 @@ export function StatSkeleton({ className }: { className?: string }) {
         <Skeleton className="h-3.5 w-2/3" />
         <Skeleton className="h-7 w-1/3" />
       </div>
-    </div>
+    </LoadingRegion>
   );
 }
 
@@ -59,7 +76,7 @@ export function TableSkeleton({
   className?: string;
 }) {
   return (
-    <div
+    <LoadingRegion
       className={cn(
         "space-y-3 rounded-xl bg-card p-5 shadow-xs ring-1 ring-foreground/[0.07]",
         className,
@@ -77,7 +94,7 @@ export function TableSkeleton({
           ))}
         </div>
       ))}
-    </div>
+    </LoadingRegion>
   );
 }
 

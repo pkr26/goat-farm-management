@@ -197,7 +197,7 @@ function VaccinationSchedulePageContent() {
             )}
           </EmptyState>
         ) : (
-          <Table>
+          <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Vaccine</TableHead>

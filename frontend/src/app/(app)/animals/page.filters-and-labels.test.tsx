@@ -240,8 +240,8 @@ describe("AnimalsPage filter sentinel and labels", () => {
     await startHistoricalImport(user, dialog, "Birth type placeholder fixture");
 
     expect(within(dialog).getByLabelText("Birth type")).toHaveTextContent("—");
-    await pickOption(user, within(dialog).getByLabelText("Birth type"), "TWIN");
-    expect(within(dialog).getByLabelText("Birth type")).toHaveTextContent("TWIN");
+    await pickOption(user, within(dialog).getByLabelText("Birth type"), "Twin");
+    expect(within(dialog).getByLabelText("Birth type")).toHaveTextContent("Twin");
   });
 });
 

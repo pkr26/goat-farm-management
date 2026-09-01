@@ -76,7 +76,7 @@ describe("FeedingPage kg/head confirmation", () => {
     renderWithProviders(<FeedingPage />);
     await screen.findByText("Lactating 60/40");
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);

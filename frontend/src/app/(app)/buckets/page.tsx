@@ -23,6 +23,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { enumLabel } from "@/lib/enum-labels";
+import { useFarmType } from "@/hooks/use-farm-type";
 import { safeAppPath } from "@/lib/utils";
 import { usePermissions } from "@/lib/use-permissions";
 import { PermissionsError } from "@/components/permissions-error";
@@ -34,6 +36,7 @@ import { PermissionsError } from "@/components/permissions-error";
 const rationFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 3 });
 
 function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnimals: boolean }) {
+  const farmType = useFarmType();
   const truncated = row.animals.length < row.animals_total;
 
   return (
@@ -44,7 +47,7 @@ function BucketCard({ row, canViewAnimals }: { row: BucketBoardRow; canViewAnima
           <Badge variant="secondary">{row.animals_total} head</Badge>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          {row.bucket} · {rationFormat.format(row.daily_kg_per_head)} kg/head/day · {row.who}
+          {enumLabel("bucket", row.bucket, farmType)} · {rationFormat.format(row.daily_kg_per_head)} kg/head/day · {row.who}
         </p>
         {row.exit_rule && (
           <p className="text-xs text-muted-foreground">Exit: {row.exit_rule}</p>

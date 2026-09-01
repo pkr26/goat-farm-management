@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Wheat } from "lucide-react";
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -68,17 +68,20 @@ import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { useUrlState } from "@/lib/use-url-state";
+import { MAX_PAGE_OFFSET, useUrlState, type UrlStateUpdate } from "@/lib/use-url-state";
 import { PermissionsError } from "@/components/permissions-error";
 
 /** Explicit virtual recipe used by quarantine animals on days 1–3. */
 const DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY";
 
-/** Mirrors backend/app/schemas/common.py MAX_PAGE_OFFSET for the history
- * pagination — a larger offset is a 422, so clamp the URL value into range. */
-const MAX_HISTORY_OFFSET = 1_000_000;
-
 type ShiftCell = { shift: string; kg: number; time: string };
+
+/** A URL date param is only honoured when it is a well-formed ISO date —
+ * garbage in a hand-edited or truncated link must not reach the API as a
+ * 422; it falls back to "no filter" instead. */
+function urlDate(value: string | null): string {
+  return value !== null && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
 
 function allocationShiftKey(bucket: string, recipe: string, shift: string): string {
   return `${bucket}\u0000${recipe}\u0000${shift}`;
@@ -301,30 +304,61 @@ function FeedingPageContent() {
     Object.values(DispenseInShift).map((s) => [s, enumLabel("shift", s)]),
   );
 
-  // F-7: the dispensing-history window lives in the URL, so refresh, back/
-  // forward and shared links reopen the same slice of the ledger. State stays
-  // the source of truth; edits write through with defaults stripped so a bare
-  // /feeding URL stays bare.
-  const { get: getUrl, getNumber: getUrlNumber, set: setUrlState } = useUrlState();
+  // F-7: the dispensing-history window lives in the URL, so refresh and
+  // shared links reopen the same slice of the ledger. State stays the source
+  // of truth; edits write through with defaults stripped so a bare /feeding
+  // URL stays bare. The URL is only ever replaced (never pushed), and any
+  // params change this page did not itself write — a sidebar link back to
+  // bare /feeding, or the browser restoring an entry — re-seeds the local
+  // mirrors from the URL.
+  const { get: getUrl, getNumber: getUrlNumber, set: setUrlState, searchParams } =
+    useUrlState();
   const [dispenseOpen, setDispenseOpen] = useState(false);
   const [historyOffset, setHistoryOffset] = useState(() =>
-    getUrlNumber("offset", 0, 0, MAX_HISTORY_OFFSET),
+    getUrlNumber("offset", 0, 0, MAX_PAGE_OFFSET),
   );
-  const [dateFrom, setDateFrom] = useState(() => getUrl("date_from") ?? "");
-  const [dateTo, setDateTo] = useState(() => getUrl("date_to") ?? "");
+  const [dateFrom, setDateFrom] = useState(() => urlDate(getUrl("date_from")));
+  const [dateTo, setDateTo] = useState(() => urlDate(getUrl("date_to")));
+  const paramsKey = searchParams.toString();
+  const lastWrittenParamsRef = useRef(paramsKey);
+  // Latest-ref the URL readers: adoption must key on the params string
+  // itself changing, not on the reader identities (which churn every render
+  // when a navigation mock hands out fresh params objects).
+  const getUrlRef = useRef(getUrl);
+  const getUrlNumberRef = useRef(getUrlNumber);
+  useEffect(() => {
+    getUrlRef.current = getUrl;
+    getUrlNumberRef.current = getUrlNumber;
+  });
+  useEffect(() => {
+    if (lastWrittenParamsRef.current === paramsKey) return;
+    lastWrittenParamsRef.current = paramsKey;
+    setHistoryOffset(getUrlNumberRef.current("offset", 0, 0, MAX_PAGE_OFFSET));
+    setDateFrom(urlDate(getUrlRef.current("date_from")));
+    setDateTo(urlDate(getUrlRef.current("date_to")));
+  }, [paramsKey]);
+  /** Write-through that remembers which params string this page authored,
+   * so the adopt-effect above only fires for external URL changes. */
+  const writeUrlState = useCallback(
+    (updates: UrlStateUpdate) => {
+      const qs = setUrlState(updates);
+      if (qs !== null) lastWrittenParamsRef.current = qs;
+    },
+    [setUrlState],
+  );
   const historyLimit = 50;
   const invalidHistoryRange = Boolean(dateFrom && dateTo && dateFrom > dateTo);
 
   function changeDateFrom(value: string) {
     setDateFrom(value);
     setHistoryOffset(0);
-    setUrlState({ date_from: value || null, offset: null });
+    writeUrlState({ date_from: value || null, offset: null });
   }
 
   function changeDateTo(value: string) {
     setDateTo(value);
     setHistoryOffset(0);
-    setUrlState({ date_to: value || null, offset: null });
+    writeUrlState({ date_to: value || null, offset: null });
   }
 
   /** One-shot reset shared by the toolbar control and the empty-state CTA. */
@@ -332,13 +366,16 @@ function FeedingPageContent() {
     setDateFrom("");
     setDateTo("");
     setHistoryOffset(0);
-    setUrlState({ date_from: null, date_to: null, offset: null });
+    writeUrlState({ date_from: null, date_to: null, offset: null });
   }
 
-  function changeHistoryOffset(next: number) {
-    setHistoryOffset(next);
-    setUrlState({ offset: next || null });
-  }
+  const changeHistoryOffset = useCallback(
+    (next: number) => {
+      setHistoryOffset(next);
+      writeUrlState({ offset: next || null });
+    },
+    [writeUrlState],
+  );
 
   const query = useFeedingTodayApiFeedingPlanGet({ query: { enabled: allowed } });
   const payload = query.data?.status === 200 ? query.data.data : undefined;
@@ -359,6 +396,21 @@ function FeedingPageContent() {
   );
   const history =
     historyQuery.data?.status === 200 ? historyQuery.data.data : undefined;
+
+  // A stale or hand-edited offset beyond the last page (the ledger shrank,
+  // or a shared link was trimmed) must not dead-end on a false "no records"
+  // state — re-home it to the real last page, exactly as the scenario pager
+  // does after deletions.
+  useEffect(() => {
+    if (!history || historyOffset === 0) return;
+    if (historyOffset < history.total) return;
+    const lastOffset =
+      history.total === 0
+        ? 0
+        : Math.floor((history.total - 1) / historyLimit) * historyLimit;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    changeHistoryOffset(lastOffset);
+  }, [history, historyOffset, changeHistoryOffset]);
 
   const recipesQuery = useListRecipesApiFeedingRecipesGet({ query: { enabled: canManage } });
   const recipes = recipesQuery.data?.status === 200 ? recipesQuery.data.data.recipes : [];
@@ -651,6 +703,14 @@ function FeedingPageContent() {
                       Recorded {formatPersistedKg(dispensed)} / {formatPersistedKg(line.daily_kg)} kg
                       {lineComplete ? " · Done" : ""}
                     </p>
+                    {/* kg/head is the phone-side management action too — a
+                     * feeding.manage user must not need a desktop to adjust
+                     * rations. */}
+                    {canManage && (
+                      <div className="mt-2">
+                        <KgPerHeadDialog line={line} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -726,8 +786,12 @@ function FeedingPageContent() {
           </div>
         )}
         <p className="mt-3 text-sm text-muted-foreground">
-          Shifts: MORNING 6:30 AM (sweep bunks first) · AFTERNOON 1:30 PM · NIGHT 7:30 PM. RESTING
-          switches MAINTENANCE → FLUSH at day 10; MALE_KIDS frame-builder → fattening at day 91.
+          Shifts: {enumLabel("shift", "MORNING")} 6:30 AM (sweep bunks first) ·{" "}
+          {enumLabel("shift", "AFTERNOON")} 1:30 PM · {enumLabel("shift", "NIGHT")} 7:30 PM.{" "}
+          {enumLabel("bucket", "RESTING", farmType)} switches{" "}
+          {enumLabel("bucket", "MAINTENANCE", farmType)} →{" "}
+          {enumLabel("bucket", "FLUSH", farmType)} at day 10;{" "}
+          {enumLabel("bucket", "MALE_KIDS", farmType)} frame-builder → fattening at day 91.
         </p>
       </DataTableCard>
 
@@ -842,7 +906,7 @@ function FeedingPageContent() {
         )}
         {!invalidHistoryRange && history && history.records.length > 0 && (
           <>
-            <Table>
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
@@ -1018,9 +1082,15 @@ export default function FeedingPage() {
   return (
     <Suspense
       fallback={
-        <div role="status" aria-live="polite">
-          <span className="sr-only">Loading…</span>
-          <PageSkeleton cards={2} />
+        <div className="space-y-6">
+          <PageHeader
+            title="Feeding"
+            description="Today's three-shift feed plan, dispensing log and ration settings."
+          />
+          <div role="status" aria-live="polite">
+            <span className="sr-only">Loading feeding plan…</span>
+            <PageSkeleton cards={2} />
+          </div>
         </div>
       }
     >

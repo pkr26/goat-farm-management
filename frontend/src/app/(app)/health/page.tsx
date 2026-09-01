@@ -91,7 +91,7 @@ import {
 import { permittedAppPath, withReturnTo } from "@/lib/permission-navigation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
-import { useUrlState } from "@/lib/use-url-state";
+import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 
 import { taskPrefill } from "./task-prefill";
 import { PermissionsError } from "@/components/permissions-error";
@@ -422,13 +422,24 @@ function HealthPageContent() {
   const hasDeepLink = ["task_id", "animal_id", "purchase_batch_id"].some((key) =>
     searchParams.has(key),
   );
-  // The event-log page lives in the URL (back/forward and refresh keep the
+  // The event-log page lives in the URL (refresh and shared links keep the
   // page you were on); `offset` is dropped when it returns to the first page.
   const { getNumber, set: setUrlState } = useUrlState();
-  const eventOffset = getNumber("offset", 0, 0, 1_000_000);
-  const setEventOffset = (next: number) =>
+  // router.replace commits asynchronously, so a second page-turn click
+  // before it lands would recompute "next" from the stale URL offset. The
+  // pending value bridges that window; any other params change —
+  // back/forward, a deep link — clears it so the URL wins again.
+  const [pendingEventOffset, setPendingEventOffset] = useState<number | null>(null);
+  const eventOffset = pendingEventOffset ?? getNumber("offset", 0, 0, MAX_PAGE_OFFSET);
+  const setEventOffset = (next: number) => {
+    setPendingEventOffset(next);
     setUrlState({ offset: next > 0 ? next : null });
+  };
   const eventLimit = 50;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingEventOffset(null);
+  }, [searchParamsKey]);
 
   const eventsQuery = useListEventsApiHealthEventsGet(
     { limit: eventLimit, offset: eventOffset },
@@ -442,6 +453,24 @@ function HealthPageContent() {
     },
   );
   const eventsSettling = eventsQuery.isPlaceholderData;
+  // A stale or hand-edited offset beyond the last page must not strand the
+  // operator on a false "no events" screen — re-home it to the real last
+  // page, exactly as the feeding ledger and the scenario pager do.
+  useEffect(() => {
+    const payload = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
+    if (!payload || eventOffset === 0) return;
+    if (eventOffset < payload.total) return;
+    const lastOffset =
+      payload.total === 0
+        ? 0
+        : Math.floor((payload.total - 1) / eventLimit) * eventLimit;
+    if (lastOffset !== eventOffset) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setEventOffset(lastOffset);
+    }
+    // setEventOffset is a stable closure over the two setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventsQuery.data, eventOffset]);
   const eventPayload = eventsQuery.data?.status === 200 ? eventsQuery.data.data : undefined;
 
   const [open, setOpen] = useState(false);
@@ -1114,6 +1143,26 @@ function HealthPageContent() {
                   </p>
                   {e.product_name && (
                     <p className="mt-0.5 text-xs text-muted-foreground">{e.product_name}</p>
+                  )}
+                  {/* Food-safety fields must not be desktop-only: a withdrawal
+                   * hold and the lot/expiry trail are what a phone user in the
+                   * parlour most needs to see. */}
+                  {e.withdrawal_until && (
+                    <Badge variant="destructive" className="mt-1">
+                      Milk hold until {formatDate(e.withdrawal_until)}
+                    </Badge>
+                  )}
+                  {(e.product_lot || e.product_expires_on) && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {e.product_lot && <>Lot {e.product_lot}</>}
+                      {e.product_lot && e.product_expires_on && " · "}
+                      {e.product_expires_on && <>Expires {formatDate(e.product_expires_on)}</>}
+                    </p>
+                  )}
+                  {e.certificate_number && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Certificate {e.certificate_number}
+                    </p>
                   )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     {e.next_due_date ? (

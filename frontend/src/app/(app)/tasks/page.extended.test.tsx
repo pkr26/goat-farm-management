@@ -290,7 +290,7 @@ describe("TasksPage (extended)", () => {
     payload.today_total = 0;
     renderWithProviders(<TasksPage />);
     await screen.findByRole("tab", { name: "Today (0)" });
-    expect(screen.getByText("No today tasks.")).toBeInTheDocument();
+    expect(screen.getByText("No tasks for today.")).toBeInTheDocument();
   });
 
   it("marks a pending overdue task with the days-late badge and recur badge", async () => {

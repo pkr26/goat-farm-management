@@ -61,6 +61,9 @@ describe("shared display components", () => {
     );
 
     expect(screen.getByText("No goats")).toBeInTheDocument();
+    // The title was demoted from h3 to a styled p (page contexts already
+    // carry their own h1) — it must stay a non-heading.
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
     expect(screen.getByText("0")).toHaveClass("text-muted-foreground");
     expect(screen.getByRole("button", { name: "Add one" })).toBeInTheDocument();
     expect(container.firstElementChild).toHaveClass("custom-empty");

@@ -198,8 +198,8 @@ describe("usePermissions — loading and error states", () => {
 
     renderWithProviders(<Probe />);
 
-    // loading=false is visible from the first (disabled-query) render, so
-    // wait on the error flag itself.
+    // With farmId set, loading tracks the query itself, so waiting on the
+    // error flag is enough (loading has already settled false by then).
     await waitFor(() =>
       expect(screen.getByTestId("is-error")).toHaveTextContent("true"),
     );

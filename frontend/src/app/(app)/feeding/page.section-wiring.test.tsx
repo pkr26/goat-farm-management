@@ -221,7 +221,7 @@ describe("FeedingPage bucket summary", () => {
     const user = userEvent.setup();
     const { queryClient } = await renderLoaded();
 
-    await user.click(within(planRow()).getByRole("button", { name: "Edit" }));
+    await user.click(within(planRow()).getAllByRole("button", { name: "Edit" })[0]);
     expect(await screen.findByRole("dialog")).toHaveTextContent("Daily ration — Breeding");
 
     // A background refetch can legitimately return the same lines in another
@@ -265,7 +265,7 @@ describe("FeedingPage kg/head editor", () => {
     await waitFor(() => expect(planCalls).toBeGreaterThan(1));
     await waitFor(() => expect(planRow()).toHaveTextContent("2.2"));
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(2.2);
   });
@@ -290,7 +290,7 @@ describe("FeedingPage kg/head editor", () => {
     await renderLoaded();
     await waitFor(() => expect(planCalls).toBe(1));
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     let dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -301,7 +301,7 @@ describe("FeedingPage kg/head editor", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(planCalls).toBeGreaterThan(1));
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText(/kg per head per day/)).toHaveValue(1.235);
   });
@@ -315,7 +315,7 @@ describe("FeedingPage kg/head editor", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -336,7 +336,7 @@ describe("FeedingPage kg/head editor", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -352,7 +352,7 @@ describe("FeedingPage kg/head editor", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);
@@ -382,7 +382,7 @@ describe("FeedingPage kg/head editor", () => {
     const user = userEvent.setup();
     await renderLoaded();
 
-    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
     const dialog = await screen.findByRole("dialog");
     const input = within(dialog).getByLabelText(/kg per head per day/);
     await user.clear(input);

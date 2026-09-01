@@ -88,6 +88,11 @@ const MAX_PAGE_OFFSET = 1_000_000;
 const MAX_PAGE = Math.floor(MAX_PAGE_OFFSET / PAGE_SIZE) + 1;
 const BUCKETS = Object.values(AnimalCreateInCurrentBucket);
 const BIRTH_TYPES = Object.values(AnimalCreateInBirthType);
+/** value → label map for the root `items` prop: without it, Base UI's
+ * Select.Value renders the raw value in the closed trigger. */
+const BIRTH_TYPE_ITEMS: Record<string, string> = Object.fromEntries(
+  BIRTH_TYPES.map((t) => [t, enumLabel("birthType", t)]),
+);
 const WORKFLOW_ONLY_INITIAL_BUCKETS = new Set<string>([
   AnimalCreateInCurrentBucket.PREGNANCY_EARLY,
   AnimalCreateInCurrentBucket.PREGNANCY_LATE,
@@ -632,14 +637,18 @@ function CreateAnimalDialog({
                     control={control}
                     name="birth_type"
                     render={({ field }) => (
-                      <Select value={field.value ?? ""} onValueChange={field.onChange}>
+                      <Select
+                        value={field.value ?? ""}
+                        onValueChange={field.onChange}
+                        items={BIRTH_TYPE_ITEMS}
+                      >
                         <SelectTrigger id="animal-birth-type" className="w-full">
                           <SelectValue placeholder="—" />
                         </SelectTrigger>
                         <SelectContent>
                           {BIRTH_TYPES.map((t) => (
                             <SelectItem key={t} value={t}>
-                              {t}
+                              {enumLabel("birthType", t)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -1297,9 +1306,7 @@ function AnimalsPageContent() {
       ) : (
         <DataTableCard
           title="Herd"
-          description={`${payload.total} animal(s)`}
-          contentClassName={query.isFetching ? "opacity-60 transition-opacity" : undefined}
-          ariaBusy={query.isFetching}
+          description={`${payload.total} animal(s)${sort ? " · sorted within the current page" : ""}`}
         >
           {/* Below md the 8-column table becomes a card per animal — panning
            * a 760px table inside a 390px phone is not a list, it's a scroll
@@ -1313,7 +1320,7 @@ function AnimalsPageContent() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium">{a.tag_number}</span>
-                  <StatusBadge status={a.status}>{a.status}</StatusBadge>
+                  <StatusBadge status={a.status} />
                 </div>
                 {a.name && <p className="text-sm text-muted-foreground">{a.name}</p>}
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -1374,7 +1381,7 @@ function AnimalsPageContent() {
                     <TableCell>{a.breed}</TableCell>
                     <TableCell>{enumLabel("bucket", a.current_bucket, farmType)}</TableCell>
                     <TableCell>
-                      <StatusBadge status={a.status}>{a.status}</StatusBadge>
+                      <StatusBadge status={a.status} />
                     </TableCell>
                     <TableCell className="text-right">{a.age_months ?? "—"}</TableCell>
                     <TableCell className="text-right">

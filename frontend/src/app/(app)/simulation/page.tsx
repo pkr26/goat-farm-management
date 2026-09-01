@@ -84,7 +84,7 @@ import { PageSkeleton, TableSkeleton, InlineLoading } from "@/components/skeleto
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { Histogram } from "@/components/charts";
 import { useFarmType } from "@/hooks/use-farm-type";
-import { useUrlState } from "@/lib/use-url-state";
+import { MAX_PAGE_OFFSET, useUrlState } from "@/lib/use-url-state";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1164,15 +1164,35 @@ export default function SimulationPage() {
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [compareIds, setCompareIds] = useState<string | null>(null);
-  // Scenario paging survives refresh and the browser Back button.
-  const { getNumber: scenarioOffsetParam, set: setScenarioParams } = useUrlState();
+  // Scenario paging survives refresh and shared links (it replaces rather
+  // than pushes, so Back returns to the page, not to a previous page number).
+  const { getNumber: scenarioOffsetParam, set: setScenarioParams, searchParams } =
+    useUrlState();
   const [scenarioOffset, setScenarioOffsetState] = useState(() =>
-    scenarioOffsetParam("scenarios", 0, 0, 1_000_000),
+    scenarioOffsetParam("scenarios", 0, 0, MAX_PAGE_OFFSET),
   );
+  // Params this page did not itself write (back/forward, an edited link)
+  // re-seed the local offset, mirroring the feeding ledger and purchases.
+  const scenarioParamsKey = searchParams.toString();
+  const lastWrittenScenarioParamsRef = useRef(scenarioParamsKey);
+  // Latest-ref the reader: adoption keys on the params string changing,
+  // not on reader identity churn from per-render params objects.
+  const scenarioOffsetParamRef = useRef(scenarioOffsetParam);
+  useEffect(() => {
+    scenarioOffsetParamRef.current = scenarioOffsetParam;
+  });
+  useEffect(() => {
+    if (lastWrittenScenarioParamsRef.current === scenarioParamsKey) return;
+    lastWrittenScenarioParamsRef.current = scenarioParamsKey;
+    setScenarioOffsetState(
+      scenarioOffsetParamRef.current("scenarios", 0, 0, MAX_PAGE_OFFSET),
+    );
+  }, [scenarioParamsKey]);
   const setScenarioOffset = useCallback(
     (offset: number) => {
       setScenarioOffsetState(offset);
-      setScenarioParams({ scenarios: offset > 0 ? offset : null });
+      const qs = setScenarioParams({ scenarios: offset > 0 ? offset : null });
+      if (qs !== null) lastWrittenScenarioParamsRef.current = qs;
     },
     [setScenarioParams],
   );
@@ -1372,12 +1392,14 @@ export default function SimulationPage() {
 
   /** Horizon from the meta section; gates event-month validation. */
   const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
+  // A lactation milk figure makes the scenario a dairy *economics* run (it
+  // gates the milk-planner tab and the dairy sale-planner copy) — but the
+  // nouns stay the farm's own species: a goat dairy exploring milk economics
+  // must not suddenly see "Milking buffalo" options.
   const isDairyScenario =
     (assumptions?.sales?.lactation_milk_litres ?? 0) > 0 &&
     (assumptions?.reproduction?.lactation_months ?? 0) > 0;
-  // Simulation copy follows the SCENARIO's species, not the farm's — the
-  // planner lets a goat farm explore dairy economics and vice versa.
-  const simVocabulary = farmVocabulary(isDairyScenario ? "BUFFALO_DAIRY" : "GOAT");
+  const simVocabulary = farmVocabulary(useFarmType());
   const eventErrors = validateEvents(events, horizonMonths);
   const assumptionErrors: string[] = [];
   if (assumptions) {
@@ -1446,7 +1468,7 @@ export default function SimulationPage() {
       optimizationAssumptions.doe_scale_low > optimizationAssumptions.doe_scale_high
     )
       assumptionErrors.push(
-        `Herd scale low must be less than or equal to herd scale high (measured in ${simVocabulary.femaleAdult}s).`,
+        `Herd scale low must be less than or equal to herd scale high (measured in ${simVocabulary.femaleAdultPlural}).`,
       );
 
     const growth = assumptions.growth;
@@ -2779,7 +2801,9 @@ export default function SimulationPage() {
           </Card>
         )}
 
-        {r.optimization && <OptimizationResults result={r.optimization} />}
+        {r.optimization && (
+          <OptimizationResults result={r.optimization} vocabulary={simVocabulary} />
+        )}
 
         {sortedSensitivity && sortedSensitivity.length > 0 && (
           <DataTableCard
@@ -2948,39 +2972,9 @@ export default function SimulationPage() {
         aria-label="Simulation sections"
         className="sticky top-14 z-20 -mx-4 flex items-center gap-2 border-b bg-background/90 px-4 py-2 backdrop-blur-md md:-mx-6 md:px-6"
       >
-        {/* Run stays reachable from anywhere on this long page, with the
-            last run's headline numbers beside it. */}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
-          {result && (
-            <>
-              {/* Value-only chips: the metric names live in title/aria
-                  labels so they never collide with the results section's
-                  metric labels in text queries or screen readers. */}
-              <span
-                aria-label={`Net present value (last run): ${formatMoney(result.data.metrics.npv)}`}
-                title="Net present value (last run)"
-                className="hidden items-center rounded-md bg-muted px-2 py-1 text-xs sm:inline-flex"
-              >
-                <span className="table-numeric font-medium">{formatMoney(result.data.metrics.npv)}</span>
-              </span>
-              <span
-                aria-label={`Internal rate of return (last run): ${formatPercent(result.data.metrics.irr)}`}
-                title="Internal rate of return (last run)"
-                className="hidden items-center rounded-md bg-muted px-2 py-1 text-xs md:inline-flex"
-              >
-                <span className="table-numeric font-medium">{formatPercent(result.data.metrics.irr)}</span>
-              </span>
-            </>
-          )}
-          <Button
-            size="sm"
-            onClick={() => void onRun()}
-            disabled={!assumptions || hasEditorErrors || simulationAction.pending}
-          >
-            <Play aria-hidden="true" />
-            {runMutation.isPending ? "Running…" : "Run"}
-          </Button>
-        </div>
+        {/* Links first, run cluster last: the cluster's ml-auto pushes it to
+            the right edge, which only reads correctly when it follows the
+            links in DOM order. */}
         <ul className="flex min-w-0 gap-1 overflow-x-auto text-sm">
           {([
             ["sim-setup", "Setup"],
@@ -3014,6 +3008,40 @@ export default function SimulationPage() {
             </li>
           ))}
         </ul>
+        {/* Run stays reachable from anywhere on this long page, with the
+            last run's headline numbers beside it. Chips dim and retitle when
+            the editor has moved on since that run. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {result && (
+            <>
+              {/* Value-only chips: the metric names live in title/aria
+                  labels so they never collide with the results section's
+                  metric labels in text queries or screen readers. */}
+              <span
+                aria-label={`Net present value (last run): ${formatMoney(result.data.metrics.npv)}${resultIsStale ? " — inputs changed since this run" : ""}`}
+                title={`Net present value (last run)${resultIsStale ? " — inputs changed since this run" : ""}`}
+                className={`hidden items-center rounded-md bg-muted px-2 py-1 text-xs sm:inline-flex${resultIsStale ? " opacity-60" : ""}`}
+              >
+                <span className="table-numeric font-medium">{formatMoney(result.data.metrics.npv)}</span>
+              </span>
+              <span
+                aria-label={`Internal rate of return (last run): ${formatPercent(result.data.metrics.irr)}${resultIsStale ? " — inputs changed since this run" : ""}`}
+                title={`Internal rate of return (last run)${resultIsStale ? " — inputs changed since this run" : ""}`}
+                className={`hidden items-center rounded-md bg-muted px-2 py-1 text-xs md:inline-flex${resultIsStale ? " opacity-60" : ""}`}
+              >
+                <span className="table-numeric font-medium">{formatPercent(result.data.metrics.irr)}</span>
+              </span>
+            </>
+          )}
+          <Button
+            size="sm"
+            onClick={() => void onRun()}
+            disabled={!assumptions || hasEditorErrors || simulationAction.pending}
+          >
+            <Play aria-hidden="true" />
+            {runMutation.isPending ? "Running…" : "Run"}
+          </Button>
+        </div>
       </nav>
 
 
@@ -3771,7 +3799,7 @@ export default function SimulationPage() {
                 {planReport.recommended_purchases
                   .map(
                     (purchase) =>
-                      `${formatPlanCount(purchase.count)} ${simVocabulary.femaleAdult}(s) in month ${purchase.month}`,
+                      `${formatPlanCount(purchase.count)} ${purchase.count === 1 ? simVocabulary.femaleAdult : simVocabulary.femaleAdultPlural} in month ${purchase.month}`,
                   )
                   .join(", ")}{" "}
                 to back the plan.
@@ -4349,10 +4377,17 @@ function MonteCarloHistogram({
       bins={bins}
       domain={[edges[0], edges[edges.length - 1]]}
       markers={[
-        p50 !== undefined ? { label: "Median (P50)", value: p50, strong: true } : null,
-        p5 !== undefined ? { label: "P5", value: p5 } : null,
-        p95 !== undefined ? { label: "P95", value: p95 } : null,
-      ].filter(Boolean) as { label: string; value: number; strong?: boolean }[]}
+        p50 !== undefined
+          ? { label: "Median (P50)", value: p50, display: formatMoney(p50), strong: true }
+          : null,
+        p5 !== undefined ? { label: "P5", value: p5, display: formatMoney(p5) } : null,
+        p95 !== undefined ? { label: "P95", value: p95, display: formatMoney(p95) } : null,
+      ].filter(Boolean) as {
+        label: string;
+        value: number;
+        display?: string;
+        strong?: boolean;
+      }[]}
       ariaLabel={`NPV histogram: ${totalRuns} runs across ${counts.length} bins, most frequent ${formatMoney(edges[peakBin])} – ${formatMoney(edges[peakBin + 1])} with ${max} runs`}
     />
   );
@@ -4437,10 +4472,12 @@ function optimizationCandidateIdentity(candidate: OptimizationCandidate): string
 
 function OptimizationResults({
   result,
+  vocabulary,
 }: {
   result: NonNullable<SimulationResult["optimization"]>;
+  /** The page's species vocabulary — one screen, one set of nouns. */
+  vocabulary: FarmVocabulary;
 }) {
-  const vocabulary = farmVocabulary(useFarmType());
   const baselineIdentity = optimizationCandidateIdentity(result.baseline);
   const recommendedIdentity = result.recommended
     ? optimizationCandidateIdentity(result.recommended)

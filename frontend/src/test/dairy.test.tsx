@@ -45,6 +45,33 @@ describe("farm vocabulary", () => {
     expect(farmVocabulary("SOMETHING_ELSE").parturition).toBe("kidding");
     expect(farmVocabulary(undefined).dairy).toBe(false);
   });
+
+  it("states species facts that mirror the backend profiles exactly", async () => {
+    const { farmVocabulary } = await import("@/lib/farm-vocabulary");
+    const goat = farmVocabulary("GOAT");
+    const buffalo = farmVocabulary("BUFFALO_DAIRY");
+    // backend/app/models/species.py — drift shows operators biology the
+    // server does not enforce (or blocks what it accepts).
+    expect(goat.facts).toEqual({
+      gestationWindowDays: { min: 100, max: 200 },
+      pregnancyCheckDays: 32,
+      weaningDays: 60,
+      youngStayWithDam: true,
+    });
+    expect(buffalo.facts).toEqual({
+      gestationWindowDays: { min: 270, max: 350 },
+      pregnancyCheckDays: 60,
+      weaningDays: 90,
+      youngStayWithDam: false,
+    });
+    // The tag generator issues "G-XXXXX" for every species
+    // (services/animals.generate_unique_tag) — the prefix must never
+    // promise a scheme the backend will not produce.
+    expect(goat.tagPrefix).toBe("G");
+    expect(buffalo.tagPrefix).toBe("G");
+    expect(goat.femaleAdultPlural).toBe("does");
+    expect(buffalo.femaleAdultPlural).toBe("milking buffalo");
+  });
 });
 
 describe("FarmSelectPage — farm type", () => {

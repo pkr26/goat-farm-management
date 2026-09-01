@@ -88,6 +88,14 @@ type TaskOffsets = Record<TaskTab, number>;
 type TaskOffsetKey = `${TaskTab}_offset`;
 
 const VALID_TABS = new Set<string>(TASK_TABS);
+/** Full-phrase empty-state titles ("No today tasks" reads wrong). */
+const TASK_EMPTY_TITLE: Record<TaskTab, string> = {
+  today: "No tasks for today.",
+  overdue: "No overdue tasks.",
+  upcoming: "No upcoming tasks.",
+  awaiting: "No tasks awaiting verification.",
+  completed: "No completed tasks.",
+};
 /** Per-tab guidance for an empty board column: point at the sibling tab that
  * actually carries work instead of dead-ending (no fake CTA — the tabs are
  * one click away). */
@@ -475,7 +483,7 @@ function TaskTable({
     return (
       <EmptyState
         icon={ListChecks}
-        title={`No ${tab} tasks.`}
+        title={validTaskTab(tab) ? TASK_EMPTY_TITLE[tab] : "No tasks yet."}
         description={
           validTaskTab(tab)
             ? TAB_EMPTY_GUIDANCE[tab]

@@ -24,12 +24,12 @@ function HealthNewRedirectContent() {
 
   // A redirect has no page structure to mirror — the shared inline spinner
   // beats a bare "Loading…" paragraph.
-  return <InlineLoading />;
+  return <InlineLoading>Opening the health event form…</InlineLoading>;
 }
 
 export default function HealthNewRedirect() {
   return (
-    <Suspense fallback={<InlineLoading />}>
+    <Suspense fallback={<InlineLoading>Opening the health event form…</InlineLoading>}>
       <HealthNewRedirectContent />
     </Suspense>
   );

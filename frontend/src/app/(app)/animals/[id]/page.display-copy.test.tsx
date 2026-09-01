@@ -317,7 +317,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       useProfileHandler(profileWith({ name: null }));
       await renderProfile();
 
-      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^G-001\s*ACTIVE$/);
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^G-001\s*Active$/);
     });
 
     it("labels and targets the back link for every permitted origin", async () => {
@@ -504,7 +504,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
               {
                 id: 5,
                 restriction_version: 1,
-                action: "PLACED",
+                action: "Placed",
                 acted_at: "2026-07-01T09:00:00Z",
                 acted_by_id: 7,
                 action_reference: "HEALTH-EVENT-41",
@@ -524,7 +524,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
 
       expect(cellTexts(rows[0])).toEqual([
         "1",
-        "PLACED",
+        "Placed",
         "01-07-2026 14:30",
         "HEALTH-EVENT-41",
         "—",
@@ -639,8 +639,8 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
 
       expect(trigger).toHaveTextContent("Choose bucket…");
 
-      await pickOption(user, trigger, "PREGNANCY LATE");
-      await waitFor(() => expect(trigger).toHaveTextContent("PREGNANCY LATE"));
+      await pickOption(user, trigger, "Pregnancy B");
+      await waitFor(() => expect(trigger).toHaveTextContent("Pregnancy B"));
       await user.click(within(dialog).getByRole("button", { name: "Move" }));
 
       await waitFor(() => expect(moveBodies).toHaveLength(1));
@@ -673,7 +673,7 @@ describe("AnimalProfilePage rendering and dialog contracts", () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Move bucket");
-      await pickOption(user, within(dialog).getByRole("combobox"), "RESTING");
+      await pickOption(user, within(dialog).getByRole("combobox"), "Resting");
       const move = within(dialog).getByRole("button", { name: "Move" });
       await user.click(move);
 

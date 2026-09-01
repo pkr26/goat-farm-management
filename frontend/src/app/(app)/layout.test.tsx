@@ -843,3 +843,39 @@ describe("AppLayout — loading and no-farm states", () => {
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 });
+
+describe("AppLayout — skip to content", () => {
+  beforeEach(() => {
+    pushMock.mockClear();
+    replaceMock.mockClear();
+    navState.pathname = "/dashboard";
+    navState.search = "";
+  });
+
+  it("renders the skip link before the sidebar nav in DOM order", async () => {
+    const { container } = renderWithProviders(
+      <AppLayout defaultOpen={true}>
+        <p>page body</p>
+      </AppLayout>,
+    );
+    await screen.findByText("page body");
+
+    const skipLink = screen.getByRole("link", { name: "Skip to content" });
+    expect(skipLink.getAttribute("href")).toBe("#main-content");
+    // The target landmark exists and is focusable for the programmatic focus.
+    const main = document.getElementById("main-content");
+    expect(main).not.toBeNull();
+    expect(main?.getAttribute("tabindex")).toBe("-1");
+
+    // On desktop the sidebar is an in-flow sibling, so the skip link must
+    // precede its first link in DOM order or a keyboard user tabs the whole
+    // nav before ever reaching it.
+    const links = Array.from(container.querySelectorAll("a[href]")).filter(
+      (node) => node.getAttribute("href") !== "#main-content",
+    );
+    expect(links.length).toBeGreaterThan(0);
+    const position = links[0]!.compareDocumentPosition(skipLink);
+    // The skip link must come first: skipLink PRECEDES the next link.
+    expect(position & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+});

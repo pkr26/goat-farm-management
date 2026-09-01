@@ -1,7 +1,8 @@
 import { cn } from "@/lib/utils";
 
-/** Single source of truth for the product name. */
-export const APP_NAME = "Herdly";
+import { APP_NAME } from "@/lib/brand";
+
+export { APP_NAME };
 
 /**
  * Brand mark: a horned livestock head — the wide crescent horns read as the

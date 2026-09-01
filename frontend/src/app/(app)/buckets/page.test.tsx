@@ -147,7 +147,7 @@ describe("BucketsPage", () => {
   it("shows bucket code, daily kg/head and who for each card", async () => {
     await renderBoard();
     expect(
-      within(cardOf("Breeding Bucket")).getByText(/BREEDING · 1\.5 kg\/head\/day · Does ready to conceive/),
+      within(cardOf("Breeding Bucket")).getByText(/Breeding · 1\.5 kg\/head\/day · Does ready to conceive/),
     ).toBeInTheDocument();
   });
 

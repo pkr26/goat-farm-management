@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { APP_NAME } from "@/lib/brand";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -20,8 +21,8 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Herdly — Livestock farm management",
-    template: "%s · Herdly",
+    default: `${APP_NAME} — Livestock farm management`,
+    template: `%s · ${APP_NAME}`,
   },
   description:
     "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",

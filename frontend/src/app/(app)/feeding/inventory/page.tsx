@@ -501,7 +501,7 @@ export default function InventoryPage() {
             description="Ingredients appear here once the first feed purchase is recorded."
           />
         ) : (
-          <Table>
+          <Table className="min-w-[640px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Category</TableHead>

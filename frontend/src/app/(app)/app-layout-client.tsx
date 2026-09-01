@@ -31,6 +31,7 @@ import { Logo } from "@/components/logo";
 import { AccountDialog } from "@/components/account-dialog";
 import { PermissionsError } from "@/components/permissions-error";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { APP_NAME } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -149,8 +150,8 @@ function useDocumentTitle(pathname: string) {
   useEffect(() => {
     const match = ROUTE_TITLES.find(([pattern]) => pattern.test(pathname));
     document.title = match
-      ? `${match[1]} · Herdly`
-      : "Herdly — Livestock farm management";
+      ? `${match[1]} · ${APP_NAME}`
+      : `${APP_NAME} — Livestock farm management`;
   }, [pathname]);
 }
 
@@ -191,13 +192,13 @@ function AppSidebar({
         {landingHref ? (
           <Link
             href={landingHref}
-            aria-label={`Herdly — go to ${landingLabel}`}
+            aria-label={`${APP_NAME} — go to ${landingLabel}`}
             onClick={closeOnMobile}
           >
             <Logo />
           </Link>
         ) : (
-          <div aria-label="Herdly">
+          <div aria-label={APP_NAME}>
             <Logo />
           </div>
         )}
@@ -350,6 +351,16 @@ function AppLayoutContent({
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
+      {/* First focusable element in the shell: on desktop the sidebar is an
+       * in-flow sibling that precedes the content, so the skip link must be
+       * rendered before it — keyboard users otherwise tab the whole sidebar
+       * nav on every page before reaching content. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow"
+      >
+        Skip to content
+      </a>
       <AppSidebar
         groups={visibleGroups}
         pathname={pathname}
@@ -359,14 +370,6 @@ function AppLayoutContent({
         permsRefetch={() => void permsRefetch()}
       />
       <SidebarInset>
-        {/* Keyboard users otherwise tab through the entire sidebar nav on
-         * every page before reaching content. */}
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow"
-        >
-          Skip to content
-        </a>
         <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-md">
           <SidebarTrigger />
           {farm && (

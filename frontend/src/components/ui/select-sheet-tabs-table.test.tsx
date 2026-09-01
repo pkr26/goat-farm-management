@@ -142,7 +142,7 @@ describe("Select", () => {
       </Select>,
     );
 
-    // data-[size=default]:h-8 / data-[size=sm]:h-7 hang off this attribute.
+    // data-[size=default]:h-9 / data-[size=sm]:h-9 hang off this attribute.
     expect(screen.getByRole("combobox")).toHaveAttribute("data-size", "default");
 
     view.rerender(

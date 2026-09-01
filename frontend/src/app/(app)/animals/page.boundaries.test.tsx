@@ -65,7 +65,7 @@ const ANIMAL = {
   dam_id: null,
   sire_id: null,
   birth_weight: 2.4,
-  current_bucket: "RESTING",
+  current_bucket: "Resting",
   status: "ACTIVE",
   status_date: null,
   sale_price: null,
@@ -267,8 +267,8 @@ describe("AnimalsPage branches", () => {
     const birthType = within(dialog).getByLabelText("Birth type");
     expect(birthType).toHaveTextContent("—");
 
-    await pickOption(user, birthType, "TWIN");
-    expect(birthType).toHaveTextContent("TWIN");
+    await pickOption(user, birthType, "Twin");
+    expect(birthType).toHaveTextContent("Twin");
 
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
     await waitFor(() => expect(postCalls).toBe(1));

@@ -160,7 +160,7 @@ describe("AnimalsPage extended", () => {
       expect(cells[2]).toHaveTextContent("Female");
       expect(cells[3]).toHaveTextContent("Osmanabadi");
       expect(cells[4]).toHaveTextContent("Pregnancy A");
-      expect(cells[5]).toHaveTextContent("ACTIVE");
+      expect(cells[5]).toHaveTextContent("Active");
       expect(cells[6]).toHaveTextContent("14");
       expect(cells[7]).toHaveTextContent("32.5 kg");
     });
@@ -182,7 +182,7 @@ describe("AnimalsPage extended", () => {
     it("renders non-ACTIVE statuses with their status text", async () => {
       await renderLoaded([SPARSE_ANIMAL]);
       const row = within(screen.getByRole("table")).getByText("G-002").closest("tr") as HTMLElement;
-      expect(within(row).getByText("Sold", { exact: false })).toBeInTheDocument();
+      expect(within(row).getByText("Sold")).toBeInTheDocument();
     });
 
     it("renders all rows and the total count", async () => {
@@ -513,7 +513,7 @@ describe("AnimalsPage extended", () => {
         within(dialog).getByLabelText("Historical import reason *"),
         "Temporary import provenance",
       );
-      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "TWIN");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "Twin");
       setDate(within(dialog).getByLabelText(/birth weight/i), "2.5");
       await pickOption(user, within(dialog).getAllByRole("combobox")[1], "Purchased");
       expect(within(dialog).queryByLabelText(/birth weight/i)).not.toBeInTheDocument();
@@ -737,7 +737,7 @@ describe("AnimalsPage extended", () => {
       await user.type(within(dialog).getByLabelText("Name"), "Gauri");
       setDate(within(dialog).getByLabelText(/date of birth/i), "2025-12-01");
       setDate(within(dialog).getByLabelText(/estimated dob/i), "2025-12-02");
-      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "TWIN");
+      await pickOption(user, within(dialog).getAllByRole("combobox")[3], "Twin");
       setDate(within(dialog).getByLabelText(/birth weight/i), "2.5");
       await user.type(within(dialog).getByLabelText(/notes/i), "Healthy twin");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
@@ -992,8 +992,10 @@ describe("AnimalsPage extended", () => {
       expect(await screen.findByRole("option", { name: "Male kids" })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "Female kids" })).not.toBeInTheDocument();
       expect(screen.queryByRole("option", { name: "Resting" })).not.toBeInTheDocument();
-      // The now-illegal selection falls back to a bucket the server accepts.
-      expect(within(dialog).getByLabelText("Bucket *")).not.toHaveTextContent("FEMALE KIDS");
+      // The now-illegal selection falls back to a bucket the server accepts
+      // for a male animal — a sexed female pen can never survive the gate.
+      const triggerText = within(dialog).getByLabelText("Bucket *").textContent ?? "";
+      expect(triggerText).not.toMatch(/female (kids|calves)/i);
     });
 
     it("rejects notes longer than the server's 4000-character cap", async () => {

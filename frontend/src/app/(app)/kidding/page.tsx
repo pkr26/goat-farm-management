@@ -103,10 +103,6 @@ const KID_SEX_ITEMS: Record<string, string> = { F: "Female", M: "Male" };
 const MAX_KIDS = 10;
 const KIDDING_HISTORY_LIMIT = 50;
 const DUE_LIST_LIMIT = 25;
-/** Mirrors backend/app/models/constants.py — record_kidding() rejects a
- * gestation outside this window outright. */
-const MIN_GESTATION_DAYS = 100;
-const MAX_GESTATION_DAYS = 200;
 
 const kidSchema = z.object({
   tag: z.string().max(50, "Max 50 characters").optional(),
@@ -162,9 +158,12 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
 type KiddingValues = z.infer<ReturnType<typeof kiddingSchema>>;
 
 /** The kidding date's floor depends on the pregnancy being closed, so it is
- * layered on per record: record_kidding() rejects both a gestation below
- * MIN_GESTATION_DAYS and a delivery predating its own confirmation scan.
- * Catching them here saves the operator from entering every kid row first. */
+ * layered on per record: record_kidding() rejects both a gestation below the
+ * species minimum and a delivery predating its own confirmation scan. The
+ * band is species-specific (goats 100–200 days, buffalo 270–350) and comes
+ * from the farm vocabulary, mirroring backend/app/models/species.py.
+ * Catching violations here saves the operator from entering every kid row
+ * first. */
 function kiddingSchemaFor(earliestDate: string, latestDate: string, vocabulary: FarmVocabulary) {
   const dateLabel = cap(vocabulary.parturition);
   return kiddingSchema(vocabulary).superRefine((values, ctx) => {
@@ -179,7 +178,7 @@ function kiddingSchemaFor(earliestDate: string, latestDate: string, vocabulary: 
       ctx.addIssue({
         code: "custom",
         path: ["date"],
-        message: `${dateLabel} date cannot be after ${formatDate(latestDate)} (gestation over ${MAX_GESTATION_DAYS} days)`,
+        message: `${dateLabel} date cannot be after ${formatDate(latestDate)} (gestation over ${vocabulary.facts.gestationWindowDays.max} days)`,
       });
     }
   });
@@ -205,14 +204,20 @@ function RecordKiddingDialog({
   const youngLabel = cap(vocabulary.young);
   const [formError, setFormError] = useState<string | null>(null);
   const [earliestKiddingDate, latestKiddingDate] = useMemo(() => {
-    const minGestationDate = addDays(breeding.breeding_date, MIN_GESTATION_DAYS);
+    const minGestationDate = addDays(
+      breeding.breeding_date,
+      vocabulary.facts.gestationWindowDays.min,
+    );
     const earliest =
       breeding.ultrasound_result_date && breeding.ultrasound_result_date > minGestationDate
         ? breeding.ultrasound_result_date
         : minGestationDate;
-    const maxGestationDate = addDays(breeding.breeding_date, MAX_GESTATION_DAYS);
+    const maxGestationDate = addDays(
+      breeding.breeding_date,
+      vocabulary.facts.gestationWindowDays.max,
+    );
     return [earliest, maxGestationDate < localToday() ? maxGestationDate : localToday()];
-  }, [breeding.breeding_date, breeding.ultrasound_result_date]);
+  }, [breeding.breeding_date, breeding.ultrasound_result_date, vocabulary]);
   const resolver = useMemo(
     () => zodResolver(kiddingSchemaFor(earliestKiddingDate, latestKiddingDate, vocabulary)),
     [earliestKiddingDate, latestKiddingDate, vocabulary],
@@ -556,8 +561,12 @@ function RecordKiddingDialog({
 
           <p className="text-sm text-muted-foreground">
             Alive {vocabulary.youngPlural} are auto-created as animals (source BORN, dam/sire
-            linked, RECOVERY bucket). A weaning task is auto-created for {vocabulary.parturition}{" "}
-            date + 60 days.
+            linked,{" "}
+            {vocabulary.facts.youngStayWithDam
+              ? "raised alongside the dam in the RECOVERY bucket"
+              : "raised in their sexed young-stock pens"}
+            ). A weaning task is auto-created for {vocabulary.parturition} date +{" "}
+            {vocabulary.facts.weaningDays} days.
           </p>
           <DialogFooter>
             <Button

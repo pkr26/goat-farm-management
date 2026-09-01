@@ -26,6 +26,13 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
   ease: { NORMAL: "Normal", ASSISTED: "Assisted", DIFFICULT: "Difficult" },
   shift: { MORNING: "Morning", AFTERNOON: "Afternoon", NIGHT: "Night" },
   method: { NATURAL: "Natural", AI: "AI", AI_SEXED: "AI (sexed)" },
+  birthType: {
+    SINGLE: "Single",
+    TWIN: "Twin",
+    TRIPLET: "Triplet",
+    QUADRUPLET: "Quadruplet",
+    MULTIPLET: "Multiplet",
+  },
   eventType: {
     VACCINE: "Vaccination",
     DEWORMING: "Deworming",
@@ -104,6 +111,7 @@ export type EnumKind =
   | "shift"
   | "method"
   | "eventType"
+  | "birthType"
   | "txCategory"
   | "txType"
   | "taskCategory"

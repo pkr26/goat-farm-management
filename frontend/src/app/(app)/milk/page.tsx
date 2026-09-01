@@ -54,6 +54,7 @@ import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday, formatDate, formatLitres } from "@/lib/format";
+import { buildDailySeries } from "@/lib/milk-series";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -126,9 +127,17 @@ export default function MilkPage() {
     listing.data?.status === 200 ? listing.data.data.records : undefined;
 
   const todayTotal = summaryData?.daily.find((day: MilkDayTotalOut) => day.date === today);
-  /** Per-day herd litres across the summary window — feeds the sparkline and
-   *  the trend card, both of which need at least two points to be a trend. */
-  const dailySeries: MilkDayTotalOut[] = summaryData?.daily ?? [];
+  /** Ascending, zero-filled daily litres across the summary window — feeds
+   *  the sparkline and the trend card, both of which need at least two
+   *  points to be a trend. The API returns recorded days newest-first. */
+  const dailySeries = buildDailySeries(
+    summaryData?.daily ?? [],
+    SUMMARY_WINDOW_DAYS,
+    today,
+  );
+  // Zero-filled days only make sense next to real ones — a parlour with no
+  // records yet gets neither a flat-zero sparkline nor a flat-zero trend.
+  const hasRecordedDays = dailySeries.some((day) => day.recorded);
   const sparklineLitres = dailySeries.slice(-14).map((day) => day.litres);
 
   async function onSubmit() {
@@ -253,7 +262,7 @@ export default function MilkPage() {
               : "No readings yet today"
           }
           footer={
-            sparklineLitres.length >= 2 ? (
+            hasRecordedDays && sparklineLitres.length >= 2 ? (
               <Sparkline data={sparklineLitres} ariaLabel="Herd litres, last 14 days" />
             ) : undefined
           }
@@ -272,7 +281,7 @@ export default function MilkPage() {
         />
       </div>
 
-      {dailySeries.length >= 2 && (
+      {hasRecordedDays && dailySeries.length >= 2 && (
         <Card>
           <CardHeader>
             <CardTitle>Herd milk trend</CardTitle>
@@ -289,8 +298,7 @@ export default function MilkPage() {
                 y: day.litres,
                 xLabel: shortDay(day.date),
               }))}
-            />
-          </CardContent>
+            />          </CardContent>
         </Card>
       )}
 

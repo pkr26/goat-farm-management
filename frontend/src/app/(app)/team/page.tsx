@@ -603,7 +603,13 @@ function AddWorkerDialog({
               type="button"
               variant="outline"
               disabled={isSubmitting || createFlight.pending}
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                // Cancel must also clear the form: the dialog stays mounted
+                // for owners, and a half-typed password should not survive
+                // into the next open.
+                reset();
+                onOpenChange(false);
+              }}
             >
               Cancel
             </Button>
@@ -1239,7 +1245,8 @@ export default function TeamPage() {
     );
   }
 
-  const assignableRoles = payload.roles.filter(
+  const roles = payload.roles;
+  const assignableRoles = roles.filter(
     (role) => roleWithinCeiling(role, can, isOwner),
   );
   // The dialog state records which role was opened, while the query payload
@@ -1251,7 +1258,7 @@ export default function TeamPage() {
     : null;
   function isProtectedTarget(membership: MembershipOut): boolean {
     if (isOwner) return false;
-    const role = payload!.roles.find((candidate) => candidate.id === membership.role_id);
+    const role = roles.find((candidate) => candidate.id === membership.role_id);
     return role ? !roleWithinCeiling(role, can, isOwner) : false;
   }
 

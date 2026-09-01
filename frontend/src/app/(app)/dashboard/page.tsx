@@ -139,10 +139,12 @@ export default function DashboardPage() {
 
   if (permsLoading) {
     return (
-      <div className="space-y-6" role="status" aria-live="polite">
-        <span className="sr-only">Loading…</span>
+      <div className="space-y-6">
         <PageHeader title="Dashboard" description="Herd overview — tasks, breeding dates and recent weights." />
-        <PageSkeleton stats={5} cards={2} />
+        <div role="status" aria-live="polite">
+          <span className="sr-only">Loading…</span>
+          <PageSkeleton stats={5} cards={2} />
+        </div>
       </div>
     );
   }
