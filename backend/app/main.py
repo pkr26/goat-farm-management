@@ -1,9 +1,9 @@
 """FastAPI app factory. Dev: uvicorn app.main:app --reload (from backend/)."""
 
 import asyncio
-import os
 import logging
 import math
+import os
 import re
 import time
 import uuid
@@ -323,7 +323,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # (bare uvicorn --workers N, replicas) silently multiplies every budget
     # — surface that loudly instead of mis-deploying quietly. Detecting the
     # actual worker count is not reliably possible from inside the process.
-    if os.environ.get("UVICORN_WORKERS", "1") != "1" or os.environ.get("WEB_CONCURRENCY", "1") != "1":
+    workers_env = os.environ.get("UVICORN_WORKERS", "1")
+    concurrency_env = os.environ.get("WEB_CONCURRENCY", "1")
+    if workers_env != "1" or concurrency_env != "1":
         logger.warning(
             "UVICORN_WORKERS/WEB_CONCURRENCY indicates a multi-process deployment: "
             "auth throttles, the simulation CPU budget and worker idempotency gates "

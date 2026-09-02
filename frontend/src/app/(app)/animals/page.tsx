@@ -61,6 +61,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { ApiError } from "@/lib/api-client";
+import { MAX_ANIMAL_TAG_LENGTH, MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
 import { farmToday } from "@/lib/format";
@@ -165,7 +166,7 @@ function completedMonths(dateOfBirth: string, referenceDate: string): number | n
 const createAnimalSchema = (vocabulary: FarmVocabulary) =>
   z
   .object({
-    tag_number: z.string().max(50).optional().or(z.literal("")),
+    tag_number: z.string().max(MAX_ANIMAL_TAG_LENGTH).optional().or(z.literal("")),
     name: z.string().max(80).optional(),
     sex: z.enum([AnimalCreateInSex.M, AnimalCreateInSex.F]),
     source: z.enum([AnimalCreateInSource.BORN, AnimalCreateInSource.PURCHASED]),
@@ -215,7 +216,7 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     // input, but validation should still follow the normal issue path rather
     // than relying on an undefined-safe string operation.
     historical_import_reason: z.string().max(255).optional().default(""),
-    notes: z.string().max(4000, "Max 4000 characters").optional(),
+    notes: z.string().max(MAX_FREE_TEXT_LENGTH, `Max ${MAX_FREE_TEXT_LENGTH} characters`).optional(),
   })
   .superRefine((values, ctx) => {
     if (values.weight_date && values.weight_kg === undefined) {
@@ -469,7 +470,7 @@ function CreateAnimalDialog({
               <Input
                 id="tag_number"
                 placeholder={`Auto-generated if blank (e.g. ${vocabulary.tagPrefix}-7KP2D)`}
-                maxLength={50}
+                maxLength={MAX_ANIMAL_TAG_LENGTH}
                 aria-invalid={Boolean(errors.tag_number) || undefined}
                 aria-describedby={errors.tag_number ? "create-tag-error" : undefined}
                 {...register("tag_number")}
@@ -777,7 +778,7 @@ function CreateAnimalDialog({
             <Textarea
               id="notes"
               rows={2}
-              maxLength={4000}
+              maxLength={MAX_FREE_TEXT_LENGTH}
               aria-invalid={Boolean(errors.notes) || undefined}
               {...register("notes")}
             />

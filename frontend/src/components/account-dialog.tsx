@@ -44,7 +44,7 @@ type PasswordValues = z.infer<typeof passwordSchema>;
 type AccountAction = "export" | "password" | "delete";
 
 export function AccountDialog({ name, email }: { name: string | null; email: string }) {
-  const { signOut } = useAuth();
+  const { signOut, updateUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -225,6 +225,10 @@ export function AccountDialog({ name, email }: { name: string | null; email: str
           if (operationEpoch === dialogEpoch.current && mounted.current) close();
           return;
         }
+        // The refresh answer carried the post-rotation user; installing it
+        // clears the must-change-password banner the moment the requirement
+        // is actually satisfied, instead of on the next full reload.
+        updateUser(outcome.body.user);
       }
       toast.success("Password changed. Other signed-in sessions were revoked.");
       if (operationEpoch === dialogEpoch.current && mounted.current) close();

@@ -5,7 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import false, func, select
+from sqlalchemy import false, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -590,6 +590,23 @@ async def list_transactions(
     )
 
 
+# Per-farm advisory namespace serializing the sold-vs-produced reconciliation
+# (check-then-insert must not race a concurrent milk sale on the same farm).
+# Farm advisory locks are always acquired FIRST in this codebase's lock order.
+MILK_LEDGER_LOCK_NAMESPACE = 4714
+
+
+async def _lock_milk_ledger(db: AsyncSession, farm: CurrentFarm) -> None:
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                literal(MILK_LEDGER_LOCK_NAMESPACE),
+                literal(farm.id),
+            )
+        )
+    )
+
+
 async def _guard_milk_sold_within_production(
     db: AsyncSession, farm: CurrentFarm, new_litres: float
 ) -> None:
@@ -598,6 +615,8 @@ async def _guard_milk_sold_within_production(
     Cumulative non-voided MILK-income litres (including this row) are checked
     against the farm's recorded MilkRecord production, with a 10% allowance
     for sale-side rounding and calf-milk/waste reconciliation differences.
+    Callers hold the farm's milk-ledger advisory lock so two concurrent sales
+    cannot both observe the pre-insert totals and slip past the fence.
     """
     sold = (
         await db.execute(
@@ -643,6 +662,7 @@ async def add_transaction(
         if payload.category == "MILK":
             _require_dairy_farm_for_milk(farm)
         if payload.milk_litres is not None:
+            await _lock_milk_ledger(db, farm)
             await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
         try:
             require_farm_not_future(payload.date, farm, "transaction date")
@@ -700,6 +720,11 @@ async def correct_transaction(
     async def mutate() -> TransactionOut:
         if payload.category == "MILK":
             _require_dairy_farm_for_milk(farm)
+        payload_is_milk_income = payload.category == "MILK" and payload.type == "INCOME"
+        if payload_is_milk_income and payload.milk_litres is not None:
+            # Advisory-first lock order: taken before the original row's
+            # FOR UPDATE so the farm mutex always precedes row locks.
+            await _lock_milk_ledger(db, farm)
         try:
             require_farm_not_future(payload.date, farm, "replacement transaction date")
         except ValueError as exc:
@@ -749,10 +774,33 @@ async def correct_transaction(
         # or fat-based procurement, kept coherent and priced against the
         # amount by TransactionCorrectionIn; any other category carries none.
         is_milk_income = payload.category == "MILK" and payload.type == "INCOME"
-        if is_milk_income and payload.milk_litres is not None:
-            # The void above removes the original row from the active ledger,
-            # so the reconciliation sees the restated total, not both copies.
-            await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
+        if is_milk_income:
+            original_had_provenance = (
+                txn.milk_litres is not None
+                or txn.milk_unit_price_per_litre is not None
+                or txn.milk_fat_pct is not None
+                or txn.milk_price_per_kg_fat is not None
+            )
+            replacement_drops_provenance = (
+                payload.milk_litres is None
+                and payload.milk_unit_price_per_litre is None
+                and payload.milk_fat_pct is None
+                and payload.milk_price_per_kg_fat is None
+            )
+            if original_had_provenance and replacement_drops_provenance:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "The original milk sale carries provenance — the replacement "
+                        "must restate milk_litres and its price, not drop them"
+                    ),
+                )
+            if payload.milk_litres is not None:
+                # The milk-ledger advisory lock was taken at the top of this
+                # mutation. The void above removes the original row from the
+                # active ledger, so the reconciliation sees the restated
+                # total, not both copies.
+                await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,

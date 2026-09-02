@@ -138,8 +138,8 @@ class ViabilityMetrics(BaseModel):
     mirr: float | None  # timing-accurate monthly modified IRR
     bcr: float | None  # PV(gross benefits) / PV(gross costs); None without costs
     dscr_per_year: list[float]  # 0 for years without debt service
-    avg_dscr: float | None  # over years with debt service > 0; None when there are none
-    min_dscr: float | None  # weakest such year; None when there are none
+    avg_dscr: float | None  # over principal-repaying years; None when there are none
+    min_dscr: float | None  # weakest repaying year; None when there are none
     payback_month: int | None  # first month cumulative cash >= 0; None if never
     break_even_meat_price_per_kg: float | None  # meat price making NPV = 0
     peak_capacity_head: float

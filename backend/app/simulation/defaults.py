@@ -418,6 +418,11 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             labour_per_head_threshold=20,  # mechanical milking
             insurance_pct_stock_value_annual=0.04,
             misc_overhead_per_month=15000.0,
+            # Matched to the 6% milk-price and feed escalators: labour/vet/
+            # misc are a fifth of the dairy cost base, and a decade of 1 pp/yr
+            # real squeeze on them recreates exactly the structural-loss
+            # pattern the matched escalators were meant to remove.
+            operating_cost_growth_rate_annual=0.06,
             shed_cost_per_animal_place=40000.0,  # loose housing + milking infra
             equipment_cost_per_animal=20000.0,  # parlour/BMC/collars per place
             shed_useful_life_years=20,

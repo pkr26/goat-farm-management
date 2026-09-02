@@ -917,7 +917,7 @@ describe("BreedingPage", () => {
 
   it("collects auditable loss facts and refetches after the POST", async () => {
     const { user, dialog } = await openPregnancyLossDialog();
-    await pickOption(user, within(dialog).getByLabelText("Cause *"), "DISEASE");
+    await pickOption(user, within(dialog).getByLabelText("Cause *"), "Disease");
     await user.type(within(dialog).getByLabelText("Notes"), "Lab-confirmed infection");
     await user.click(within(dialog).getByRole("button", { name: "Record pregnancy loss" }));
 

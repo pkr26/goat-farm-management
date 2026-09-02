@@ -47,6 +47,10 @@ const STATUS_TONES: Record<string, StatusTone> = {
   OVERDUE: "destructive",
   FAILED: "destructive",
   DEAD: "destructive",
+  // Kid deaths and aborted pregnancies are adverse events like their
+  // siblings (STILLBORN/FAILED), not neutral transitions.
+  DIED: "destructive",
+  ABORTED: "destructive",
 };
 /** Resolve any status string to its semantic tone (neutral → null). */
 export function statusTone(status: string): StatusTone | null {

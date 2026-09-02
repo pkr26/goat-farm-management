@@ -36,7 +36,7 @@ Documented model approximations:
   a repeat breeder (0 disables both policies).
 - Weaning is modelled at month 3 (the kid class spans ages 0-2) versus the
   operational system's day-60 wean task — a documented monthly-resolution
-  approximation; the default meat sale age is 10 months (Navipet marketing).
+  approximation; the default meat sale age is 9 months (Navipet marketing).
   Kid and weaner mortality are whole-phase rates spread over their three
   monthly slots; grower and adult mortality are annual rates compounded
   monthly. Young males carry ``growth.young_male_weight_premium`` over the
@@ -965,7 +965,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             else:
                 svc[0] += kidding_does
         if kidding_does > 0.0:
-            effective_litter_size = min(4.0, r.litter_size * shocks.litter_size[shock_index])
+            # Species biology, matching the ops write path's litter caps
+            # (services.kidding → SpeciesProfile.max_litter_size): Osmanabadi
+            # goats litter up to quadruplets; a Murrah buffalo practically
+            # always calves single (twins are rare). The projection must
+            # never accept litters the farm's own recording would reject.
+            max_litter = 2.0 if dairy_mode else 4.0
+            effective_litter_size = min(max_litter, r.litter_size * shocks.litter_size[shock_index])
             born = kidding_does * effective_litter_size * (1.0 - r.stillbirth_rate)
             births += born
             f_born = born * kidding_female_fraction
@@ -1899,19 +1905,15 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     for row in annual_pl:
         op_debt = _operating_debt_service(row)
         dscr_per_year.append(((row.ebitda - row.tax) / op_debt) if op_debt > 0.0 else 0.0)
-    active_dscr = [
-        value for value, row in zip(dscr_per_year, annual_pl, strict=True) if row.debt_service > 0.0
-    ]
     # Both DSCR summaries span principal-repaying years only: a moratorium
     # year is interest-only with structurally near-zero sales (first animals
     # sell ~month 10+), so its ratio is negative by construction on EVERY
     # candidate — including them made the optimizer infeasible on its own
     # defaults and degenerated prob_dscr_below_one to 1.00. avg_dscr follows
     # the NABARD average-coverage criterion over the operating repayment
-    # period (falling back to all debt years when a run has no principal
-    # repayment at all). Same precedent as the balloon exclusion above:
-    # measurement, not forgiveness — the interest still sits in debt service,
-    # cash flow and NPV.
+    # period. Same precedent as the balloon exclusion above: measurement,
+    # not forgiveness — the interest still sits in debt service, cash flow
+    # and NPV.
     repaying_dscr = [
         value
         for value, row in zip(dscr_per_year, annual_pl, strict=True)
@@ -1923,9 +1925,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     # number that reads as coverage. The interest still sits in debt
     # service, cash flow and NPV.
     min_dscr = min(repaying_dscr) if repaying_dscr else None
-    avg_dscr = (
-        sum(repaying_dscr) / len(repaying_dscr) if repaying_dscr else None
-    )
+    avg_dscr = sum(repaying_dscr) / len(repaying_dscr) if repaying_dscr else None
     cum_series = [-equity, *[month.cumulative_cash_flow for month in months]]
 
     n_years = len(annual_pl)

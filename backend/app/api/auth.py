@@ -41,7 +41,6 @@ from ..models import (
     User,
 )
 from ..models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
-from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..ratelimit import SlidingWindowRateLimiter, auth_limiter
 from ..schemas.auth import (
     AccountDeleteIn,
@@ -58,6 +57,7 @@ from ..schemas.auth import (
     TokenOut,
     UserOut,
 )
+from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..security import (
     LEGACY_PBKDF2_PREFIX,
     PasswordWorkCapacityError,
@@ -689,13 +689,24 @@ async def register(
     # Hash BEFORE the existence check so a duplicate email doesn't
     # return measurably earlier than a fresh one (timing half of the register
     # enumeration oracle). The explicit 400 remains — without email
-    # verification there is no accept-and-notify path — but repeated probing
-    # of one email is ALSO charged to a per-email bucket, so an IP-rotating
-    # enumerator exhausts that account-name's budget instead of probing it
-    # indefinitely at the per-IP ceiling.
+    # verification there is no accept-and-notify path. Repeated probing of
+    # one email is ALSO charged to a per-email bucket — but ONLY when the
+    # email already exists: enumerating live account names is the attack,
+    # and charging fresh-address attempts would let an IP-rotating attacker
+    # lock a legitimate registrant out of their own address.
     pw_hash = await hash_password_async(payload.password)
     email_probe_key = f"register-email:{payload.email.lower()}"
     s_limits = get_settings()
+
+    def _charge_email_probe() -> None:
+        if s_limits.auth_rate_limit_enabled:
+            register_email_limiter.record(
+                "register-email",
+                email_probe_key,
+                s_limits.auth_rate_limit_window_seconds,
+                max_attempts=s_limits.auth_rate_limit_max_attempts,
+            )
+
     if s_limits.auth_rate_limit_enabled and register_email_limiter.is_blocked(
         "register-email",
         email_probe_key,
@@ -704,15 +715,9 @@ async def register(
     ):
         logger.info("register-email throttled (key=%s)", email_probe_key)
         raise _too_many_attempts()
-    if s_limits.auth_rate_limit_enabled:
-        register_email_limiter.record(
-            "register-email",
-            email_probe_key,
-            s_limits.auth_rate_limit_window_seconds,
-            max_attempts=s_limits.auth_rate_limit_max_attempts,
-        )
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none() is not None:
+        _charge_email_probe()
         raise HTTPException(status_code=400, detail=ALREADY_REGISTERED)
     user = User(
         email=payload.email,
@@ -724,7 +729,12 @@ async def register(
         await db.flush()
     except IntegrityError:  # same email registered concurrently
         await db.rollback()
+        _charge_email_probe()
         raise HTTPException(status_code=400, detail=ALREADY_REGISTERED) from None
+    if s_limits.auth_rate_limit_enabled:
+        # The address now belongs to this registrant — its probe history must
+        # not throttle the account it became.
+        register_email_limiter.reset("register-email", email_probe_key)
     out = await _issue_tokens(db, user, response)
     await db.commit()
     return out

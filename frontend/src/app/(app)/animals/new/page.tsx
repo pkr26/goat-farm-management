@@ -23,7 +23,8 @@ export default function AnimalsNewRedirect() {
     // and merge new=1 into it, exactly like the sibling shims.
     const params = new URLSearchParams(searchParams.toString());
     params.set("new", "1");
-    router.replace(`/animals?${params.toString()}`);
+    const query = params.toString();
+    router.replace(query ? `/animals?${query}` : "/animals");
   }, [router, searchParams]);
 
   // A redirect has no page structure to mirror — the shared inline spinner

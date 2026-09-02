@@ -170,7 +170,7 @@ describe("shared display components", () => {
     ["REJECTED", "bg-destructive/10"],
     ["DIFFICULT", "bg-destructive/10"],
     ["DEAD", "bg-destructive/10"],
-    ["DIED", "bg-secondary"],
+    ["DIED", "bg-destructive/10"],
     ["QUARANTINE", "bg-warning-tint"],
     ["PENDING", "bg-warning-tint"],
     ["AWAITING_VERIFICATION", "bg-warning-tint"],

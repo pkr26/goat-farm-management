@@ -37,7 +37,9 @@ BucketStr = Literal[
 
 
 class AnimalCreateIn(StrictInputModel):
-    tag_number: PostgresText | None = Field(default=None, min_length=1, max_length=MAX_ANIMAL_TAG_LENGTH)
+    tag_number: PostgresText | None = Field(
+        default=None, min_length=1, max_length=MAX_ANIMAL_TAG_LENGTH
+    )
     name: PostgresText | None = Field(default=None, max_length=80)
     sex: Sex
     source: AnimalSourceStr

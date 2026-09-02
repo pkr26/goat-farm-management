@@ -52,6 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { MAX_AGE_MONTHS, MAX_BATCH_COUNT } from "@/lib/backend-caps";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { enumLabel } from "@/lib/enum-labels";
@@ -98,9 +99,11 @@ const batchSchema = z
       .number()
       .int("Count must be a whole number")
       .min(1, "At least 1 animal")
-      .max(1000, "At most 1000 animals"),
+      .max(MAX_BATCH_COUNT, `At most ${MAX_BATCH_COUNT} animals`),
     sex: z.enum([PurchaseBatchInSex.F, PurchaseBatchInSex.M]),
-    avg_age_months: optNum(z.number().min(0, "Cannot be negative").max(240, "At most 240 months")),
+    avg_age_months: optNum(
+      z.number().min(0, "Cannot be negative").max(MAX_AGE_MONTHS, `At most ${MAX_AGE_MONTHS} months`),
+    ),
     avg_weight_kg: optNum(
       z.number().min(0, "Cannot be negative").max(1000, "At most 1000 kg"),
     ),
@@ -742,7 +745,7 @@ function PurchasesPageContent() {
                   id="count"
                   type="number"
                   min="1"
-                  max="1000"
+                  max={String(MAX_BATCH_COUNT)}
                   inputMode="numeric"
                   aria-invalid={Boolean(errors.count) || undefined}
                   aria-describedby={errors.count ? "purchase-count-error" : undefined}
@@ -779,7 +782,7 @@ function PurchasesPageContent() {
                   type="number"
                   step="0.5"
                   min="0"
-                  max="240"
+                  max={String(MAX_AGE_MONTHS)}
                   {...register("avg_age_months")}
                 />
                 <p className="text-xs text-muted-foreground">

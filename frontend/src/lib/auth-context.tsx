@@ -45,6 +45,10 @@ interface AuthState {
   signIn: (accessToken: string, user: SessionUser) => Promise<void>;
   signOut: () => Promise<void>;
   refreshFarms: () => Promise<void>;
+  /** Replace the in-memory user after a self-service change (e.g. the
+   *  must-change-password flag clearing on rotation) without re-running
+   *  session establishment. */
+  updateUser: (user: SessionUser) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -404,9 +408,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.replace("/login");
   }, [loading, user, pathname, router]);
 
+  const updateUser = useCallback((u: SessionUser) => {
+    if (mounted.current) setUser(u);
+  }, []);
+
   const value = useMemo(
-    () => ({ user, farms, farmId, loading, selectFarm, signIn, signOut, refreshFarms }),
-    [user, farms, farmId, loading, selectFarm, signIn, signOut, refreshFarms],
+    () => ({
+      user,
+      farms,
+      farmId,
+      loading,
+      selectFarm,
+      signIn,
+      signOut,
+      refreshFarms,
+      updateUser,
+    }),
+    [user, farms, farmId, loading, selectFarm, signIn, signOut, refreshFarms, updateUser],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

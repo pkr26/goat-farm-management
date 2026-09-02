@@ -16,6 +16,9 @@ from .common import (
     QuantityKgFloat,
     StrictInputModel,
 )
+from .common import (
+    _finite as _finite_validator,
+)
 
 TransactionTypeStr = Literal["INCOME", "EXPENSE"]
 # Mirrors models.TransactionCategory exactly (v1 validated against the enum).
@@ -39,10 +42,18 @@ _MILK_AMOUNT_TOLERANCE = Decimal("0.01")
 # Fat bounds mirror the parlour milk-record bound (a sale cannot carry a fat
 # reading the parlour itself would reject). Price ceilings are generous but
 # finite: no real Telangana procurement rate approaches them, and they bound
-# fabricated revenue from a mistyped rate.
-MilkFatPctFloat = Annotated[float, Field(ge=3, le=12)]
-MilkPricePerLitreFloat = Annotated[float, Field(ge=0, le=500)]
-MilkPricePerKgFatFloat = Annotated[float, Field(ge=0, le=5_000)]
+# fabricated revenue from a mistyped rate. All four are strict finite floats
+# (JSON numbers only — no string coercion, no NaN/Inf), matching the parlour
+# side. The DB provenance CHECK is intentionally looser (fat 0-12, prices up
+# to 1e9); these schema bounds are the enforced contract.
+MilkFatPctFloat = Annotated[float, Field(strict=True, ge=3, le=12), _finite_validator]
+MilkPricePerLitreFloat = Annotated[float, Field(strict=True, ge=0, le=500), _finite_validator]
+MilkPricePerKgFatFloat = Annotated[float, Field(strict=True, ge=0, le=5_000), _finite_validator]
+# The DB CHECK prices provenance in numeric(12,3) litres between 0.001 and
+# 1e6: a positive-but-sub-milli value would pass a gt=0 schema bound and then
+# die as an unhandled CheckViolation at flush (HTTP 500), so the schema floor
+# is the storage floor.
+MilkLitresFloat = Annotated[float, Field(strict=True, ge=0.001, le=1_000_000), _finite_validator]
 
 # Categories the ledger only ever writes itself (animal exits and purchase
 # batches carry their own audited provenance); a manual row in these
@@ -74,6 +85,8 @@ def _expected_milk_amount(
 
 def _validate_milk_provenance(
     txn: "TransactionIn | TransactionCorrectionIn",
+    *,
+    allow_absent_provenance: bool = False,
 ) -> None:
     """Shared provenance coherence for booking and correcting milk income.
 
@@ -90,7 +103,7 @@ def _validate_milk_provenance(
     )
     is_milk_income = txn.category == "MILK" and txn.type == "INCOME"
     if all(field is None for field in milk_fields):
-        if is_milk_income:
+        if is_milk_income and not allow_absent_provenance:
             raise ValueError(
                 "Milk income requires provenance: milk_litres plus a price "
                 "(milk_unit_price_per_litre, or milk_fat_pct + milk_price_per_kg_fat)"
@@ -136,8 +149,8 @@ class TransactionIn(StrictInputModel):
     related_animal_id: BoundedId | None = None  # API verifies same-farm existence
     # Optional milk-sale provenance (valid only on INCOME/MILK rows): flat
     # ₹/litre, or fat-based procurement (fat % of the shipment plus ₹ per kg
-    # of fat). The DB CHECK mirrors these bounds.
-    milk_litres: Annotated[float, Field(gt=0, le=1_000_000)] | None = None
+    # of fat).
+    milk_litres: MilkLitresFloat | None = None
     milk_unit_price_per_litre: MilkPricePerLitreFloat | None = None
     milk_fat_pct: MilkFatPctFloat | None = None
     milk_price_per_kg_fat: MilkPricePerKgFatFloat | None = None
@@ -193,7 +206,7 @@ class TransactionCorrectionIn(StrictInputModel):
     notes: PostgresText | None = Field(default=None, max_length=255)
     related_animal_id: BoundedId | None = None
     feed_quantity_kg: QuantityKgFloat | None = None
-    milk_litres: Annotated[float, Field(gt=0, le=1_000_000)] | None = None
+    milk_litres: MilkLitresFloat | None = None
     milk_unit_price_per_litre: MilkPricePerLitreFloat | None = None
     milk_fat_pct: MilkFatPctFloat | None = None
     milk_price_per_kg_fat: MilkPricePerKgFatFloat | None = None
@@ -202,8 +215,13 @@ class TransactionCorrectionIn(StrictInputModel):
     @model_validator(mode="after")
     def _milk_provenance_coherent(self) -> "TransactionCorrectionIn":
         # Corrections may keep a system-generated category (they replace an
-        # existing audited row), but milk-income provenance rules still apply.
-        _validate_milk_provenance(self)
+        # existing audited row). A replacement may omit milk provenance only
+        # when the row it replaces never carried any: pre-provenance legacy
+        # MILK-income rows must stay correctable (amount/notes/date) instead
+        # of being frozen. The API layer enforces that the original actually
+        # lacked provenance — a replacement that DROPS the provenance of a
+        # row that had it is rejected there.
+        _validate_milk_provenance(self, allow_absent_provenance=True)
         return self
 
 

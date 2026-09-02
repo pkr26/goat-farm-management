@@ -344,7 +344,7 @@ export default function MilkPage() {
                   id="milk-litres"
                   type="number"
                   step="0.1"
-                  min="0"
+                  min="0.001"
                   max="100"
                   inputMode="decimal"
                   value={litres}

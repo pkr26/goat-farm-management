@@ -722,7 +722,11 @@ def build_milk_plan(
             expected_services_per_conception=expected_services,
             breeding_does=avg_breeding,
             milking_does=avg_milking,
-            dry_does=avg_breeding - avg_milking,
+            # The milking overlay spans the breeding pools plus the finishing
+            # pen (culled-but-still-milking head), so under heavy cull churn
+            # it can exceed the breeding pool; a procurement plan must never
+            # publish a negative head count. Same clamp the engine applies.
+            dry_does=max(0.0, avg_breeding - avg_milking),
             calvings_per_month=avg_fresh,
             ai_services_per_month=avg_ai,
             replacement_does_per_month=replacement_needed,
@@ -742,7 +746,7 @@ def build_milk_plan(
                 calendar_month=m.calendar_month,
                 breeding_does=m.breeding_does,
                 milking_does=m.milking_does,
-                dry_does=m.breeding_does - m.milking_does,
+                dry_does=max(0.0, m.breeding_does - m.milking_does),
                 freshenings=m.freshenings,
                 ai_services=m.ai_services,
                 heifer_graduates=m.heifer_graduates,

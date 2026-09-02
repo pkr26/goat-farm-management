@@ -12,8 +12,8 @@ from pydantic import ValidationError
 import app.simulation.montecarlo as montecarlo
 import app.simulation.optimization as optimization_module
 from app.simulation import (
-    FinanceAssumptions,
     FeedBreakdown,
+    FinanceAssumptions,
     MetaAssumptions,
     OptimizationResult,
     SimulationAssumptions,
@@ -462,9 +462,7 @@ def test_buck_service_capacity_limits_conception() -> None:
     )
     a.reproduction.conception_rate = 1.0
     a.mortality.adult = 0.0
-    first = run_simulation(a, with_break_equal=False) if False else run_simulation(
-        a, with_break_even=False
-    ).months[0]
+    first = run_simulation(a, with_break_even=False).months[0]
     # One buck serves 20 does at the single-sourced 1:20 policy.
     assert first.pregnant_does == pytest.approx(20.0)
     assert first.open_does == pytest.approx(80.0)

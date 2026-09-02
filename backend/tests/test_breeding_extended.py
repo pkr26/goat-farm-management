@@ -2366,15 +2366,6 @@ async def test_kidding_birth_type_triplet(client: httpx.AsyncClient) -> None:
 
 
 async def test_kidding_four_alive_birth_type_quadruplet(client: httpx.AsyncClient) -> None:
-    headers = await owner_with_farm(client)
-    _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}] * 4)
-    born = [a for a in await list_animals(client, headers) if a["source"] == "BORN"]
-    assert len(born) == 4
-    assert [a["birth_type"] for a in born] == ["QUADRUPLET"] * 4
-
-
-async def test_kidding_four_alive_birth_type_quadruplet(client: httpx.AsyncClient) -> None:
     """The goat species profile caps litters at four kids (twin-heavy breed).
 
     Five-plus entries are rejected before any stock is fabricated — buffalo

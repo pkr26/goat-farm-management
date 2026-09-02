@@ -28,6 +28,7 @@ from ..models import (
     Transaction,
     TransactionCategory,
     TransactionType,
+    species_profile,
 )
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, MONEY_QUANTUM, money, today
 
@@ -354,12 +355,18 @@ async def feeding_plan(
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
     age_days = func.coalesce(ref - effective_dob, 999)
     bucket = Animal.current_bucket
-    # A dependent kid (goat farms): unweaned, still with its dam, and the dam
-    # is herself in RECOVERY in this same plan. Everything else in RECOVERY —
-    # the doe, or an imported adult placed there — is billed as an adult.
+    # A dependent kid (goat farms): unweaned (age provably within the
+    # species' weaning window — goats wean at day 60), still with its dam,
+    # and the dam is herself in RECOVERY in this same plan. Everything else
+    # in RECOVERY — the doe, an imported adult placed there, or a farm-born
+    # yearling who kidded while her own dam is concurrently in RECOVERY —
+    # is billed as an adult: a lactating dam must never get the kid's creep
+    # line. Unknown DOB (age 999) reads as an adult.
+    weaning_days = species_profile(farm.farm_type).weaning_days
     dam_animal = aliased(Animal)
     is_dependent_kid = and_(
         Animal.dam_id.is_not(None),
+        age_days <= weaning_days,
         exists(
             select(1).where(
                 dam_animal.id == Animal.dam_id,

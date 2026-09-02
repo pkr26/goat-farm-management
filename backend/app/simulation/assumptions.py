@@ -297,7 +297,7 @@ class GrowthAssumptions(_Group):
     # Age at which surplus males are sold for meat. Must be >= 6 so males pass
     # through the grower chain (weaning at 3, grower from 6). Single-sourced
     # with the operational SPEC window (MEAT_SALE_AGE_MONTHS = 8-9 months at
-    # 24-28 kg): 9 months is the stall-fed finish whose male weight (~25.5 kg
+    # 24-28 kg): 9 months is the stall-fed finish whose male weight (~24.4 kg
     # on the default curve) sits inside that window. The old 10 sold a month
     # past the SPEC window at a weight below its floor.
     sale_age_months: int = Field(default=9, ge=6, le=24)

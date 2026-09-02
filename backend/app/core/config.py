@@ -4,9 +4,9 @@ vars prefixed GOATFARM_, e.g. GOATFARM_DATABASE_URL."""
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 from functools import lru_cache
-import os
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit

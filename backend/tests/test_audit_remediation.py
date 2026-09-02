@@ -173,7 +173,7 @@ async def test_quarantine_sale_fence(client: httpx.AsyncClient):
 # Voluntary waiting period (HIGH-4 dairy: AI recordable the day after calving)
 # ---------------------------------------------------------------------------
 async def test_dairy_vwp_rejects_an_early_postpartum_service(client: httpx.AsyncClient):
-    from .test_dairy import _breed_and_confirm, _create_animal, _dairy_owner
+    from .test_dairy import _dairy_owner
 
     headers = await _dairy_owner(client, email="vwp-audit@farm.in")
     animal = await _dairy_dam_ready(client, headers, "D-VWP-AUDIT")
@@ -258,7 +258,7 @@ async def test_dairy_vwp_rejects_an_early_postpartum_service(client: httpx.Async
 # Species-aware cull rule (HIGH-3 dairy: flag fires after 2, promised 3)
 # ---------------------------------------------------------------------------
 async def test_dairy_cull_flag_fires_on_the_third_failed_service(client: httpx.AsyncClient):
-    from .test_dairy import _create_animal, _dairy_owner
+    from .test_dairy import _dairy_owner
 
     headers = await _dairy_owner(client, email="cull-audit@farm.in")
     animal = await _dairy_dam_ready(client, headers, "D-CULL-AUDIT")
@@ -298,7 +298,7 @@ async def test_dairy_cull_flag_fires_on_the_third_failed_service(client: httpx.A
 # Fresh-pen exit with a live calf (BLOCKER B1: dairy dam stranded to day 90)
 # ---------------------------------------------------------------------------
 async def test_dairy_fresh_pen_exit_with_live_calf(client: httpx.AsyncClient):
-    from .test_dairy import _breed_and_confirm, _create_animal, _dairy_owner
+    from .test_dairy import _breed_and_confirm, _dairy_owner
 
     headers = await _dairy_owner(client, email="freshpen-audit@farm.in")
     animal = await _dairy_dam_ready(client, headers, "D-MILK-AUDIT")
@@ -402,7 +402,7 @@ async def test_dairy_weaning_duty_graduates_heifers_to_foundation(client: httpx.
 # Milk-recording context (HIGH-1 dairy: yields for dry/calf/pregnant animals)
 # ---------------------------------------------------------------------------
 async def test_milk_context_rejects_dry_calf_and_backdated_readings(client: httpx.AsyncClient):
-    from .test_dairy import _create_animal, _dairy_owner
+    from .test_dairy import _dairy_owner
 
     headers = await _dairy_owner(client, email="milk-audit@farm.in")
     animal = await _dairy_dam_ready(client, headers, "D-FRESH-AUDIT")
@@ -498,7 +498,6 @@ async def test_manual_rows_cannot_impersonate_system_categories(client: httpx.As
 # Forced credential rotation (L-5 backend security)
 # ---------------------------------------------------------------------------
 async def test_owner_provisioned_worker_must_rotate_before_acting(client: httpx.AsyncClient):
-    from .conftest import login
 
     WORKER_PW = "workerpass123"
     owner = await owner_with_farm(client)

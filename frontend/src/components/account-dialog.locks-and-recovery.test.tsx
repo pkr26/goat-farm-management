@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
   refreshSessionDetailed: vi.fn(),
   signOut: vi.fn(),
+  updateUser: vi.fn(),
   toastSuccess: vi.fn(),
 }));
 
@@ -50,7 +51,7 @@ vi.mock("@/lib/api-client", () => {
 });
 
 vi.mock("@/lib/auth-context", () => ({
-  useAuth: () => ({ signOut: mocks.signOut }),
+  useAuth: () => ({ signOut: mocks.signOut, updateUser: mocks.updateUser }),
 }));
 
 vi.mock("@/lib/format", () => ({ farmToday: () => "2026-08-17" }));
@@ -88,6 +89,7 @@ describe("AccountDialog branches", () => {
     mocks.mutateAsync.mockReset();
     mocks.refreshSessionDetailed.mockReset();
     mocks.signOut.mockReset();
+    mocks.updateUser.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.mutateAsync.mockResolvedValue({ status: 200 });
     mocks.authSessionEpochValue.mockReturnValue(1);

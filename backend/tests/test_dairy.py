@@ -461,7 +461,11 @@ async def _record_parlour_milk(client, headers, litres_by_day):
 async def test_milk_sale_transaction_provenance(client):
     headers = await _dairy_owner(client)
     today = date.today()
-    await _record_parlour_milk(client, headers, [(today.isoformat(), 35.0), ((today - timedelta(days=1)).isoformat(), 35.0)])
+    await _record_parlour_milk(
+        client,
+        headers,
+        [(today.isoformat(), 35.0), ((today - timedelta(days=1)).isoformat(), 35.0)],
+    )
     resp = await client.post(
         "/api/finance/new",
         json={
@@ -524,7 +528,12 @@ async def test_milk_income_rejected_on_goat_farm(client):
         await client.post(
             "/api/finance/new",
             json=payload
-            | {"category": "OTHER", "type": "EXPENSE", "milk_litres": None, "milk_unit_price_per_litre": None},
+            | {
+                "category": "OTHER",
+                "type": "EXPENSE",
+                "milk_litres": None,
+                "milk_unit_price_per_litre": None,
+            },
             headers=headers,
         )
     ).json()

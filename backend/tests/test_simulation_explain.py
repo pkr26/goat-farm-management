@@ -228,13 +228,13 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "6b4b990cf59291fb907ef0b27f25e336d3fc96d2cdf0d073c5255a556f8cd83e"
+        "b041dcd034d421d5cb244f1e04bf4f5c1b8a51887fd79c4aea81ca8e0905b33d"
     )
     assert _explanation_digest(viable) == (
-        "a4d5754d982bc4cb8206b48dc4a4f1958554dabd40dfcd39b764d6869e631a51"
+        "6d9635604a54310afdd8f20d00fef22f7d63e16662c8f26c87484c3cdb180e77"
     )
     assert _explanation_digest(no_debt) == (
-        "15f84337b72b449a48a707c8ffb4cdbf392da4c61778511b3c5ce546d502a61c"
+        "0bb301d2ffe5ad4656ad8396bb5d1b97ca29e4347e49dc6810496f0485687b1a"
     )
     assert _report_digest(default) == (
         "0c0d3ee4a7feb6d2802e0d595d37f06c5354f539f4bdecaf0fbdf31c34534c31"
@@ -415,11 +415,11 @@ def test_dscr_explanations_never_claim_no_debt_when_debt_years_exist() -> None:
     assert m.min_dscr is not None and m.min_dscr < 0.0
     by_key = {e.key: e for e in res.metric_explanations}
     avg = by_key["avg_dscr"]
-    assert avg.figures["debt_years"] == 6
-    assert "No debt service falls inside" not in avg.explanation
+    assert avg.figures["debt_years"] == 5  # principal-repaying years only
+    assert "No principal-repaying year" not in avg.explanation
     assert f"{m.avg_dscr:.2f}" in avg.explanation
     weakest = by_key["min_dscr"]
-    assert "No debt year in the horizon" not in weakest.explanation
+    assert "No principal-repaying year in the horizon" not in weakest.explanation
     assert f"{m.min_dscr:.2f}" in weakest.explanation
     assert "cannot pay any part of the instalment" in weakest.explanation
 
@@ -430,9 +430,9 @@ def test_dscr_explanations_report_no_debt_only_when_there_is_none() -> None:
     res = run_simulation(a, with_break_even=False)
     assert res.metrics.avg_dscr is None and res.metrics.min_dscr is None
     by_key = {e.key: e for e in res.metric_explanations}
-    assert "No debt service falls inside" in by_key["avg_dscr"].explanation
+    assert "No principal-repaying year falls inside" in by_key["avg_dscr"].explanation
     assert by_key["avg_dscr"].figures["debt_years"] == 0
-    assert "No debt year in the horizon" in by_key["min_dscr"].explanation
+    assert "No principal-repaying year in the horizon" in by_key["min_dscr"].explanation
 
 
 def test_metric_explanations_cover_undefined_and_dscr_boundary_branches() -> None:
@@ -548,7 +548,7 @@ def test_metric_explanations_hold_exact_financial_decision_boundaries() -> None:
         if item.key == "avg_dscr"
     )
     assert average.figures["debt_years"] == 1
-    assert "over the 1 year(s) with debt outstanding" in average.explanation
+    assert "averaged over the 1 principal-repaying" in average.explanation
 
 
 def test_loan_explanation_uses_the_exact_horizon_balance_and_positive_threshold() -> None:

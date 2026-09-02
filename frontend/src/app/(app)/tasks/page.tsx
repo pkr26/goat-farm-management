@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api-client";
+import { MAX_TASK_TITLE_LENGTH, MAX_RECUR_DAYS } from "@/lib/backend-caps";
 import { useAuth } from "@/lib/auth-context";
 import { addDays, farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
@@ -638,7 +639,7 @@ function TaskTable({
 
 const dutySchema = z
   .object({
-    title: z.string().trim().min(1, "Title is required").max(200),
+    title: z.string().trim().min(1, "Title is required").max(MAX_TASK_TITLE_LENGTH),
     due_date: z
       .string()
       .min(1, "Due date is required")
@@ -647,8 +648,10 @@ const dutySchema = z
     recur_days: z
       .string()
       .refine(
-        (s) => s === "" || (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= 3650),
-        "Must be a whole number of days (1–3650)",
+        (s) =>
+          s === "" ||
+          (/^\d+$/.test(s) && Number(s) >= 1 && Number(s) <= MAX_RECUR_DAYS),
+        `Must be a whole number of days (1–${MAX_RECUR_DAYS})`,
       )
       .optional(),
     assigned_role_id: z.string().optional(),
@@ -658,7 +661,7 @@ const dutySchema = z
   .superRefine((values, ctx) => {
     if (!values.recur_days || !/^\d+$/.test(values.recur_days)) return;
     const recurrenceDays = Number(values.recur_days);
-    if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > 3650) {
+    if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > MAX_RECUR_DAYS) {
       return;
     }
     const latestDueDate = addDays("9999-12-31", -recurrenceDays);
@@ -1114,7 +1117,7 @@ function TasksPageContent() {
               <Label htmlFor="title">Title *</Label>
               <Input
                 id="title"
-                  maxLength={200}
+                  maxLength={MAX_TASK_TITLE_LENGTH}
                   placeholder="e.g. Clean water troughs in BREEDING pen"
                   aria-invalid={Boolean(errors.title) || undefined}
                   aria-describedby={errors.title ? "duty-title-error" : undefined}

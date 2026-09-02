@@ -21325,7 +21325,7 @@
               {
                 "type": "number",
                 "maximum": 1000000.0,
-                "exclusiveMinimum": 0.0
+                "minimum": 0.001
               },
               {
                 "type": "null"
@@ -21457,7 +21457,7 @@
               {
                 "type": "number",
                 "maximum": 1000000.0,
-                "exclusiveMinimum": 0.0
+                "minimum": 0.001
               },
               {
                 "type": "null"

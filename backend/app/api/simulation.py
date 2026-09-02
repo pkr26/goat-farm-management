@@ -50,7 +50,7 @@ from starlette.concurrency import run_in_threadpool
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import Animal, AnimalStatus, SimulationScenario
-from ..schemas.common import COMMON_ERROR_RESPONSES, ErrorOut, MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, ErrorOut
 from ..schemas.simulation import (
     BreedsOut,
     FarmCalibrationOut,
@@ -717,7 +717,9 @@ async def herd_snapshot(
 
 @router.get(
     "/calibration",
-    responses={500: {"model": ErrorOut, "description": "Calibration data is internally inconsistent"}},
+    responses={
+        500: {"model": ErrorOut, "description": "Calibration data is internally inconsistent"},
+    },
 )
 async def farm_calibration(
     db: DbSession,

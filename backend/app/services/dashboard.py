@@ -140,13 +140,17 @@ async def ready_to_move_suggestions(
     # species_profile(farm.farm_type); the suggestion widget must not quote
     # goat numbers on a buffalo dairy (10 mo/22 kg breeding, 8 mo/24 kg sale,
     # gestation day 100/135). Gestation stage gates scale from the species'
-    # gestation length (2/3 for EARLY→LATE, 90% for the due window — the
-    # goat ratios 100/150 and 135/150).
+    # gestation length (2/3 for EARLY→LATE). The due window mirrors the
+    # authoritative delivery-move duty exactly — goats move to the kidding
+    # pen ~2 weeks out (150−15=135), buffalo ride the dry-off point ~60 days
+    # before calving (310−60=250) — never a generic 90% ratio, which on a
+    # dairy would suggest the dry-group move 29 days AFTER dry therapy starts.
     profile = species_profile(farm.farm_type)
     age_cutoff = add_months(reference_date, -profile.min_breeding_age_months)
     breeding_weight = profile.min_breeding_weight_kg
     pregnancy_late_day = round(profile.gestation_days * 2 / 3)
-    due_window_day = round(profile.gestation_days * 9 / 10)
+    delivery_move_lead_days = 15 if profile.young_stay_with_dam else 60
+    due_window_day = profile.gestation_days - delivery_move_lead_days
     created_local_date = cast(
         func.timezone(
             farm.timezone,

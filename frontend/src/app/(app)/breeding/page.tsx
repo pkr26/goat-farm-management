@@ -105,9 +105,11 @@ function cap(noun: string): string {
 }
 
 /** value → label map for the root `items` prop: without it, Base UI's
- * Select.Value renders the raw enum value in the closed trigger. */
+ * Select.Value renders the raw enum value in the closed trigger. Labels come
+ * from the shared enum-labels map (same vocabulary the record rows render),
+ * so the write path never shows SCREAMING_SNAKE codes either. */
 const LOSS_CAUSE_ITEMS: Record<string, string> = Object.fromEntries(
-  Object.values(PregnancyLossInCause).map((value) => [value, value.replace(/_/g, " ")]),
+  Object.values(PregnancyLossInCause).map((value) => [value, enumLabel("lossCause", value)]),
 );
 
 function OutcomeBadge({ outcome }: { outcome: string }) {
@@ -727,7 +729,7 @@ function PregnancyLossDialog({
               <SelectContent>
                 {Object.values(PregnancyLossInCause).map((value) => (
                   <SelectItem key={value} value={value}>
-                    {value.replace(/_/g, " ")}
+                    {enumLabel("lossCause", value)}
                   </SelectItem>
                 ))}
               </SelectContent>

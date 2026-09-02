@@ -214,7 +214,8 @@ async def add_milk_record(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"{animal.tag_number} is in the {animal.current_bucket.lower().replace('_', ' ')} "
+                    f"{animal.tag_number} is in the "
+                    f"{animal.current_bucket.lower().replace('_', ' ')} "
                     "cohort — milk is recorded for the milking string only"
                 ),
             )
@@ -233,15 +234,21 @@ async def add_milk_record(
         if not has_calved:
             profile = species_profile(farm.farm_type)
             age_months = animal.age_months_on(today(farm.timezone))
-            imported_adult = animal.source == AnimalSource.PURCHASED.value and (
-                age_months is None or age_months >= profile.min_breeding_age_months
+            # The imported-in-milk exception requires a provable adult age:
+            # without an effective DOB a purchased female could be a heifer
+            # calf, and "in-milk" cannot be asserted from nothing.
+            imported_adult = (
+                animal.source == AnimalSource.PURCHASED.value
+                and age_months is not None
+                and age_months >= profile.min_breeding_age_months
             )
             if not imported_adult:
                 raise HTTPException(
                     status_code=422,
                     detail=(
                         f"{animal.tag_number} has no recorded calving — milk is recorded "
-                        "for dams in the milking string (imported in-milk purchases excepted)"
+                        "for dams in the milking string (imported in-milk purchases "
+                        "with a recorded age excepted)"
                     ),
                 )
         try:

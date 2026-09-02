@@ -214,9 +214,10 @@ describe("BreedingPage copy and write bookkeeping", () => {
       "bg-destructive/10",
       "text-destructive",
     );
+    // Aborted pregnancies are adverse events, tinted like their siblings.
     expect(screen.getByText("Aborted")).toHaveClass(
-      "bg-secondary",
-      "text-secondary-foreground",
+      "bg-destructive/10",
+      "text-destructive",
     );
   });
 
@@ -640,20 +641,20 @@ describe("BreedingPage copy and write bookkeeping", () => {
     const { user, dialog } = await openPregnancyLoss();
     const cause = within(dialog).getByLabelText("Cause *");
 
-    expect(cause).toHaveTextContent("UNKNOWN");
+    expect(cause).toHaveTextContent("Unknown");
     await user.click(cause);
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual([
-      "UNKNOWN",
-      "DISEASE",
-      "INJURY",
-      "NUTRITIONAL",
-      "TRAUMA",
-      "OTHER",
+      "Unknown",
+      "Disease",
+      "Injury",
+      "Nutritional",
+      "Trauma",
+      "Other",
     ]);
 
     // The closed trigger has to name the cause, not fall back to a blank.
-    await user.click(screen.getByRole("option", { name: "DISEASE" }));
-    expect(cause).toHaveTextContent("DISEASE");
+    await user.click(screen.getByRole("option", { name: "Disease" }));
+    expect(cause).toHaveTextContent("Disease");
   });
 
   it("names the doe of the pregnancy being closed even without a tag", async () => {

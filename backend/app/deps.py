@@ -175,10 +175,14 @@ async def current_user(
     # exactly what this request authenticated.
     request.state.authenticated_token_version = claims.token_version
     # Forced credential rotation: an owner-provisioned (or owner-reset)
-    # password must be changed by its holder before any domain mutation. The
-    # auth module itself stays reachable — login, logout, /me and
-    # change-password are exactly how the worker clears the flag.
-    if user.must_change_password and not request.url.path.startswith("/api/auth/"):
+    # password must be changed by its holder before any domain access. The
+    # exemption is an explicit allowlist, NOT the whole /api/auth/ prefix:
+    # the bootstrap routes the app shell needs to present the banner
+    # (me/permissions/farm selector) and exactly the routes that rotate the
+    # credential. Farm creation, account deletion and account export are
+    # identity-level acts the provisioning owner must not perform with a
+    # credential the worker has not yet taken sole possession of.
+    if user.must_change_password and not _rotation_exempt(request.method, request.url.path):
         raise HTTPException(
             status_code=403,
             detail=(
@@ -187,6 +191,33 @@ async def current_user(
             ),
         )
     return user
+
+
+# Method-scoped exemption for the must-change-password fence. GET-only for
+# the read routes: a POST to /api/auth/farms or DELETE /api/auth/account
+# from a flagged credential stays fenced.
+_ROTATION_EXEMPT_ALWAYS = frozenset(
+    {
+        "/api/auth/register",
+        "/api/auth/login",
+        "/api/auth/refresh",
+        "/api/auth/logout",
+        "/api/auth/me",
+        "/api/auth/change-password",
+    }
+)
+_ROTATION_EXEMPT_GET = frozenset(
+    {
+        "/api/auth/permissions",
+        "/api/auth/farms",
+    }
+)
+
+
+def _rotation_exempt(method: str, path: str) -> bool:
+    if path in _ROTATION_EXEMPT_ALWAYS:
+        return True
+    return method.upper() == "GET" and path in _ROTATION_EXEMPT_GET
 
 
 CurrentUser = Annotated[User, Depends(current_user)]

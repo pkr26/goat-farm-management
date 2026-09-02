@@ -3,7 +3,7 @@
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from math import exp, pow
+from math import exp
 from statistics import median
 from typing import Literal
 
@@ -80,12 +80,6 @@ def _months_between(start: date, end: date) -> float:
         return 0.0
     return (end - start).days / 30.44  # same convention as the engine's DAYS_PER_MONTH
 
-
-def _annualized_fraction(events: int, population: int, lookback_months: int) -> float:
-    if events <= 0 or population <= 0:
-        return 0.0
-    observed = min(0.999999, events / population)
-    return 1.0 - pow(1.0 - observed, 12.0 / lookback_months)
 
 
 def _annual_fraction_from_exposure(deaths: int, animal_months: float) -> float:
@@ -1002,15 +996,19 @@ async def calibrate_farm_assumptions(
     if labour_total > 0.0:
         labour_previous = assumptions.costs.labour_per_month
         # ``labour_per_month`` is a PER-LABOURER wage: the engine charges
-        # ``max(1, ceil(total_herd / labour_per_head_threshold)) *
-        # labour_per_month``. The ledger only knows the farm's whole labour
-        # bill, so it must be split across the labourers that headcount
-        # implies — via the engine's own helper, so the two cannot drift.
-        # Assigning the total directly made the engine re-multiply it by the
-        # labourer count (4x on a 300-head farm).
+        # ``max(1, ceil(adult_females / labour_per_head_threshold)) *
+        # labour_per_month`` — labour scales with ADULT breeding females
+        # (kids/additional young stock add fractionally to workload; TNAU/
+        # NABARD norm is one worker per ~50 does *with progeny*). The ledger
+        # only knows the farm's whole labour bill, so it must be split across
+        # the labourers that adult-female headcount implies — via the
+        # engine's own helper, so the two cannot drift. Splitting on total
+        # standing head (or assigning the total directly) makes the engine
+        # under- or over-multiply the wage.
+        adult_females = counts["does"]
         labour_headcount = (
-            max(1, _ceil_head_ratio(current_head, assumptions.costs.labour_per_head_threshold))
-            if current_head > 0
+            max(1, _ceil_head_ratio(adult_females, assumptions.costs.labour_per_head_threshold))
+            if adult_females > 0
             else 1
         )
         labour_calibrated = min(MAX_MONEY, labour_total / cost_months / labour_headcount)
@@ -1025,7 +1023,9 @@ async def calibrate_farm_assumptions(
             sample_size,
             (
                 f"Total labour expense {cost_basis}, then split across the "
-                f"{labour_headcount} labourer(s) implied by {current_head} head"
+                f"{labour_headcount} labourer(s) implied by {adult_females} adult "
+                f"female(s) (the engine's labour basis, matching one worker per "
+                f"~{assumptions.costs.labour_per_head_threshold} does with progeny)"
             ),
             "transactions",
         )

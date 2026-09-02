@@ -282,27 +282,39 @@ def build_metric_explanations(
             figures={"bcr": m.bcr},
         )
     )
-    # A DSCR of zero or less is a real (catastrophic) debt year, so the branch
-    # is on whether any year carries debt service — never on the ratio's sign.
-    debt_years = sum(1 for row in result.annual_pl if row.debt_service > 0.0)
+    # The averaging basis must be stated exactly as the engine computes it:
+    # principal-REPAYING years (the NABARD criterion). Interest-only
+    # moratorium years carry debt but no operating repayment period, and
+    # None also fires when every debt year is interest-only — the two None
+    # narratives below cover both.
+    repaying_years = sum(
+        1 for row in result.annual_pl if row.debt_service > 0.0 and row.principal > 0.0
+    )
     out.append(
         MetricExplanation(
             key="avg_dscr",
             title="Average DSCR",
             explanation=(
                 f"Debt-service coverage ratio: operating surplus after cash tax divided by the "
-                f"year's loan repayment, averaged over the {debt_years} "
-                f"year(s) with debt outstanding: {m.avg_dscr:.2f}. Above 1.0 the farm can "
-                f"service the loan from operations; banks usually want 1.5 or better."
+                f"year's loan repayment, averaged over the {repaying_years} principal-repaying "
+                f"year(s) of the operating repayment period: {m.avg_dscr:.2f}. Above 1.0 the "
+                f"farm can service the loan from operations; banks usually want 1.5 or better."
                 if m.avg_dscr is not None
-                else "No debt service falls inside the projection horizon (zero loan or the "
-                "loan is fully repaid before year 1), so no DSCR is computed."
+                else "No principal-repaying year falls inside the projection horizon (zero "
+                "loan, full repayment before year 1, or every debt year still inside the "
+                "interest-only moratorium), so no DSCR is computed."
             ),
-            figures={"avg_dscr": m.avg_dscr, "min_dscr": m.min_dscr, "debt_years": debt_years},
+            figures={
+                "avg_dscr": m.avg_dscr,
+                "min_dscr": m.min_dscr,
+                "debt_years": repaying_years,
+            },
         )
     )
     if m.min_dscr is None:
-        min_dscr_text = "No debt year in the horizon, so there is no weak year to report."
+        min_dscr_text = (
+            "No principal-repaying year in the horizon, so there is no weak year to report."
+        )
     elif m.min_dscr <= 0.0:
         min_dscr_text = (
             f"The worst single debt year: {m.min_dscr:.2f}. It is not positive, so that "

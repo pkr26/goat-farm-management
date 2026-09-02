@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   mutateAsync: vi.fn(),
   refreshSessionDetailed: vi.fn(),
   signOut: vi.fn(),
+  updateUser: vi.fn(),
   toastSuccess: vi.fn(),
 }));
 
@@ -42,7 +43,7 @@ vi.mock("@/lib/api-client", () => {
 });
 
 vi.mock("@/lib/auth-context", () => ({
-  useAuth: () => ({ signOut: mocks.signOut }),
+  useAuth: () => ({ signOut: mocks.signOut, updateUser: mocks.updateUser }),
 }));
 
 vi.mock("@/lib/format", () => ({ farmToday: () => "2026-08-17" }));
@@ -75,6 +76,7 @@ describe("AccountDialog", () => {
     mocks.mutateAsync.mockReset();
     mocks.refreshSessionDetailed.mockReset();
     mocks.signOut.mockReset();
+    mocks.updateUser.mockReset();
     mocks.toastSuccess.mockReset();
     mocks.mutateAsync.mockResolvedValue({ status: 200 });
     mocks.authSessionEpochValue.mockReturnValue(1);
@@ -161,6 +163,26 @@ describe("AccountDialog", () => {
       "Password changed. Other signed-in sessions were revoked.",
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("installs the post-rotation user so the must-change banner clears", async () => {
+    // A worker rotating an owner-provisioned password clears the flag
+    // server-side; the refresh answer carries the fresh user, and the app
+    // banner keyed on must_change_password must disappear without a reload.
+    const user = userEvent.setup();
+    render(<AccountDialog name="Worker" email="worker@example.test" />);
+    const dialog = await openAccount(user);
+    await fillValidPasswordChange(user, dialog);
+
+    await user.click(within(dialog).getByRole("button", { name: "Change password" }));
+
+    await waitFor(() => expect(mocks.refreshSessionDetailed).toHaveBeenCalledOnce());
+    expect(mocks.updateUser).toHaveBeenCalledTimes(1);
+    expect(mocks.updateUser).toHaveBeenCalledWith({
+      id: 1,
+      email: "owner@example.test",
+      name: "Owner",
+    });
   });
 
   it("signs out when the server rejects the post-change refresh", async () => {

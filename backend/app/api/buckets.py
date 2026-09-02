@@ -14,8 +14,8 @@ from ..models import (
     BucketMove,
     WeightRecord,
 )
-from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.buckets import BucketBoardRow
+from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.summaries import BucketAnimalOut
 from ..utils import business_date, today
 

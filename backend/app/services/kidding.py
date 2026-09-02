@@ -38,6 +38,14 @@ from ._common import (
 from .animals import _tag_exists, move_animal
 
 
+class LitterSizeError(ValueError):
+    """A litter above the species' biological cap (goat ≤4, buffalo ≤2).
+
+    Input-shape validation, not a raced lifecycle state: routers map it to
+    422 while every other ValueError from ``record_kidding`` stays a 409.
+    """
+
+
 class KidSpec(TypedDict):
     """One kid in a kidding record."""
 
@@ -92,7 +100,7 @@ async def record_kidding(
     if br.ultrasound_result_date is not None and kidding_date < br.ultrasound_result_date:
         raise ValueError("Kidding date cannot predate the pregnancy confirmation")
     if len(kids) > profile.max_litter_size:
-        raise ValueError(
+        raise LitterSizeError(
             f"A {profile.farm_type.lower()} {profile.parturition} cannot deliver more than "
             f"{profile.max_litter_size} {profile.young_plural} (recorded {len(kids)})"
         )

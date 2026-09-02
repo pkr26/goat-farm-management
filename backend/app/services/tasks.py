@@ -512,7 +512,17 @@ async def complete_task(
 
         moving_kids = [kid for kid in weaning_kids if _weaning_target(kid) is not None]
         candidates = [*moving_kids]
-        if weaning_doe_can_rest:
+        # The dam is pre-flight-checked exactly when the completion can move
+        # her (DELIVERY/RECOVERY → RESTING below). Goat dams wean out of
+        # RECOVERY with their kids. A dairy dam already left the fresh pen at
+        # +10 days and — following her own 60-day VWP — is typically re-bred
+        # (BREEDING/PREGNANCY_*) by the day-90 milk-weaning; this duty then
+        # graduates only her calves, so demanding a "weaning" RESTING
+        # transition for her would 409 the standard protocol flow.
+        if weaning_doe_can_rest and weaning_doe.current_bucket in (
+            Bucket.DELIVERY.value,
+            Bucket.RECOVERY.value,
+        ):
             candidates.insert(0, weaning_doe)
         if any(
             bucket_transition_error(

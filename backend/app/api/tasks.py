@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import (
-    species_profile,
     VERIFICATION_REQUIRED_CATEGORIES,
     Animal,
     AnimalStatus,
@@ -32,6 +31,7 @@ from ..models import (
     TaskCategory,
     TaskStatus,
     User,
+    species_profile,
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskSkipIn, TaskTabsOut
