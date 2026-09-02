@@ -5,10 +5,10 @@
  * OpenAPI spec version: 2.0.0
  */
 
-export type PlanTargetInAnimalClass = typeof PlanTargetInAnimalClass[keyof typeof PlanTargetInAnimalClass];
+export type PlannerTargetAnimalClass = typeof PlannerTargetAnimalClass[keyof typeof PlannerTargetAnimalClass];
 
 
-export const PlanTargetInAnimalClass = {
+export const PlannerTargetAnimalClass = {
   doe: 'doe',
   buck: 'buck',
   female_kid: 'female_kid',

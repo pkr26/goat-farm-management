@@ -4,19 +4,20 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
-import type { PlanTargetIn } from './planTargetIn';
+import type { PlannerTargetIn } from './plannerTargetIn';
 import type { SimulationAssumptions } from './simulationAssumptions';
 
 /**
- * A plan: the assumptions it runs against plus the sale targets.
+ * A backward plan: the assumptions it runs against plus calendar-dated
+ * sale targets.
  */
-export interface PlanIn {
+export interface BackwardPlanIn {
   assumptions: SimulationAssumptions;
   /**
      * @minItems 1
      * @maxItems 50
      */
-  targets: PlanTargetIn[];
+  targets: PlannerTargetIn[];
   close_gaps?: boolean;
   /**
      * @minimum 0

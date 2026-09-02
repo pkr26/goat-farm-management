@@ -20,7 +20,6 @@ import {
   IndianRupee,
   Info,
   Landmark,
-  Milk,
   Percent,
   PiggyBank,
   Play,
@@ -54,8 +53,6 @@ import {
   useHerdSnapshotApiSimulationHerdSnapshotGet,
   useListBreedsApiSimulationDefaultsBreedsGet,
   useListScenariosApiSimulationScenariosGet,
-  usePlanMilkApiSimulationMilkPlannerPlanPost,
-  usePlanSalesApiSimulationPlannerPlanPost,
   useRunAdhocApiSimulationRunPost,
   useRunScenarioApiSimulationScenariosScenarioIdRunPost,
   useUpdateScenarioApiSimulationScenariosScenarioIdPatch,
@@ -65,11 +62,8 @@ import type {
   FarmCalibrationOut,
   HerdEventAssumptions,
   MetricExplanation,
-  MilkPlanReport,
   OptimizationCandidate,
   PercentileBand,
-  PlanReport,
-  PlanTargetIn,
   ScenarioOut,
   SimulationAssumptions,
   SimulationResult,
@@ -122,7 +116,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
-import { formatFarmDateTime, formatLitres, formatMoney } from "@/lib/format";
+import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import {
   SIMULATION_SECTION_HELP,
   simulationFieldHelp,
@@ -554,15 +548,6 @@ const HORIZON_PRESETS = [
 
 /** value → label maps for the root `items` prop: without them, Base UI's
  * Select.Value renders the raw value in the closed trigger. */
-/** Head counts print as whole numbers: plans are stated in whole animals. */
-function formatPlanCount(value: number): string {
-  return Number.isFinite(value)
-    ? Number.isInteger(value)
-      ? String(value)
-      : value.toFixed(1)
-    : "—";
-}
-
 function eventClassItems(vocabulary: FarmVocabulary): Record<string, string> {
   const young = vocabulary.young;
   return {
@@ -575,10 +560,6 @@ function eventClassItems(vocabulary: FarmVocabulary): Record<string, string> {
     female_grower: "Female grower",
     male_grower: "Male grower",
   };
-}
-
-function formatPlanClass(animalClass: string, vocabulary: FarmVocabulary): string {
-  return eventClassItems(vocabulary)[animalClass] ?? animalClass;
 }
 
 const EVENT_KIND_ITEMS: Record<string, string> = {
@@ -1193,28 +1174,6 @@ export default function SimulationPage() {
   const [events, setEvents] = useState<HerdEventAssumptions[]>([]);
   const eventKeyCounter = useRef(0);
   const [eventKeys, setEventKeys] = useState<string[]>([]);
-  // Sale planner: the targets are separate from the events editor because a
-  // plan is a *statement of intent* the engine checks against projected
-  // supply — the matching sale events are generated, not hand-written.
-  const [planTargets, setPlanTargets] = useState<PlanTargetIn[]>([]);
-  const [planReport, setPlanReport] = useState<PlanReport | null>(null);
-  // The targets the checked report was built from. A report whose targets
-  // have since been edited must not be applied: its recommended purchases
-  // were sized for the old plan.
-  const [planTargetsSnapshot, setPlanTargetsSnapshot] = useState<
-    string | null
-  >(null);
-  const [planError, setPlanError] = useState<string | null>(null);
-  // Milk planner: the daily litres target is a procurement contract, not a
-  // herd size — the planner reverse-designs the herd, calving/AI calendar and
-  // in-milk purchases that ship it. Dairy-only; hidden for meat scenarios.
-  const [milkTarget, setMilkTarget] = useState(1000);
-  const [milkRampMonths, setMilkRampMonths] = useState(1);
-  const [milkProjectionMonths, setMilkProjectionMonths] = useState(36);
-  const [milkHoldYearRound, setMilkHoldYearRound] = useState(false);
-  const [milkReport, setMilkReport] = useState<MilkPlanReport | null>(null);
-  const [milkInputsSnapshot, setMilkInputsSnapshot] = useState<string | null>(null);
-  const [milkError, setMilkError] = useState<string | null>(null);
   const [recurrenceOpen, setRecurrenceOpen] = useState(false);
   const [recurrence, setRecurrence] = useState({
     month: 1,
@@ -1398,8 +1357,6 @@ export default function SimulationPage() {
       : undefined;
 
   const runMutation = useRunAdhocApiSimulationRunPost();
-  const planMutation = usePlanSalesApiSimulationPlannerPlanPost();
-  const milkPlanMutation = usePlanMilkApiSimulationMilkPlannerPlanPost();
   const runScenarioMutation = useRunScenarioApiSimulationScenariosScenarioIdRunPost();
   const createMutation = useCreateScenarioApiSimulationScenariosPost();
   const updateMutation = useUpdateScenarioApiSimulationScenariosScenarioIdPatch();
@@ -1498,20 +1455,7 @@ export default function SimulationPage() {
 
   /** Horizon from the meta section; gates event-month validation. */
   const horizonMonths = assumptions?.meta?.horizon_months ?? 240;
-  // A lactation milk figure makes the scenario a dairy *economics* run (it
-  // gates the milk-planner tab and the dairy sale-planner copy) — but the
-  // nouns stay the farm's own species: a goat dairy exploring milk economics
-  // must not suddenly see "Milking buffalo" options.
-  const isDairyScenario =
-    (assumptions?.sales?.lactation_milk_litres ?? 0) > 0 &&
-    (assumptions?.reproduction?.lactation_months ?? 0) > 0;
   const simVocabulary = farmVocabulary(useFarmType());
-  // Sale-planner lead time from the scenario's own biology (goat defaults:
-  // 9 mo finish + 5 mo gestation). Hardcoding the goat offsets under a
-  // species-interpolated noun quoted goat gestation for buffalo meat plans.
-  const saleConceivedMonthsAgo =
-    (assumptions?.growth?.sale_age_months ?? 9) + (assumptions?.reproduction?.gestation_months ?? 5);
-  const saleBornMonthsAgo = assumptions?.growth?.sale_age_months ?? 9;
   const eventErrors = validateEvents(events, horizonMonths);
   const assumptionErrors: string[] = [];
   if (assumptions) {
@@ -1730,146 +1674,6 @@ export default function SimulationPage() {
     setEvents((prev) => [...prev, ...rows]);
     setRecurrenceOpen(false);
     toast.success(`Added ${rows.length} recurring ${kind} event(s).`);
-  }
-
-  function addPlanTarget() {
-    setPlanTargets((prev) => [
-      ...prev,
-      { month: Math.min(24, horizonMonths), animal_class: "male_grower", count: 20 },
-    ]);
-  }
-
-  function updatePlanTarget(index: number, patch: Partial<PlanTargetIn>) {
-    setPlanTargets((prev) =>
-      prev.map((target, i) => (i === index ? { ...target, ...patch } : target)),
-    );
-  }
-
-  function removePlanTarget(index: number) {
-    setPlanTargets((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  async function onPlan() {
-    await simulationAction.run(async () => {
-      const payload = assumptionsWithEvents();
-      if (!payload || hasEditorErrors || planTargets.length === 0) return;
-      setPlanError(null);
-      try {
-        const res = await planMutation.mutateAsync({
-          data: {
-            assumptions: payload,
-            targets: planTargets,
-            close_gaps: true,
-            risk_runs: 100,
-          },
-        });
-        if (res.status === 200) {
-          setPlanReport(res.data);
-          setPlanTargetsSnapshot(JSON.stringify(planTargets));
-        }
-      } catch (err) {
-        const message = runErrorMessage(err, "Plan check failed");
-        setPlanError(message);
-        toast.error(message);
-      }
-    });
-  }
-
-  const planReportIsStale =
-    planReport !== null && planTargetsSnapshot !== JSON.stringify(planTargets);
-
-  const milkPlanInputs = {
-    target: milkTarget,
-    ramp: milkRampMonths,
-    projection: milkProjectionMonths,
-    yearRound: milkHoldYearRound,
-  };
-
-  async function onMilkPlan() {
-    await simulationAction.run(async () => {
-      const payload = assumptionsWithEvents();
-      if (!payload || hasEditorErrors) return;
-      setMilkError(null);
-      try {
-        const res = await milkPlanMutation.mutateAsync({
-          data: {
-            assumptions: payload,
-            daily_target_litres: milkTarget,
-            ramp_months: milkRampMonths,
-            projection_months: milkProjectionMonths,
-            hold_year_round: milkHoldYearRound,
-          },
-        });
-        if (res.status === 200) {
-          setMilkReport(res.data);
-          setMilkInputsSnapshot(JSON.stringify(milkPlanInputs));
-        }
-      } catch (err) {
-        const message = runErrorMessage(err, "Milk plan failed");
-        setMilkError(message);
-        toast.error(message);
-      }
-    });
-  }
-
-  const milkReportIsStale =
-    milkReport !== null && milkInputsSnapshot !== JSON.stringify(milkPlanInputs);
-
-  /** Turn a checked plan into events: keep purchases, REPLACE existing sale
-   * events with the targets, and add the planner's recommended purchases.
-   * (The planner owns sale events — keeping the old ones would double-sell
-   * the same animals.) */
-  function applyPlanToEvents() {
-    if (!planReport || planReportIsStale) return;
-    const saleEvents: HerdEventAssumptions[] = planTargets.map((target) => ({
-      month: target.month,
-      kind: "sale" as const,
-      animal_class: target.animal_class,
-      count: target.count,
-      price_per_head: null,
-    }));
-    const next = [
-      ...events.filter((event) => event.kind === "purchase"),
-      ...planReport.recommended_purchases.map((purchase) => ({
-        month: purchase.month,
-        kind: "purchase" as const,
-        animal_class: purchase.animal_class,
-        count: purchase.count,
-        price_per_head: purchase.price_per_head ?? null,
-      })),
-      ...saleEvents,
-    ];
-    if (next.length > 500) {
-      toast.error("Applying the plan would exceed the 500-event limit.");
-      return;
-    }
-    acceptDefaultsRef.current = false;
-    editorContentEpochRef.current += 1;
-    const nextKeys = [
-      ...eventKeys.slice(0, next.length),
-      ...next.slice(eventKeys.length).map(() => `event-${eventKeyCounter.current++}`),
-    ];
-    // Rows that disappear must take their validity markers with them, or a
-    // dropped invalid row leaves Run/Save disabled with nothing highlighted
-    // (removeEvent does the same cleanup).
-    const keptKeys = new Set(nextKeys);
-    setInvalidFields((previous) => {
-      const nextInvalid = new Set<string>();
-      for (const key of previous) {
-        const match = /^event:([^:]+):/.exec(key);
-        if (!match || keptKeys.has(match[1])) nextInvalid.add(key);
-      }
-      return nextInvalid;
-    });
-    setEventKeys(nextKeys);
-    setEvents(next);
-    const replacedSales = events.filter((event) => event.kind === "sale").length;
-    toast.success(
-      `Plan applied: ${planReport.recommended_purchases.length} recommended purchase(s) + ${saleEvents.length} sale event(s)` +
-        (replacedSales > 0
-          ? ` (${replacedSales} existing sale event${replacedSales === 1 ? "" : "s"} replaced).`
-          : "."),
-    );
   }
 
   async function onUseCurrentHerd() {
@@ -3201,8 +3005,6 @@ export default function SimulationPage() {
             calibration ? (["sim-calibration", "Calibration"]) : null,
             ["sim-assumptions", "Assumptions"],
             ["sim-events", "Herd events"],
-            ["sim-sale-planner", "Sale planner"],
-            isDairyScenario ? (["sim-milk-planner", "Milk planner"]) : null,
             result ? (["sim-results", "Results"]) : null,
             ["sim-scenarios", "Scenarios"],
           ].filter(Boolean) as [string, string][]).map(([href, label]) => (
@@ -3829,416 +3631,6 @@ export default function SimulationPage() {
         </DialogContent>
       </Dialog>
 
-      <DataTableCard
-        title="Sale planner"
-        id="sim-sale-planner"
-        tabIndex={-1}
-        className="scroll-mt-28 focus:outline-none"
-        description="State what must be sold and when; the simulator checks whether the projected herd can supply it, and recommends the purchases that close the gap. The planner owns sale events: existing ones are excluded from the check and replaced when you apply a plan."
-        actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={addPlanTarget}
-              disabled={!assumptions || planTargets.length >= 50}
-            >
-              <Plus />
-              Add target
-            </Button>
-            <Button
-              size="sm"
-              onClick={onPlan}
-              disabled={
-                !assumptions ||
-                planTargets.length === 0 ||
-                hasEditorErrors ||
-                planMutation.isPending
-              }
-            >
-              {planMutation.isPending ? "Checking…" : "Check plan"}
-            </Button>
-          </div>
-        }
-        contentClassName="space-y-3"
-      >
-        {planTargets.length === 0 ? (
-          <EmptyState
-            icon={Target}
-            title="No sale targets"
-            description={
-              isDairyScenario
-                ? "Plan 12–24 months ahead. The sale planner is primarily a meat-herd tool — on a dairy it fits cull and surplus-animal sales, while milk income follows the lactation curve."
-                : `Plan 12–24 months ahead: a ${simVocabulary.species} sold in month T was born around T−${saleBornMonthsAgo} and conceived around T−${saleConceivedMonthsAgo}.`
-            }
-          />
-        ) : (
-          <Table className="min-w-[720px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Month</TableHead>
-                <TableHead>Class</TableHead>
-                <TableHead>Count</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {planTargets.map((target, index) => (
-                <TableRow key={`plan-target-${index}`}>
-                  <TableCell>
-                    <NumberInput
-                      id={`plan-target-${index}-month`}
-                      aria-label="Sale month"
-                      min={1}
-                      max={horizonMonths}
-                      integer
-                      className="w-20"
-                      value={target.month}
-                      onCommit={(n) => updatePlanTarget(index, { month: n })}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={target.animal_class}
-                      onValueChange={(v) =>
-                        updatePlanTarget(index, {
-                          animal_class: v as PlanTargetIn["animal_class"],
-                        })
-                      }
-                      items={eventClassItems(simVocabulary)}
-                    >
-                      <SelectTrigger aria-label="Class" size="sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(eventClassItems(simVocabulary)).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <NumberInput
-                      id={`plan-target-${index}-count`}
-                      aria-label="Count"
-                      exclusiveMin={0}
-                      max={100_000}
-                      className="w-20"
-                      value={target.count}
-                      onCommit={(n) => updatePlanTarget(index, { count: n })}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => removePlanTarget(index)}
-                    >
-                      Remove
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-
-        {planError && (
-          <p role="alert" className="text-sm text-destructive">
-            {planError}
-          </p>
-        )}
-
-        {planReport && (
-          <div className="space-y-3 rounded-lg border border-border p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-medium">
-                {planReport.gaps_closed
-                  ? "Plan is feasible"
-                  : "Plan cannot fully close"}
-                {" · "}
-                <span className="text-muted-foreground">
-                  shortfall{" "}
-                  {formatPlanCount(
-                    (planReport.after ?? planReport.before).total_shortfall,
-                  )}{" "}
-                  head after recommendations
-                </span>
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={applyPlanToEvents}
-                disabled={
-                  planReportIsStale ||
-                  (planReport.recommended_purchases.length === 0 &&
-                    planReport.before.all_met)
-                }
-                title={
-                  planReportIsStale
-                    ? "Targets changed since this plan was checked — run Check plan again."
-                    : undefined
-                }
-              >
-                {planReportIsStale ? "Stale — recheck" : "Apply to events"}
-              </Button>
-            </div>
-            <Table className="min-w-[720px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead>Class</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Filled now</TableHead>
-                  <TableHead>With purchases</TableHead>
-                  <TableHead>₹/head</TableHead>
-                  <TableHead>P(full)</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {planReport.before.targets.map((fill, index) => {
-                  const after = planReport.after?.targets[index];
-                  const risk = planReport.probabilities?.[index];
-                  return (
-                    <TableRow key={`plan-fill-${fill.month}-${index}`}>
-                      <TableCell>{fill.month}</TableCell>
-                      <TableCell>{formatPlanClass(fill.animal_class, simVocabulary)}</TableCell>
-                      <TableCell>{formatPlanCount(fill.requested)}</TableCell>
-                      <TableCell>
-                        {fill.met ? "✓" : "⚠"} {formatPlanCount(fill.filled)}
-                      </TableCell>
-                      <TableCell>
-                        {after
-                          ? `${after.met ? "✓" : "⚠"} ${formatPlanCount(after.filled)}`
-                          : "—"}
-                      </TableCell>
-                      <TableCell>{formatMoney(fill.price_per_head)}</TableCell>
-                      <TableCell>
-                        {risk ? `${Math.round(risk.p_full * 100)}%` : "—"}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            {planReport.recommended_purchases.length > 0 && (
-              <p className="text-sm text-muted-foreground">
-                Buy{" "}
-                {planReport.recommended_purchases
-                  .map(
-                    (purchase) =>
-                      `${formatPlanCount(purchase.count)} ${purchase.count === 1 ? simVocabulary.femaleAdult : simVocabulary.femaleAdultPlural} in month ${purchase.month}`,
-                  )
-                  .join(", ")}{" "}
-                to back the plan.
-              </p>
-            )}
-            {(planReport.notes ?? []).map((note, index) => (
-              <p
-                key={`plan-note-${index}`}
-                className="text-sm text-muted-foreground"
-                role="note"
-              >
-                {note}
-              </p>
-            ))}
-          </div>
-        )}
-      </DataTableCard>
-
-      {isDairyScenario && (
-        <DataTableCard
-          title="Milk planner"
-          id="sim-milk-planner"
-          tabIndex={-1}
-          className="scroll-mt-28 focus:outline-none"
-          description="State the litres per day the dairy must ship (a procurement contract or bulk buyer). The planner designs the herd that delivers it: how many animals at which lactation stages, the calving/AI calendar that keeps the tank flat, and the in-milk purchases that build it — biology included, since yield follows the lactation curve and dries off before the next calving."
-          actions={
-            <Button
-              size="sm"
-              onClick={onMilkPlan}
-              disabled={
-                !assumptions ||
-                hasEditorErrors ||
-                milkPlanMutation.isPending ||
-                milkTarget <= 0
-              }
-            >
-              {milkPlanMutation.isPending ? "Planning…" : "Plan milk"}
-            </Button>
-          }
-          contentClassName="space-y-3"
-        >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-1">
-              <Label htmlFor="milk-target">Daily target (L)</Label>
-              <NumberInput
-                id="milk-target"
-                exclusiveMin={0}
-                max={1_000_000}
-                value={milkTarget}
-                onCommit={(n) => setMilkTarget(n)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="milk-ramp">Ramp (months)</Label>
-              <NumberInput
-                id="milk-ramp"
-                min={1}
-                max={Math.max(1, Math.min(60, horizonMonths - 1))}
-                integer
-                className="w-24"
-                value={milkRampMonths}
-                onCommit={(n) => setMilkRampMonths(n)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="milk-projection">Projection (months)</Label>
-              <NumberInput
-                id="milk-projection"
-                min={12}
-                max={horizonMonths}
-                integer
-                className="w-24"
-                value={milkProjectionMonths}
-                onCommit={(n) => setMilkProjectionMonths(n)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="milk-year-round">Sizing</Label>
-              <Select
-                value={milkHoldYearRound ? "year_round" : "average"}
-                onValueChange={(v) => setMilkHoldYearRound(v === "year_round")}
-                items={{ average: "12-month average", year_round: "Hold year-round" }}
-              >
-                <SelectTrigger id="milk-year-round" size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="average">12-month average</SelectItem>
-                  <SelectItem value="year_round">Hold year-round</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {milkError && (
-            <p role="alert" className="text-sm text-destructive">
-              {milkError}
-            </p>
-          )}
-
-          {!milkReport ? (
-            <EmptyState
-              icon={Milk}
-              title="No milk plan yet"
-              description="Enter the daily litres you must ship — the planner sizes the herd, the monthly calving calendar and the AI schedule behind it."
-            />
-          ) : (
-            <div className="space-y-3 rounded-lg border border-border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-medium">
-                  {milkReport.achievable ? "Target is achievable" : "Target falls short"}
-                  {" · "}
-                  <span className="text-muted-foreground">
-                    steady {formatLitres(milkReport.steady_average_daily_litres)} L/day
-                    {milkReport.steady_from_month !== null
-                      ? ` from month ${milkReport.steady_from_month}`
-                      : ""}
-                    {milkReportIsStale ? " · stale — re-plan after edits" : ""}
-                  </span>
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {formatHead(milkReport.herd.breeding_does)} breeding (
-                  {formatHead(milkReport.herd.milking_does)} milking) ·{" "}
-                  {formatHead(milkReport.herd.calvings_per_month)} calvings and{" "}
-                  {formatHead(milkReport.herd.ai_services_per_month)} AI/month
-                </span>
-              </div>
-
-              {milkReport.purchases.length > 0 && (
-                <p className="text-sm text-muted-foreground" role="note">
-                  Buy{" "}
-                  {milkReport.purchases
-                    .map(
-                      (purchase) =>
-                        `${formatHead(purchase.count)} in-milk animal(s) in month ${purchase.month}`,
-                    )
-                    .join(", ")}
-                  {". "}
-                  {milkReport.herd.replacement_purchases_total > 0 && (
-                    <>
-                      Plus a replacement bridge of{" "}
-                      {formatHead(milkReport.herd.replacement_purchases_total)} head over the
-                      plan — culling and mortality the heifer pipeline cannot cover yet.
-                    </>
-                  )}
-                </p>
-              )}
-
-              <div className="max-h-80 overflow-auto">
-                <Table className="min-w-[860px]">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Month</TableHead>
-                      <TableHead>Cal</TableHead>
-                      <TableHead>Milking</TableHead>
-                      <TableHead>Dry</TableHead>
-                      <TableHead>Calvings</TableHead>
-                      <TableHead>AI</TableHead>
-                      <TableHead>L/day</TableHead>
-                      <TableHead>Gap</TableHead>
-                      <TableHead>₹ milk</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {milkReport.projection.map((row) => (
-                      <TableRow key={`milk-month-${row.month}`}>
-                        <TableCell>{row.month}</TableCell>
-                        <TableCell>{row.calendar_month}</TableCell>
-                        <TableCell>{formatHead(row.milking_does)}</TableCell>
-                        <TableCell>{formatHead(row.dry_does)}</TableCell>
-                        <TableCell>{formatHead(row.freshenings)}</TableCell>
-                        <TableCell>{formatHead(row.ai_services)}</TableCell>
-                        <TableCell
-                          className={row.meets_target ? "" : "text-warning-tint-foreground"}
-                        >
-                          <span className="inline-flex items-center gap-1.5">
-                            {formatLitres(row.projected_daily_litres)}
-                            {!row.meets_target && (
-                              <>
-                                <TriangleAlert
-                                  className="size-3.5 shrink-0"
-                                  aria-hidden="true"
-                                />
-                                <span className="text-xs font-medium">below target</span>
-                              </>
-                            )}
-                          </span>
-                        </TableCell>
-                        <TableCell>{formatLitres(row.gap_daily_litres)}</TableCell>
-                        <TableCell>{formatMoney(row.projected_monthly_revenue)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {(milkReport.notes ?? []).map((note, index) => (
-                <p
-                  key={`milk-note-${index}`}
-                  className="text-sm text-muted-foreground"
-                  role="note"
-                >
-                  {note}
-                </p>
-              ))}
-            </div>
-          )}
-        </DataTableCard>
-      )}
       </fieldset>
 
       <section className="space-y-3">

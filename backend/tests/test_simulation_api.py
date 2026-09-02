@@ -18,19 +18,22 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
+import app.api._run_limits as run_limits
 import app.api.simulation as simulation_api
-from app.api.simulation import (
-    _BREAK_EVEN_PASSES,
+from app.api._run_limits import (
     _RUN_BUDGET_UNITS,
-    _SENSITIVITY_PASSES,
     _farm_run_lock,
     _farm_run_locks,
     _global_run_slots,
     _run_budget,
-    _run_cost,
     _RunCostWindow,
     _user_run_locks,
     _with_run_limits,
+)
+from app.api.simulation import (
+    _BREAK_EVEN_PASSES,
+    _SENSITIVITY_PASSES,
+    _run_cost,
 )
 from app.core.config import get_settings
 from app.db import get_engine, get_sessionmaker
@@ -59,11 +62,11 @@ def _reset_in_process_run_state() -> None:
     existing objects in place — tests import ``_run_budget`` by reference, so
     rebinding the module attribute would disconnect them from the API's
     budget."""
-    simulation_api._run_budget.clear()
-    simulation_api._farm_run_locks.clear()
+    run_limits._run_budget.clear()
+    run_limits._farm_run_locks.clear()
     yield
-    simulation_api._run_budget.clear()
-    simulation_api._farm_run_locks.clear()
+    run_limits._run_budget.clear()
+    run_limits._farm_run_locks.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -1316,7 +1319,7 @@ async def test_cancelled_queued_run_releases_lease_and_never_starts_late(
         engine_calls += 1
         return object()
 
-    monkeypatch.setattr(simulation_api, "run_in_threadpool", parked_thread_submission)
+    monkeypatch.setattr(run_limits, "run_in_threadpool", parked_thread_submission)
     monkeypatch.setattr(simulation_api, "_run", counted_run)
     assumptions = SimulationAssumptions()
 

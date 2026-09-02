@@ -9769,242 +9769,6 @@
         }
       }
     },
-    "/api/simulation/planner/plan": {
-      "post": {
-        "tags": [
-          "simulation"
-        ],
-        "summary": "Plan Sales",
-        "description": "Evaluate a sale plan against the projected herd, close gaps with\npurchases, and (optionally) risk-score the closed plan.\n\nTargets beyond the run horizon are a client bug, not a plan: reject them\nat 422 instead of letting the engine silently never fire the sale.",
-        "operationId": "plan_sales_api_simulation_planner_plan_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PlanIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlanReport"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Rejected (invalid state or values)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Authenticated but not permitted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (or belongs to another farm)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (state, replay, or race)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/simulation/milk-planner/plan": {
-      "post": {
-        "tags": [
-          "simulation"
-        ],
-        "summary": "Plan Milk",
-        "description": "Design the dairy herd that ships a daily litres target.\n\nReverse-plans from the target to biology: how many animals at which\nlactation stages, the calving/AI calendar that keeps daily yield flat, and\nthe in-milk purchases that build the herd. Only meaningful for dairy\nassumptions (``sales.lactation_milk_litres > 0``).",
-        "operationId": "plan_milk_api_simulation_milk_planner_plan_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "x-farm-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "X-Farm-Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MilkPlanIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MilkPlanReport"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Rejected (invalid state or values)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not authenticated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Authenticated but not permitted",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found (or belongs to another farm)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict (state, replay, or race)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/simulation/scenarios": {
       "post": {
         "tags": [
@@ -10808,6 +10572,854 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/planner/plan": {
+      "post": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "Plan Sales",
+        "description": "Work backward from calendar-dated sale targets to a dated to-do list:\nfeasibility, the stage plan month by month, purchases/breeding/sales\nactions, and each target's requirement chain.",
+        "operationId": "plan_sales_api_planner_plan_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackwardPlanIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackwardPlanReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/planner/milk-plan": {
+      "post": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "Plan Milk",
+        "description": "Design the dairy herd that ships a daily litres target.\n\nReverse-plans from the target to biology: how many animals at which\nlactation stages, the calving/AI calendar that keeps daily yield flat, and\nthe in-milk purchases that build the herd. Only meaningful for dairy\nassumptions (``sales.lactation_milk_litres > 0``).",
+        "operationId": "plan_milk_api_planner_milk_plan_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MilkPlanIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilkPlanReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/planner/plans": {
+      "post": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "Create Plan",
+        "operationId": "create_plan_api_planner_plans_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannerPlanCreateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerPlanOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "List Plans",
+        "operationId": "list_plans_api_planner_plans_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerPlanListOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/planner/plans/{plan_id}": {
+      "get": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "Get Plan",
+        "operationId": "get_plan_api_planner_plans__plan_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerPlanOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "Update Plan",
+        "operationId": "update_plan_api_planner_plans__plan_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannerPlanUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerPlanOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "planner"
+        ],
+        "summary": "Delete Plan",
+        "operationId": "delete_plan_api_planner_plans__plan_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Plan Id"
+            }
+          },
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "400": {
             "description": "Rejected (invalid state or values)",
@@ -11981,6 +12593,105 @@
         ],
         "title": "AnnualPLRow",
         "description": "Annual profit-and-loss aggregation (12-month blocks)."
+      },
+      "BackwardPlanIn": {
+        "properties": {
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerTargetIn"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Targets"
+          },
+          "close_gaps": {
+            "type": "boolean",
+            "title": "Close Gaps",
+            "default": true
+          },
+          "risk_runs": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 0.0,
+            "title": "Risk Runs",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "assumptions",
+          "targets"
+        ],
+        "title": "BackwardPlanIn",
+        "description": "A backward plan: the assumptions it runs against plus calendar-dated\nsale targets."
+      },
+      "BackwardPlanReport": {
+        "properties": {
+          "start_year_month": {
+            "type": "string",
+            "title": "Start Year Month"
+          },
+          "horizon_months": {
+            "type": "integer",
+            "title": "Horizon Months"
+          },
+          "targets_echo": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerTarget"
+            },
+            "type": "array",
+            "title": "Targets Echo"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanReport"
+          },
+          "stage_plan": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerMonthRow"
+            },
+            "type": "array",
+            "title": "Stage Plan"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerAction"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "chains": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementChain"
+            },
+            "type": "array",
+            "title": "Chains"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start_year_month",
+          "horizon_months",
+          "targets_echo",
+          "plan",
+          "stage_plan",
+          "actions",
+          "chains"
+        ],
+        "title": "BackwardPlanReport",
+        "description": "Everything the Planner page renders: feasibility (``plan``, in engine\nmonths \u2014 pair its ``targets``/``probabilities`` with ``targets_echo`` by\nindex for calendar labels), the dated stage plan, the action list and the\nper-target requirement chains."
       },
       "BreedingCandidateAvailabilityOut": {
         "properties": {
@@ -16503,6 +17214,14 @@
             "type": "number",
             "title": "Dry Does"
           },
+          "dry_months_per_cycle": {
+            "type": "number",
+            "title": "Dry Months Per Cycle"
+          },
+          "milking_share_of_herd": {
+            "type": "number",
+            "title": "Milking Share Of Herd"
+          },
           "calvings_per_month": {
             "type": "number",
             "title": "Calvings Per Month"
@@ -16557,6 +17276,8 @@
           "breeding_does",
           "milking_does",
           "dry_does",
+          "dry_months_per_cycle",
+          "milking_share_of_herd",
           "calvings_per_month",
           "ai_services_per_month",
           "replacement_does_per_month",
@@ -16787,6 +17508,13 @@
           "achievable": {
             "type": "boolean",
             "title": "Achievable"
+          },
+          "explanations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Explanations"
           },
           "notes": {
             "items": {
@@ -18280,42 +19008,6 @@
         "title": "PlanEvaluation",
         "description": "Forward-run feasibility of a whole target list, plus the plan's money."
       },
-      "PlanIn": {
-        "properties": {
-          "assumptions": {
-            "$ref": "#/components/schemas/SimulationAssumptions"
-          },
-          "targets": {
-            "items": {
-              "$ref": "#/components/schemas/PlanTargetIn"
-            },
-            "type": "array",
-            "maxItems": 50,
-            "minItems": 1,
-            "title": "Targets"
-          },
-          "close_gaps": {
-            "type": "boolean",
-            "title": "Close Gaps",
-            "default": true
-          },
-          "risk_runs": {
-            "type": "integer",
-            "maximum": 500.0,
-            "minimum": 0.0,
-            "title": "Risk Runs",
-            "default": 0
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "assumptions",
-          "targets"
-        ],
-        "title": "PlanIn",
-        "description": "A plan: the assumptions it runs against plus the sale targets."
-      },
       "PlanLineOut": {
         "properties": {
           "bucket": {
@@ -18421,12 +19113,395 @@
         "title": "PlanReport",
         "description": "Planner output: feasibility, the gap-closing purchases, and risk."
       },
-      "PlanTargetIn": {
+      "PlannerAction": {
         "properties": {
           "month": {
             "type": "integer",
-            "minimum": 1.0,
             "title": "Month"
+          },
+          "year_month": {
+            "type": "string",
+            "title": "Year Month"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "purchase",
+              "breed",
+              "expect_births",
+              "retain",
+              "sell"
+            ],
+            "title": "Kind"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "year_month",
+          "kind",
+          "headline",
+          "detail"
+        ],
+        "title": "PlannerAction",
+        "description": "One dated instruction in the plan's to-do list."
+      },
+      "PlannerMonthRow": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "year_month": {
+            "type": "string",
+            "title": "Year Month"
+          },
+          "female_kids": {
+            "type": "number",
+            "title": "Female Kids"
+          },
+          "male_kids": {
+            "type": "number",
+            "title": "Male Kids"
+          },
+          "female_weaners": {
+            "type": "number",
+            "title": "Female Weaners"
+          },
+          "male_weaners": {
+            "type": "number",
+            "title": "Male Weaners"
+          },
+          "female_growers": {
+            "type": "number",
+            "title": "Female Growers"
+          },
+          "male_growers": {
+            "type": "number",
+            "title": "Male Growers"
+          },
+          "open_does": {
+            "type": "number",
+            "title": "Open Does"
+          },
+          "pregnant_does": {
+            "type": "number",
+            "title": "Pregnant Does"
+          },
+          "lactating_does": {
+            "type": "number",
+            "title": "Lactating Does"
+          },
+          "bucks": {
+            "type": "number",
+            "title": "Bucks"
+          },
+          "total_head": {
+            "type": "number",
+            "title": "Total Head"
+          },
+          "births": {
+            "type": "number",
+            "title": "Births"
+          },
+          "deaths": {
+            "type": "number",
+            "title": "Deaths"
+          },
+          "culls_head": {
+            "type": "number",
+            "title": "Culls Head"
+          },
+          "sales_head": {
+            "type": "number",
+            "title": "Sales Head"
+          },
+          "purchases_head": {
+            "type": "number",
+            "title": "Purchases Head"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "month",
+          "year_month",
+          "female_kids",
+          "male_kids",
+          "female_weaners",
+          "male_weaners",
+          "female_growers",
+          "male_growers",
+          "open_does",
+          "pregnant_does",
+          "lactating_does",
+          "bucks",
+          "total_head",
+          "births",
+          "deaths",
+          "culls_head",
+          "sales_head",
+          "purchases_head"
+        ],
+        "title": "PlannerMonthRow",
+        "description": "One month of the stage plan: head that must stand in each stage\n(end-of-month, matching the engine's reporting convention) plus the\nmonth's flows."
+      },
+      "PlannerPlanCreateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Notes",
+            "default": ""
+          },
+          "start_year_month": {
+            "type": "string",
+            "pattern": "^(19\\d{2}|20\\d{2}|21[0-1]\\d|2200)-(0[1-9]|1[0-2])$",
+            "title": "Start Year Month"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerTargetIn"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Targets"
+          },
+          "assumptions": {
+            "$ref": "#/components/schemas/SimulationAssumptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "start_year_month",
+          "targets",
+          "assumptions"
+        ],
+        "title": "PlannerPlanCreateIn"
+      },
+      "PlannerPlanListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerPlanOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PlannerPlanListOut",
+        "description": "One bounded page of saved plans plus the full farm-scoped count."
+      },
+      "PlannerPlanOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "farm_id": {
+            "type": "integer",
+            "title": "Farm Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes"
+          },
+          "start_year_month": {
+            "type": "string",
+            "title": "Start Year Month"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PlannerTarget"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets"
+          },
+          "assumptions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationAssumptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "default": true
+          },
+          "validation_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Error"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "farm_id",
+          "name",
+          "notes",
+          "start_year_month",
+          "targets",
+          "assumptions",
+          "revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PlannerPlanOut",
+        "description": "Built explicitly by the router (targets/assumptions are JSON text on\nthe ORM row)."
+      },
+      "PlannerPlanUpdateIn": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "default": 1
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "start_year_month": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Year Month"
+          },
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PlannerTargetIn"
+                },
+                "type": "array",
+                "maxItems": 50,
+                "minItems": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets"
+          },
+          "assumptions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationAssumptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PlannerPlanUpdateIn"
+      },
+      "PlannerTarget": {
+        "properties": {
+          "year_month": {
+            "type": "string",
+            "title": "Year Month"
           },
           "animal_class": {
             "type": "string",
@@ -18452,12 +19527,50 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "month",
+          "year_month",
           "animal_class",
           "count"
         ],
-        "title": "PlanTargetIn",
-        "description": "One sale target: ``count`` head of one class in one simulation month."
+        "title": "PlannerTarget",
+        "description": "One planned sale: ``count`` head of ``animal_class`` in a calendar month."
+      },
+      "PlannerTargetIn": {
+        "properties": {
+          "year_month": {
+            "type": "string",
+            "pattern": "^(19\\d{2}|20\\d{2}|21[0-1]\\d|2200)-(0[1-9]|1[0-2])$",
+            "title": "Year Month"
+          },
+          "animal_class": {
+            "type": "string",
+            "enum": [
+              "doe",
+              "buck",
+              "female_kid",
+              "male_kid",
+              "female_weaner",
+              "male_weaner",
+              "female_grower",
+              "male_grower"
+            ],
+            "title": "Animal Class"
+          },
+          "count": {
+            "type": "number",
+            "maximum": 100000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "year_month",
+          "animal_class",
+          "count"
+        ],
+        "title": "PlannerTargetIn",
+        "description": "One sale target: ``count`` head of one class in one calendar month."
       },
       "PnlRowOut": {
         "properties": {
@@ -19252,6 +20365,74 @@
         "type": "object",
         "title": "ReproductionAssumptions",
         "description": "Breeding biology (monthly resolution)."
+      },
+      "RequirementChain": {
+        "properties": {
+          "year_month": {
+            "type": "string",
+            "title": "Year Month"
+          },
+          "animal_class": {
+            "type": "string",
+            "title": "Animal Class"
+          },
+          "count": {
+            "type": "number",
+            "title": "Count"
+          },
+          "achievable": {
+            "type": "boolean",
+            "title": "Achievable"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "year_month",
+          "animal_class",
+          "count",
+          "achievable",
+          "steps",
+          "explanation"
+        ],
+        "title": "RequirementChain",
+        "description": "The backward math for one target, earliest link first."
+      },
+      "RequirementStep": {
+        "properties": {
+          "year_month": {
+            "type": "string",
+            "title": "Year Month"
+          },
+          "quantity": {
+            "type": "integer",
+            "title": "Quantity"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "year_month",
+          "quantity",
+          "label"
+        ],
+        "title": "RequirementStep",
+        "description": "One link of a target's backward requirement chain."
       },
       "RiskAssumptions": {
         "properties": {

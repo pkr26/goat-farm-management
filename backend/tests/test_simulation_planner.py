@@ -180,51 +180,6 @@ def test_run_simulation_revalidates_mutated_assumptions() -> None:
 # ---------------------------------------------------------------------------
 # API surface
 # ---------------------------------------------------------------------------
-def test_planner_api_contract_exists() -> None:
-    from app.api.simulation import router
-
-    paths = {route.path for route in router.routes}
-    assert "/api/simulation/planner/plan" in paths
-
-
-async def test_planner_api_end_to_end(client) -> None:
-    from .conftest import owner_with_farm
-
-    headers = await owner_with_farm(client)
-    document = {
-        "assumptions": {
-            "meta": {"horizon_months": 36},
-            "herd": {"does": 50, "bucks": 2, "max_breeding_does": 150},
-            "sales": {"meat_price_per_kg": 400.0},
-        },
-        "targets": [{"month": 24, "animal_class": "male_grower", "count": 25}],
-        "close_gaps": True,
-        "risk_runs": 5,
-    }
-    resp = await client.post("/api/simulation/planner/plan", json=document, headers=headers)
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["before"]["targets"][0]["requested"] == 25.0
-    assert body["gaps_closed"] is True
-    assert body["after"]["all_met"] is True
-    assert body["recommended_purchases"]
-    assert len(body["probabilities"]) == 1
-    assert 0.0 <= body["probabilities"][0]["p_full"] <= 1.0
-
-
-async def test_planner_api_rejects_targets_beyond_horizon(client) -> None:
-    from .conftest import owner_with_farm
-
-    headers = await owner_with_farm(client)
-    document = {
-        "assumptions": {"meta": {"horizon_months": 12}},
-        "targets": [{"month": 40, "animal_class": "male_grower", "count": 5}],
-    }
-    resp = await client.post("/api/simulation/planner/plan", json=document, headers=headers)
-    assert resp.status_code == 422
-    assert "beyond the simulation horizon" in resp.text
-
-
 async def test_run_endpoint_returns_structured_event_fills(client) -> None:
     """The /run response carries the planner's structured fills end to end."""
     from .conftest import owner_with_farm
@@ -257,55 +212,6 @@ async def test_run_endpoint_returns_structured_event_fills(client) -> None:
 # ---------------------------------------------------------------------------
 # Audit regression tests: plans that cannot be represented must 422, not 500
 # ---------------------------------------------------------------------------
-async def test_planner_api_rejects_event_cap_overflow_with_422(client) -> None:
-    """460 existing purchases + 50 sale targets exceeds the 500-event cap.
-
-    The planner builds the combined event document inside the offloaded
-    worker; that ValidationError must surface as a clean 422, never an
-    unhandled 500.
-    """
-    from .conftest import owner_with_farm
-
-    headers = await owner_with_farm(client)
-    document = {
-        "assumptions": {
-            "meta": {"horizon_months": 60},
-            "herd": {"does": 50, "bucks": 2},
-            "events": [
-                {"month": m, "kind": "purchase", "animal_class": "doe", "count": 1}
-                for m in range(1, 61)
-                for _ in range(8)  # 480 purchases across the horizon
-            ][:460],
-        },
-        "targets": [{"month": 48, "animal_class": "male_grower", "count": 5} for _ in range(50)],
-    }
-    resp = await client.post("/api/simulation/planner/plan", json=document, headers=headers)
-    assert resp.status_code == 422, resp.text
-    assert "cannot be represented" in resp.text
-
-
-async def test_planner_api_survives_schema_max_target_count(client) -> None:
-    """count=100_000 validates as input; the gap-closer must split its
-    purchase into schema-legal chunks instead of crashing mid-iteration."""
-    from .conftest import owner_with_farm
-
-    headers = await owner_with_farm(client)
-    document = {
-        "assumptions": {
-            "meta": {"horizon_months": 36},
-            "herd": {"does": 50, "bucks": 2, "max_breeding_does": 0},
-        },
-        "targets": [{"month": 30, "animal_class": "male_grower", "count": 100_000}],
-        "close_gaps": True,
-        "risk_runs": 0,
-    }
-    resp = await client.post("/api/simulation/planner/plan", json=document, headers=headers)
-    assert resp.status_code in (200, 422), resp.text  # never a 500
-    if resp.status_code == 200:
-        for purchase in resp.json()["recommended_purchases"]:
-            assert purchase["count"] <= 100_000
-
-
 def test_oversized_purchase_is_chunked_not_rejected() -> None:
     from app.simulation.planner import _purchases_from
 

@@ -44,6 +44,7 @@ from .assumptions import MAX_HEAD, ReproductionAssumptions, SimulationAssumption
 from .engine import monthly_mortality_rate
 from .feed import DAYS_PER_MONTH
 from .lactation import curve_from_assumptions
+from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 
 class MilkCurveSummary(BaseModel):
@@ -72,6 +73,14 @@ class MilkHerdDesign(BaseModel):
     breeding_does: float  # adult breeding herd (milking + dry + pregnant)
     milking_does: float  # average head in milk
     dry_does: float  # average head dry/pregnant
+    # Months of every calving cycle a buffalo gives NO milk: her lactation
+    # ends (yield has already fallen along the curve) and she stays dry —
+    # heavily pregnant — until the next calving. This is the number that
+    # answers "why do I need dry animals at all".
+    dry_months_per_cycle: float  # calving_interval - lactation_months
+    # Share of the breeding herd that is in milk on an average day (0-1);
+    # the rest are dry or waiting. milking_share + dry_share ≈ 1.
+    milking_share_of_herd: float
     calvings_per_month: float  # freshenings needed per month
     ai_services_per_month: float  # AI/natural services needed per month
     replacement_does_per_month: float  # cull + mortality outflow to replace
@@ -131,6 +140,12 @@ class MilkPlanReport(BaseModel):
     steady_from_month: int | None  # first month at/after which the plan holds
     steady_average_daily_litres: float | None
     achievable: bool
+    # The design math as a numbered story, worked backward from the target
+    # with this plan's own numbers: what one animal gives month by month
+    # (curve → dry-off), why the tank needs calvings every month, and how
+    # that becomes the breeding herd and the purchase list. ``notes`` carry
+    # the operational caveats; these carry the reasoning.
+    explanations: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 
@@ -548,6 +563,7 @@ def build_milk_plan(
     ramp_months: int = 1,
     projection_months: int | None = None,
     hold_year_round: bool = False,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> MilkPlanReport:
     """Design the herd, procurement and breeding calendar for a milk target.
 
@@ -700,6 +716,20 @@ def build_milk_plan(
         replacement_needed += avg_breeding * attempts_per_month * repeat_breeder_fraction
 
     peak_index = max(range(len(curve)), key=lambda i: curve[i])
+    explanations = _build_explanations(
+        assumptions,
+        curve,
+        daily_target_litres,
+        calving_interval,
+        herd_target,
+        avg_milking,
+        avg_breeding,
+        avg_fresh,
+        ramp_purchases,
+        ramp_months,
+        replacement_purchases,
+        nouns=nouns,
+    )
     report = MilkPlanReport(
         target_daily_litres=daily_target_litres,
         ramp_months=ramp_months,
@@ -727,6 +757,10 @@ def build_milk_plan(
             # it can exceed the breeding pool; a procurement plan must never
             # publish a negative head count. Same clamp the engine applies.
             dry_does=max(0.0, avg_breeding - avg_milking),
+            dry_months_per_cycle=max(0.0, calving_interval - r.lactation_months),
+            milking_share_of_herd=(
+                min(1.0, avg_milking / avg_breeding) if avg_breeding > 0.0 else 0.0
+            ),
             calvings_per_month=avg_fresh,
             ai_services_per_month=avg_ai,
             replacement_does_per_month=replacement_needed,
@@ -762,6 +796,7 @@ def build_milk_plan(
         steady_from_month=steady_from,
         steady_average_daily_litres=steady_average,
         achievable=achievable,
+        explanations=explanations,
         notes=notes,
     )
     return report
@@ -843,3 +878,142 @@ def _build_notes(
         "uses today's effective price; the engine also applies price seasonality and growth."
     )
     return notes
+
+
+def _build_explanations(
+    assumptions: SimulationAssumptions,
+    curve: list[float],
+    daily_target_litres: float,
+    calving_interval: float,
+    herd_target: float,
+    avg_milking: float,
+    avg_breeding: float,
+    avg_fresh: float,
+    ramp_purchases: float,
+    ramp_months: int,
+    replacement_purchases_total: float,
+    nouns: SpeciesNouns = GOAT_NOUNS,
+) -> list[str]:
+    """The design math as a numbered story worked backward from the target.
+
+    Every number quoted is this plan's own, and every line of arithmetic must
+    close on a farmer's calculator: where the plan's measured figure differs
+    from the naive seed (calf milk, attrition, seasonal averaging), the line
+    says so instead of silently absorbing the difference. Complements
+    ``notes`` (operational caveats) with the reasoning behind the
+    recommendation.
+    """
+    r = assumptions.reproduction
+    sales = assumptions.sales
+    lactation_months = r.lactation_months
+    peak_index = max(range(len(curve)), key=lambda i: curve[i])
+    peak_daily = curve[peak_index] / DAYS_PER_MONTH
+    last_daily = curve[-1] / DAYS_PER_MONTH
+    dry_months = max(0.0, calving_interval - lactation_months)
+    raw_share = avg_milking / avg_breeding if avg_breeding > 0.0 else 0.0
+    milking_share = min(1.0, raw_share)
+    monthly_target = daily_target_litres * DAYS_PER_MONTH
+    seed_freshenings = monthly_target / sales.lactation_milk_litres
+    # The naive seed vs the plan's measured calvings: the difference is calf
+    # milk, attrition and (in average mode) seasonal averaging — name it.
+    seed_gap = avg_fresh - seed_freshenings
+
+    if sales.milk_curve_shape == "wood":
+        curve_sentence = (
+            f"1. What one animal gives: one {nouns.female} produces "
+            f"{sales.lactation_milk_litres:,.0f} L over her {lactation_months}-month lactation, "
+            "following the Wood lactation curve: rising after calving to a peak of "
+            f"~{peak_daily:.1f} L/day in month {peak_index + 1} of lactation, then declining "
+            f"to ~{last_daily:.1f} L/day in the final month."
+        )
+    else:
+        curve_sentence = (
+            f"1. What one animal gives: one {nouns.female} produces "
+            f"{sales.lactation_milk_litres:,.0f} L over her {lactation_months}-month lactation, "
+            "highest in the first month after calving (~"
+            f"{peak_daily:.1f} L/day) and declining steadily to ~{last_daily:.1f} L/day in the "
+            "final month (persistency curve)."
+        )
+    explanations = [
+        curve_sentence,
+        (
+            f"2. Why she stops: milk does not fade to zero — it STOPS. For the last "
+            f"~{dry_months:.0f} month(s) of every {calving_interval:.1f}-month calving cycle she "
+            "is dry (heavily pregnant, preparing the next calving): eating, not milking. "
+            "No dairy herd is ever 100% in milk."
+        ),
+        (
+            f"3. Target → calvings: {daily_target_litres:,.0f} L/day × {DAYS_PER_MONTH:.2f} days "
+            f"= {monthly_target:,.0f} L/month; at {sales.lactation_milk_litres:,.0f} L per "
+            f"lactation that is ~{seed_freshenings:,.1f} fresh calvings every month. The plan "
+            f"actually runs ~{avg_fresh:,.1f} calvings: "
+            + (
+                "the extra covers the whole milk your retained heifer calves drink, plus "
+                "culls and deaths the bare division ignores."
+                if seed_gap > 0.05
+                else "matching the bare division (no calf-milk allowance or attrition to "
+                "cover)."
+            )
+        ),
+    ]
+    if sales.calf_milk_litres_per_day_per_calf > 0.0:
+        explanations.append(
+            f"3a. Calf milk never reaches the tank: every retained female calf drinks "
+            f"{sales.calf_milk_litres_per_day_per_calf:.1f} L/day of whole milk in her first 3 "
+            "months — the tank must produce that on top of your contract, and this plan sizes "
+            "for it."
+        )
+    flat_caveat = ""
+    if max(sales.monthly_milk_yield_multipliers) - min(sales.monthly_milk_yield_multipliers) > 1e-6:
+        flat_caveat = (
+            " (Yield seasonality still swings the tank around the target month by month — "
+            "see the seasonal note below; steady calvings only remove the curve's swing.)"
+        )
+    explanations.append(
+        "4. Why every month: each month-of-lactation stage of the curve yields a different "
+        "amount, so the tank holds steady only if the herd holds animals in every stage and "
+        "new calvings arrive continuously. One calving season would swing the tank with the "
+        "curve — a flood at peak, a drought when the herd is dry." + flat_caveat
+    )
+    dry_head = max(0.0, avg_breeding - avg_milking)
+    herd_derivation = (
+        f"5. Calvings → herd: one cycle lasts ~{calving_interval:.1f} months "
+        f"(voluntary waiting {r.months_open_before_breeding} + services to conceive + "
+        f"{r.gestation_months} months gestation), so ~{avg_fresh:,.1f} calvings/month puts "
+        f"~{avg_fresh * calving_interval:,.0f} animals somewhere in the cycle at any moment; "
+        f"the steady breeding pool measures ~{avg_breeding:,.0f} (the rest of the pipeline is "
+        "in the finishing pen or lost mid-gestation, and culls and deaths are replaced as "
+        "they happen). On an "
+        f"average day ~{min(avg_milking, avg_breeding):,.0f} ({milking_share:.0%}) are milking "
+        f"and ~{dry_head:,.0f} ({1.0 - milking_share:.0%}) are dry — the dry animals are the "
+        "price of having fresh calvers every month."
+    )
+    if raw_share > 1.0:
+        herd_derivation += (
+            " (Under this cull rate, culled animals keep milking while they finish, so the "
+            "milking line can touch or exceed the whole breeding pool.)"
+        )
+    explanations.append(herd_derivation)
+    if ramp_purchases > 0.0:
+        bridge = ""
+        if replacement_purchases_total > 0.5:
+            bridge = (
+                f" Across the whole plan, culling and mortality the heifer pipeline cannot "
+                f"yet cover add a replacement bridge of ~{replacement_purchases_total:,.0f} more "
+                f"(total buying ~{ramp_purchases + replacement_purchases_total:,.0f})."
+            )
+        explanations.append(
+            f"6. How purchases fill the gap: your {float(assumptions.herd.does):,.0f} starting "
+            f"animals alone cannot ship this target, so the plan buys ~{ramp_purchases:,.0f} "
+            "in-milk animals at MIXED lactation stages, staged over "
+            f"{ramp_months} month{'s' if ramp_months != 1 else ''}: a batch spread across the "
+            "curve produces near-flat milk from day one, while a batch of all-fresh animals "
+            "would peak together and crash together." + bridge
+        )
+    else:
+        explanations.append(
+            f"6. No purchases needed: your starting herd (~{float(assumptions.herd.does):,.0f}) "
+            f"already covers the ~{herd_target:,.0f} breeding animals this target requires; "
+            "surplus animals are available for sale or a bigger contract."
+        )
+    return explanations

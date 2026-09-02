@@ -35,6 +35,7 @@ from .api import (
     health,
     kidding,
     milk,
+    planner,
     purchases,
     simulation,
     tasks,
@@ -635,6 +636,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(team.router)
     app.include_router(simulation.router)
+    app.include_router(planner.router)
     return app
 
 

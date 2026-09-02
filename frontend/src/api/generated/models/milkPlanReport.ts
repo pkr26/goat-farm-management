@@ -23,5 +23,6 @@ export interface MilkPlanReport {
   steady_from_month: number | null;
   steady_average_daily_litres: number | null;
   achievable: boolean;
+  explanations?: string[];
   notes?: string[];
 }

@@ -58,6 +58,128 @@ def test_thousand_litres_plans_a_herd_that_ships_it() -> None:
     )
 
 
+def test_single_doe_stops_milking_at_dry_off_in_late_pregnancy() -> None:
+    """The biology the whole dairy plan rests on, verified on one animal.
+
+    One open doe, deterministic biology (every rate 0/1), a 3-month lactation
+    against a Wood curve, and a 5-month gestation with a 1-month voluntary
+    waiting period: she must calve, milk exactly her lactation following the
+    curve, then go DRY — no milk at all while heavily pregnant — until the
+    next calving. If the engine ever "fades" milk through late pregnancy
+    instead of stopping it, every milk plan built on it over-promises the
+    tank.
+    """
+    from app.simulation.engine import _run_core
+
+    a = SimulationAssumptions(
+        meta={"horizon_months": 20, "start_year_month": "2026-01"},
+        herd={"does": 1, "bucks": 0, "max_breeding_does": 0, "foundation_flock_state": "open"},
+        reproduction={
+            "conception_rate": 1.0,
+            "gestation_months": 5,
+            "lactation_months": 3,
+            "months_open_before_breeding": 1,
+            "litter_size": 1.0,
+            "stillbirth_rate": 0.0,
+            "sex_ratio_female": 0.0,
+            "max_services_before_cull": 0,
+        },
+        mortality={"kid_pre_weaning": 0.0, "kid_post_weaning": 0.0, "grower": 0.0, "adult": 0.0},
+        culling={"doe_cull_rate_annual": 0.0, "max_doe_age_months": 120},
+        sales={
+            "lactation_milk_litres": 300.0,
+            "milk_curve_shape": "wood",
+            "milk_peak_day": 65.0,
+            "milk_price_per_litre": 1.0,
+            "annual_milk_price_growth_rate": 0.0,
+            "manure_income_per_adult_per_year": 0.0,
+            "monthly_milk_yield_multipliers": [1.0] * 12,
+            "meat_price_per_kg": 0.0,
+        },
+    )
+    core = _run_core(a)
+    by_month = {m.month: m for m in core.months}
+
+    # Calvings: conceived month 1, gestation 5 → first calving month 6; with
+    # perfect conception the cycle is VWP + gestation = 6 months.
+    calvings = [m.month for m in core.months if m.births > 0.99]
+    assert calvings == [6, 12, 18]
+
+    # Milking months: the 3 lactation months after each calving, and only
+    # those. Yield follows the curve (rising to the peak bucket), and one
+    # full cycle sums to exactly the lactation litres.
+    milking = [m.month for m in core.months if m.lactating_does > 0.99]
+    assert milking == [6, 7, 8, 12, 13, 14, 18, 19, 20]
+    first_cycle = sum(by_month[m].milk_revenue for m in (6, 7, 8))
+    assert first_cycle == pytest.approx(300.0, rel=1e-6)
+
+    # The dry gap: months 9-11 (and 15-17) carry a pregnant, NON-milking doe
+    # with exactly zero milk — late pregnancy dries her off completely.
+    for dry_month in (9, 10, 11, 15, 16, 17):
+        row = by_month[dry_month]
+        assert row.lactating_does == pytest.approx(0.0, abs=1e-9)
+        assert row.pregnant_does == pytest.approx(1.0, abs=1e-9)
+        assert row.milk_revenue == pytest.approx(0.0, abs=1e-9)
+
+
+def test_dry_period_arithmetic_is_explicit_in_the_herd_design() -> None:
+    """The plan must state the dry months every cycle implies — the number
+    that answers "why do I need dry animals at all" — and the milking share
+    of the herd, consistent with the simulated averages."""
+    report = build_milk_plan(_murrah(), 1000.0)
+    herd = report.herd
+    assert herd.dry_months_per_cycle == pytest.approx(
+        herd.calving_interval_months - report.curve.lactation_months, abs=1e-9
+    )
+    # Murrah: 10 months in milk out of a ~14-month cycle → ~4 months dry.
+    assert 3.0 <= herd.dry_months_per_cycle <= 5.0
+    assert herd.milking_share_of_herd == pytest.approx(
+        herd.milking_does / herd.breeding_does, rel=1e-9
+    )
+    # The dry share of the breeding herd is the cycle arithmetic, not a
+    # rounding artefact: milking share ≈ lactation / calving interval.
+    assert herd.milking_share_of_herd == pytest.approx(
+        report.curve.lactation_months / herd.calving_interval_months, rel=0.05
+    )
+    assert 0.0 < herd.milking_share_of_herd < 1.0
+
+
+def test_explanations_walk_the_backward_math_with_the_plans_own_numbers() -> None:
+    """The recommendation narrative quotes numbers a farmer can check against
+    the report's own fields: the curve's peak, the dry months, the monthly
+    calvings, the breeding herd, and the mixed-stage purchase rationale."""
+    report = build_milk_plan(_murrah(), 1000.0)
+    text = " ".join(report.explanations)
+    assert len(report.explanations) >= 6
+
+    curve = report.curve
+    assert f"~{curve.peak_daily_litres:.1f} L/day" in text
+    assert f"month {curve.peak_month_of_lactation}" in text
+    assert "declining" in text
+    # Dry-off stated in the curve's own terms.
+    assert "DRY" in text or "dry" in text
+    assert f"~{report.herd.dry_months_per_cycle:.0f} month(s)" in text
+    # Target → calvings → herd chain with the plan's own figures: the seed
+    # division AND the plan's measured calvings, with the gap named (calf
+    # milk / attrition) — the arithmetic must close on a calculator.
+    monthly_target = 1000.0 * 30.44
+    seed = monthly_target / report.curve.lactation_litres
+    assert f"~{seed:,.1f} fresh calvings" in text
+    assert f"actually runs ~{report.herd.calvings_per_month:,.1f} calvings" in text
+    assert "calf" in text  # the seed gap is disclosed, not silently absorbed
+    assert f"~{report.herd.breeding_does:,.0f}" in text
+    assert f"({report.herd.milking_share_of_herd:.0%})" in text
+    # The purchase rationale: mixed lactation stages, staged over the ramp.
+    assert "MIXED lactation stages" in text
+
+
+def test_explanations_say_no_purchases_when_the_herd_already_covers_it() -> None:
+    report = build_milk_plan(_murrah(), 200.0)
+    assert report.herd.breeding_does < 60.0  # 200 L/day fits inside the foundation
+    assert report.purchases == []
+    assert any("No purchases needed" in line for line in report.explanations)
+
+
 def test_milking_plus_dry_equals_breeding_every_month() -> None:
     report = build_milk_plan(_murrah(), 500.0)
     for row in report.projection:
@@ -253,10 +375,10 @@ def test_ai_lead_note_explains_gestational_attrition() -> None:
 
 
 def test_milk_planner_api_contract_exists() -> None:
-    from app.api.simulation import router
+    from app.api.planner import router
 
     paths = {route.path for route in router.routes}
-    assert "/api/simulation/milk-planner/plan" in paths
+    assert "/api/planner/milk-plan" in paths
 
 
 async def test_milk_planner_api_end_to_end(client) -> None:
@@ -271,7 +393,7 @@ async def test_milk_planner_api_end_to_end(client) -> None:
         "ramp_months": 1,
         "projection_months": 24,
     }
-    resp = await client.post("/api/simulation/milk-planner/plan", json=document, headers=headers)
+    resp = await client.post("/api/planner/milk-plan", json=document, headers=headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["achievable"] is True
@@ -291,7 +413,7 @@ async def test_milk_planner_api_rejects_non_dairy(client) -> None:
         "assumptions": SimulationAssumptions().model_dump(),
         "daily_target_litres": 500.0,
     }
-    resp = await client.post("/api/simulation/milk-planner/plan", json=document, headers=headers)
+    resp = await client.post("/api/planner/milk-plan", json=document, headers=headers)
     assert resp.status_code == 422
     assert "dairy" in resp.text
 
@@ -304,7 +426,7 @@ async def test_milk_planner_api_rejects_bad_targets(client) -> None:
         "assumptions": SimulationAssumptions(sales={"lactation_milk_litres": 2000.0}).model_dump()
     }
     resp = await client.post(
-        "/api/simulation/milk-planner/plan",
+        "/api/planner/milk-plan",
         json={**base, "daily_target_litres": -5.0},
         headers=headers,
     )

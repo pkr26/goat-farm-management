@@ -8,6 +8,7 @@
 import {
   Baby,
   Boxes,
+  CalendarCheck,
   ChartColumn,
   ClipboardList,
   FlaskConical,
@@ -108,6 +109,12 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/finance", label: "Finance", perm: "finance.view", icon: IndianRupee },
       {
+        href: "/planner",
+        label: "Planner",
+        perm: "simulation.view",
+        icon: CalendarCheck,
+      },
+      {
         href: "/simulation",
         label: "Simulation",
         perm: "simulation.view",
@@ -140,6 +147,7 @@ const ROUTE_TITLES: [RegExp, string][] = [
   [/^\/purchases/, "Purchases"],
   [/^\/tasks/, "Tasks"],
   [/^\/finance/, "Finance"],
+  [/^\/planner/, "Planner"],
   [/^\/simulation/, "Simulation"],
   [/^\/reports/, "Reports"],
   [/^\/team/, "Team"],

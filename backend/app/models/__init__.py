@@ -70,6 +70,7 @@ from .helpers import (
 )
 from .idempotency import IdempotencyRecord
 from .milk import MilkRecord
+from .planner import PlannerPlan
 from .purchases import PurchaseBatch
 from .simulation import SimulationScenario
 from .species import (
@@ -148,6 +149,7 @@ __all__ = [
     "KiddingRecord",
     "MilkRecord",
     "MovementRestrictionAction",
+    "PlannerPlan",
     "PurchaseBatch",
     "QuarantineTaskSpec",
     "RefreshSession",

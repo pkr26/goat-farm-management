@@ -31,6 +31,8 @@ import type {
   AnimalOut,
   AnimalProfileApiAnimalsAnimalIdGetParams,
   AnimalProfileOut,
+  BackwardPlanIn,
+  BackwardPlanReport,
   BatchDetailApiPurchasesBatchIdGetParams,
   BreedDefaultsApiSimulationDefaultsGetParams,
   BreedingCandidateListOut,
@@ -79,6 +81,7 @@ import type {
   ListAnimalsApiAnimalsGetParams,
   ListBatchesApiPurchasesGetParams,
   ListEventsApiHealthEventsGetParams,
+  ListPlansApiPlannerPlansGetParams,
   ListScenariosApiSimulationScenariosGetParams,
   ListTasksApiTasksGetParams,
   ListTransactionsApiFinanceGetParams,
@@ -99,8 +102,10 @@ import type {
   MovementRestrictionHistoryOut,
   PasswordResetIn,
   PermissionsOut,
-  PlanIn,
-  PlanReport,
+  PlannerPlanCreateIn,
+  PlannerPlanListOut,
+  PlannerPlanOut,
+  PlannerPlanUpdateIn,
   PregnancyLossIn,
   PurchaseBatchDetailOut,
   PurchaseBatchIn,
@@ -10925,257 +10930,6 @@ export const useRunAdhocApiSimulationRunPost = <TError = ErrorType<ErrorOut | HT
       return useMutation(getRunAdhocApiSimulationRunPostMutationOptions(options), queryClient);
     }
 
-export type planSalesApiSimulationPlannerPlanPostResponse200 = {
-  data: PlanReport
-  status: 200
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse400 = {
-  data: ErrorOut
-  status: 400
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse401 = {
-  data: ErrorOut
-  status: 401
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse403 = {
-  data: ErrorOut
-  status: 403
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse404 = {
-  data: ErrorOut
-  status: 404
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse409 = {
-  data: ErrorOut
-  status: 409
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponse429 = {
-  data: ErrorOut
-  status: 429
-}
-
-export type planSalesApiSimulationPlannerPlanPostResponseSuccess = (planSalesApiSimulationPlannerPlanPostResponse200) & {
-  headers: Headers;
-};
-export type planSalesApiSimulationPlannerPlanPostResponseError = (planSalesApiSimulationPlannerPlanPostResponse400 | planSalesApiSimulationPlannerPlanPostResponse401 | planSalesApiSimulationPlannerPlanPostResponse403 | planSalesApiSimulationPlannerPlanPostResponse404 | planSalesApiSimulationPlannerPlanPostResponse409 | planSalesApiSimulationPlannerPlanPostResponse422 | planSalesApiSimulationPlannerPlanPostResponse429) & {
-  headers: Headers;
-};
-
-export type planSalesApiSimulationPlannerPlanPostResponse = (planSalesApiSimulationPlannerPlanPostResponseSuccess | planSalesApiSimulationPlannerPlanPostResponseError)
-
-export const getPlanSalesApiSimulationPlannerPlanPostUrl = () => {
-
-
-
-
-  return `/api/simulation/planner/plan`
-}
-
-/**
- * Evaluate a sale plan against the projected herd, close gaps with
- * purchases, and (optionally) risk-score the closed plan.
- *
- * Targets beyond the run horizon are a client bug, not a plan: reject them
- * at 422 instead of letting the engine silently never fire the sale.
- * @summary Plan Sales
- */
-export const planSalesApiSimulationPlannerPlanPost = async (planIn: PlanIn, options?: Parameters<typeof customInstance>[1]): Promise<planSalesApiSimulationPlannerPlanPostResponse> => {
-
-  return customInstance<planSalesApiSimulationPlannerPlanPostResponse>(getPlanSalesApiSimulationPlannerPlanPostUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(planIn)
-  }
-);}
-
-
-
-
-
-export const getPlanSalesApiSimulationPlannerPlanPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, TError,{data: PlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, TError,{data: PlanIn}, TContext> => {
-
-const mutationKey = ['planSalesApiSimulationPlannerPlanPost'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, {data: PlanIn}> = (props) => {
-          const {data} = props ?? {};
-
-          return  planSalesApiSimulationPlannerPlanPost(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type PlanSalesApiSimulationPlannerPlanPostMutationResult = NonNullable<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>>
-    export type PlanSalesApiSimulationPlannerPlanPostMutationBody = PlanIn
-    export type PlanSalesApiSimulationPlannerPlanPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
-
-    /**
- * @summary Plan Sales
- */
-export const usePlanSalesApiSimulationPlannerPlanPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>, TError,{data: PlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof planSalesApiSimulationPlannerPlanPost>>,
-        TError,
-        {data: PlanIn},
-        TContext
-      > => {
-      return useMutation(getPlanSalesApiSimulationPlannerPlanPostMutationOptions(options), queryClient);
-    }
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse200 = {
-  data: MilkPlanReport
-  status: 200
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse400 = {
-  data: ErrorOut
-  status: 400
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse401 = {
-  data: ErrorOut
-  status: 401
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse403 = {
-  data: ErrorOut
-  status: 403
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse404 = {
-  data: ErrorOut
-  status: 404
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse409 = {
-  data: ErrorOut
-  status: 409
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse422 = {
-  data: HTTPValidationError
-  status: 422
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse429 = {
-  data: ErrorOut
-  status: 429
-}
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponseSuccess = (planMilkApiSimulationMilkPlannerPlanPostResponse200) & {
-  headers: Headers;
-};
-export type planMilkApiSimulationMilkPlannerPlanPostResponseError = (planMilkApiSimulationMilkPlannerPlanPostResponse400 | planMilkApiSimulationMilkPlannerPlanPostResponse401 | planMilkApiSimulationMilkPlannerPlanPostResponse403 | planMilkApiSimulationMilkPlannerPlanPostResponse404 | planMilkApiSimulationMilkPlannerPlanPostResponse409 | planMilkApiSimulationMilkPlannerPlanPostResponse422 | planMilkApiSimulationMilkPlannerPlanPostResponse429) & {
-  headers: Headers;
-};
-
-export type planMilkApiSimulationMilkPlannerPlanPostResponse = (planMilkApiSimulationMilkPlannerPlanPostResponseSuccess | planMilkApiSimulationMilkPlannerPlanPostResponseError)
-
-export const getPlanMilkApiSimulationMilkPlannerPlanPostUrl = () => {
-
-
-
-
-  return `/api/simulation/milk-planner/plan`
-}
-
-/**
- * Design the dairy herd that ships a daily litres target.
- *
- * Reverse-plans from the target to biology: how many animals at which
- * lactation stages, the calving/AI calendar that keeps daily yield flat, and
- * the in-milk purchases that build the herd. Only meaningful for dairy
- * assumptions (``sales.lactation_milk_litres > 0``).
- * @summary Plan Milk
- */
-export const planMilkApiSimulationMilkPlannerPlanPost = async (milkPlanIn: MilkPlanIn, options?: Parameters<typeof customInstance>[1]): Promise<planMilkApiSimulationMilkPlannerPlanPostResponse> => {
-
-  return customInstance<planMilkApiSimulationMilkPlannerPlanPostResponse>(getPlanMilkApiSimulationMilkPlannerPlanPostUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(milkPlanIn)
-  }
-);}
-
-
-
-
-
-export const getPlanMilkApiSimulationMilkPlannerPlanPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, TError,{data: MilkPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
-): UseMutationOptions<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, TError,{data: MilkPlanIn}, TContext> => {
-
-const mutationKey = ['planMilkApiSimulationMilkPlannerPlanPost'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, {data: MilkPlanIn}> = (props) => {
-          const {data} = props ?? {};
-
-          return  planMilkApiSimulationMilkPlannerPlanPost(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type PlanMilkApiSimulationMilkPlannerPlanPostMutationResult = NonNullable<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>>
-    export type PlanMilkApiSimulationMilkPlannerPlanPostMutationBody = MilkPlanIn
-    export type PlanMilkApiSimulationMilkPlannerPlanPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
-
-    /**
- * @summary Plan Milk
- */
-export const usePlanMilkApiSimulationMilkPlannerPlanPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>, TError,{data: MilkPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof planMilkApiSimulationMilkPlannerPlanPost>>,
-        TError,
-        {data: MilkPlanIn},
-        TContext
-      > => {
-      return useMutation(getPlanMilkApiSimulationMilkPlannerPlanPostMutationOptions(options), queryClient);
-    }
-
 export type createScenarioApiSimulationScenariosPostResponse201 = {
   data: ScenarioOut
   status: 201
@@ -12134,5 +11888,922 @@ export const useRunScenarioApiSimulationScenariosScenarioIdRunPost = <TError = E
         TContext
       > => {
       return useMutation(getRunScenarioApiSimulationScenariosScenarioIdRunPostMutationOptions(options), queryClient);
+    }
+
+export type planSalesApiPlannerPlanPostResponse200 = {
+  data: BackwardPlanReport
+  status: 200
+}
+
+export type planSalesApiPlannerPlanPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type planSalesApiPlannerPlanPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type planSalesApiPlannerPlanPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type planSalesApiPlannerPlanPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type planSalesApiPlannerPlanPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type planSalesApiPlannerPlanPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type planSalesApiPlannerPlanPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type planSalesApiPlannerPlanPostResponseSuccess = (planSalesApiPlannerPlanPostResponse200) & {
+  headers: Headers;
+};
+export type planSalesApiPlannerPlanPostResponseError = (planSalesApiPlannerPlanPostResponse400 | planSalesApiPlannerPlanPostResponse401 | planSalesApiPlannerPlanPostResponse403 | planSalesApiPlannerPlanPostResponse404 | planSalesApiPlannerPlanPostResponse409 | planSalesApiPlannerPlanPostResponse422 | planSalesApiPlannerPlanPostResponse429) & {
+  headers: Headers;
+};
+
+export type planSalesApiPlannerPlanPostResponse = (planSalesApiPlannerPlanPostResponseSuccess | planSalesApiPlannerPlanPostResponseError)
+
+export const getPlanSalesApiPlannerPlanPostUrl = () => {
+
+
+
+
+  return `/api/planner/plan`
+}
+
+/**
+ * Work backward from calendar-dated sale targets to a dated to-do list:
+ * feasibility, the stage plan month by month, purchases/breeding/sales
+ * actions, and each target's requirement chain.
+ * @summary Plan Sales
+ */
+export const planSalesApiPlannerPlanPost = async (backwardPlanIn: BackwardPlanIn, options?: Parameters<typeof customInstance>[1]): Promise<planSalesApiPlannerPlanPostResponse> => {
+
+  return customInstance<planSalesApiPlannerPlanPostResponse>(getPlanSalesApiPlannerPlanPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(backwardPlanIn)
+  }
+);}
+
+
+
+
+
+export const getPlanSalesApiPlannerPlanPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planSalesApiPlannerPlanPost>>, TError,{data: BackwardPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof planSalesApiPlannerPlanPost>>, TError,{data: BackwardPlanIn}, TContext> => {
+
+const mutationKey = ['planSalesApiPlannerPlanPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planSalesApiPlannerPlanPost>>, {data: BackwardPlanIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  planSalesApiPlannerPlanPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlanSalesApiPlannerPlanPostMutationResult = NonNullable<Awaited<ReturnType<typeof planSalesApiPlannerPlanPost>>>
+    export type PlanSalesApiPlannerPlanPostMutationBody = BackwardPlanIn
+    export type PlanSalesApiPlannerPlanPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Plan Sales
+ */
+export const usePlanSalesApiPlannerPlanPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planSalesApiPlannerPlanPost>>, TError,{data: BackwardPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof planSalesApiPlannerPlanPost>>,
+        TError,
+        {data: BackwardPlanIn},
+        TContext
+      > => {
+      return useMutation(getPlanSalesApiPlannerPlanPostMutationOptions(options), queryClient);
+    }
+
+export type planMilkApiPlannerMilkPlanPostResponse200 = {
+  data: MilkPlanReport
+  status: 200
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type planMilkApiPlannerMilkPlanPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type planMilkApiPlannerMilkPlanPostResponseSuccess = (planMilkApiPlannerMilkPlanPostResponse200) & {
+  headers: Headers;
+};
+export type planMilkApiPlannerMilkPlanPostResponseError = (planMilkApiPlannerMilkPlanPostResponse400 | planMilkApiPlannerMilkPlanPostResponse401 | planMilkApiPlannerMilkPlanPostResponse403 | planMilkApiPlannerMilkPlanPostResponse404 | planMilkApiPlannerMilkPlanPostResponse409 | planMilkApiPlannerMilkPlanPostResponse422 | planMilkApiPlannerMilkPlanPostResponse429) & {
+  headers: Headers;
+};
+
+export type planMilkApiPlannerMilkPlanPostResponse = (planMilkApiPlannerMilkPlanPostResponseSuccess | planMilkApiPlannerMilkPlanPostResponseError)
+
+export const getPlanMilkApiPlannerMilkPlanPostUrl = () => {
+
+
+
+
+  return `/api/planner/milk-plan`
+}
+
+/**
+ * Design the dairy herd that ships a daily litres target.
+ *
+ * Reverse-plans from the target to biology: how many animals at which
+ * lactation stages, the calving/AI calendar that keeps daily yield flat, and
+ * the in-milk purchases that build the herd. Only meaningful for dairy
+ * assumptions (``sales.lactation_milk_litres > 0``).
+ * @summary Plan Milk
+ */
+export const planMilkApiPlannerMilkPlanPost = async (milkPlanIn: MilkPlanIn, options?: Parameters<typeof customInstance>[1]): Promise<planMilkApiPlannerMilkPlanPostResponse> => {
+
+  return customInstance<planMilkApiPlannerMilkPlanPostResponse>(getPlanMilkApiPlannerMilkPlanPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(milkPlanIn)
+  }
+);}
+
+
+
+
+
+export const getPlanMilkApiPlannerMilkPlanPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planMilkApiPlannerMilkPlanPost>>, TError,{data: MilkPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof planMilkApiPlannerMilkPlanPost>>, TError,{data: MilkPlanIn}, TContext> => {
+
+const mutationKey = ['planMilkApiPlannerMilkPlanPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof planMilkApiPlannerMilkPlanPost>>, {data: MilkPlanIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  planMilkApiPlannerMilkPlanPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PlanMilkApiPlannerMilkPlanPostMutationResult = NonNullable<Awaited<ReturnType<typeof planMilkApiPlannerMilkPlanPost>>>
+    export type PlanMilkApiPlannerMilkPlanPostMutationBody = MilkPlanIn
+    export type PlanMilkApiPlannerMilkPlanPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Plan Milk
+ */
+export const usePlanMilkApiPlannerMilkPlanPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof planMilkApiPlannerMilkPlanPost>>, TError,{data: MilkPlanIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof planMilkApiPlannerMilkPlanPost>>,
+        TError,
+        {data: MilkPlanIn},
+        TContext
+      > => {
+      return useMutation(getPlanMilkApiPlannerMilkPlanPostMutationOptions(options), queryClient);
+    }
+
+export type createPlanApiPlannerPlansPostResponse201 = {
+  data: PlannerPlanOut
+  status: 201
+}
+
+export type createPlanApiPlannerPlansPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type createPlanApiPlannerPlansPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type createPlanApiPlannerPlansPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type createPlanApiPlannerPlansPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type createPlanApiPlannerPlansPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type createPlanApiPlannerPlansPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type createPlanApiPlannerPlansPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type createPlanApiPlannerPlansPostResponseSuccess = (createPlanApiPlannerPlansPostResponse201) & {
+  headers: Headers;
+};
+export type createPlanApiPlannerPlansPostResponseError = (createPlanApiPlannerPlansPostResponse400 | createPlanApiPlannerPlansPostResponse401 | createPlanApiPlannerPlansPostResponse403 | createPlanApiPlannerPlansPostResponse404 | createPlanApiPlannerPlansPostResponse409 | createPlanApiPlannerPlansPostResponse422 | createPlanApiPlannerPlansPostResponse429) & {
+  headers: Headers;
+};
+
+export type createPlanApiPlannerPlansPostResponse = (createPlanApiPlannerPlansPostResponseSuccess | createPlanApiPlannerPlansPostResponseError)
+
+export const getCreatePlanApiPlannerPlansPostUrl = () => {
+
+
+
+
+  return `/api/planner/plans`
+}
+
+/**
+ * @summary Create Plan
+ */
+export const createPlanApiPlannerPlansPost = async (plannerPlanCreateIn: PlannerPlanCreateIn, options?: Parameters<typeof customInstance>[1]): Promise<createPlanApiPlannerPlansPostResponse> => {
+
+  return customInstance<createPlanApiPlannerPlansPostResponse>(getCreatePlanApiPlannerPlansPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(plannerPlanCreateIn)
+  }
+);}
+
+
+
+
+
+export const getCreatePlanApiPlannerPlansPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlanApiPlannerPlansPost>>, TError,{data: PlannerPlanCreateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPlanApiPlannerPlansPost>>, TError,{data: PlannerPlanCreateIn}, TContext> => {
+
+const mutationKey = ['createPlanApiPlannerPlansPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPlanApiPlannerPlansPost>>, {data: PlannerPlanCreateIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPlanApiPlannerPlansPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePlanApiPlannerPlansPostMutationResult = NonNullable<Awaited<ReturnType<typeof createPlanApiPlannerPlansPost>>>
+    export type CreatePlanApiPlannerPlansPostMutationBody = PlannerPlanCreateIn
+    export type CreatePlanApiPlannerPlansPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Create Plan
+ */
+export const useCreatePlanApiPlannerPlansPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPlanApiPlannerPlansPost>>, TError,{data: PlannerPlanCreateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createPlanApiPlannerPlansPost>>,
+        TError,
+        {data: PlannerPlanCreateIn},
+        TContext
+      > => {
+      return useMutation(getCreatePlanApiPlannerPlansPostMutationOptions(options), queryClient);
+    }
+
+export type listPlansApiPlannerPlansGetResponse200 = {
+  data: PlannerPlanListOut
+  status: 200
+}
+
+export type listPlansApiPlannerPlansGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type listPlansApiPlannerPlansGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type listPlansApiPlannerPlansGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type listPlansApiPlannerPlansGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type listPlansApiPlannerPlansGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type listPlansApiPlannerPlansGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type listPlansApiPlannerPlansGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type listPlansApiPlannerPlansGetResponseSuccess = (listPlansApiPlannerPlansGetResponse200) & {
+  headers: Headers;
+};
+export type listPlansApiPlannerPlansGetResponseError = (listPlansApiPlannerPlansGetResponse400 | listPlansApiPlannerPlansGetResponse401 | listPlansApiPlannerPlansGetResponse403 | listPlansApiPlannerPlansGetResponse404 | listPlansApiPlannerPlansGetResponse409 | listPlansApiPlannerPlansGetResponse422 | listPlansApiPlannerPlansGetResponse429) & {
+  headers: Headers;
+};
+
+export type listPlansApiPlannerPlansGetResponse = (listPlansApiPlannerPlansGetResponseSuccess | listPlansApiPlannerPlansGetResponseError)
+
+export const getListPlansApiPlannerPlansGetUrl = (params?: ListPlansApiPlannerPlansGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/planner/plans?${stringifiedParams}` : `/api/planner/plans`
+}
+
+/**
+ * @summary List Plans
+ */
+export const listPlansApiPlannerPlansGet = async (params?: ListPlansApiPlannerPlansGetParams, options?: Parameters<typeof customInstance>[1]): Promise<listPlansApiPlannerPlansGetResponse> => {
+
+  return customInstance<listPlansApiPlannerPlansGetResponse>(getListPlansApiPlannerPlansGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPlansApiPlannerPlansGetQueryKey = (params?: ListPlansApiPlannerPlansGetParams,) => {
+    return [
+    `/api/planner/plans`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListPlansApiPlannerPlansGetQueryOptions = <TData = Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(params?: ListPlansApiPlannerPlansGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPlansApiPlannerPlansGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>> = ({ signal }) => listPlansApiPlannerPlansGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListPlansApiPlannerPlansGetQueryResult = NonNullable<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>>
+export type ListPlansApiPlannerPlansGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useListPlansApiPlannerPlansGet<TData = Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params: undefined |  ListPlansApiPlannerPlansGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>,
+          TError,
+          Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPlansApiPlannerPlansGet<TData = Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListPlansApiPlannerPlansGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>,
+          TError,
+          Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListPlansApiPlannerPlansGet<TData = Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListPlansApiPlannerPlansGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Plans
+ */
+
+export function useListPlansApiPlannerPlansGet<TData = Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ params?: ListPlansApiPlannerPlansGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listPlansApiPlannerPlansGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListPlansApiPlannerPlansGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type getPlanApiPlannerPlansPlanIdGetResponse200 = {
+  data: PlannerPlanOut
+  status: 200
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type getPlanApiPlannerPlansPlanIdGetResponseSuccess = (getPlanApiPlannerPlansPlanIdGetResponse200) & {
+  headers: Headers;
+};
+export type getPlanApiPlannerPlansPlanIdGetResponseError = (getPlanApiPlannerPlansPlanIdGetResponse400 | getPlanApiPlannerPlansPlanIdGetResponse401 | getPlanApiPlannerPlansPlanIdGetResponse403 | getPlanApiPlannerPlansPlanIdGetResponse404 | getPlanApiPlannerPlansPlanIdGetResponse409 | getPlanApiPlannerPlansPlanIdGetResponse422 | getPlanApiPlannerPlansPlanIdGetResponse429) & {
+  headers: Headers;
+};
+
+export type getPlanApiPlannerPlansPlanIdGetResponse = (getPlanApiPlannerPlansPlanIdGetResponseSuccess | getPlanApiPlannerPlansPlanIdGetResponseError)
+
+export const getGetPlanApiPlannerPlansPlanIdGetUrl = (planId: number,) => {
+
+
+
+
+  return `/api/planner/plans/${planId}`
+}
+
+/**
+ * @summary Get Plan
+ */
+export const getPlanApiPlannerPlansPlanIdGet = async (planId: number, options?: Parameters<typeof customInstance>[1]): Promise<getPlanApiPlannerPlansPlanIdGetResponse> => {
+
+  return customInstance<getPlanApiPlannerPlansPlanIdGetResponse>(getGetPlanApiPlannerPlansPlanIdGetUrl(planId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPlanApiPlannerPlansPlanIdGetQueryKey = (planId: number,) => {
+    return [
+    `/api/planner/plans/${planId}`
+    ] as const;
+    }
+
+
+export const getGetPlanApiPlannerPlansPlanIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPlanApiPlannerPlansPlanIdGetQueryKey(planId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>> = ({ signal }) => getPlanApiPlannerPlansPlanIdGet(planId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: planId !== null && planId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetPlanApiPlannerPlansPlanIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>>
+export type GetPlanApiPlannerPlansPlanIdGetQueryError = ErrorType<ErrorOut | HTTPValidationError>
+
+
+export function useGetPlanApiPlannerPlansPlanIdGet<TData = Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPlanApiPlannerPlansPlanIdGet<TData = Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPlanApiPlannerPlansPlanIdGet<TData = Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Plan
+ */
+
+export function useGetPlanApiPlannerPlansPlanIdGet<TData = Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError = ErrorType<ErrorOut | HTTPValidationError>>(
+ planId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPlanApiPlannerPlansPlanIdGet>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetPlanApiPlannerPlansPlanIdGetQueryOptions(planId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse200 = {
+  data: PlannerPlanOut
+  status: 200
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponseSuccess = (updatePlanApiPlannerPlansPlanIdPatchResponse200) & {
+  headers: Headers;
+};
+export type updatePlanApiPlannerPlansPlanIdPatchResponseError = (updatePlanApiPlannerPlansPlanIdPatchResponse400 | updatePlanApiPlannerPlansPlanIdPatchResponse401 | updatePlanApiPlannerPlansPlanIdPatchResponse403 | updatePlanApiPlannerPlansPlanIdPatchResponse404 | updatePlanApiPlannerPlansPlanIdPatchResponse409 | updatePlanApiPlannerPlansPlanIdPatchResponse422 | updatePlanApiPlannerPlansPlanIdPatchResponse429) & {
+  headers: Headers;
+};
+
+export type updatePlanApiPlannerPlansPlanIdPatchResponse = (updatePlanApiPlannerPlansPlanIdPatchResponseSuccess | updatePlanApiPlannerPlansPlanIdPatchResponseError)
+
+export const getUpdatePlanApiPlannerPlansPlanIdPatchUrl = (planId: number,) => {
+
+
+
+
+  return `/api/planner/plans/${planId}`
+}
+
+/**
+ * @summary Update Plan
+ */
+export const updatePlanApiPlannerPlansPlanIdPatch = async (planId: number,
+    plannerPlanUpdateIn: PlannerPlanUpdateIn, options?: Parameters<typeof customInstance>[1]): Promise<updatePlanApiPlannerPlansPlanIdPatchResponse> => {
+
+  return customInstance<updatePlanApiPlannerPlansPlanIdPatchResponse>(getUpdatePlanApiPlannerPlansPlanIdPatchUrl(planId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(plannerPlanUpdateIn)
+  }
+);}
+
+
+
+
+
+export const getUpdatePlanApiPlannerPlansPlanIdPatchMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlanApiPlannerPlansPlanIdPatch>>, TError,{planId: number;data: PlannerPlanUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePlanApiPlannerPlansPlanIdPatch>>, TError,{planId: number;data: PlannerPlanUpdateIn}, TContext> => {
+
+const mutationKey = ['updatePlanApiPlannerPlansPlanIdPatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePlanApiPlannerPlansPlanIdPatch>>, {planId: number;data: PlannerPlanUpdateIn}> = (props) => {
+          const {planId,data} = props ?? {};
+
+          return  updatePlanApiPlannerPlansPlanIdPatch(planId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePlanApiPlannerPlansPlanIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updatePlanApiPlannerPlansPlanIdPatch>>>
+    export type UpdatePlanApiPlannerPlansPlanIdPatchMutationBody = PlannerPlanUpdateIn
+    export type UpdatePlanApiPlannerPlansPlanIdPatchMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Update Plan
+ */
+export const useUpdatePlanApiPlannerPlansPlanIdPatch = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePlanApiPlannerPlansPlanIdPatch>>, TError,{planId: number;data: PlannerPlanUpdateIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updatePlanApiPlannerPlansPlanIdPatch>>,
+        TError,
+        {planId: number;data: PlannerPlanUpdateIn},
+        TContext
+      > => {
+      return useMutation(getUpdatePlanApiPlannerPlansPlanIdPatchMutationOptions(options), queryClient);
+    }
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse204 = {
+  data: void
+  status: 204
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponseSuccess = (deletePlanApiPlannerPlansPlanIdDeleteResponse204) & {
+  headers: Headers;
+};
+export type deletePlanApiPlannerPlansPlanIdDeleteResponseError = (deletePlanApiPlannerPlansPlanIdDeleteResponse400 | deletePlanApiPlannerPlansPlanIdDeleteResponse401 | deletePlanApiPlannerPlansPlanIdDeleteResponse403 | deletePlanApiPlannerPlansPlanIdDeleteResponse404 | deletePlanApiPlannerPlansPlanIdDeleteResponse409 | deletePlanApiPlannerPlansPlanIdDeleteResponse422 | deletePlanApiPlannerPlansPlanIdDeleteResponse429) & {
+  headers: Headers;
+};
+
+export type deletePlanApiPlannerPlansPlanIdDeleteResponse = (deletePlanApiPlannerPlansPlanIdDeleteResponseSuccess | deletePlanApiPlannerPlansPlanIdDeleteResponseError)
+
+export const getDeletePlanApiPlannerPlansPlanIdDeleteUrl = (planId: number,) => {
+
+
+
+
+  return `/api/planner/plans/${planId}`
+}
+
+/**
+ * @summary Delete Plan
+ */
+export const deletePlanApiPlannerPlansPlanIdDelete = async (planId: number, options?: Parameters<typeof customInstance>[1]): Promise<deletePlanApiPlannerPlansPlanIdDeleteResponse> => {
+
+  return customInstance<deletePlanApiPlannerPlansPlanIdDeleteResponse>(getDeletePlanApiPlannerPlansPlanIdDeleteUrl(planId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeletePlanApiPlannerPlansPlanIdDeleteMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlanApiPlannerPlansPlanIdDelete>>, TError,{planId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePlanApiPlannerPlansPlanIdDelete>>, TError,{planId: number}, TContext> => {
+
+const mutationKey = ['deletePlanApiPlannerPlansPlanIdDelete'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePlanApiPlannerPlansPlanIdDelete>>, {planId: number}> = (props) => {
+          const {planId} = props ?? {};
+
+          return  deletePlanApiPlannerPlansPlanIdDelete(planId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePlanApiPlannerPlansPlanIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deletePlanApiPlannerPlansPlanIdDelete>>>
+
+    export type DeletePlanApiPlannerPlansPlanIdDeleteMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Delete Plan
+ */
+export const useDeletePlanApiPlannerPlansPlanIdDelete = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePlanApiPlannerPlansPlanIdDelete>>, TError,{planId: number}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deletePlanApiPlannerPlansPlanIdDelete>>,
+        TError,
+        {planId: number},
+        TContext
+      > => {
+      return useMutation(getDeletePlanApiPlannerPlansPlanIdDeleteMutationOptions(options), queryClient);
     }
 

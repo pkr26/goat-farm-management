@@ -261,6 +261,7 @@ class Settings(BaseSettings):
     max_team_members_per_farm: int = Field(default=200, ge=1, le=10_000)
     max_roles_per_farm: int = Field(default=50, ge=1, le=1_000)
     max_simulation_scenarios_per_farm: int = Field(default=25, ge=1, le=500)
+    max_planner_plans_per_farm: int = Field(default=25, ge=1, le=500)
     # Distinct Idempotency-Key values must not let a compromised task creator
     # grow the actionable queue without bound. Completed/skipped history and
     # authoritative generated workflow duties do not consume this allowance.

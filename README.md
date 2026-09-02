@@ -702,7 +702,7 @@ backend/
                      request IDs, /healthz + /readyz, prod-safety validation)
     core/config.py   Pydantic settings (GOATFARM_* env vars)
     db.py            Async engine/session (autoflush=False, pre-ping), Base
-    models/          27 tables, domain enums, computed properties — split per
+    models/          28 tables, domain enums, computed properties — split per
                      domain (enums, constants, core, animals, breeding, …)
     services/        All domain flows + state guards — split per domain
                      (animals, breeding, kidding, health, tasks, feeding,
@@ -715,7 +715,9 @@ backend/
     schemas/         Pydantic v2 In/Out models per module
     api/             auth, animals, buckets, breeding, kidding, health, tasks,
                      feeding, finance, purchases, dashboard (incl. reports),
-                     team, simulation; shared out-builders in api/_shared.py
+                     team, simulation, planner (target-based backward
+                     planning); shared out-builders in api/_shared.py, shared
+                     run-limits/offload machinery in api/_run_limits.py
   alembic/           Migrations (single linear head: initial schema through
                      auth/session, domain-traceability, finance/feed/task and
                      movement-clearance hardening)

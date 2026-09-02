@@ -15,6 +15,8 @@ export interface MilkHerdDesign {
   breeding_does: number;
   milking_does: number;
   dry_does: number;
+  dry_months_per_cycle: number;
+  milking_share_of_herd: number;
   calvings_per_month: number;
   ai_services_per_month: number;
   replacement_does_per_month: number;

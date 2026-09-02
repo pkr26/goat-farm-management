@@ -11,23 +11,16 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..simulation.assumptions import SimulationAssumptions
-from ..simulation.milk_planner import MilkPlanReport
-from ..simulation.planner import PlanReport, SaleTarget
 from ..simulation.results import MonteCarloResult, SensitivityItem, SimulationResult
-from .common import FiniteFloat, PostgresText, StrictBool, StrictInputModel, StrictInt
+from .common import PostgresText, StrictBool, StrictInputModel, StrictInt
 
 __all__ = [
     "BreedsOut",
     "CalibrationEvidence",
     "FarmCalibrationOut",
     "HerdSnapshotOut",
-    "MilkPlanIn",
-    "MilkPlanReport",
     "MonteCarloResult",
-    "PlanIn",
-    "PlanReport",
     "RunIn",
-    "SaleTarget",
     "ScenarioCompareOut",
     "ScenarioCreateIn",
     "ScenarioListOut",
@@ -88,49 +81,6 @@ class RunIn(StrictInputModel):
     monte_carlo: StrictBool = False
     sensitivity: StrictBool = False
     optimization: StrictBool = False
-
-
-class PlanTargetIn(StrictInputModel):
-    """One sale target: ``count`` head of one class in one simulation month."""
-
-    month: StrictInt = Field(ge=1)
-    animal_class: Literal[
-        "doe",
-        "buck",
-        "female_kid",
-        "male_kid",
-        "female_weaner",
-        "male_weaner",
-        "female_grower",
-        "male_grower",
-    ]
-    count: FiniteFloat = Field(gt=0.0, le=100_000)
-
-
-class PlanIn(StrictInputModel):
-    """A plan: the assumptions it runs against plus the sale targets."""
-
-    assumptions: SimulationAssumptions
-    targets: list[PlanTargetIn] = Field(min_length=1, max_length=50)
-    close_gaps: StrictBool = True
-    # 0 skips the risk pass; the cap keeps one request priced like a run.
-    risk_runs: StrictInt = Field(default=0, ge=0, le=500)
-
-
-class MilkPlanIn(StrictInputModel):
-    """A milk plan: a daily litres target the dairy herd must deliver."""
-
-    assumptions: SimulationAssumptions
-    # Litres per day the farm must ship (e.g. a procurement contract).
-    daily_target_litres: FiniteFloat = Field(gt=0.0, le=1_000_000)
-    # Months over which in-milk purchases are staged while building to the
-    # target herd; 1 = buy the full tranche in month 1.
-    ramp_months: StrictInt = Field(default=1, ge=1, le=60)
-    # Months of projection rows to return (clamped to the horizon).
-    projection_months: StrictInt = Field(default=36, ge=12, le=240)
-    # Size the herd for the worst seasonal (heat-stress) month instead of the
-    # 12-month average.
-    hold_year_round: StrictBool = False
 
 
 class CalibrationEvidence(BaseModel):
