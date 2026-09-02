@@ -1110,7 +1110,7 @@ async def test_backdated_rebreed_blocks_low_weight_on_or_before_breeding_date(
 async def test_create_breeding_rebreed_after_kidding_full_cycle(client: httpx.AsyncClient) -> None:
     """Full reproductive cycle: kid, rest, breed again."""
     headers = await owner_with_farm(client)
-    doe, buck, br = await bred_doe(client, headers, breeding_date=today() - timedelta(days=160))
+    doe, buck, br = await bred_doe(client, headers, breeding_date=today() - timedelta(days=175))
     confirmation = await ultrasound(
         client,
         headers,
@@ -1465,7 +1465,7 @@ async def test_held_doe_pregnancy_confirmation_reclassifies_atomically(
     assert after["suspected_scheduled_disease"] is True
 
 
-async def test_ultrasound_pregnant_creates_three_followup_tasks(
+async def test_ultrasound_pregnant_creates_followup_tasks(
     client: httpx.AsyncClient,
 ) -> None:
     headers = await owner_with_farm(client)
@@ -1477,7 +1477,12 @@ async def test_ultrasound_pregnant_creates_three_followup_tasks(
     vaccine = tasks_by_category(tasks, "VACCINE")
     moves = tasks_by_category(tasks, "BUCKET_MOVE")
     kidding = tasks_by_category(tasks, "KIDDING_DUE")
-    assert [t["due_date"] for t in vaccine] == [iso(ekd - timedelta(days=40))]
+    # Primary ET+TT dose at EKD-40 and its booster 15 days later (the seeded
+    # template promises two doses 15 days apart).
+    assert [t["due_date"] for t in vaccine] == [
+        iso(ekd - timedelta(days=40)),
+        iso(ekd - timedelta(days=25)),
+    ]
     assert [t["due_date"] for t in moves] == [iso(ekd - timedelta(days=15))]
     assert [t["due_date"] for t in kidding] == [iso(ekd)]
     assert all(t["animal_id"] == doe["id"] for t in vaccine + moves + kidding)
@@ -1717,7 +1722,7 @@ async def test_successful_kidding_resets_cull_streak_before_a_new_cycle(
     doe, buck, br1 = await bred_doe(client, headers, breeding_date=today() - timedelta(days=400))
     await fail_cycle(client, headers, br1["id"])
     br2 = await make_breeding(
-        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=160))
+        client, headers, doe["id"], buck["id"], breeding_date=iso(today() - timedelta(days=175))
     )
     confirmation = await ultrasound(
         client,
@@ -2059,7 +2064,8 @@ async def test_abort_skips_open_pregnancy_tasks(client: httpx.AsyncClient) -> No
     tasks = await all_tasks(client, headers)
     for category in ("VACCINE", "BUCKET_MOVE", "KIDDING_DUE"):
         statuses = [t["status"] for t in tasks_by_category(tasks, category)]
-        assert statuses == ["SKIPPED"]
+        # VACCINE carries two duties (primary + booster), all skipped by the loss.
+        assert statuses and all(status == "SKIPPED" for status in statuses)
 
 
 async def test_abort_makes_doe_candidate_again(client: httpx.AsyncClient) -> None:
@@ -2368,13 +2374,22 @@ async def test_kidding_four_alive_birth_type_quadruplet(client: httpx.AsyncClien
     assert [a["birth_type"] for a in born] == ["QUADRUPLET"] * 4
 
 
-async def test_kidding_ten_alive_birth_type_multiplet(client: httpx.AsyncClient) -> None:
+async def test_kidding_four_alive_birth_type_quadruplet(client: httpx.AsyncClient) -> None:
+    """The goat species profile caps litters at four kids (twin-heavy breed).
+
+    Five-plus entries are rejected before any stock is fabricated — buffalo
+    twin biology makes the same cap 2 on dairy farms.
+    """
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}] * 10)  # schema caps kids at 10
+    await kid_on_ekd(client, headers, br, kids=[{"sex": "M"}] * 4)
     born = [a for a in await list_animals(client, headers) if a["source"] == "BORN"]
-    assert len(born) == 10
-    assert [a["birth_type"] for a in born] == ["MULTIPLET"] * 10
+    assert len(born) == 4
+    assert [a["birth_type"] for a in born] == ["QUADRUPLET"] * 4
+    _doe2, _buck2, br2 = await pregnant_doe(client, headers, "D-LITTER-CAP", gestation_days=160)
+    resp = await kid_on_ekd_raw(client, headers, br2, kids=[{"sex": "M"}] * 5)
+    assert resp.status_code == 422
+    assert "cannot deliver more than 4" in resp.json()["detail"]
 
 
 async def test_kidding_born_kid_bucket_moves_are_attributed(client: httpx.AsyncClient) -> None:
@@ -2628,7 +2643,7 @@ async def test_kidding_auto_tags_uniquified_on_second_kidding(client: httpx.Asyn
     the service uses a bounded unpredictable fallback."""
     headers = await owner_with_farm(client)
     doe, buck, br1 = await bred_doe(
-        client, headers, "D-2ND", breeding_date=today() - timedelta(days=310)
+        client, headers, "D-2ND", breeding_date=today() - timedelta(days=330)
     )
     first_ultrasound = await ultrasound(client, headers, br1["id"], date=br1["ultrasound_date"])
     assert first_ultrasound.status_code == 200, first_ultrasound.text
@@ -2636,13 +2651,13 @@ async def test_kidding_auto_tags_uniquified_on_second_kidding(client: httpx.Asyn
     record1 = await kid_on_ekd(client, headers, br1, kids=[{"sex": "M"}, {"sex": "F"}])
     assert [k["tag"] for k in record1["kids"]] == ["D-2ND-K1", "D-2ND-K2"]
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
-    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=160))
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=175))
     br2 = await make_breeding(
         client,
         headers,
         doe["id"],
         buck["id"],
-        breeding_date=iso(today() - timedelta(days=159)),
+        breeding_date=iso(today() - timedelta(days=165)),
     )
     second_ultrasound = await ultrasound(client, headers, br2["id"], date=br2["ultrasound_date"])
     assert second_ultrasound.status_code == 200, second_ultrasound.text
@@ -2858,7 +2873,10 @@ async def test_kidding_closes_pregnancy_tasks(client: httpx.AsyncClient) -> None
     await kid_on_ekd(client, headers, br)
     tasks = await all_tasks(client, headers)
     assert [t["status"] for t in tasks_by_category(tasks, "KIDDING_DUE")] == ["DONE"]
-    assert [t["status"] for t in tasks_by_category(tasks, "VACCINE")] == ["SKIPPED"]
+    # VACCINE carries two duties (primary + booster), both skipped at kidding.
+    vaccine_statuses = [t["status"] for t in tasks_by_category(tasks, "VACCINE")]
+    assert len(vaccine_statuses) == 2
+    assert all(status == "SKIPPED" for status in vaccine_statuses)
     assert [t["status"] for t in tasks_by_category(tasks, "BUCKET_MOVE")] == ["SKIPPED"]
 
 
@@ -2962,12 +2980,12 @@ async def test_kidding_eleven_kids_rejected(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422
 
 
-async def test_kidding_ten_kids_boundary_ok(client: httpx.AsyncClient) -> None:
+async def test_kidding_five_kids_rejected_by_species_cap(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
-    resp = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "F"}] * 10)
-    assert resp.status_code == 201, resp.text
-    assert len(resp.json()["kids"]) == 10
+    resp = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "F"}] * 5)
+    assert resp.status_code == 422
+    assert "cannot deliver more than 4" in resp.json()["detail"]
 
 
 async def test_kidding_invalid_kid_sex(client: httpx.AsyncClient) -> None:

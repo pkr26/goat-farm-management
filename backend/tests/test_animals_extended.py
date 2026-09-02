@@ -1232,6 +1232,15 @@ async def _seed_herd(client: httpx.AsyncClient, owner: dict) -> dict[str, dict]:
     herd["buck_breeding"] = await make_animal(client, owner, tag="B-1", sex="M", bucket="BREEDING")
     herd["male_kid"] = await make_animal(client, owner, tag="K-1", sex="M", bucket="MALE_KIDS")
     sold = await make_animal(client, owner, tag="S-1", sex="F", bucket="QUARANTINE")
+    # Biosecurity: an animal inside the 45-day quarantine cannot be SOLD.
+    # Move her out first (a manual animal owns no purchase batch, so the
+    # manual QUARANTINE → FOUNDATION edge is legal for her).
+    moved = await client.post(
+        f"/api/animals/{sold['id']}/move",
+        json={"to_bucket": "FOUNDATION"},
+        headers=owner,
+    )
+    assert moved.status_code == 200, moved.text
     resp = await mark_status(client, owner, sold["id"], "SOLD", sale_price=5000)
     assert resp.status_code == 200, resp.text
     herd["sold"] = sold
@@ -1275,7 +1284,7 @@ async def test_list_filter_by_bucket(client: httpx.AsyncClient) -> None:
     animals = await list_animals(client, owner, bucket="BREEDING")
     assert {a["tag_number"] for a in animals} == {"D-2", "B-1"}
     animals = await list_animals(client, owner, bucket="QUARANTINE")
-    assert animals == []  # the only quarantined animal is SOLD (default filter)
+    assert animals == []  # no animal remains quarantined (S-1 moved out, then sold)
 
 
 async def test_list_filter_by_sex(client: httpx.AsyncClient) -> None:
@@ -1316,7 +1325,7 @@ async def test_list_combined_bucket_and_sex(client: httpx.AsyncClient) -> None:
 async def test_list_combined_bucket_and_status(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     await _seed_herd(client, owner)
-    animals = await list_animals(client, owner, bucket="QUARANTINE", status="SOLD")
+    animals = await list_animals(client, owner, bucket="FOUNDATION", status="SOLD")
     assert [a["tag_number"] for a in animals] == ["S-1"]
 
 
@@ -1324,10 +1333,10 @@ async def test_list_combined_all_filters(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     await _seed_herd(client, owner)
     animals = await list_animals(
-        client, owner, bucket="QUARANTINE", sex="F", status="SOLD", q="S-1"
+        client, owner, bucket="FOUNDATION", sex="F", status="SOLD", q="S-1"
     )
     assert [a["tag_number"] for a in animals] == ["S-1"]
-    animals = await list_animals(client, owner, bucket="QUARANTINE", sex="M", status="SOLD")
+    animals = await list_animals(client, owner, bucket="FOUNDATION", sex="M", status="SOLD")
     assert animals == []
 
 
@@ -2700,7 +2709,7 @@ async def test_buckets_board_default_feed_rates(client: httpx.AsyncClient) -> No
     resp = await client.get("/api/buckets", headers=owner)
     rates = {r["bucket"]: r["daily_kg_per_head"] for r in resp.json()}
     assert rates == {
-        "QUARANTINE": 0.8,
+        "QUARANTINE": 1.1,
         "FOUNDATION": 1.2,
         "BREEDING": 1.2,
         "PREGNANCY_EARLY": 1.2,
@@ -3261,11 +3270,22 @@ async def test_selling_lactating_doe_moves_recovery_kids_out(client: httpx.Async
             "tag_number": "DAM-1",
             "sex": "F",
             "source": "PURCHASED",
-            "current_bucket": "RECOVERY",
+            "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Fresh doe fixture",
         },
         headers=headers,
     )
     doe = doe_resp.json()
+    staged = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={
+            "to_bucket": "RECOVERY",
+            "reason": "Historical fixture: fresh doe",
+            "history_override": True,
+        },
+        headers=headers,
+    )
+    assert staged.status_code == 200, staged.text
     kid_f = await _make_kid(client, headers, "K-F", doe["id"], "F")
     kid_m = await _make_kid(client, headers, "K-M", doe["id"], "M")
 
@@ -3319,11 +3339,22 @@ async def test_kids_not_in_recovery_are_untouched_when_dam_sold(client: httpx.As
                 "tag_number": "DAM-3",
                 "sex": "F",
                 "source": "PURCHASED",
-                "current_bucket": "RECOVERY",
+                "current_bucket": "FOUNDATION",
+                "historical_import_reason": "Fresh doe fixture",
             },
             headers=headers,
         )
     ).json()
+    staged = await client.post(
+        f"/api/animals/{doe['id']}/move",
+        json={
+            "to_bucket": "RECOVERY",
+            "reason": "Historical fixture: fresh doe",
+            "history_override": True,
+        },
+        headers=headers,
+    )
+    assert staged.status_code == 200, staged.text
     kid = await _make_kid(client, headers, "K-W", doe["id"], "F")
     # Move the kid out of RECOVERY (as complete_task WEANING would).
     move = await client.post(

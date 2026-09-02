@@ -1047,7 +1047,7 @@ function BreedingPageContent() {
                       <div className="mt-1 text-xs text-muted-foreground">
                         <p>
                           {formatDate(r.loss_date)} ·{" "}
-                          {(r.loss_cause ?? "UNKNOWN").replace(/_/g, " ")}
+                          {enumLabel("lossCause", r.loss_cause ?? "UNKNOWN")}
                         </p>
                         {r.loss_notes && (
                           <details>

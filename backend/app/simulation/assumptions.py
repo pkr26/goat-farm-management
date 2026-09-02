@@ -171,7 +171,11 @@ class ReproductionAssumptions(_Group):
     # semen (~0.5). AI programmes using sexed semen for the first services of
     # each breeding attempt override this per service below.
     sex_ratio_female: FiniteFloat = Field(default=0.5, ge=0.0, le=1.0)
-    age_at_first_breeding_months: int = Field(default=12, ge=6, le=30)
+    # Single-sourced with the operational breeding floor
+    # (GOAT_PROFILE.min_breeding_age_months = 10): the SPEC's "10-12 mo,
+    # >=22 kg" gate. The old 12 made the projection breed a month later than
+    # the write path allows.
+    age_at_first_breeding_months: int = Field(default=10, ge=6, le=30)
     stillbirth_rate: FiniteFloat = Field(default=0.02, ge=0.0, le=0.5)
     # --- sexed-semen AI policy (dairy; 0 disables and keeps the herd on the
     # flat sex_ratio_female above) ---
@@ -212,8 +216,8 @@ class MortalityAssumptions(_Group):
     """
 
     kid_pre_weaning: FiniteFloat = Field(
-        default=0.10, ge=0.0, le=0.9
-    )  # per crop: FAO/ICAR small-ruminant models
+        default=0.15, ge=0.0, le=0.9
+    )  # per crop: NABARD bankable convention (field 10.9-20.4%)
     kid_post_weaning: FiniteFloat = Field(default=0.05, ge=0.0, le=0.9)  # per phase
     grower: FiniteFloat = Field(default=0.04, ge=0.0, le=0.9)  # annual
     adult: FiniteFloat = Field(default=0.05, ge=0.0, le=0.9)  # annual
@@ -230,7 +234,10 @@ class CullingAssumptions(_Group):
     # (ZeroDivisionError mid-run). 36 keeps every schema-valid run alive.
     max_doe_age_months: int = Field(default=72, ge=36, le=180)
     buck_rotation_years: int = Field(default=3, ge=1, le=10)  # avoid inbreeding
-    buck_doe_ratio: int = Field(default=25, ge=1, le=100)  # 1 buck per 25 does
+    # Single-sourced with the operational mating policy (BUCK_DOE_RATIO = 20;
+    # the write path refuses a sire's 21st open service). Published range is
+    # 1:20-30 — the product states one policy everywhere.
+    buck_doe_ratio: int = Field(default=20, ge=1, le=100)
 
 
 class GrowthAssumptions(_Group):
@@ -238,12 +245,10 @@ class GrowthAssumptions(_Group):
 
     ``weight_by_age_months`` gives live weight (kg) at ages 0..12 months; from
     month 13 the curve approaches the adult weight linearly, reaching it at
-    ``adult_weight_age_months``. The default table is a decelerating Osmanabadi
-    stall-fed curve anchored on recorded field weights — fast pre-weaning gain
-    on dam's milk (~3.2 kg/mo to ~12 kg at 3 m), then slowing to a ~20.5 kg
-    yearling (ICAR-AICRP/NARI field unit: 12.1 kg @ 3 m, 17.0 @ 6 m; Raskar
-    2018 semi-intensive yearling 19.6 kg) — NOT the old flat 2 kg/month line
-    that under-weighted kids ~30% and over-weighted yearlings ~25-35%.
+    ``adult_weight_age_months``. The default table is anchored on recorded
+    field weights to 6 months (fast pre-weaning gain on dam's milk, ~3.2 kg/mo
+    to ~12 kg at 3 m), then tracks the farm's commercial stall-fed finish so
+    males reach the SPEC sale window (8-9 mo / 24-28 kg) on schedule.
     """
 
     birth_weight_kg: WeightKg = Field(default=2.5, gt=0.0)
@@ -252,21 +257,28 @@ class GrowthAssumptions(_Group):
     # bucks 45-50 kg). The old 34 kg buck was below every published range.
     adult_weight_doe_kg: WeightKg = Field(default=33.0, gt=0.0)
     adult_weight_buck_kg: WeightKg = Field(default=42.0, gt=0.0)
+    # Curve anchored on recorded field weights to 6 months (ICAR-AICRP/NARI:
+    # 12.1 kg @ 3 m, ~17 @ 6 m), then the farm's own stall-fed finish target:
+    # the operational SPEC sells males at 8-9 months / 24-28 kg, which the
+    # field-average yearling (20.5 kg) cannot reach — well-managed stall-fed
+    # males are recorded ~30 kg at 12 months, and this table tracks that
+    # commercial finishing so the projection prices the same animal the
+    # dashboard tells the farmer to sell (male @ 9 mo = 22.2 x 1.10 ≈ 24.4 kg).
     weight_by_age_months: list[WeightKg] = Field(
         default_factory=lambda: [
             2.5,
             6.0,
             9.5,
             12.1,
-            14.1,
-            15.8,
-            17.1,
-            18.2,
-            19.0,
-            19.6,
-            20.0,
-            20.3,
-            20.5,
+            14.6,
+            16.3,
+            17.8,
+            19.3,
+            20.8,
+            22.2,
+            23.5,
+            24.6,
+            25.6,
         ],
         min_length=13,
         # Exactly ages 0..12. Longer tables previously overrode adult weight
@@ -283,13 +295,12 @@ class GrowthAssumptions(_Group):
     # kid/weaner/grower weights only; adult buck weight is set explicitly.
     young_male_weight_premium: FiniteFloat = Field(default=0.10, ge=0.0, le=0.5)
     # Age at which surplus males are sold for meat. Must be >= 6 so males pass
-    # through the grower chain (weaning at 3, grower from 6). Navipet practice
-    # markets Osmanabadi males at 8-10 months (~20-25 kg); 10 months is the
-    # stall-fed finish whose extra weight still pays for its feed at default
-    # prices. The old 12 kept every animal on the payroll two extra months and
-    # pushed the first sale — and the first rupee of meat revenue — past
-    # month 12 of the projection.
-    sale_age_months: int = Field(default=10, ge=6, le=24)
+    # through the grower chain (weaning at 3, grower from 6). Single-sourced
+    # with the operational SPEC window (MEAT_SALE_AGE_MONTHS = 8-9 months at
+    # 24-28 kg): 9 months is the stall-fed finish whose male weight (~25.5 kg
+    # on the default curve) sits inside that window. The old 10 sold a month
+    # past the SPEC window at a weight below its floor.
+    sale_age_months: int = Field(default=9, ge=6, le=24)
 
     @field_validator("weight_by_age_months")
     @classmethod
@@ -379,6 +390,12 @@ class SalesAssumptions(_Group):
     # ~110 Sirohi, ~175 Beetal, ~200 Jamunapari (NBAGR descriptors),
     # 1,800-2,200 for a commercial Murrah (ICAR/NDRI lactation records).
     lactation_milk_litres: FiniteFloat = Field(default=0.0, ge=0.0, le=MAX_LACTATION_LITRES)
+    # Whole milk fed to retained pre-wean calves (dairy). The farm's own
+    # protocol whole-milk-feeds heifer calves to ~day 90 (~2-3 L/day falling
+    # to ~1 L, ~225 L per calf — NABARD/NDRI calf-rearing budgets carry this
+    # line). The engine nets it out of saleable litres; 0 disables (all milk
+    # saleable, calf rearing priced through calf-starter feed only).
+    calf_milk_litres_per_day_per_calf: FiniteFloat = Field(default=0.0, ge=0.0, le=30.0)
     # --- dairy lactation economics (used when lactation_milk_litres > 0) ---
     # Fat-based procurement is how Telangana cooperatives actually pay
     # (Vijaya/Sangam ~₹840-865/kg fat 2025-26). When > 0, the effective
@@ -450,7 +467,10 @@ class FeedAssumptions(_Group):
     dmi_grower: FiniteFloat = Field(default=0.035, gt=0.0, le=0.10)
     dmi_doe_maintenance: FiniteFloat = Field(default=0.03, gt=0.0, le=0.10)
     dmi_doe_pregnant: FiniteFloat = Field(default=0.035, gt=0.0, le=0.10)
-    dmi_doe_lactating: FiniteFloat = Field(default=0.045, gt=0.0, le=0.10)
+    # Lactating-doe DMI reconciled with the operational feeding module
+    # (ICAR/TNAU zone 3.5-4.5% BW; the daily plan dispenses ~3% of BW as the
+    # 60:40 mix, and 3.8% DM sits between that and the zone's upper bound).
+    dmi_doe_lactating: FiniteFloat = Field(default=0.038, gt=0.0, le=0.10)
     dmi_buck: FiniteFloat = Field(default=0.035, gt=0.0, le=0.10)
     # Per-class concentrate share of DM (ICAR feeding standards / TNAU rations);
     # the remainder is green:dry fodder in a fixed 2:1 DM ratio, so each class's

@@ -4,12 +4,14 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { TransactionOutCategory } from './transactionOutCategory';
+import type { TransactionOutType } from './transactionOutType';
 
 export interface TransactionOut {
   id: number;
   date: string;
-  type: string;
-  category: string;
+  type: TransactionOutType;
+  category: TransactionOutCategory;
   amount: number;
   notes: string | null;
   related_animal_id: number | null;

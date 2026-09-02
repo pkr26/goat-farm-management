@@ -6,6 +6,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import false, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
@@ -18,11 +19,12 @@ from ..models import (
     FarmType,
     FeedInventory,
     HealthEvent,
+    MilkRecord,
     PurchaseBatch,
     Transaction,
     TransactionType,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.finance import (
     FinanceOut,
     PnlRowOut,
@@ -43,7 +45,7 @@ from ..services import (
 )
 from ..utils import add_months, money, utcnow
 
-router = APIRouter(prefix="/api/finance", tags=["finance"])
+router = APIRouter(prefix="/api/finance", tags=["finance"], responses=COMMON_ERROR_RESPONSES)
 
 FinanceView = Annotated[set[str], Depends(require_perm("finance.view"))]
 FinanceManage = Annotated[set[str], Depends(require_perm("finance.manage"))]
@@ -588,6 +590,43 @@ async def list_transactions(
     )
 
 
+async def _guard_milk_sold_within_production(
+    db: AsyncSession, farm: CurrentFarm, new_litres: float
+) -> None:
+    """A milk sale cannot claim litres the parlour never recorded.
+
+    Cumulative non-voided MILK-income litres (including this row) are checked
+    against the farm's recorded MilkRecord production, with a 10% allowance
+    for sale-side rounding and calf-milk/waste reconciliation differences.
+    """
+    sold = (
+        await db.execute(
+            select(func.coalesce(func.sum(Transaction.milk_litres), 0.0)).where(
+                Transaction.farm_id == farm.id,
+                Transaction.type == TransactionType.INCOME.value,
+                Transaction.category == "MILK",
+                Transaction.voided_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    produced = (
+        await db.execute(
+            select(func.coalesce(func.sum(MilkRecord.litres), 0.0)).where(
+                MilkRecord.farm_id == farm.id
+            )
+        )
+    ).scalar_one()
+    if float(sold) + float(new_litres) > float(produced) * 1.10:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"This sale would book {float(sold) + float(new_litres):.1f} L of milk income "
+                f"against {float(produced):.1f} L ever recorded in the parlour — record the "
+                "yield readings first or correct the sale's litres"
+            ),
+        )
+
+
 @router.post("/new", status_code=201)
 async def add_transaction(
     payload: TransactionIn,
@@ -603,6 +642,8 @@ async def add_transaction(
     async def mutate() -> TransactionOut:
         if payload.category == "MILK":
             _require_dairy_farm_for_milk(farm)
+        if payload.milk_litres is not None:
+            await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
         try:
             require_farm_not_future(payload.date, farm, "transaction date")
         except ValueError as exc:
@@ -708,6 +749,10 @@ async def correct_transaction(
         # or fat-based procurement, kept coherent and priced against the
         # amount by TransactionCorrectionIn; any other category carries none.
         is_milk_income = payload.category == "MILK" and payload.type == "INCOME"
+        if is_milk_income and payload.milk_litres is not None:
+            # The void above removes the original row from the active ledger,
+            # so the reconciliation sees the restated total, not both copies.
+            await _guard_milk_sold_within_production(db, farm, payload.milk_litres)
         replacement = Transaction(
             farm_id=farm.id,
             date=payload.date,

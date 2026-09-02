@@ -50,7 +50,7 @@ from starlette.concurrency import run_in_threadpool
 from ..core.config import get_settings
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import Animal, AnimalStatus, SimulationScenario
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import COMMON_ERROR_RESPONSES, ErrorOut, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.simulation import (
     BreedsOut,
     FarmCalibrationOut,
@@ -74,7 +74,7 @@ from ..simulation.planner import PlanReport, SaleTarget, build_plan_report
 from ..simulation.results import SimulationResult
 from ..utils import today
 
-router = APIRouter(prefix="/api/simulation", tags=["simulation"])
+router = APIRouter(prefix="/api/simulation", tags=["simulation"], responses=COMMON_ERROR_RESPONSES)
 
 # Namespace for the per-farm scenario-quota mutex. Advisory lock keys are
 # global to the database, so every acquisition of this counter must pass it.
@@ -645,7 +645,15 @@ async def breed_defaults(
 
 @router.get("/herd-snapshot")
 async def herd_snapshot(
-    db: DbSession, farm: CurrentFarm, perms: SimView, breed: str = "osmanabadi"
+    db: DbSession,
+    farm: CurrentFarm,
+    perms: SimView,
+    # Reads the farm's animal register (nine per-sex/per-age cohort counts plus
+    # total head): the same-table reads the sibling /calibration endpoint
+    # gates behind animals.view, so a consultant role holding only
+    # simulation.view must not be able to reconstruct herd structure here.
+    animal_perms: AnimalsView,
+    breed: str = "osmanabadi",
 ) -> HerdSnapshotOut:
     """Group the farm's ACTIVE animals into simulation starting cohorts:
     kid 0-2 m, weaner 3-5 m, grower 6 m up to breeding age, adult at breeding
@@ -707,7 +715,10 @@ async def herd_snapshot(
     return HerdSnapshotOut(**{field: int(value) for field, value in counts_row._mapping.items()})
 
 
-@router.get("/calibration")
+@router.get(
+    "/calibration",
+    responses={500: {"model": ErrorOut, "description": "Calibration data is internally inconsistent"}},
+)
 async def farm_calibration(
     db: DbSession,
     farm: CurrentFarm,

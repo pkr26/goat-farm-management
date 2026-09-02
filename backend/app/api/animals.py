@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     HISTORY_OVERRIDE_REASON_PREFIX,
+    MEAT_SALE_AGE_MONTHS,
+    MEAT_SALE_WEIGHT_KG,
     Animal,
     AnimalStatus,
     BreedingOutcome,
@@ -47,7 +49,7 @@ from ..schemas.animals import (
     WeightIn,
     WeightRecordOut,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.health import HealthEventOut
 from ..services import (
     IdempotencyKey,
@@ -75,7 +77,7 @@ from ..services.breeding import mark_unassessed
 from ..utils import money, today
 from ._shared import AnimalComputedFacts, animal_computed_facts, animal_out
 
-router = APIRouter(prefix="/api/animals", tags=["animals"])
+router = APIRouter(prefix="/api/animals", tags=["animals"], responses=COMMON_ERROR_RESPONSES)
 
 NOT_FOUND = "Animal not found"
 PROFILE_HISTORY_DEFAULT_LIMIT = 25
@@ -997,6 +999,42 @@ async def change_status(
                 status_code=409,
                 detail=f"Sale/cull is blocked by medicine withdrawal through {withdrawal}",
             )
+    if payload.new_status == AnimalStatus.SOLD.value:
+        # Biosecurity fence: an animal still inside the 45-day quarantine
+        # protocol (possibly incubating) must not enter the food chain. A
+        # cull remains possible — destroying a sick quarantined animal is a
+        # legitimate disease response.
+        if animal.current_bucket == Bucket.QUARANTINE.value:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{animal.tag_number} is still in the 45-day quarantine protocol — "
+                    "complete or skip the protocol before selling"
+                ),
+            )
+        # Meat-sale window (goat farms): a male kid below the SPEC's minimum
+        # sale age cannot be liquidated as meat stock. Culling remains open
+        # (injury/illness), and the owner can still record the exit through a
+        # cull with notes. Unknown birth dates fall through — age is provable
+        # only when an effective DOB exists.
+        profile = species_profile(farm.farm_type)
+        if (
+            profile.farm_type == "GOAT"
+            and animal.sex == "M"
+            and animal.current_bucket == Bucket.MALE_KIDS.value
+            and animal.effective_dob is not None
+        ):
+            age_months = animal.age_months_on(status_date)
+            if age_months is not None and age_months < MEAT_SALE_AGE_MONTHS[0]:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{animal.tag_number} is {age_months} months old — the meat-sale "
+                        f"window opens at {MEAT_SALE_AGE_MONTHS[0]} months and "
+                        f"{MEAT_SALE_WEIGHT_KG[0]:.0f} kg (record a cull instead if the "
+                        "animal must leave the herd now)"
+                    ),
+                )
     animal.status = payload.new_status
     animal.status_date = status_date
     animal.status_notes = (payload.notes or "").strip() or None

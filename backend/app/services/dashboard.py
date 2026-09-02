@@ -3,12 +3,12 @@
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import Date, and_, case, cast, func, or_, select
+from sqlalchemy import Date, and_, case, cast, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
-    MIN_BREEDING_AGE_MONTHS,
-    MIN_BREEDING_WEIGHT_KG,
+    MEAT_SALE_AGE_MONTHS,
+    MEAT_SALE_WEIGHT_KG,
     Animal,
     AnimalStatus,
     BreedingOutcome,
@@ -19,6 +19,7 @@ from ..models import (
     HealthEvent,
     KiddingRecord,
     WeightRecord,
+    species_profile,
 )
 from ..utils import add_months, business_date, today
 
@@ -135,8 +136,17 @@ async def ready_to_move_suggestions(
         .subquery("dashboard_animal_context")
     )
 
-    age_cutoff = add_months(reference_date, -MIN_BREEDING_AGE_MONTHS)
-    male_sale_age_cutoff = add_months(reference_date, -8)
+    # Species-aware thresholds: every write path resolves biology through
+    # species_profile(farm.farm_type); the suggestion widget must not quote
+    # goat numbers on a buffalo dairy (10 mo/22 kg breeding, 8 mo/24 kg sale,
+    # gestation day 100/135). Gestation stage gates scale from the species'
+    # gestation length (2/3 for EARLY→LATE, 90% for the due window — the
+    # goat ratios 100/150 and 135/150).
+    profile = species_profile(farm.farm_type)
+    age_cutoff = add_months(reference_date, -profile.min_breeding_age_months)
+    breeding_weight = profile.min_breeding_weight_kg
+    pregnancy_late_day = round(profile.gestation_days * 2 / 3)
+    due_window_day = round(profile.gestation_days * 9 / 10)
     created_local_date = cast(
         func.timezone(
             farm.timezone,
@@ -154,7 +164,7 @@ async def ready_to_move_suggestions(
             context.c.current_bucket.in_([Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value]),
             context.c.effective_dob.is_not(None),
             context.c.effective_dob <= age_cutoff,
-            context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
+            context.c.latest_weight_as_of >= breeding_weight,
             context.c.open_pregnancy_date.is_(None),
         ),
         and_(
@@ -163,25 +173,35 @@ async def ready_to_move_suggestions(
             bucket_started_local_date <= reference_date - timedelta(days=30),
             context.c.effective_dob.is_not(None),
             context.c.effective_dob <= age_cutoff,
-            context.c.latest_weight_as_of >= MIN_BREEDING_WEIGHT_KG,
+            context.c.latest_weight_as_of >= breeding_weight,
             context.c.open_pregnancy_date.is_(None),
         ),
         and_(
             context.c.current_bucket == Bucket.PREGNANCY_EARLY.value,
-            context.c.open_pregnancy_date <= reference_date - timedelta(days=100),
+            context.c.open_pregnancy_date <= reference_date - timedelta(days=pregnancy_late_day),
         ),
         and_(
             context.c.current_bucket == Bucket.PREGNANCY_LATE.value,
-            context.c.open_pregnancy_date <= reference_date - timedelta(days=135),
+            context.c.open_pregnancy_date <= reference_date - timedelta(days=due_window_day),
         ),
     ]
-    market_rule = and_(
-        context.c.sex == "M",
-        context.c.current_bucket == Bucket.MALE_KIDS.value,
-        context.c.effective_dob.is_not(None),
-        context.c.effective_dob <= male_sale_age_cutoff,
-        context.c.latest_weight >= 24.0,
-        context.c.has_active_withdrawal.is_(False),
+    # The meat-market rule is the goat SPEC's male-kid exit; dairy males leave
+    # through their own sale path (week-old bull calves or grown sires), so
+    # the widget gates it to goat farms. Single-sourced from MEAT_SALE_* and
+    # dated weight (latest_weight_as_of), so a future-dated typo cannot
+    # inflate a market-ready suggestion.
+    market_rule = (
+        and_(
+            context.c.sex == "M",
+            context.c.current_bucket == Bucket.MALE_KIDS.value,
+            context.c.effective_dob.is_not(None),
+            context.c.effective_dob
+            <= add_months(reference_date, -MEAT_SALE_AGE_MONTHS[0]),
+            context.c.latest_weight_as_of >= MEAT_SALE_WEIGHT_KG[0],
+            context.c.has_active_withdrawal.is_(False),
+        )
+        if profile.farm_type == "GOAT"
+        else false()
     )
     qualifies = and_(
         # Suggestions must never contradict the authoritative write paths:
@@ -203,7 +223,10 @@ async def ready_to_move_suggestions(
         bucket = row.current_bucket
         if bucket in (Bucket.FOUNDATION.value, Bucket.FEMALE_KIDS.value):
             target = Bucket.BREEDING.value
-            reason = "Breeding-ready (≥10 mo, ≥22 kg)"
+            reason = (
+                f"Breeding-ready (≥{profile.min_breeding_age_months} mo, "
+                f"≥{profile.min_breeding_weight_kg:.0f} kg)"
+            )
         elif bucket == Bucket.RESTING.value:
             started_at = row.latest_effective_date
             started_date = (
@@ -220,15 +243,19 @@ async def ready_to_move_suggestions(
         elif bucket == Bucket.PREGNANCY_EARLY.value:
             gestation_day = (reference_date - row.open_pregnancy_date).days
             target = Bucket.PREGNANCY_LATE.value
-            reason = f"Gestation day {gestation_day} (≥100)"
+            reason = f"Gestation day {gestation_day} (≥{pregnancy_late_day})"
         elif bucket == Bucket.PREGNANCY_LATE.value:
             gestation_day = (reference_date - row.open_pregnancy_date).days
             target = Bucket.DELIVERY.value
-            reason = f"Gestation day {gestation_day} (≥135, due soon)"
+            reason = f"Gestation day {gestation_day} (≥{due_window_day}, due soon)"
         else:
             age = _age_months(row.effective_dob, reference_date)
             target = "SELL"
-            reason = f"{age} mo, {row.latest_weight:.1f} kg — market ready"
+            reason = (
+                f"{age} mo, {row.latest_weight_as_of:.1f} kg — market ready "
+                f"(window {MEAT_SALE_AGE_MONTHS[0]}–{MEAT_SALE_AGE_MONTHS[1]} mo, "
+                f"{MEAT_SALE_WEIGHT_KG[0]:.0f}–{MEAT_SALE_WEIGHT_KG[1]:.0f} kg)"
+            )
         suggestions.append(
             {
                 "animal": {

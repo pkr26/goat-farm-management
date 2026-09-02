@@ -33,7 +33,7 @@ from ..permissions import (
     ROLE_PRESET_CODES,
 )
 from ..ratelimit import auth_limiter
-from ..schemas.common import MAX_INT32_ID
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID
 from ..schemas.team import (
     MembershipOut,
     PasswordResetIn,
@@ -51,7 +51,7 @@ from ..services import IdempotencyKey, execute_idempotent
 from ..services.idempotency import replay_idempotent_if_committed
 from ..utils import utcnow
 
-router = APIRouter(prefix="/api/team", tags=["team"])
+router = APIRouter(prefix="/api/team", tags=["team"], responses=COMMON_ERROR_RESPONSES)
 logger = logging.getLogger("goatfarm.team")
 
 TEAM_PERM = Annotated[set[str], Depends(require_perm("team.manage"))]
@@ -863,6 +863,9 @@ async def _create_worker_after_idempotency_gate(
             email=email,
             name=(payload.name or "").strip() or None,
             password_hash=password_hash,
+            # Owner-provisioned credential: force the holder's first-change
+            # rotation before any domain mutation.
+            must_change_password=True,
         )
         db.add(worker)
         try:
@@ -1089,6 +1092,8 @@ async def reset_password(
         raise HTTPException(status_code=400, detail=reset_policy[1])
     locked_user.password_hash = prepared.password_hash
     locked_user.token_version += 1
+    # Owner chose this password; the worker must rotate it before acting.
+    locked_user.must_change_password = True
     await revoke_user_sessions(db, membership.user_id)
     await db.commit()
     return _membership_out(membership, reset_policy, user, farm)

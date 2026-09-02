@@ -4,13 +4,14 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { HealthEventOutType } from './healthEventOutType';
 
 export interface HealthEventOut {
   id: number;
   animal_id: number | null;
   purchase_batch_id: number | null;
   date: string;
-  type: string;
+  type: HealthEventOutType;
   product_name: string | null;
   disease_target: string | null;
   dose: string | null;

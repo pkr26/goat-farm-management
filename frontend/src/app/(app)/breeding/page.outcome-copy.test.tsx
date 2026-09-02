@@ -252,9 +252,11 @@ describe("BreedingPage copy and write bookkeeping", () => {
     ];
     renderWithProviders(<BreedingPage />);
 
-    expect(await screen.findByText("4 Aug 2026 · ANIMAL STATUS CHANGE")).toBeInTheDocument();
+    expect(
+      await screen.findByText("4 Aug 2026 · Herd exit (administrative close)"),
+    ).toBeInTheDocument();
     // A cause-less row still names a cause rather than trailing a bare dot.
-    expect(screen.getByText("5 Aug 2026 · UNKNOWN")).toBeInTheDocument();
+    expect(screen.getByText("5 Aug 2026 · Unknown")).toBeInTheDocument();
   });
 
   it("names an untagged doe and buck in plain text without animals.view", async () => {

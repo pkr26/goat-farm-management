@@ -44,7 +44,7 @@ class HealthEventOut(BaseModel):
     animal_id: int | None
     purchase_batch_id: int | None
     date: dt.date
-    type: str
+    type: HealthEventTypeStr
     product_name: str | None
     disease_target: str | None
     dose: str | None
@@ -192,7 +192,7 @@ class ScheduleTemplateOut(BaseModel):
     timing_note: str | None
     #: DEWORMING for the deworming programme, VACCINE for every other item —
     #: the event type this template may be attached to.
-    event_type: str
+    event_type: HealthEventTypeStr
 
 
 class ScheduleTemplateListOut(BaseModel):
@@ -207,7 +207,7 @@ class ScheduleRowOut(BaseModel):
     booster_due: dt.date | None
     last_done: dt.date | None
     next_due: dt.date | None
-    status: str  # DONE | OVERDUE | UPCOMING | UNKNOWN
+    status: Literal["DONE", "OVERDUE", "UPCOMING", "UNKNOWN"]
 
 
 class ScheduleOut(BaseModel):

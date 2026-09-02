@@ -92,7 +92,11 @@ def sirohi(system: System = "stall_fed") -> SimulationAssumptions:
             doe_purchase_price=9000.0,  # NABARD unit costs, heavier breed
             buck_purchase_price=14000.0,
         ),
-        reproduction=ReproductionAssumptions(litter_size=1.4),  # NBAGR: ~70% singles
+        reproduction=ReproductionAssumptions(
+            litter_size=1.4,  # NBAGR: ~70% singles
+            # Larger frame matures later than the Osmanabadi floor.
+            age_at_first_breeding_months=12,
+        ),
         growth=GrowthAssumptions(
             birth_weight_kg=3.0,
             adult_weight_doe_kg=40.0,  # NBAGR breed descriptor
@@ -203,7 +207,10 @@ def boer_cross(system: System = "stall_fed") -> SimulationAssumptions:
             doe_purchase_price=10000.0,  # crossbred premium
             buck_purchase_price=18000.0,
         ),
-        reproduction=ReproductionAssumptions(litter_size=1.7),
+        reproduction=ReproductionAssumptions(
+            litter_size=1.7,
+            age_at_first_breeding_months=12,
+        ),
         growth=GrowthAssumptions(
             birth_weight_kg=3.0,
             adult_weight_doe_kg=40.0,
@@ -308,7 +315,11 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             monthly_meat_price_multipliers=[1.0] * 12,
             annual_livestock_price_growth_rate=0.05,
             festival_sale_months=[],
-            milk_price_per_litre=58.0,  # fallback ≈ procurement ₹850/kg fat @ 6.8%
+            milk_price_per_litre=58.0,  # fallback = procurement ₹850/kg fat @ 6.8%
+            # Retained heifer calves are whole-milk fed to ~day 90 per the
+            # farm's own protocol (~225 L/calf at 2.5 L/day average): that
+            # milk is produced but not sold.
+            calf_milk_litres_per_day_per_calf=2.5,
             # In-milk second-lactation purchases give ~2,100 L over a 305-day
             # lactation (CIRB breed standard 2,000 kg; NDRI 1,750-1,850 first
             # lactation; elite recorded herds 2,600+). 2,100 with the Wood
@@ -320,11 +331,12 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
             # over the 305-day lactation.
             milk_curve_shape="wood",
             milk_peak_day=65.0,
-            # Vijaya/Sangam/Amul procurement ₹840-865/kg fat (2025-26); the
-            # default blends Phase A cooperative supply with early Phase B
-            # bulk sales to schools/restaurants at better-than-procurement
-            # rates (direct consumer sale realises ₹80-110/L).
-            milk_price_per_kg_fat=900.0,
+            # Verified procurement basis (Vijaya/Sangam/Amul ₹840-865/kg fat,
+            # 2025-26): the fat-based rate is the price of record. Farms with
+            # Phase B direct sales at better-than-procurement rates override
+            # upward as a deliberate choice — the default must not bake an
+            # unverified +6% blend into a lender-facing projection.
+            milk_price_per_kg_fat=850.0,
             milk_fat_pct=6.8,
             milk_persistency_monthly=0.93,  # recorded Murrah persistency ~89-93%
             # Telangana yield seasonality: summer (Apr-Jul) heat-stress
@@ -358,7 +370,11 @@ def murrah_dairy(system: System = "stall_fed") -> SimulationAssumptions:
                 0.98,
                 0.98,
             ],
-            annual_milk_price_growth_rate=0.05,
+            # Matched to feed inflation (0.06): a decade of 1 pp/yr real
+            # squeeze with no procurement pass-through made the flagship
+            # dairy preset loss-making by construction — Telangana procurement
+            # revisions (Vijaya ₹82→₹85/L within 2025) track feed costs.
+            annual_milk_price_growth_rate=0.06,
             male_calf_sell_at_birth_fraction=0.9,  # sexed-semen strategy
             male_calf_price_per_head=1600.0,  # week-old bull calf ₹1,200-1,800
             manure_income_per_adult_per_year=3500.0,  # biogas slurry + gas savings

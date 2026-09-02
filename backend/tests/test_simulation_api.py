@@ -50,6 +50,22 @@ from .conftest import login, owner_with_farm
 WORKER_PW = "workerpass123"
 
 
+@pytest.fixture(autouse=True)
+def _reset_in_process_run_state() -> None:
+    """Order-robustness: the run budget window and per-farm run locks are
+    MODULE-level in-process state. Charged units and held locks leaked
+    between tests when the file ran as a whole (every test passed
+    individually), so 31 tests failed on stale budgets/locks. Reset the
+    existing objects in place — tests import ``_run_budget`` by reference, so
+    rebinding the module attribute would disconnect them from the API's
+    budget."""
+    simulation_api._run_budget.clear()
+    simulation_api._farm_run_locks.clear()
+    yield
+    simulation_api._run_budget.clear()
+    simulation_api._farm_run_locks.clear()
+
+
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_team_extended patterns)
 # ---------------------------------------------------------------------------
@@ -204,7 +220,9 @@ async def test_herd_snapshot_groups_active_animals(client: httpx.AsyncClient) ->
     sold = await make_animal(client, headers, "S-1", "F", 550)
     resp = await client.post(
         f"/api/animals/{sold['id']}/status",
-        json={"new_status": "SOLD", "sale_price": 9000},
+        # CULLED, not SOLD: make_animal's purchased rows sit in QUARANTINE,
+        # and quarantined stock cannot be sold into the food chain.
+        json={"new_status": "CULLED"},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -1037,11 +1055,11 @@ async def test_farm_calibration_excludes_kid_deaths_after_preweaning_window(
     assert response.status_code == 200, response.text
     body = response.json()
     evidence = {item["path"]: item for item in body["evidence"]}
-    expected = 1.0 - (1.0 - 1.0 / 10.0) ** 4
-
+    # Whole-phase semantics: the observed fraction is written directly (the
+    # old 1-(1-x)^4 annualization inflated a 10% loss into 34.4%).
     assert evidence["mortality.kid_pre_weaning"]["sample_size"] == 10
-    assert evidence["mortality.kid_pre_weaning"]["calibrated_value"] == pytest.approx(expected)
-    assert body["assumptions"]["mortality"]["kid_pre_weaning"] == pytest.approx(expected)
+    assert evidence["mortality.kid_pre_weaning"]["calibrated_value"] == pytest.approx(1.0 / 10.0)
+    assert body["assumptions"]["mortality"]["kid_pre_weaning"] == pytest.approx(1.0 / 10.0)
 
 
 async def test_farm_calibration_validates_inputs_and_cross_domain_permissions(

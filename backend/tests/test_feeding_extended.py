@@ -84,7 +84,7 @@ BUCKET_RECIPE_API = {
 
 # Seeded BucketDefinition daily_kg_per_head defaults (seed.BUCKET_DEFINITIONS).
 BUCKET_DEFAULT_KG = {
-    "QUARANTINE": 0.8,
+    "QUARANTINE": 1.1,
     "FOUNDATION": 1.2,
     "BREEDING": 1.2,
     "PREGNANCY_EARLY": 1.2,
@@ -583,7 +583,7 @@ async def test_plan_quarantine_day0_gets_dry_roughage_only(client: httpx.AsyncCl
     line = (await get_plan(client, headers))["lines"][0]
     assert line["recipe_code"] == DRY_ROUGHAGE
     assert line["recipe_name"].startswith("Dry roughage only")
-    assert line["kg_per_head"] == 0.8  # quarantine ration default
+    assert line["kg_per_head"] == 1.1  # quarantine ration default
 
 
 async def test_plan_foundation_gets_lactating(client: httpx.AsyncClient) -> None:
@@ -912,7 +912,7 @@ async def test_get_daily_kg_per_head_resolves_default_override_and_unknown_bucke
     other_farm_id = int(other["X-Farm-Id"])
     async with get_sessionmaker()() as db:
         assert await get_daily_kg_per_head(db, farm_id, "FOUNDATION") == 1.2
-        assert await get_daily_kg_per_head(db, farm_id, "QUARANTINE") == 0.8
+        assert await get_daily_kg_per_head(db, farm_id, "QUARANTINE") == 1.1
         assert await get_daily_kg_per_head(db, farm_id, "NOT_A_BUCKET") == 1.2  # documented default
 
     resp = await client.post(
@@ -925,7 +925,7 @@ async def test_get_daily_kg_per_head_resolves_default_override_and_unknown_bucke
         assert await get_daily_kg_per_head(db, farm_id, "QUARANTINE") == 2.5
         assert await get_daily_kg_per_head(db, farm_id, "FOUNDATION") == 1.2  # untouched bucket
         # The override belongs to one farm only.
-        assert await get_daily_kg_per_head(db, other_farm_id, "QUARANTINE") == 0.8
+        assert await get_daily_kg_per_head(db, other_farm_id, "QUARANTINE") == 1.1
 
 
 async def test_settings_garbage_types_rejected(client: httpx.AsyncClient) -> None:

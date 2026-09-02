@@ -667,7 +667,10 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             ),
         ),
         InvalidMutation(
-            "UPDATE breeding_records SET ultrasound_result_date = breeding_date + 201 "
+            # +351: the widened species-max CHECK (350) — buffalo late PD
+            # results are legitimate to day 350; the tight windows live in
+            # the service layer per the farm's species profile.
+            "UPDATE breeding_records SET ultrasound_result_date = breeding_date + 351 "
             "WHERE id = :id",
             {"id": ids["breeding"]},
             ("ck_breeding_records_result_within_max_gestation",),

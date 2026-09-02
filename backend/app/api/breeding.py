@@ -20,7 +20,7 @@ from ..schemas.breeding import (
     PregnancyLossIn,
     UltrasoundIn,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..services import (
     breeding_candidate_counts,
     breeding_candidate_page,
@@ -36,7 +36,7 @@ from ..services import (
 from ..utils import today
 from ._shared import breeding_out
 
-router = APIRouter(prefix="/api/breeding", tags=["breeding"])
+router = APIRouter(prefix="/api/breeding", tags=["breeding"], responses=COMMON_ERROR_RESPONSES)
 
 NOT_FOUND = "Breeding record not found"
 
@@ -305,6 +305,7 @@ async def create_breeding(
             has_open_breeding=has_open_breeding,
             method=payload.method,
             semen_sire_name=payload.semen_sire_name,
+            actor_is_owner=user.id == farm.owner_id,
         )
         br_id = br.id
         await db.commit()

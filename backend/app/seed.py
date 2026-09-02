@@ -61,7 +61,10 @@ BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
         "Quarantine Ward",
         "Newly purchased animals",
         "45-day protocol complete → FOUNDATION",
-        0.8,
+        # ~3% BW DM maintenance for a 30 kg adult of the 75:25 mix — below
+        # this, newly transported animals under-eat through the immunity-
+        # critical 45 days.
+        1.1,
     ),
     (
         Bucket.FOUNDATION,
@@ -73,7 +76,7 @@ BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     (
         Bucket.BREEDING,
         "Breeding Bucket",
-        "Does ready to conceive; 1 buck per 20 does (rotate 7d on/off)",
+        "Does ready to conceive; 1 buck per 20 does (enforced: a sire is refused his 21st open service)",
         "Ultrasound-confirmed pregnant (day 30–35) → PREGNANCY_EARLY",
         1.2,
     ),
@@ -94,14 +97,14 @@ BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     (
         Bucket.DELIVERY,
         "Delivery Ward",
-        "Last ~2 weeks of pregnancy through ~5 days post-kidding",
-        "Day ~5–10 post-kidding → RECOVERY",
+        "Final ~2 weeks of pregnancy (move generated at day ~135)",
+        "Kidding recorded → RECOVERY (same day)",
         1.5,
     ),
     (
         Bucket.RECOVERY,
         "Recovery Ward",
-        "Doe + kids together, 2 months (until weaning day 60)",
+        "Doe + kids together, 2 months (until weaning day 60); the per-head rate is per doe — unweaned kids are planned on the CREEP line",
         "Kids weaned day 60 → doe RESTING; kids to MALE/FEMALE_KIDS",
         1.5,
     ),
@@ -141,8 +144,8 @@ DAIRY_BUCKET_DEFINITIONS: list[tuple[Bucket, str, str, str, float]] = [
     (
         Bucket.FOUNDATION,
         "Growing Heifers (Building C)",
-        "Heifer calves from weaning (~3 mo) until first AI (22–24 mo, ≥340 kg)",
-        "Breeding-ready (≥22 mo, ≥340 kg) → BREEDING (first AI)",
+        "Heifer calves from weaning (~3 mo) until first AI (24 mo, ≥340 kg)",
+        "Breeding-ready (≥24 mo, ≥340 kg) → BREEDING (first AI)",
         20.0,
     ),
     (
@@ -369,8 +372,14 @@ DAIRY_FEED_RECIPES: list[tuple[str, str, str, list[tuple[str, float, str]]]] = [
 
 # (name, first_dose_age_months, booster_weeks, repeat_months, timing_note)
 VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str]] = [
+    # FMD at 3 months follows TNAU's Telangana schedule (Vikaspedia/NADCP
+    # kid materials say 4; the 6-monthly repeat matching NADCP rounds is the
+    # load-bearing half).
     ("FMD", 3, 3.5, 6, "Every 6 months — September & March"),
-    ("PPR", 3, None, 36, "Core vaccine; repeat every 3 years"),
+    # PPR immunity lasts ≥3 years in trials, but Telangana department camps
+    # revaccinate yearly and will flag the herd as overdue against an annual
+    # convention — default to the field schedule.
+    ("PPR", 3, None, 12, "Core vaccine; annual revaccination (department camp schedule)"),
     (
         "Enterotoxaemia (ET)",
         4,
@@ -383,7 +392,9 @@ VACCINE_TEMPLATES: list[tuple[str, float | None, float | None, float | None, str
     ("Black Quarter", 6, None, 12, "Annual, pre-monsoon"),
     ("Johne's Disease", 6, None, 12, "Annual; herd-history dependent"),
     ("Anthrax", 6, None, 12, "Annual; region-specific"),
-    ("ORF", 4, None, 6, "Every 6 months"),
+    # ORF (contagious ecthyma) is deliberately NOT in the default calendar:
+    # Indian practice (TNAU) does not vaccinate for sore mouth; control is
+    # outbreak-driven under veterinary direction.
     ("CCPP", 3, None, 12, "Annual, January"),
     (
         "ET + TT pre-kidding",

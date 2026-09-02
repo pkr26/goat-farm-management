@@ -4,12 +4,13 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { MilkRecordOutShift } from './milkRecordOutShift';
 
 export interface MilkRecordOut {
   id: number;
   animal_id: number;
   date: string;
-  shift: string;
+  shift: MilkRecordOutShift;
   litres: number;
   fat_pct: number | null;
   notes: string | null;

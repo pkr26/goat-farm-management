@@ -14,7 +14,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, delay, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ScheduleRowOut } from "@/api/generated/models";
+import type { ScheduleRowOut, ScheduleRowOutStatus} from "@/api/generated/models";
 import { ALL_PERMISSIONS, permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
@@ -62,7 +62,7 @@ const ROWS: ScheduleRowOut[] = [
     last_done: null,
     next_due: null,
   }),
-  makeRow({ template_id: 4, template_name: "Custom", status: "SOMETHING_ELSE" }),
+  makeRow({ template_id: 4, template_name: "Custom", status: "SOMETHING_ELSE" as ScheduleRowOutStatus }),
 ];
 
 describe("VaccinationSchedulePage", () => {

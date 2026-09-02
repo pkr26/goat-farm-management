@@ -4,11 +4,12 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { FeedInventoryOutCategory } from './feedInventoryOutCategory';
 
 export interface FeedInventoryOut {
   id: number;
   ingredient: string;
-  category: string;
+  category: FeedInventoryOutCategory;
   unit: string;
   qty_on_hand: number;
   reorder_level: number | null;

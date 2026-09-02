@@ -285,7 +285,21 @@ async def test_animal_price_bounds(client: httpx.AsyncClient) -> None:
         "/api/animals", json=base | {"purchase_price": MONEY_CAP}, headers=owner
     )
     assert resp.status_code == 201, resp.text
-    aid = await make_animal(client, owner, tag="S-1")
+    # BORN + historical import keeps the animal out of the 45-day quarantine
+    # pen, whose sale fence would (correctly) 409 the cap-bound probes below.
+    resp = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "S-1",
+            "sex": "F",
+            "source": "BORN",
+            "current_bucket": "FOUNDATION",
+            "historical_import_reason": "Price-bounds fixture",
+        },
+        headers=owner,
+    )
+    assert resp.status_code == 201, resp.text
+    aid = resp.json()["id"]
     for bad in (1e308, 1e309, MONEY_CAP + 0.01, float("nan")):
         resp = await post_raw_json(
             client, f"/api/animals/{aid}/status", {"new_status": "SOLD", "sale_price": bad}, owner

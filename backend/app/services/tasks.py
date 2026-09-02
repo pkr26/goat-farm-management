@@ -290,7 +290,9 @@ async def _guard_generated_movement_task(
         or breeding.expected_kidding_date is None
         or task.due_date
         != breeding.expected_kidding_date
-        - timedelta(days=15 if movement_profile.young_stay_with_dam else 21)
+        # Goat: pre-kidding pen move ~2 weeks out. Dairy: the dry-group /
+        # calving-pen move rides the dry-off point ~60 days before calving.
+        - timedelta(days=15 if movement_profile.young_stay_with_dam else 60)
     ):
         raise ValueError("The delivery movement duty does not match the recorded pregnancy")
     return kidding, kids
@@ -394,9 +396,17 @@ async def complete_task(
         movement_animal = linked_animal
         kidding, kids = await _guard_generated_movement_task(db, task, linked_animal)
         if linked_animal.current_bucket == Bucket.RECOVERY.value:
-            if kidding is None or await _litter_has_surviving_kid(
-                db, task.farm_id, kids
-            ):  # pragma: no cover
+            recovery_farm = await db.get(Farm, task.farm_id)
+            recovery_profile = species_profile(
+                recovery_farm.farm_type if recovery_farm is not None else "GOAT"
+            )
+            # Goat: the dam's RECOVERY exit only exists once no kid still
+            # depends on her. Dairy: calves are separated at birth, so the
+            # fresh-pen exit is valid regardless of calf survival — mirror
+            # the species gate _guard_generated_movement_task applies.
+            if recovery_profile.young_stay_with_dam and (
+                kidding is None or await _litter_has_surviving_kid(db, task.farm_id, kids)
+            ):
                 raise ValueError("Postpartum recovery duty is invalid while a kid survives")
             if error := bucket_transition_error(
                 linked_animal,
@@ -426,14 +436,33 @@ async def complete_task(
         weaning_doe = animals_by_id.get(task.animal_id) if task.animal_id is not None else None
         if weaning_doe is None or weaning_doe.farm_id != task.farm_id:
             raise ValueError("The animal linked to this weaning duty is unavailable")
-        weaning_kids = [
-            animal
-            for animal in affected_animals
-            if animal.id in litter_animal_ids
-            and animal.dam_id == weaning_doe.id
-            and animal.status == AnimalStatus.ACTIVE.value
-            and animal.current_bucket == Bucket.RECOVERY.value
-        ]
+        weaning_farm = await db.get(Farm, task.farm_id)
+        weaning_profile = species_profile(
+            weaning_farm.farm_type if weaning_farm is not None else "GOAT"
+        )
+        if weaning_profile.young_stay_with_dam:
+            weaning_kids = [
+                animal
+                for animal in affected_animals
+                if animal.id in litter_animal_ids
+                and animal.dam_id == weaning_doe.id
+                and animal.status == AnimalStatus.ACTIVE.value
+                and animal.current_bucket == Bucket.RECOVERY.value
+            ]
+        else:
+            # Dairy: calves were separated into the calf shed at birth, so the
+            # day-90 milk-weaning moves each surviving heifer FEMALE_KIDS →
+            # FOUNDATION (the duty title's promise); males stay in MALE_KIDS
+            # until their own sale path.
+            weaning_kids = [
+                animal
+                for animal in affected_animals
+                if animal.id in litter_animal_ids
+                and animal.dam_id == weaning_doe.id
+                and animal.status == AnimalStatus.ACTIVE.value
+                and animal.current_bucket
+                in (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
+            ]
         # A retained older duty may be completed after the doe has another live
         # litter (supported by historical correction). Wean only the linked
         # litter and leave the dam in RECOVERY until every other *dependent*
@@ -472,7 +501,17 @@ async def complete_task(
                 )
             ).scalar_one_or_none()
         weaning_doe_can_rest = other_dependent_id is None
-        candidates = [*weaning_kids]
+
+        def _weaning_target(animal: Animal) -> str | None:
+            """Post-weaning bucket for one young animal (None → no move)."""
+            if weaning_profile.young_stay_with_dam:
+                return Bucket.MALE_KIDS.value if animal.sex == "M" else Bucket.FEMALE_KIDS.value
+            # Dairy: heifers graduate to FOUNDATION at milk-weaning; bull
+            # calves have no graduation bucket and simply stay in MALE_KIDS.
+            return Bucket.FOUNDATION.value if animal.sex == "F" else None
+
+        moving_kids = [kid for kid in weaning_kids if _weaning_target(kid) is not None]
+        candidates = [*moving_kids]
         if weaning_doe_can_rest:
             candidates.insert(0, weaning_doe)
         if any(
@@ -480,7 +519,7 @@ async def complete_task(
                 animal,
                 Bucket.RESTING.value
                 if animal.id == weaning_doe.id
-                else (Bucket.MALE_KIDS.value if animal.sex == "M" else Bucket.FEMALE_KIDS.value),
+                else (_weaning_target(animal) or animal.current_bucket),
                 context="weaning",
                 reference_date=movement_date,
             )
@@ -547,12 +586,19 @@ async def complete_task(
         doe = weaning_doe
         if doe and doe.farm_id == task.farm_id:  # farm guard
             for kid in weaning_kids or []:
-                target = Bucket.MALE_KIDS.value if kid.sex == "M" else Bucket.FEMALE_KIDS.value
+                if weaning_profile.young_stay_with_dam:
+                    target = Bucket.MALE_KIDS.value if kid.sex == "M" else Bucket.FEMALE_KIDS.value
+                else:
+                    # Dairy: heifers graduate FEMALE_KIDS → FOUNDATION; bull
+                    # calves stay in MALE_KIDS until their own sale path.
+                    if kid.sex != "F":
+                        continue
+                    target = Bucket.FOUNDATION.value
                 move_animal(
                     db,
                     kid,
                     target,
-                    "Weaned (day 60)",
+                    f"Weaned (day {weaning_profile.weaning_days})",
                     created_by_id=user.id if user else None,
                     context="weaning",
                     reference_date=movement_date,

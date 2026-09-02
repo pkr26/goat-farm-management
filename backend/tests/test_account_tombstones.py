@@ -250,7 +250,7 @@ async def test_account_delete_request_never_queries_membership_history(
         deleted = await client.request(
             "DELETE",
             "/api/auth/account",
-            json={"current_password": WORKER_PASSWORD},
+            json={"current_password": WORKER_PASSWORD + "!r1"},  # post-rotation current
             headers=worker,
         )
     finally:
@@ -328,7 +328,7 @@ async def test_delete_tombstones_identity_and_preserves_task_attribution(
     deleted = await client.request(
         "DELETE",
         "/api/auth/account",
-        json={"current_password": WORKER_PASSWORD},
+        json={"current_password": WORKER_PASSWORD + "!r1"},  # post-rotation current
         headers=worker,
     )
     assert deleted.status_code == 204, deleted.text
@@ -460,7 +460,7 @@ async def test_manual_assignment_queued_behind_deletion_cannot_recreate_live_ref
         client.request(
             "DELETE",
             "/api/auth/account",
-            json={"current_password": WORKER_PASSWORD},
+            json={"current_password": WORKER_PASSWORD + "!r1"},  # post-rotation current
             headers=worker,
         )
     )
@@ -540,7 +540,7 @@ async def test_recurring_completion_racing_deletion_retains_inactive_assignment_
                 client.request(
                     "DELETE",
                     "/api/auth/account",
-                    json={"current_password": WORKER_PASSWORD},
+                    json={"current_password": WORKER_PASSWORD + "!r1"},  # post-rotation current
                     headers=worker,
                 )
             )

@@ -9,7 +9,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from ..models import (
     BREEDING_READY_BUCKETS,
-    MAX_FAILED_CYCLES_BEFORE_CULL,
+    BUCK_DOE_RATIO,
     PREGNANCY_LOSS_CAUSES,
     Animal,
     AnimalStatus,
@@ -298,6 +298,46 @@ async def doe_has_open_breeding(db: AsyncSession, farm_id: int, doe_id: int) -> 
     return existing_id is not None
 
 
+async def _latest_kidding_date(db: AsyncSession, farm_id: int, doe_id: int) -> date | None:
+    """The doe's most recent calving/kidding date (for the voluntary waiting period)."""
+    return (
+        await db.execute(
+            select(func.max(KiddingRecord.date)).where(
+                KiddingRecord.farm_id == farm_id, KiddingRecord.doe_id == doe_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _buck_open_service_count(db: AsyncSession, farm_id: int, buck_id: int) -> int:
+    """Open services currently assigned to a sire (PENDING or confirmed-undelivered).
+
+    The SPEC's 1-buck-per-20-does mating policy is enforced on this counter:
+    a sire whose open services already equal ``BUCK_DOE_RATIO`` is over-used,
+    concentrating genetics and overworking the buck. The count is bounded by
+    the ratio check itself, so it stays a cheap aggregate.
+    """
+    count = (
+        await db.execute(
+            select(func.count())
+            .select_from(BreedingRecord)
+            .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
+            .where(
+                BreedingRecord.farm_id == farm_id,
+                BreedingRecord.buck_id == buck_id,
+                or_(
+                    BreedingRecord.outcome == BreedingOutcome.PENDING.value,
+                    and_(
+                        BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                        KiddingRecord.id.is_(None),
+                    ),
+                ),
+            )
+        )
+    ).scalar_one()
+    return int(count)
+
+
 async def _latest_doe_reproductive_boundary(
     db: AsyncSession, farm_id: int, doe_id: int
 ) -> date | None:
@@ -388,8 +428,10 @@ async def create_breeding_record(
     has_open_breeding: bool,
     method: str = BreedingMethod.NATURAL.value,
     semen_sire_name: str | None = None,
+    actor_is_owner: bool = False,
 ) -> BreedingRecord:
     participants: list[tuple[Animal, str]] = [(doe, "Doe")]
+    profile = species_profile(farm.farm_type)
     if method == BreedingMethod.NATURAL.value:
         if buck is None:
             raise ValueError("A natural service requires a herd buck")
@@ -405,12 +447,43 @@ async def create_breeding_record(
             )
     if has_open_breeding:
         raise ValueError(f"{doe.tag_number} already has an unresolved breeding/pregnancy")
+    if doe.cull_candidate and not actor_is_owner:
+        # The flag fired after the species' failed-service limit; serving her
+        # again is an explicit owner decision (conceiving clears the flag).
+        raise ValueError(
+            f"{doe.tag_number} is flagged as a cull candidate after "
+            f"{profile.failed_services_before_cull} failed services — only the "
+            "farm owner can record another service for her"
+        )
     latest_boundary = await _latest_doe_reproductive_boundary(db, farm.id, doe.id)
     if latest_boundary is not None and breeding_date <= latest_boundary:
         raise ValueError(
             f"Breeding date must be after {doe.tag_number}'s latest reproductive "
             f"event on {latest_boundary.isoformat()}"
         )
+    # Voluntary waiting period: a service dated before the last calving plus
+    # the species' VWP is biologically invalid (uterine involution). Buffalo
+    # protocol is 60 days; for goats the floor mirrors the postpartum
+    # recovery window and the bucket graph already keeps surviving-litter
+    # does in RECOVERY (not breeding-ready) until weaning.
+    latest_calving = await _latest_kidding_date(db, farm.id, doe.id)
+    if latest_calving is not None:
+        vwp_floor = latest_calving + timedelta(days=profile.voluntary_waiting_days)
+        if breeding_date < vwp_floor:
+            raise ValueError(
+                f"{doe.tag_number} is inside the {profile.voluntary_waiting_days}-day "
+                f"voluntary waiting period after her {profile.parturition} on "
+                f"{latest_calving.isoformat()} — earliest service date is "
+                f"{vwp_floor.isoformat()}"
+            )
+    if buck is not None:
+        open_services = await _buck_open_service_count(db, farm.id, buck.id)
+        if open_services >= BUCK_DOE_RATIO:
+            raise ValueError(
+                f"{buck.tag_number} already covers {open_services} open services — "
+                f"the mating policy caps a buck at {BUCK_DOE_RATIO} does "
+                "(1:20 buck:doe ratio); use another sire"
+            )
     # Deliberately no ordering check against bucket moves: moves are always
     # stamped with the day they were *recorded* (MoveIn carries no date), so a
     # breeding that physically happened before a same-day move legitimately
@@ -579,8 +652,10 @@ async def record_ultrasound_result(
             allow_restricted_reclassification=True,
         )
         if farm_type != "GOAT":
-            # Buffalo: dry-off ~60 days before calving (dry buffalo therapy),
-            # move to the calving-pen wing ~2-3 weeks before the due date.
+            # Buffalo: dry-off ~60 days before calving (dry buffalo therapy)
+            # and the dry-group/calving-pen move at the same point, so the
+            # dam reaches the dry TMR when the therapy starts instead of
+            # three weeks later (README: "dry-off 60 days before calving").
             await _add_task(
                 db,
                 br.farm_id,
@@ -595,8 +670,8 @@ async def record_ultrasound_result(
                 db,
                 br.farm_id,
                 farm_type,
-                f"Move {doe.tag_number} to DELIVERY (dry off, calving in ~2 weeks)",
-                ekd - timedelta(days=21),
+                f"Move {doe.tag_number} to DELIVERY (dry off, calving in ~2 months)",
+                ekd - timedelta(days=60),
                 TaskCategory.BUCKET_MOVE,
                 animal_id=doe.id,
                 breeding_record_id=br.id,
@@ -608,6 +683,18 @@ async def record_ultrasound_result(
                 farm_type,
                 f"{PRE_KIDDING_VACCINE_TITLE}: {doe.tag_number}",
                 ekd - timedelta(days=40),
+                TaskCategory.VACCINE,
+                animal_id=doe.id,
+                breeding_record_id=br.id,
+            )
+            # The seeded ET+TT template promises two doses 15 days apart;
+            # the booster closes that gap (primary + booster pre-kidding).
+            await _add_task(
+                db,
+                br.farm_id,
+                farm_type,
+                f"{PRE_KIDDING_VACCINE_TITLE} booster: {doe.tag_number}",
+                ekd - timedelta(days=25),
                 TaskCategory.VACCINE,
                 animal_id=doe.id,
                 breeding_record_id=br.id,
@@ -638,7 +725,7 @@ async def record_ultrasound_result(
         # query sees THIS failure (otherwise the flag lags one cycle behind).
         # This flush-before-check order is load-bearing — do not reorder.
         await db.flush()
-        await _update_cull_candidate(db, doe)
+        await _update_cull_candidate(db, doe, failed_limit=profile.failed_services_before_cull)
 
     await db.flush()
     return br
@@ -686,8 +773,12 @@ async def mark_unassessed(
     return br
 
 
-async def _update_cull_candidate(db: AsyncSession, doe: Animal) -> None:
-    """2 consecutive FAILED cycles → cull candidate flag (per SPEC)."""
+async def _update_cull_candidate(db: AsyncSession, doe: Animal, *, failed_limit: int) -> None:
+    """`failed_limit` consecutive FAILED cycles → cull candidate flag.
+
+    The limit is species-aware (goat SPEC: 2; dairy protocol: 3 services
+    before cull review) and comes from the farm's SpeciesProfile.
+    """
     result = await db.execute(
         select(BreedingRecord.outcome)
         .where(
@@ -695,10 +786,10 @@ async def _update_cull_candidate(db: AsyncSession, doe: Animal) -> None:
             BreedingRecord.outcome != BreedingOutcome.PENDING.value,
         )
         .order_by(BreedingRecord.breeding_date.desc(), BreedingRecord.id.desc())
-        .limit(MAX_FAILED_CYCLES_BEFORE_CULL)
+        .limit(failed_limit)
     )
     recent_outcomes = list(result.scalars())
-    if len(recent_outcomes) == MAX_FAILED_CYCLES_BEFORE_CULL and all(
+    if len(recent_outcomes) == failed_limit and all(
         outcome == BreedingOutcome.FAILED.value for outcome in recent_outcomes
     ):
         doe.cull_candidate = True

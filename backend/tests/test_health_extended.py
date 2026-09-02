@@ -1691,7 +1691,6 @@ SCHEDULE_TEMPLATE_NAMES = {
     "Black Quarter",
     "Johne's Disease",
     "Anthrax",
-    "ORF",
     "CCPP",
     "Deworming",
     "Anti-coccidial drench",
@@ -1706,7 +1705,9 @@ async def test_schedule_lists_seeded_templates(client: httpx.AsyncClient) -> Non
     assert {r["template_name"] for r in schedule["rows"]} == SCHEDULE_TEMPLATE_NAMES
     # the pregnancy-linked ET + TT pre-kidding template is handled via tasks,
     # not the per-animal age schedule
-    assert len(schedule["rows"]) == 12
+    # ORF was dropped from the default calendar (Indian practice does not
+    # vaccinate for sore mouth; control is outbreak-driven).
+    assert len(schedule["rows"]) == 11
 
 
 async def test_schedule_row_shape(client: httpx.AsyncClient) -> None:
@@ -1791,7 +1792,7 @@ async def test_schedule_done_after_matching_vaccine_event(client: httpx.AsyncCli
     schedule = await get_schedule(client, headers, animal["id"])
     ppr = row_by_name(schedule, "PPR")
     assert ppr["last_done"] == iso(today())
-    assert ppr["next_due"] == iso(add_months(today(), 36))  # repeat every 3 years
+    assert ppr["next_due"] == iso(add_months(today(), 12))  # annual field-convention revaccination
     assert ppr["status"] == "DONE"
 
 

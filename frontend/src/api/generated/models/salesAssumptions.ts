@@ -78,6 +78,11 @@ export interface SalesAssumptions {
   lactation_milk_litres?: number;
   /**
      * @minimum 0
+     * @maximum 30
+     */
+  calf_milk_litres_per_day_per_calf?: number;
+  /**
+     * @minimum 0
      * @maximum 1000000000
      */
   milk_price_per_kg_fat?: number;

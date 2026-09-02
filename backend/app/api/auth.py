@@ -41,7 +41,8 @@ from ..models import (
     User,
 )
 from ..models.idempotency import CREATE_FARM_IDEMPOTENCY_OPERATION
-from ..ratelimit import auth_limiter
+from ..schemas.common import COMMON_ERROR_RESPONSES
+from ..ratelimit import SlidingWindowRateLimiter, auth_limiter
 from ..schemas.auth import (
     AccountDeleteIn,
     AccountExportOut,
@@ -76,11 +77,16 @@ from ..seed import seed_new_farm
 from ..services.idempotency import IdempotencyKey, execute_idempotent
 from ..utils import utcnow
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["auth"], responses=COMMON_ERROR_RESPONSES)
 
 logger = logging.getLogger("goatfarm.auth")
 
 ALREADY_REGISTERED = "That email is already registered."
+
+# Separate map: charging duplicate-email probes must not add keys to the
+# shared auth limiter's bounded bookkeeping (its cardinality ceiling is
+# load-bearing for the invalid-token and login budgets).
+register_email_limiter = SlidingWindowRateLimiter()
 TOO_MANY_ATTEMPTS = "Too many attempts — please try again later."
 UNTRUSTED_COOKIE_ORIGIN = "Untrusted origin for cookie-authenticated request."
 
@@ -683,9 +689,28 @@ async def register(
     # Hash BEFORE the existence check so a duplicate email doesn't
     # return measurably earlier than a fresh one (timing half of the register
     # enumeration oracle). The explicit 400 remains — without email
-    # verification there is no accept-and-notify path, and the per-IP
-    # register throttle blunts probing.
+    # verification there is no accept-and-notify path — but repeated probing
+    # of one email is ALSO charged to a per-email bucket, so an IP-rotating
+    # enumerator exhausts that account-name's budget instead of probing it
+    # indefinitely at the per-IP ceiling.
     pw_hash = await hash_password_async(payload.password)
+    email_probe_key = f"register-email:{payload.email.lower()}"
+    s_limits = get_settings()
+    if s_limits.auth_rate_limit_enabled and register_email_limiter.is_blocked(
+        "register-email",
+        email_probe_key,
+        s_limits.auth_rate_limit_max_attempts,
+        s_limits.auth_rate_limit_window_seconds,
+    ):
+        logger.info("register-email throttled (key=%s)", email_probe_key)
+        raise _too_many_attempts()
+    if s_limits.auth_rate_limit_enabled:
+        register_email_limiter.record(
+            "register-email",
+            email_probe_key,
+            s_limits.auth_rate_limit_window_seconds,
+            max_attempts=s_limits.auth_rate_limit_max_attempts,
+        )
     existing = await db.execute(select(User).where(User.email == payload.email))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=400, detail=ALREADY_REGISTERED)
@@ -1211,6 +1236,9 @@ async def change_password(
             raise HTTPException(status_code=401, detail="Session is no longer valid")
         locked_user.password_hash = replacement_hash
         locked_user.token_version += 1
+        # A completed self-service change proves sole possession of the
+        # credential; owner-provisioned flags clear here and only here.
+        locked_user.must_change_password = False
         await revoke_user_sessions(db, locked_user.id)
         out = await _issue_tokens(db, locked_user, response)  # new family, fresh session
         await db.commit()

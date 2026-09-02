@@ -691,8 +691,8 @@ async def test_concurrent_ultrasound_submissions_apply_once(
     # The breeding row is locked FOR UPDATE: the loser re-reads the committed
     # outcome and gets the same 409 a sequential replay gets.
     assert sorted([r1.status_code, r2.status_code]) == [200, 409]
-    # ET+TT vaccine + Move to DELIVERY + Kidding due — exactly once, not twice.
-    assert len(await breeding_follow_ups(client, owner, br["id"])) == 3
+    # ET+TT vaccine + booster + DELIVERY move + kidding due — once each.
+    assert len(await breeding_follow_ups(client, owner, br["id"])) == 4
     resp = await client.get(f"/api/animals/{doe}", headers=owner)
     moves = [m for m in resp.json()["moves"] if m["to_bucket"] == "PREGNANCY_EARLY"]
     assert len(moves) == 1
@@ -724,7 +724,7 @@ async def test_concurrent_mixed_ultrasound_results_stay_consistent(
     outcome = resp.json()["outcome"]
     follow_ups = await breeding_follow_ups(client, owner, br["id"])
     if outcome == "CONFIRMED_PREGNANT":
-        assert len(follow_ups) == 3
+        assert len(follow_ups) == 4  # incl. the ET+TT booster
     else:
         assert outcome == "FAILED"
         assert follow_ups == []  # no pregnancy tasks for a failed cycle
@@ -753,7 +753,8 @@ async def test_concurrent_double_abort_aborts_once(client: httpx.AsyncClient) ->
     aborts = [m for m in resp.json()["moves"] if m["reason"] == "Pregnancy aborted"]
     assert len(aborts) == 1
     follow_ups = await breeding_follow_ups(client, owner, br["id"])
-    assert len(follow_ups) == 3
+    # Primary ET+TT, its booster, the DELIVERY move, and the kidding-due duty.
+    assert len(follow_ups) == 4
     assert {t["status"] for t in follow_ups} == {"SKIPPED"}
 
 

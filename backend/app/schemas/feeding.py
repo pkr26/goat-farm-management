@@ -10,6 +10,8 @@ from .animals import BucketStr
 from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat, StrictInputModel
 
 ShiftStr = Literal["MORNING", "AFTERNOON", "NIGHT"]
+# Mirrors models.IngredientCategory (green / dry / concentrate).
+IngredientCategoryStr = Literal["ROUGHAGE_WET", "ROUGHAGE_DRY", "CONCENTRATE"]
 # A dispensing record without a recipe cannot be reconciled with the ration
 # plan and bypasses finished-feed stock deduction, so the router always
 # refused it.  Saying so in the schema keeps the published contract (and every
@@ -76,7 +78,7 @@ class FeedInventoryOut(BaseModel):
 
     id: int
     ingredient: str
-    category: str
+    category: IngredientCategoryStr
     unit: str
     qty_on_hand: float
     reorder_level: float | None
@@ -96,7 +98,7 @@ class FeedRecipeLineOut(BaseModel):
 
     ingredient: str
     kg_per_100kg: float
-    category: str
+    category: IngredientCategoryStr
 
 
 class FeedRecipeOut(BaseModel):
@@ -114,8 +116,8 @@ class FeedingRecordOut(BaseModel):
 
     id: int
     date: date
-    shift: str
-    bucket: str
+    shift: ShiftStr
+    bucket: BucketStr
     recipe_code: str | None
     qty_kg: float
 

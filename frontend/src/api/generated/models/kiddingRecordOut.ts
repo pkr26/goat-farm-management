@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { KiddingRecordOutEase } from './kiddingRecordOutEase';
 import type { KidEntryOut } from './kidEntryOut';
 
 export interface KiddingRecordOut {
@@ -11,7 +12,7 @@ export interface KiddingRecordOut {
   doe_id: number;
   date: string;
   breeding_record_id: number | null;
-  ease: string;
+  ease: KiddingRecordOutEase;
   notes: string | null;
   kids?: KidEntryOut[];
   doe_tag?: string | null;

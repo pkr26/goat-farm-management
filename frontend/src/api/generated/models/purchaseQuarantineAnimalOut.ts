@@ -4,6 +4,9 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { PurchaseQuarantineAnimalOutCurrentBucket } from './purchaseQuarantineAnimalOutCurrentBucket';
+import type { PurchaseQuarantineAnimalOutSex } from './purchaseQuarantineAnimalOutSex';
+import type { PurchaseQuarantineAnimalOutStatus } from './purchaseQuarantineAnimalOutStatus';
 
 /**
  * Animal state needed to track a purchase through quarantine.
@@ -14,7 +17,7 @@
 export interface PurchaseQuarantineAnimalOut {
   id: number;
   tag_number: string;
-  sex: string;
-  current_bucket: string;
-  status: string;
+  sex: PurchaseQuarantineAnimalOutSex;
+  current_bucket: PurchaseQuarantineAnimalOutCurrentBucket;
+  status: PurchaseQuarantineAnimalOutStatus;
 }

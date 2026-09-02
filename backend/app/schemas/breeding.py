@@ -68,6 +68,26 @@ PregnancyLossCause = Literal[
     "TRAUMA",
     "OTHER",
 ]
+# The Out-side vocabulary adds the server-owned administrative close written
+# when an animal leaves the herd with a stale pregnancy (input schemas
+# deliberately never accept it).
+PregnancyLossCauseWithSystem = Literal[
+    "UNKNOWN",
+    "DISEASE",
+    "INJURY",
+    "NUTRITIONAL",
+    "TRAUMA",
+    "ANIMAL_STATUS_CHANGE",
+    "OTHER",
+]
+BreedingOutcomeStr = Literal[
+    "PENDING",
+    "CONFIRMED_PREGNANT",
+    "FAILED",
+    "ABORTED",
+    "UNASSESSED",
+]
+BreedingMethodStr = BreedingMethodValue
 
 
 class PregnancyLossIn(StrictInputModel):
@@ -91,7 +111,7 @@ class BreedingRecordOut(BaseModel):
     buck_id: int | None  # None for AI/AI_SEXED services
     semen_sire_name: str | None
     breeding_date: date
-    method: str
+    method: BreedingMethodStr
     heat_cycle_number: int
     ultrasound_date: date | None
     ultrasound_result_date: date | None
@@ -101,9 +121,9 @@ class BreedingRecordOut(BaseModel):
     expected_kidding_date: date | None
     # UNASSESSED: the doe left the herd before her pregnancy check, so the
     # service can never be scanned (models.enums.BreedingOutcome).
-    outcome: str  # PENDING | CONFIRMED_PREGNANT | FAILED | ABORTED | UNASSESSED
+    outcome: BreedingOutcomeStr
     loss_date: date | None
-    loss_cause: str | None
+    loss_cause: PregnancyLossCauseWithSystem | None
     loss_notes: str | None
     loss_recorded_by_id: int | None
     loss_recorded_at: datetime | None

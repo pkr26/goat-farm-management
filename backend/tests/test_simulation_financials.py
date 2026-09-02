@@ -673,9 +673,19 @@ def test_dscr_consistency() -> None:
     for row, dscr in zip(res.annual_pl, res.metrics.dscr_per_year, strict=True):
         expected = row.ebitda / row.debt_service if row.debt_service > 0.0 else 0.0
         assert dscr == pytest.approx(expected)
-    expected_series = [row.ebitda / row.debt_service for row in active]
-    assert res.metrics.avg_dscr == pytest.approx(sum(expected_series) / len(expected_series))
-    assert res.metrics.min_dscr == pytest.approx(min(expected_series))
+    repaying = [row for row in active if row.principal > 0.0]
+    expected_avg = [row.ebitda / row.debt_service for row in repaying] or [
+        row.ebitda / row.debt_service for row in active
+    ]
+    assert res.metrics.avg_dscr == pytest.approx(sum(expected_avg) / len(expected_avg))
+    # min_dscr covers only principal-repaying years — the default run's year 1
+    # is a 12-month interest-only moratorium, structurally sales-less, whose
+    # inclusion made every candidate infeasible regardless of economics.
+    repaying = [row for row in active if row.principal > 0.0]
+    assert repaying
+    assert res.metrics.min_dscr == pytest.approx(
+        min(row.ebitda / row.debt_service for row in repaying)
+    )
     # Debt years are exactly the first 6 (72-month term from month 1).
     assert [row.year for row in active] == [1, 2, 3, 4, 5, 6]
 
@@ -689,10 +699,15 @@ def test_avg_and_min_dscr_are_none_only_without_debt_years() -> None:
     m = run_simulation(a, with_break_even=False).metrics
     assert all(row == 0.0 for row in m.dscr_per_year)
     assert m.avg_dscr is None and m.min_dscr is None
-    # With a loan, a negative weakest year stays a number — never the sentinel.
+    # With a loan, a weak repaying year stays a number — never the sentinel.
+    # min_dscr spans principal-repaying years only: the default run's year 1
+    # is the 12-month interest-only moratorium (structurally sales-less).
     m = run_simulation(SimulationAssumptions(), with_break_even=False).metrics
-    assert m.min_dscr is not None and m.min_dscr < 0.0
-    assert m.avg_dscr is not None and m.avg_dscr < 0.0
+    assert m.min_dscr is not None
+    assert m.avg_dscr is not None
+    repaying_dscr = [dscr for dscr in m.dscr_per_year[1:] if dscr != 0.0]
+    assert repaying_dscr
+    assert m.min_dscr == pytest.approx(min(repaying_dscr))
 
 
 def test_payback_matches_cumulative_series() -> None:
@@ -864,7 +879,7 @@ def test_buck_rotation_culls_and_restaffs() -> None:
     does = m36.open_does + m36.pregnant_does + m36.lactating_does
     assert m36.culls_head >= surviving_bucks - 1e-6
     assert m36.cull_revenue >= surviving_bucks * 200.0 * 34.0 - 1e-6
-    assert m36.bucks == pytest.approx(math.ceil(does / 25))
+    assert m36.bucks == pytest.approx(math.ceil(does / 20))
 
 
 def test_auto_buck_purchase_scales_with_doe_count() -> None:
@@ -891,10 +906,10 @@ def test_auto_buck_purchase_ignores_ulp_noise_at_exact_ratio_boundary() -> None:
     a = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
         herd=HerdAssumptions(
-            does=43,
+            does=40,
             bucks=0,
-            female_growers=14,
-            max_breeding_does=50,
+            female_growers=0,
+            max_breeding_does=0,
         ),
     )
     a.reproduction.age_at_first_breeding_months = 6
@@ -905,7 +920,9 @@ def test_auto_buck_purchase_ignores_ulp_noise_at_exact_ratio_boundary() -> None:
     month1 = run_simulation(a, with_break_even=False).months[0]
 
     does = month1.open_does + month1.pregnant_does + month1.lactating_does
-    assert does == pytest.approx(50.0, abs=1e-12)
+    assert does == pytest.approx(40.0, abs=1e-12)
+    # Exactly at the 1:20 two-buck boundary: the whole-unit policy helper
+    # (its own unit test covers the ULP-noise snap) keeps this at two sires.
     assert month1.purchases_head == 2.0
     assert month1.bucks == 2.0
 
@@ -929,15 +946,15 @@ def test_steady_state_kidding_cadence() -> None:
 
 
 def test_kid_pipeline_timing_matches_biology() -> None:
-    """Conception month 1 -> kidding month 6 -> male sale at age 10 in month 16
-    (born at age 0 in month 6; reaches the sale age 10 ten months later)."""
+    """Conception month 1 -> kidding month 6 -> male sale at age 9 in month 15
+    (born at age 0 in month 6; reaches the sale age 9 nine months later)."""
     a = toy()
     a.meta.horizon_months = 24
     res = run_simulation(a, with_break_even=False)
     assert all(row.births == 0.0 for row in res.months[:5])
     assert res.months[5].births > 0.0
     first_sale = next(row.month for row in res.months if row.sales_head > 0.0)
-    assert first_sale == 16  # month 6 birth + 10 months to reach sale age 10
+    assert first_sale == 15  # month 6 birth + 9 months to reach sale age 9
 
 
 # ---------------------------------------------------------------------------

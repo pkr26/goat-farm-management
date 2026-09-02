@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ScheduleTemplateOutEventType } from './scheduleTemplateOutEventType';
 
 /**
  * One seeded vaccination/deworming programme item.
@@ -16,5 +17,5 @@ export interface ScheduleTemplateOut {
   id: number;
   name: string;
   timing_note: string | null;
-  event_type: string;
+  event_type: ScheduleTemplateOutEventType;
 }

@@ -73,7 +73,7 @@ from app.simulation.finance import irr_roots
 from app.simulation.shocks import MonthlyShockPath
 
 S_ADULT = 0.95 ** (1.0 / 12.0)  # monthly adult survival, default 5% annual mortality
-S_KID = 0.90 ** (1.0 / 3.0)  # monthly kid survival: default 10% is a whole-phase (3 m) rate
+S_KID = 0.85 ** (1.0 / 3.0)  # monthly kid survival: default 15% is a whole-phase (3 m) rate
 S_WEANER = 0.95 ** (1.0 / 3.0)  # monthly weaner survival: 5% whole-phase rate
 
 
@@ -215,8 +215,9 @@ def test_documented_pre_weaning_rate_removes_ten_percent_of_the_crop() -> None:
     born = res.months[1].births
     assert born == pytest.approx(16.0)
     # One kid-class month down: 1/3 of the phase rate.
+    kid_survival_monthly = 0.90 ** (1.0 / 3.0)  # the run's explicit 10% phase rate
     assert res.months[1].f_kids + res.months[1].m_kids == pytest.approx(
-        16.0 * S_KID, abs=1e-9
+        16.0 * kid_survival_monthly, abs=1e-9
     )
     # After the third kid-class month the crop is exactly 10% smaller; the
     # following month they are weaners and take no further kid mortality.
@@ -387,10 +388,10 @@ def test_default_run_herd_grows_and_sales_timing() -> None:
     assert months[59].total_herd > 52.0  # grew past the foundation herd
     assert 100.0 <= months[59].total_herd <= 400.0  # sane band at 5 years
     # Mixed foundation flock: does in gestation month 5 kid in month 1, and
-    # their male kids reach sale age 10 in month 11.
+    # their male kids reach sale age 9 in month 10.
     first_sales = next(row.month for row in months if row.sales_head > 0.0)
-    assert first_sales == 11
-    assert all(row.sales_head == 0.0 for row in months[:10])
+    assert first_sales == 10
+    assert all(row.sales_head == 0.0 for row in months[:9])
 
 
 def test_default_run_reports_purchased_fodder_and_honest_operating_result() -> None:
@@ -620,17 +621,17 @@ def test_buck_rotation_skipped_when_auto_purchase_is_off() -> None:
     assert res.months[-1].births > 0.0
 
     # With auto-purchase enabled the rotation is unchanged: the same herd is
-    # culled at month 36 (battery topped up to 2.0 monthly, one month of
-    # mortality since the last top-up) and re-staffed to the 1:25 ratio the
-    # same month.
+    # culled at month 36 (battery topped up monthly, one month of mortality
+    # since the last top-up) and re-staffed to the 1:20 ratio (3 sires for
+    # 50 does) the same month.
     auto = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=48),
         herd=HerdAssumptions(does=50, bucks=2, auto_purchase_bucks=True),
         culling=culling,
     )
     m36_auto = run_simulation(auto, with_break_even=False).months[35]
-    assert m36_auto.culls_head == pytest.approx(2.0 * S_ADULT, abs=1e-6)
-    assert m36_auto.bucks == pytest.approx(2.0, abs=1e-9)
+    assert m36_auto.culls_head == pytest.approx(3.0 * S_ADULT, abs=1e-6)
+    assert m36_auto.bucks == pytest.approx(3.0, abs=1e-9)
 
 
 def test_scheduled_buck_purchase_at_rotation_month_survives_the_cull() -> None:
@@ -680,9 +681,9 @@ def test_auto_purchase_fills_only_the_missing_part_of_a_sire_battery() -> None:
 
     first = run_simulation(assumptions, with_break_even=False).months[0]
 
-    assert first.purchases_head == pytest.approx(1.0)
-    assert first.purchase_cost == pytest.approx(assumptions.herd.buck_purchase_price)
-    assert first.bucks == pytest.approx(2.0)
+    assert first.purchases_head == pytest.approx(2.0)
+    assert first.purchase_cost == pytest.approx(2.0 * assumptions.herd.buck_purchase_price)
+    assert first.bucks == pytest.approx(3.0)
 
 
 def test_post_mortality_sire_top_up_handles_one_or_zero_does() -> None:
@@ -780,18 +781,19 @@ def test_assumptions_defaults_valid_and_extra_forbidden() -> None:
 def test_weight_curve() -> None:
     g = SimulationAssumptions().growth
     assert weight_at_age(0, g, 32.0) == 2.5
-    # The calibrated curve is a decelerating field-weight table: 12.1 kg at
-    # 3 m (weaning), 17.1 at 6 m, 20.5 at 12 m.
+    # Field-recorded weights to 6 m (12.1 kg @ 3 m weaning, ~17.8 @ 6 m), then
+    # the commercial stall-fed finish: males reach the SPEC sale window
+    # (8-9 mo / 24-28 kg) on schedule, yearling 25.6 kg.
     assert weight_at_age(3, g, 32.0) == pytest.approx(12.1)
-    assert weight_at_age(6, g, 32.0) == pytest.approx(17.1)
-    assert weight_at_age(12, g, 32.0) == pytest.approx(20.5)
+    assert weight_at_age(6, g, 32.0) == pytest.approx(17.8)
+    assert weight_at_age(12, g, 32.0) == pytest.approx(25.6)
     # Age 13 is the first interpolated value after the fixed 0..12 table; the
     # linear approach now spans ages 13..adult_weight_age_months (default 24).
-    assert weight_at_age(13, g, 32.0) == pytest.approx(20.5 + (32.0 - 20.5) / 12.0)
+    assert weight_at_age(13, g, 32.0) == pytest.approx(25.6 + (32.0 - 25.6) / 12.0)
     assert weight_at_age(24, g, 32.0) == 32.0
     assert weight_at_age(30, g, 32.0) == 32.0
-    # Midpoint of the linear approach: 20.5 + 0.5 x (32 - 20.5).
-    assert weight_at_age(18, g, 32.0) == pytest.approx(26.25)
+    # Midpoint of the linear approach: 25.6 + 0.5 x (32 - 25.6).
+    assert weight_at_age(18, g, 32.0) == pytest.approx(28.8)
 
 
 def test_male_weight_curve_carries_the_young_male_premium() -> None:
@@ -801,7 +803,7 @@ def test_male_weight_curve_carries_the_young_male_premium() -> None:
     g = SimulationAssumptions().growth
     assert g.young_male_weight_premium == pytest.approx(0.10)
     assert male_weight_at_age(1, g, 42.0) == pytest.approx(6.0 * 1.10)
-    assert male_weight_at_age(10, g, 42.0) == pytest.approx(20.0 * 1.10)
+    assert male_weight_at_age(10, g, 42.0) == pytest.approx(23.5 * 1.10)
     assert male_weight_at_age(23, g, 42.0) == pytest.approx(
         weight_at_age(23, g, 42.0) * 1.10
     )
@@ -849,34 +851,34 @@ def test_breed_presets_and_systems() -> None:
         6.0,
         9.5,
         12.1,
-        14.1,
-        15.8,
-        17.1,
-        18.2,
-        19.0,
-        19.6,
-        20.0,
-        20.3,
-        20.5,
+        14.6,
+        16.3,
+        17.8,
+        19.3,
+        20.8,
+        22.2,
+        23.5,
+        24.6,
+        25.6,
     ]
     expected = {
         "osmanabadi": (
             9_500,
             15_000,
             1.6,
-            12,
+            10,
             3,
             2.5,
             33,
             42,
             osmanabadi_curve,
-            10,
+            9,
             0,
             370,
-            0.10,
+            0.15,
         ),
-        "sirohi": (9_000, 14_000, 1.4, 12, 3, 3.0, 40, 50, 1.18, 10, 110, 370, 0.10),
-        "barbari": (7_000, 10_000, 1.8, 10, 3, 2.0, 27, 30, 0.85, 8, 90, 370, 0.10),
+        "sirohi": (9_000, 14_000, 1.4, 12, 3, 3.0, 40, 50, 1.18, 9, 110, 370, 0.15),
+        "barbari": (7_000, 10_000, 1.8, 10, 3, 2.0, 27, 30, 0.85, 8, 90, 370, 0.15),
         "jamunapari": (
             11_000,
             16_000,
@@ -887,12 +889,12 @@ def test_breed_presets_and_systems() -> None:
             45,
             55,
             1.3,
-            10,
+            9,
             200,
             370,
-            0.10,
+            0.15,
         ),
-        "beetal": (10_000, 15_000, 1.6, 14, 5, 3.2, 40, 46, 1.2, 10, 175, 370, 0.10),
+        "beetal": (10_000, 15_000, 1.6, 14, 5, 3.2, 40, 46, 1.2, 9, 175, 370, 0.15),
         "black_bengal": (
             4_500,
             6_000,
@@ -908,7 +910,7 @@ def test_breed_presets_and_systems() -> None:
             370,
             0.12,
         ),
-        "boer_cross": (10_000, 18_000, 1.7, 12, 3, 3.0, 40, 50, 1.3, 8, 0, 400, 0.10),
+        "boer_cross": (10_000, 18_000, 1.7, 12, 3, 3.0, 40, 50, 1.3, 8, 0, 400, 0.15),
         # Murrah dairy buffalo: AI (no sire battery), single calf, 10-month
         # gestation and lactation, 2,100 L/lactation, ₹1.1L in-milk purchase,
         # buffalo meat ₹160/kg live, curve = 31 kg + 15.3 kg/month (factor
@@ -929,6 +931,7 @@ def test_breed_presets_and_systems() -> None:
             0.10,
         ),
     }
+    # murrah_dairy pins its own kid_pre_weaning (0.10, organized-farm level)
 
     # The preset registry itself is pinned: a breed added or removed from
     # PRESET_FACTORIES must be a deliberate act, not silent drift.
@@ -1127,13 +1130,15 @@ def test_max_breeding_does_cap() -> None:
 def test_labour_scales_with_herd_size() -> None:
     res = run_simulation(SimulationAssumptions(), with_break_even=False)
     m12 = res.months[11]
-    # The calibrated staffing rule is one labourer per 60 head at Rs 14,000,
-    # escalating at the 5%/yr operating-cost growth rate (month 12 of year 1:
-    # 1.05**(11/12)).
-    labourers = -(-m12.total_herd // 60) if m12.total_herd else 0
+    # The staffing rule is the TNAU/NABARD norm: one labourer per ~50 does
+    # WITH progeny — charged on adult breeding females, not standing head.
+    # Rs 14,000/month escalating at the 5%/yr operating-cost growth rate
+    # (month 12 of year 1: 1.05**(11/12)).
+    adult_does = m12.open_does + m12.pregnant_does + m12.lactating_does
+    labourers = -(-adult_does // 60) if adult_does else 0
     growth = 1.05 ** (11.0 / 12.0)
     assert m12.labour_cost == pytest.approx(max(1, labourers) * 14000.0 * growth, rel=1e-9)
-    assert 60.0 < m12.total_herd <= 180.0  # -> 2 or 3 labourers at the 60-head rule
+    assert 25.0 < adult_does <= 180.0  # -> 1-3 labourers at the per-60-doe rule
 
 
 def test_sensitivity_tornado_sorted() -> None:
@@ -1428,10 +1433,24 @@ def event_toy(
     """Toy herd (10 open does) with scheduled events; doe culling disabled so
     the only adult flows at the event month come from the events themselves."""
     a = toy_assumptions(**herd_overrides)
+    a = pin_legacy_growth(a)
     a.meta.horizon_months = horizon
     a.culling.doe_cull_rate_annual = 0.0
     a.culling.max_doe_age_months = 180  # no max-age cull inside the horizon
     a.events = events
+    return a
+
+
+def pin_legacy_growth(a: SimulationAssumptions) -> SimulationAssumptions:
+    """Force the pre-sale-window-alignment growth defaults (sale age 10 on the
+    field-average curve). The event/hold/shock mechanics tests below pin
+    exact weights and timings against these numbers; the SPEC-window
+    alignment (9 months, stall-fed finish curve) is covered by its own tests."""
+    a.growth.sale_age_months = 10
+    a.growth.weight_by_age_months = [
+        2.5, 6.0, 9.5, 12.1, 14.1, 15.8, 17.1, 18.2, 19.0, 19.6, 20.0, 20.3, 20.5,
+    ]
+    a.reproduction.age_at_first_breeding_months = 12
     return a
 
 
@@ -1460,7 +1479,7 @@ def test_purchase_event_does_jump_at_event_month() -> None:
 
 
 def test_purchase_events_per_class_jump_and_price() -> None:
-    g = SimulationAssumptions().growth
+    g = pin_legacy_growth(SimulationAssumptions()).growth
     doe_w, buck_w = g.adult_weight_doe_kg, g.adult_weight_buck_kg
     s_weaner = S_WEANER  # whole-phase 5% weaner rate, one monthly slot
     s_grower = 1.0 - monthly_mortality_rate(0.04)
@@ -1599,8 +1618,9 @@ def test_explicit_zero_event_prices_do_not_fall_back_to_defaults() -> None:
 
 
 def test_young_purchase_default_price_is_live_weight_meat_value() -> None:
-    # A weaner is placed mid-class (age 4): 14.1 kg x Rs 370/kg = Rs 5,217/head.
-    g = SimulationAssumptions().growth
+    # A weaner is placed mid-class (age 4): 14.1 kg x Rs 370/kg = Rs 5,217/head
+    # (legacy-curve weights — this test pins the placement/valuation rule).
+    g = pin_legacy_growth(SimulationAssumptions()).growth
     expected = (
         4.0
         * weight_at_age(4, g, g.adult_weight_doe_kg)
@@ -1701,7 +1721,7 @@ def test_female_grower_purchase_without_chain_still_obeys_retention() -> None:
             month.sales_revenue - baseline.sales_revenue,
         )
 
-    base = SimulationAssumptions()
+    base = pin_legacy_growth(SimulationAssumptions())
     expected_value = (
         3.0
         * weight_at_age(6, base.growth, base.growth.adult_weight_doe_kg)
@@ -2246,9 +2266,11 @@ def test_event_sale_meat_revenue_reaches_annual_pl() -> None:
     # festivals disabled so the average is the only thing priced.
     event = HerdEventAssumptions(month=10, kind="sale", animal_class="male_grower", count=3)
     a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24), events=[event])
+    a = pin_legacy_growth(a)
     flatten_market(a)
     a.sales.festival_sale_months = []
     base_a = SimulationAssumptions(meta=MetaAssumptions(horizon_months=24))
+    base_a = pin_legacy_growth(base_a)
     flatten_market(base_a)
     base_a.sales.festival_sale_months = []
     res = run_simulation(a, with_break_even=False)
@@ -2507,8 +2529,9 @@ def test_project_capacity_captures_pre_service_auto_buck_purchase() -> None:
     result = run_simulation(assumptions, with_break_even=False)
 
     assert result.months[0].purchases_head >= 2.0
-    assert result.months[0].total_herd < 52.0
-    assert result.project_cost_breakdown.projected_peak_head == pytest.approx(52.0)
+    assert result.months[0].total_herd < 53.0
+    # 50 does at the 1:20 policy need a 3-sire battery.
+    assert result.project_cost_breakdown.projected_peak_head == pytest.approx(53.0)
 
 
 # ---------------------------------------------------------------------------
@@ -3030,10 +3053,14 @@ def test_same_month_sire_purchases_are_all_protected_from_rotation() -> None:
 
     month12 = _run_core(assumptions).months[11]
 
-    assert month12.culls_head == pytest.approx(2.0)
-    assert month12.purchases_head == pytest.approx(2.0)
-    assert month12.purchase_cost == pytest.approx(14.0)
-    assert month12.bucks == pytest.approx(2.0)
+    # Rotation culls the whole standing battery (auto-topped to 3 under the
+    # 1:20 policy before the rotation fires); the event purchases are
+    # protected from that sweep.
+    assert month12.culls_head == pytest.approx(3.0)
+    # 50 does at 1:20 need 3 sires: the event's 1 plus 2 auto-purchases.
+    assert month12.purchases_head == pytest.approx(3.0)
+    assert month12.purchase_cost == pytest.approx(21.0)
+    assert month12.bucks == pytest.approx(3.0)
 
 
 def test_rotation_replaces_an_exactly_one_buck_battery() -> None:
@@ -3097,7 +3124,7 @@ def test_fodder_surplus_and_as_fed_conversion_preserve_dm_mass() -> None:
 
 
 def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> None:
-    assumptions = _mutation_empty_assumptions(13)
+    assumptions = pin_legacy_growth(_mutation_empty_assumptions(13))
     assumptions.herd.does = 1
     assumptions.herd.bucks = 1
     assumptions.herd.foundation_flock_state = "open"
@@ -3152,8 +3179,13 @@ def test_price_and_operating_shocks_multiply_each_revenue_and_cost_base() -> Non
     assert month13.vet_cost == pytest.approx(
         month13.total_herd * assumptions.costs.vet_per_animal_per_year / 12.0 * operating_growth
     )
+    # Labour is charged on adult breeding females (the TNAU/NABARD per-doe
+    # norm), not standing head; this toy run has no finishing pen.
     assert month13.labour_cost == pytest.approx(
-        _ceil_head_ratio(month13.total_herd, assumptions.costs.labour_per_head_threshold)
+        _ceil_head_ratio(
+            month13.open_does + month13.pregnant_does,
+            assumptions.costs.labour_per_head_threshold,
+        )
         * assumptions.costs.labour_per_month
         * operating_growth
     )

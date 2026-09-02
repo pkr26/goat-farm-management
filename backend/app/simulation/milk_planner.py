@@ -426,6 +426,18 @@ def _simulate(
             sum(count * yield_month for count, yield_month in zip(lact, curve, strict=True))
             * sales.monthly_milk_yield_multipliers[calendar_month - 1]
         )
+        # Retained pre-wean heifer calves drink whole milk the tank never
+        # ships — the engine nets the same allowance out of saleable litres,
+        # so the planner must too or the two disagree (and the plan over-
+        # promises the tank).
+        if sales.calf_milk_litres_per_day_per_calf > 0.0:
+            milk_fed_calves = sum(heifers[:3])
+            if milk_fed_calves > 0.0:
+                monthly_litres = max(
+                    0.0,
+                    monthly_litres
+                    - milk_fed_calves * sales.calf_milk_litres_per_day_per_calf * DAYS_PER_MONTH,
+                )
         record = _SimMonth(
             month=month,
             calendar_month=calendar_month,
@@ -575,9 +587,15 @@ def build_milk_plan(
     # Iterate to the design herd. Milk scales ~linearly with herd size at
     # fixed biology, so a multiplicative update converges in a few passes.
     window = min(24, max(12, months // 2))
+    # Size on the final 12 months only: bought-in in-milk placements wash out
+    # over the first lactation, so a wider averaging window is flattered by
+    # the placement transient — the loop converged on plans whose
+    # deseasonalized tail then fell below target and failed its own trend
+    # check. The steady tail year is what the plan must actually sustain.
+    sizing_window = min(12, window)
     for _ in range(8):
         records = _simulate(assumptions, herd_target, ramp_months, months)
-        measured = _measure(records, window, hold_year_round, ramp_months)
+        measured = _measure(records, sizing_window, hold_year_round, ramp_months)
         if measured <= 0.0:
             break
         error = daily_target_litres / measured
@@ -586,7 +604,7 @@ def build_milk_plan(
         herd_target = min(float(MAX_HEAD), herd_target * error)
     else:
         records = _simulate(assumptions, herd_target, ramp_months, months)
-        measured = _measure(records, window, hold_year_round, ramp_months)
+        measured = _measure(records, sizing_window, hold_year_round, ramp_months)
 
     achievable = measured >= 0.95 * daily_target_litres and _trend_is_stable(
         records, window, sales.monthly_milk_yield_multipliers

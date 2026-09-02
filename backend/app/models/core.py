@@ -48,6 +48,13 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str | None] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Owner-provisioned credentials (worker create / password reset) force a
+    # self-service rotation before any domain mutation: the owner chooses
+    # (and can re-acquire) those passwords, so worker-attributed records keep
+    # non-repudiation only once the worker has taken sole possession.
+    must_change_password: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false"), nullable=False
+    )
     # Included in access JWTs and checked on every authenticated request.
     # Password changes/resets and logout increment the value so already-issued
     # bearer tokens stop working immediately. Farm-membership deactivation is

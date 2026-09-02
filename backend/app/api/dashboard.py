@@ -33,6 +33,7 @@ from ..models import (
     WeightRecord,
 )
 from ..models.helpers import ASSESSED_OUTCOMES, CONCEIVED_OUTCOMES
+from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.dashboard import (
     BreedingStatsOut,
     BucketCountOut,
@@ -51,7 +52,7 @@ from ..services import actionable_pending_task_predicate, ready_to_move_suggesti
 from ..utils import today
 from ._shared import task_out
 
-router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"], responses=COMMON_ERROR_RESPONSES)
 
 DASHBOARD_PERM = Annotated[set[str], Depends(require_perm("dashboard.view"))]
 REPORTS_PERM = Annotated[set[str], Depends(require_perm("reports.view"))]

@@ -77,7 +77,7 @@ from .assumptions import (
     HerdEventAssumptions,
     SimulationAssumptions,
 )
-from .feed import class_feed, combine_feed
+from .feed import DAYS_PER_MONTH, class_feed, combine_feed
 from .finance import (
     AmortizationRow,
     amortization_schedule,
@@ -988,7 +988,13 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # Automatic sire procurement is a pre-service policy. Buying the needed
         # bucks after breeding made an under-supplied flock lose a full cycle
         # even though the same month's accounts said replacement sires arrived.
-        does_now = sum(svc) + sum(open_waiting) + sum(preg) + sum(lact)
+        # Dairy mode: ``lact`` is an overlay of the same does (plus the
+        # finishing pen), not a distinct pool — counting it double-counted the
+        # breeding string and over-purchased sires (~1 extra buck per 25
+        # milking does). The step-6 herd total below omits it the same way.
+        does_now = (
+            sum(svc) + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
+        )
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
@@ -1449,6 +1455,15 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             * sales.monthly_milk_yield_multipliers[calendar_month - 1]
             * (shocks.milk_yield[shock_index] if shocks.milk_yield else 1.0)
         )
+        # Whole milk fed to retained pre-wean calves is produced, not sold:
+        # the f_kid class spans the species' pre-wean months (weaning at
+        # ~day 90 for buffalo), so every calf in it drinks the daily allowance.
+        if sales.calf_milk_litres_per_day_per_calf > 0.0 and sum(f_kid) > 0.0:
+            milk_litres_month = max(
+                0.0,
+                milk_litres_month
+                - sum(f_kid) * sales.calf_milk_litres_per_day_per_calf * DAYS_PER_MONTH,
+            )
         milk_revenue = milk_litres_month * milk_price_month
         # Manure and insurance cover every adult doe on the place, including
         # the finishing pen (they are still eating and producing).
@@ -1464,12 +1479,19 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
             * shocks.operating_cost[shock_index]
         )
         vet_cost = total_herd * costs.vet_per_animal_per_year / 12.0 * operating_cost_growth
+        # Labour scales with ADULT breeding females, not standing head: the
+        # cited TNAU/NABARD norm is one worker per ~50 does *with progeny* —
+        # kids and growers add fractionally to workload. Charging the full
+        # threshold per standing head tripled the flagship 50+2 unit's labour
+        # bill and made the default preset a guaranteed-rejection model.
         labourers = (
-            _ceil_head_ratio(total_herd, costs.labour_per_head_threshold) if total_herd > 0 else 0
+            _ceil_head_ratio(all_does_now, costs.labour_per_head_threshold)
+            if all_does_now > 0
+            else 0
         )
         labour_cost = (
             max(1, labourers) * costs.labour_per_month * operating_cost_growth
-            if total_herd > 0
+            if all_does_now > 0
             else 0.0
         )
         young_value_kg = (
@@ -1880,8 +1902,30 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     active_dscr = [
         value for value, row in zip(dscr_per_year, annual_pl, strict=True) if row.debt_service > 0.0
     ]
-    avg_dscr = sum(active_dscr) / len(active_dscr) if active_dscr else None
-    min_dscr = min(active_dscr) if active_dscr else None
+    # Both DSCR summaries span principal-repaying years only: a moratorium
+    # year is interest-only with structurally near-zero sales (first animals
+    # sell ~month 10+), so its ratio is negative by construction on EVERY
+    # candidate — including them made the optimizer infeasible on its own
+    # defaults and degenerated prob_dscr_below_one to 1.00. avg_dscr follows
+    # the NABARD average-coverage criterion over the operating repayment
+    # period (falling back to all debt years when a run has no principal
+    # repayment at all). Same precedent as the balloon exclusion above:
+    # measurement, not forgiveness — the interest still sits in debt service,
+    # cash flow and NPV.
+    repaying_dscr = [
+        value
+        for value, row in zip(dscr_per_year, annual_pl, strict=True)
+        if row.debt_service > 0.0 and row.principal > 0.0
+    ]
+    # No repaying year inside the horizon (e.g. a 12-month toy under a
+    # 12-month moratorium): there is no operating repayment period to
+    # measure, so both summaries are None rather than an interest-only
+    # number that reads as coverage. The interest still sits in debt
+    # service, cash flow and NPV.
+    min_dscr = min(repaying_dscr) if repaying_dscr else None
+    avg_dscr = (
+        sum(repaying_dscr) / len(repaying_dscr) if repaying_dscr else None
+    )
     cum_series = [-equity, *[month.cumulative_cash_flow for month in months]]
 
     n_years = len(annual_pl)

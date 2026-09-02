@@ -1941,8 +1941,17 @@ def test_transaction_accepts_every_type(txn_type: str) -> None:
 
 
 @pytest.mark.parametrize("category", TXN_CATEGORIES)
-def test_transaction_accepts_every_spec_category(category: str) -> None:
-    assert TransactionIn(**(VALID_TXN | {"category": category})).category == category
+def test_transaction_accepts_every_user_bookable_category(category: str) -> None:
+    overrides = dict(VALID_TXN | {"category": category})
+    if category == "MILK":
+        # Milk income carries mandatory litres + price provenance.
+        overrides |= {"milk_litres": 10.0, "milk_unit_price_per_litre": 50.0, "amount": 500.0}
+    if category in ("ANIMAL_SALE", "ANIMAL_PURCHASE"):
+        # System-generated categories reject manual rows.
+        with pytest.raises(ValidationError):
+            TransactionIn(**overrides)
+        return
+    assert TransactionIn(**overrides).category == category
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import (
+    species_profile,
     VERIFICATION_REQUIRED_CATEGORIES,
     Animal,
     AnimalStatus,
@@ -32,7 +33,7 @@ from ..models import (
     TaskStatus,
     User,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.tasks import TaskCreateIn, TaskOut, TaskRejectIn, TaskSkipIn, TaskTabsOut
 from ..services import (
     IdempotencyKey,
@@ -53,7 +54,7 @@ from ..services import (
 from ..utils import today
 from ._shared import TASK_LOADS, task_action_url, task_out, visible_to
 
-router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+router = APIRouter(prefix="/api/tasks", tags=["tasks"], responses=COMMON_ERROR_RESPONSES)
 
 VIEW = Annotated[set[str], Depends(require_perm("tasks.view"))]
 CREATE = Annotated[set[str], Depends(require_perm("tasks.create"))]
@@ -159,12 +160,22 @@ async def _lock_completion_animals(
             Animal.status == AnimalStatus.ACTIVE.value,
         )
     elif target.category == TaskCategory.WEANING.value and target.animal_id is not None:
+        # Goat kids await weaning in RECOVERY with the dam; dairy calves were
+        # separated into the calf shed at birth, so a dairy weaning duty must
+        # also lock the dam's calf-shed offspring — complete_task's dairy
+        # branch graduates exactly those animals, and an animal the route
+        # never locked can never be moved by the completion.
+        young_buckets = (
+            (Bucket.RECOVERY.value,)
+            if species_profile(farm.farm_type).young_stay_with_dam
+            else (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
+        )
         animal_filter = or_(
             Animal.id == target.animal_id,
             and_(
                 Animal.dam_id == target.animal_id,
                 Animal.status == AnimalStatus.ACTIVE.value,
-                Animal.current_bucket == Bucket.RECOVERY.value,
+                Animal.current_bucket.in_(young_buckets),
             ),
         )
     elif target.animal_id is not None:

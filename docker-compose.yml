@@ -15,7 +15,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-goatfarm}
       POSTGRES_USER: ${POSTGRES_USER:-goatfarm}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-goatfarm}
+      # :? — Compose refuses to start without a real secret; a copy-paste
+      # deployment must not silently run Postgres on a known password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

@@ -20,13 +20,13 @@ from ..models import (
     KidEntry,
 )
 from ..schemas.breeding import BreedingRecordOut
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.kidding import KiddingCreateIn, KiddingListOut, KiddingRecordOut, KidEntryOut
 from ..services import KidSpec, record_kidding, require_farm_not_future
 from ..utils import today
 from ._shared import breeding_out
 
-router = APIRouter(prefix="/api/kidding", tags=["kidding"])
+router = APIRouter(prefix="/api/kidding", tags=["kidding"], responses=COMMON_ERROR_RESPONSES)
 
 NOT_FOUND = "Breeding record not found"
 ALREADY_KIDDED = "This pregnancy already has a kidding record"
@@ -318,9 +318,11 @@ async def create_kidding(
         record_id = record.id
         await db.commit()
     except ValueError as exc:
-        # Not a confirmed/kiddable pregnancy (or non-ACTIVE doe) — raced past the pre-checks.
+        # A litter above the species cap is input-shape validation; every
+        # other ValueError here is a raced lifecycle state → conflict.
         await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
+        status_code = 422 if "cannot deliver more than" in str(exc) else 409
+        raise HTTPException(status_code=status_code, detail=str(exc)) from None
     except IntegrityError as exc:
         # Two constraints can trip here: the breeding_record_id UNIQUE (a
         # double submit raced past the pre-check) or uq_animal_tag_per_farm

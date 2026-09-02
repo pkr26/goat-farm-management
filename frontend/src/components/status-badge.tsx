@@ -29,6 +29,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
   // transitions / informational
   SOLD: "info",
   PURCHASED: "info",
+  SKIPPED: "info",
   // needs attention
   QUARANTINE: "warning",
   PENDING: "warning",
@@ -45,8 +46,8 @@ const STATUS_TONES: Record<string, StatusTone> = {
   DIFFICULT: "destructive",
   OVERDUE: "destructive",
   FAILED: "destructive",
+  DEAD: "destructive",
 };
-
 /** Resolve any status string to its semantic tone (neutral → null). */
 export function statusTone(status: string): StatusTone | null {
   return STATUS_TONES[normalize(status)] ?? null;

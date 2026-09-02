@@ -12,6 +12,7 @@ from pydantic import ValidationError
 import app.simulation.montecarlo as montecarlo
 import app.simulation.optimization as optimization_module
 from app.simulation import (
+    FinanceAssumptions,
     FeedBreakdown,
     MetaAssumptions,
     OptimizationResult,
@@ -461,9 +462,12 @@ def test_buck_service_capacity_limits_conception() -> None:
     )
     a.reproduction.conception_rate = 1.0
     a.mortality.adult = 0.0
-    first = run_simulation(a, with_break_even=False).months[0]
-    assert first.pregnant_does == pytest.approx(25.0)
-    assert first.open_does == pytest.approx(75.0)
+    first = run_simulation(a, with_break_equal=False) if False else run_simulation(
+        a, with_break_even=False
+    ).months[0]
+    # One buck serves 20 does at the single-sourced 1:20 policy.
+    assert first.pregnant_does == pytest.approx(20.0)
+    assert first.open_does == pytest.approx(80.0)
 
 
 def test_automatic_buck_purchase_happens_before_the_months_service() -> None:
@@ -481,8 +485,8 @@ def test_automatic_buck_purchase_happens_before_the_months_service() -> None:
     a.mortality.adult = 0.0
     first = run_simulation(a, with_break_even=False).months[0]
 
-    assert first.purchases_head == pytest.approx(2.0)
-    assert first.bucks == pytest.approx(2.0)
+    assert first.purchases_head == pytest.approx(3.0)
+    assert first.bucks == pytest.approx(3.0)
     assert first.pregnant_does == pytest.approx(50.0)
 
 
@@ -940,6 +944,7 @@ def test_optimizer_candidate_constraints_are_exact_and_auditable() -> None:
         project_cost=100.0,
         additional_working_capital_required=10.0,
         min_dscr=1.2,
+        avg_dscr=1.2,
         capacity_places=50.0,
         projected_peak_head=50.0,
         cash_flows=[-100.0, 110.0],
@@ -969,7 +974,7 @@ def test_optimizer_candidate_constraints_are_exact_and_auditable() -> None:
             core,
             project_cost=100.01,
             additional_working_capital_required=10.01,
-            min_dscr=1.19,
+            avg_dscr=1.19,
             projected_peak_head=50.5,
         ),
     )
@@ -977,7 +982,7 @@ def test_optimizer_candidate_constraints_are_exact_and_auditable() -> None:
     assert violating.constraint_violations == [
         "project cost exceeds the configured maximum",
         "liquidity funding gap exceeds the configured maximum",
-        "minimum DSCR is below the configured floor",
+        "average DSCR is below the configured floor",
         "projected herd exceeds funded housing/equipment capacity",
     ]
 
@@ -1043,9 +1048,14 @@ def test_optimizer_ranks_descending_and_reports_exact_result_counts(
             auto_purchase_bucks=False,
             max_breeding_does=50,
         ),
+        # Ranking mechanics test: equity-funded (no debt → no DSCR gate),
+        # so feasibility tracks the cost/gap/capacity constraints alone.
+        finance=FinanceAssumptions(loan_fraction_of_project_cost=0.0),
         optimization=OptimizationAssumptions(
             objective="npv",
             max_candidates=10,
+            # Ranking mechanics test: the floor sits below the thin year-1
+            # coverage these 12-month toys produce (avg-DSCR gate).
             minimum_dscr=0.0,
             doe_scale_low=0.5,
             doe_scale_high=1.5,
@@ -1306,10 +1316,10 @@ def test_optimizer_adjusts_only_explicit_stock_cost_and_preserves_its_sentinel(
     )
     explicit.finance.initial_stock_cost = 500_000.0
     _, observed = _recorded_optimization(monkeypatch, explicit)
-    assert [(item.herd.does, item.herd.bucks) for item in observed] == [(50, 2), (25, 1)]
+    assert [(item.herd.does, item.herd.bucks) for item in observed] == [(50, 2), (25, 2)]
     # The delta uses the calibrated doe/buck prices: -25 does x 9,500 and
-    # -1 buck x 15,000 off an explicit 500,000.
-    assert [item.finance.initial_stock_cost for item in observed] == [500_000.0, 247_500.0]
+    # -2 bucks x 15,000 (ceil(25/20) = 2 sires) off an explicit 500,000.
+    assert [item.finance.initial_stock_cost for item in observed] == [500_000.0, 262_500.0]
 
     automatic = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=12),
@@ -1386,10 +1396,11 @@ def test_optimizer_finances_required_opening_bucks_and_their_stock_value() -> No
         *([optimized.recommended] if optimized.recommended is not None else []),
         *optimized.alternatives,
     ]
-    financed = next(candidate for candidate in candidates if candidate.starting_bucks == 2)
+    financed = next(candidate for candidate in candidates if candidate.starting_bucks == 3)
 
     assert optimized.baseline.starting_bucks == 0
-    assert financed.project_cost - optimized.baseline.project_cost == pytest.approx(30_000.0)
+    # 50 does at 1:20 are financed with a 3-sire battery.
+    assert financed.project_cost - optimized.baseline.project_cost == pytest.approx(45_000.0)
 
 
 def test_mirr_and_model_fingerprint_are_reproducible() -> None:

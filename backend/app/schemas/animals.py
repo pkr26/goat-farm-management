@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from ..models.constants import HISTORY_OVERRIDE_REASON_PREFIX
+from ..models.constants import HISTORY_OVERRIDE_REASON_PREFIX, MAX_ANIMAL_TAG_LENGTH
 from .common import (
     MAX_FREE_TEXT_LENGTH,
     NonNegativeMoneyFloat,
@@ -37,7 +37,7 @@ BucketStr = Literal[
 
 
 class AnimalCreateIn(StrictInputModel):
-    tag_number: PostgresText | None = Field(default=None, min_length=1, max_length=50)
+    tag_number: PostgresText | None = Field(default=None, min_length=1, max_length=MAX_ANIMAL_TAG_LENGTH)
     name: PostgresText | None = Field(default=None, max_length=80)
     sex: Sex
     source: AnimalSourceStr
@@ -109,16 +109,16 @@ class AnimalOut(BaseModel):
     tag_number: str
     name: str | None
     breed: str
-    sex: str
+    sex: Sex
     date_of_birth: date | None
     estimated_dob: date | None
-    birth_type: str | None
-    source: str
+    birth_type: BirthTypeStr | None
+    source: AnimalSourceStr
     dam_id: int | None
     sire_id: int | None
     birth_weight: float | None
-    current_bucket: str
-    status: str
+    current_bucket: BucketStr
+    status: AnimalStatusStr
     status_date: date | None
     sale_price: float | None
     purchase_date: date | None
@@ -202,8 +202,8 @@ class BucketMoveOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    from_bucket: str | None
-    to_bucket: str
+    from_bucket: BucketStr | None
+    to_bucket: BucketStr
     reason: str | None
     effective_date: date
     moved_at: datetime

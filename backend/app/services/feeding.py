@@ -6,10 +6,10 @@ from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from typing import Any
 
 from sqlalchemy import Date as SqlDate
-from sqlalchemy import Numeric, case, cast, func, select, true
+from sqlalchemy import Numeric, and_, case, cast, exists, func, select, true
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from ..models import (
     SHIFT_SPLIT,
@@ -32,6 +32,9 @@ from ..models import (
 from ..utils import DEFAULT_BUSINESS_TIMEZONE, MONEY_QUANTUM, money, today
 
 DRY_ROUGHAGE = "DRY_ROUGHAGE_ONLY"
+# Per-kid daily creep allowance for unweaned kids with their dam in RECOVERY
+# (goat farms): ~3% of an 8-12 kg kid's body weight as the creep concentrate.
+CREEP_KG_PER_HEAD = 0.3
 # The virtual quarantine recipe is direct-fed from a seeded raw-inventory row.
 # Keeping the ingredient explicit prevents a successful dispensing log from
 # creating feed ex nihilo merely because no finished-mix recipe exists.
@@ -198,12 +201,15 @@ def recipe_for_animal(
     *,
     bucket_days: int | None = None,
     farm_type: str = "GOAT",
+    is_dependent_kid: bool = False,
 ) -> str:
     """Which TMR recipe applies to this animal today (SPEC allocation rules).
 
     Pure python (stays synchronous). Callers may provide SQL-derived
     ``bucket_days``; otherwise date-sensitive buckets read the animal's loaded
-    bucket history."""
+    bucket history. ``is_dependent_kid`` marks an unweaned kid still with its
+    dam in RECOVERY (goat farms) — its ration is the CREEP line, not the
+    lactating-doe TMR."""
     ref = ref or today(timezone_name)
     bucket = animal.current_bucket
     if bucket in (Bucket.QUARANTINE.value, Bucket.RESTING.value):
@@ -212,7 +218,14 @@ def recipe_for_animal(
             if bucket_days is None
             else bucket_days
         )
-    return _recipe_for_context(bucket, animal.effective_dob, ref, bucket_days or 0, farm_type)
+    return _recipe_for_context(
+        bucket,
+        animal.effective_dob,
+        ref,
+        bucket_days or 0,
+        farm_type,
+        is_dependent_kid=is_dependent_kid,
+    )
 
 
 def _recipe_for_animal_age_days(effective_dob: date | None, ref: date) -> int:
@@ -250,12 +263,18 @@ def _recipe_for_context(
     ref: date,
     bucket_days: int,
     farm_type: str = "GOAT",
+    *,
+    is_dependent_kid: bool = False,
 ) -> str:
     """Recipe rules over only the four fields today's plan actually needs."""
     if farm_type != "GOAT":
         return _dairy_recipe_for_context(bucket, effective_dob, ref, bucket_days)
     if bucket == Bucket.QUARANTINE.value:
         return DRY_ROUGHAGE if bucket_days < 3 else "MAINTENANCE_75_25"
+    if bucket == Bucket.RECOVERY.value and is_dependent_kid:
+        # An unweaned kid with its dam gets the creep line, never the doe's
+        # full lactating TMR (~4-5x a kid's intake).
+        return "CREEP"
     if bucket in (
         Bucket.FOUNDATION.value,
         Bucket.FEMALE_KIDS.value,
@@ -335,6 +354,21 @@ async def feeding_plan(
     effective_dob = func.coalesce(Animal.date_of_birth, Animal.estimated_dob)
     age_days = func.coalesce(ref - effective_dob, 999)
     bucket = Animal.current_bucket
+    # A dependent kid (goat farms): unweaned, still with its dam, and the dam
+    # is herself in RECOVERY in this same plan. Everything else in RECOVERY —
+    # the doe, or an imported adult placed there — is billed as an adult.
+    dam_animal = aliased(Animal)
+    is_dependent_kid = and_(
+        Animal.dam_id.is_not(None),
+        exists(
+            select(1).where(
+                dam_animal.id == Animal.dam_id,
+                dam_animal.farm_id == farm.id,
+                dam_animal.status == AnimalStatus.ACTIVE.value,
+                dam_animal.current_bucket == Bucket.RECOVERY.value,
+            )
+        ),
+    )
     if farm.farm_type != "GOAT":
         recipe_code = case(
             (
@@ -362,6 +396,10 @@ async def feeding_plan(
                 DRY_ROUGHAGE,
             ),
             (bucket == Bucket.QUARANTINE.value, "MAINTENANCE_75_25"),
+            (
+                (bucket == Bucket.RECOVERY.value) & is_dependent_kid,
+                "CREEP",
+            ),
             (
                 bucket.in_(
                     (
@@ -430,7 +468,13 @@ async def feeding_plan(
         kg_per_head_by_bucket[setting.bucket] = setting.daily_kg_per_head
     lines = []
     for bucket_code, recipe_code, heads in sorted(groups, key=lambda row: order.get(row[0], 99)):
-        kg_per_head = kg_per_head_by_bucket.get(bucket_code, 1.2)
+        if recipe_code == "CREEP":
+            # Creep is a per-kid allowance (~0.3 kg/day of the concentrate
+            # creep mix for a 2-8-week kid at ~3% of an 8-12 kg body weight),
+            # not a bucket rate.
+            kg_per_head = CREEP_KG_PER_HEAD
+        else:
+            kg_per_head = kg_per_head_by_bucket.get(bucket_code, 1.2)
         daily_kg = float(
             (Decimal(heads) * Decimal(str(kg_per_head))).quantize(
                 KG_QUANTUM, rounding=ROUND_HALF_UP

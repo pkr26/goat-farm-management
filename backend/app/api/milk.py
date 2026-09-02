@@ -7,8 +7,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
-from ..models import Animal, AnimalStatus, FarmType, MilkRecord
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..models import (
+    Animal,
+    AnimalSource,
+    AnimalStatus,
+    Bucket,
+    FarmType,
+    KiddingRecord,
+    MilkRecord,
+    species_profile,
+)
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.milk import (
     MilkAnimalSummaryOut,
     MilkDayTotalOut,
@@ -18,13 +27,27 @@ from ..schemas.milk import (
     MilkSummaryOut,
 )
 from ..services import IdempotencyKey, execute_idempotent, milk_summary, record_milk
+from ..services.chronology import require_animal_event_chronology
 from ..services.milk import list_milk_records
 from ..utils import today
 
-router = APIRouter(prefix="/api/milk", tags=["milk"])
+router = APIRouter(prefix="/api/milk", tags=["milk"], responses=COMMON_ERROR_RESPONSES)
 
 MilkView = Annotated[set[str], Depends(require_perm("milk.view"))]
 MilkManage = Annotated[set[str], Depends(require_perm("milk.manage"))]
+
+# Buckets in which a buffalo is definitionally not part of the milking string:
+# calf-shed cohorts, the quarantine pen and the dry/close-up pen. Pregnant
+# buckets are deliberately absent — a bred-back dam is milked through most of
+# her pregnancy; the lactation-context check below is what fences heifers.
+NON_MILKING_BUCKETS = frozenset(
+    {
+        Bucket.FEMALE_KIDS.value,
+        Bucket.MALE_KIDS.value,
+        Bucket.QUARANTINE.value,
+        Bucket.DELIVERY.value,
+    }
+)
 
 
 def _require_dairy_farm(farm: CurrentFarm) -> None:
@@ -187,6 +210,47 @@ async def add_milk_record(
             )
         if animal.sex != "F":
             raise HTTPException(status_code=422, detail="Milk is recorded for female animals")
+        if animal.current_bucket in NON_MILKING_BUCKETS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{animal.tag_number} is in the {animal.current_bucket.lower().replace('_', ' ')} "
+                    "cohort — milk is recorded for the milking string only"
+                ),
+            )
+        # Lactation context: a yield reading asserts this buffalo is (or was
+        # recently) lactating. She must have calved at least once on this
+        # farm, or be an imported adult purchase (an in-milk foundation dam
+        # bought in milk). A never-calved heifer — bred or not — has no
+        # parlour ledger to write to.
+        has_calved = (
+            await db.execute(
+                select(KiddingRecord.id)
+                .where(KiddingRecord.farm_id == farm.id, KiddingRecord.doe_id == animal.id)
+                .limit(1)
+            )
+        ).scalar_one_or_none() is not None
+        if not has_calved:
+            profile = species_profile(farm.farm_type)
+            age_months = animal.age_months_on(today(farm.timezone))
+            imported_adult = animal.source == AnimalSource.PURCHASED.value and (
+                age_months is None or age_months >= profile.min_breeding_age_months
+            )
+            if not imported_adult:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{animal.tag_number} has no recorded calving — milk is recorded "
+                        "for dams in the milking string (imported in-milk purchases excepted)"
+                    ),
+                )
+        try:
+            # Parlour history is factual: a reading cannot predate the
+            # animal's birth or her arrival on this farm (backdating beyond
+            # acquisition would fabricate history shiftable across months).
+            require_animal_event_chronology(animal, payload.date, "Milk record")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
         if fat_pct is None and "milk.quality" not in perms:
             # Resolve the preserved fat UNDER the animal lock: reading it
             # earlier lets a quality role's fat test commit in between and be

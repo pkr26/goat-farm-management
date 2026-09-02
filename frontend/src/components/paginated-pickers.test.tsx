@@ -5,7 +5,7 @@ import { http, HttpResponse } from "msw";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { AnimalOut, HealthPurchaseBatchOptionOut } from "@/api/generated/models";
+import type { AnimalOut, HealthPurchaseBatchOptionOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { BreedingCandidatePicker } from "@/components/breeding-candidate-picker";
 import { HealthPurchaseBatchPicker } from "@/components/health-target-pickers";
@@ -27,7 +27,7 @@ function animal(id: number): AnimalOut {
     dam_id: null,
     sire_id: null,
     birth_weight: null,
-    current_bucket: "GROWER_FEMALE",
+    current_bucket: "GROWER_FEMALE" as AnimalOutCurrentBucket,
     status: "ACTIVE",
     status_date: null,
     sale_price: null,

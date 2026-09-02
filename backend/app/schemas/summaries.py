@@ -9,6 +9,9 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
+from .animals import AnimalStatusStr, BucketStr, Sex
+from .tasks import TaskCategoryStr, TaskStatusStr
+
 
 class AnimalIdentityOut(BaseModel):
     """Safe identity used when an aggregate page names an animal."""
@@ -23,7 +26,7 @@ class AnimalIdentityOut(BaseModel):
 class BucketAnimalOut(AnimalIdentityOut):
     """Operational fields consumed by the bucket-board table."""
 
-    sex: str
+    sex: Sex
     latest_weight_kg: float | None
     days_in_current_bucket: int
 
@@ -64,9 +67,9 @@ class PurchaseQuarantineAnimalOut(BaseModel):
 
     id: int
     tag_number: str
-    sex: str
-    current_bucket: str
-    status: str
+    sex: Sex
+    current_bucket: BucketStr
+    status: AnimalStatusStr
 
 
 class QuarantineScheduleTaskOut(BaseModel):
@@ -77,5 +80,5 @@ class QuarantineScheduleTaskOut(BaseModel):
     id: int
     title: str
     due_date: date
-    status: str
-    category: str
+    status: TaskStatusStr
+    category: TaskCategoryStr

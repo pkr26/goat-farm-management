@@ -260,14 +260,14 @@ async def test_reset_winning_during_argon_rejects_exact_stale_snapshot(
         method = "POST"
         path = "/api/auth/change-password"
         payload = {
-            "current_password": WORKER_PASSWORD,
+            "current_password": WORKER_PASSWORD + "!r1",
             "new_password": "stale-change-must-not-land",
         }
         headers = worker_headers
     else:
         method = "DELETE"
         path = "/api/auth/account"
-        payload = {"current_password": WORKER_PASSWORD}
+        payload = {"current_password": WORKER_PASSWORD + "!r1"}
         headers = worker_headers
 
     async with httpx.AsyncClient(
@@ -365,7 +365,7 @@ async def test_account_tombstone_serializes_before_roster_mutation(
             delete_client.request(
                 "DELETE",
                 "/api/auth/account",
-                json={"current_password": WORKER_PASSWORD},
+                json={"current_password": WORKER_PASSWORD + "!r1"},
                 headers=worker_headers,
             )
         )

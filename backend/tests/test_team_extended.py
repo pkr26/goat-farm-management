@@ -25,7 +25,7 @@ from app.db import get_engine, get_sessionmaker
 from app.models import Farm, FarmMembership, Role, Task, User
 from app.utils import today, utcnow
 
-from .conftest import owner_with_farm, register
+from .conftest import login_and_rotate, owner_with_farm, register
 
 WORKER_PW = "workerpass123"
 COOKIE = get_settings().refresh_cookie_name
@@ -1543,7 +1543,7 @@ async def test_manager_deactivation_cannot_revoke_another_farms_session(
         )
         await db.commit()
 
-    bearer = await login_user(client, "shared-worker@farm.in", WORKER_PW)
+    bearer = await login_and_rotate(client, "shared-worker@farm.in", WORKER_PW)
     farm_a_bearer = bearer | {"X-Farm-Id": owner_a["X-Farm-Id"]}
     farm_b_bearer = bearer | {"X-Farm-Id": owner_b["X-Farm-Id"]}
     assert (await client.get("/api/auth/permissions", headers=farm_a_bearer)).status_code == 200
@@ -2049,7 +2049,7 @@ async def test_reset_password_revokes_worker_sessions(client: httpx.AsyncClient)
     assert (await client.post("/api/auth/refresh")).status_code == 401
     # the worker signs in with the new password and gets a working session
     client.cookies.clear()
-    await login_user(client, "w@farm.in", "brandnewpass1")
+    await login_and_rotate(client, "w@farm.in", "brandnewpass1")
     assert (await client.post("/api/auth/refresh")).status_code == 200
 
 
@@ -2060,6 +2060,9 @@ async def test_toggle_deactivation_preserves_global_refresh_session(
     owner = await owner_with_farm(client)
     await worker_headers(client, owner, "CLEANER", "w@farm.in")
     mid = await membership_id(client, owner, "w@farm.in")
+    # Re-login through THIS client so the jar holds the post-rotation refresh
+    # session (the auto-rotation revokes the login's own family).
+    await login_and_rotate(client, "w@farm.in", WORKER_PW)
     worker_cookie = client.cookies.get(COOKIE)
     assert worker_cookie
 

@@ -91,6 +91,11 @@ async def record_kidding(
     # would otherwise leave a delivery predating its own confirmation.
     if br.ultrasound_result_date is not None and kidding_date < br.ultrasound_result_date:
         raise ValueError("Kidding date cannot predate the pregnancy confirmation")
+    if len(kids) > profile.max_litter_size:
+        raise ValueError(
+            f"A {profile.farm_type.lower()} {profile.parturition} cannot deliver more than "
+            f"{profile.max_litter_size} {profile.young_plural} (recorded {len(kids)})"
+        )
     for kid in kids:
         mortality_date = kid["mortality_reported_at"]
         if kid["status"] == KidStatus.DIED.value:
@@ -377,35 +382,35 @@ async def replan_dam_after_last_kid_death(
     # every death routes through here (change_status calls it for any DEAD
     # transition) and KidEntry.animal_id is set once at birth and never
     # cleared. Realign the birth entry only while the child is still a
-    # dependent kid — one that has lived in its birth RECOVERY cohort since
+    # dependent young — one that has lived in its birth cohort since
     # delivery. A weaned juvenile or adult born on this farm keeps its ALIVE
     # birth outcome: that row is an immutable delivery fact, and flipping it
     # on a later death silently corrupts twin-rate / kids-per-kidding stats.
     # The bucket alone is not enough — a farm-born doe who later kids returns
     # to RECOVERY as a dam while her own birth entry still exists — so also
-    # require that the child never left RECOVERY. A from_bucket=RECOVERY row
+    # require that the child never left its birth cohort. A from_bucket row
     # by itself is not proof of that: history_override moves bypass
     # LEGAL_BUCKET_TRANSITIONS entirely (bucket_transition_error returns None
     # for that context), so an owner correcting a data-entry mistake can
-    # round-trip RECOVERY -> anything -> RECOVERY without the kid ever
-    # weaning. So the test is "left RECOVERY for any reason that is not a
-    # history override". Matching the single reason "Weaned (day 60)" written
-    # by the WEANING task looked equivalent but was not: a dam sold or culled
-    # before day 60 early-weans her kids through change_status (or the deferred
-    # orphan path), and those exits write their own wording. Such kids counted
-    # as never-weaned forever — so if one grew up, kidded (which returns her to
-    # RECOVERY as a dam) and later died, her own immutable birth entry was
-    # rewritten ALIVE -> DIED, corrupting kids-per-kidding and twin rate.
-    # Returning before any lock keeps non-kid deaths out of the
-    # entry/kidding/dam lock chain entirely.
-    if child.current_bucket != Bucket.RECOVERY.value:
-        return False
+    # round-trip the birth bucket without the kid ever weaning. So the test
+    # is "left the birth cohort for any reason that is not a history
+    # override". Goat kids are born into RECOVERY (with the dam); dairy
+    # calves are born into the sexed calf-shed buckets and only the dairy
+    # milk-weaning duty (or a manual move) ever takes them out.
+    if profile.young_stay_with_dam:
+        if child.current_bucket != Bucket.RECOVERY.value:
+            return False
+        birth_cohorts = (Bucket.RECOVERY.value,)
+    else:
+        birth_cohorts = (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
+        if child.current_bucket not in birth_cohorts:
+            return False
     weaned_out = (
         await db.execute(
             select(BucketMove.id)
             .where(
                 BucketMove.animal_id == child.id,
-                BucketMove.from_bucket == Bucket.RECOVERY.value,
+                BucketMove.from_bucket.in_(birth_cohorts),
                 func.coalesce(BucketMove.reason, "").not_like(f"{HISTORY_OVERRIDE_REASON_PREFIX}%"),
             )
             .limit(1)
@@ -472,6 +477,32 @@ async def replan_dam_after_last_kid_death(
     if surviving_id is not None:
         return False
 
+    now = utcnow()
+    if not profile.young_stay_with_dam:
+        # Dairy: the litter's final calf died, so its milk-weaning duty is
+        # moot. The dam already rejoined the milking string through the
+        # +10-day fresh-pen duty, so no recovery replan applies to her.
+        for task in await _pending_tasks_for(
+            db,
+            farm.id,
+            for_update=True,
+            animal_id=kidding.doe_id,
+            category=TaskCategory.WEANING.value,
+        ):
+            if task.breeding_record_id not in (None, kidding.breeding_record_id):
+                continue
+            if task.breeding_record_id is None and task.due_date != kidding.date + timedelta(
+                days=profile.weaning_days
+            ):
+                continue
+            task.status = TaskStatus.SKIPPED.value
+            task.skipped_by_id = None
+            task.skipped_at = now
+            task.skip_reason = "Final surviving calf died; milk weaning no longer applies"
+            _clear_task_rejection(task)
+        await db.flush()
+        return True
+
     if (
         dam is None
         or dam.status != AnimalStatus.ACTIVE.value
@@ -479,7 +510,6 @@ async def replan_dam_after_last_kid_death(
     ):
         return False
 
-    now = utcnow()
     for task in await _pending_tasks_for(
         db,
         farm.id,

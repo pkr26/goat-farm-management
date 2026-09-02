@@ -9,4 +9,5 @@ export interface UserOut {
   id: number;
   email: string;
   name: string | null;
+  must_change_password?: boolean;
 }

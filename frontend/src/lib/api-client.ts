@@ -443,18 +443,29 @@ async function runScopedToAuthSession<T>(
 }
 
 /** FastAPI error bodies are {detail: string} or {detail: [{loc, msg}, ...]}. */
-function extractDetail(body: unknown, fallback: string): string {
+function extractDetail(body: unknown, fallback: string, status?: number): string {
   if (body && typeof body === "object" && "detail" in body) {
     const detail = (body as { detail: unknown }).detail;
     if (typeof detail === "string") return detail;
     if (Array.isArray(detail)) {
-      return detail
-        .map((e) =>
-          e && typeof e === "object" && "msg" in e
-            ? String((e as { msg: unknown }).msg)
-            : String(e),
-        )
+      // 422s are schema-drift/typo territory: lead with a plain-language
+      // sentence instead of surfacing pydantic internals ("Input should be
+      // 'QUARANTINE'…") verbatim to operators, but keep the specifics for
+      // the disclosure-minded.
+      const specifics = detail
+        .map((e) => {
+          if (e && typeof e === "object" && "msg" in e && "loc" in e) {
+            const loc = Array.isArray((e as { loc: unknown }).loc)
+              ? (e as { loc: unknown[] }).loc.filter((p) => p !== "body").join(".")
+              : "";
+            return loc ? `${loc}: ${String((e as { msg: unknown }).msg)}` : String((e as { msg: unknown }).msg);
+          }
+          return String(e);
+        })
         .join("; ");
+      if (status !== 422) return specifics;
+      if (!specifics) return "The server rejected these values. Check the entered data and try again.";
+      return `The server rejected these values (${specifics}). Check the entered data and try again.`;
     }
     return String(detail);
   }
@@ -648,7 +659,7 @@ async function apiResponseOnce(
     // post-clear epoch is the valid boundary for the original 401. A newer
     // login during delayed body parsing still supersedes it.
     assertAuthSession(responseSessionScope);
-    throw new ApiError(resp.status, extractDetail(body, resp.statusText));
+    throw new ApiError(resp.status, extractDetail(body, resp.statusText, resp.status));
   }
   // Fully consume and validate protected successful JSON bodies before their
   // logical request is marked complete. A connection that drops after headers

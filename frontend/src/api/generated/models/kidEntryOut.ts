@@ -4,13 +4,15 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { KidEntryOutSex } from './kidEntryOutSex';
+import type { KidEntryOutStatus } from './kidEntryOutStatus';
 
 export interface KidEntryOut {
   id: number;
   tag: string | null;
-  sex: string;
+  sex: KidEntryOutSex;
   birth_weight: number | null;
-  status: string;
+  status: KidEntryOutStatus;
   mortality_reported_at: string | null;
   animal_id: number | null;
 }

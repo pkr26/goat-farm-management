@@ -65,6 +65,15 @@ const SIMPLE_LABELS: Record<string, Record<string, string>> = {
     CLEANING: "Cleaning",
     OTHER: "Other",
   },
+  lossCause: {
+    UNKNOWN: "Unknown",
+    DISEASE: "Disease",
+    INJURY: "Injury",
+    NUTRITIONAL: "Nutritional",
+    TRAUMA: "Trauma",
+    ANIMAL_STATUS_CHANGE: "Herd exit (administrative close)",
+    OTHER: "Other",
+  },
   outcome: {
     PENDING: "Awaiting check",
     CONFIRMED_PREGNANT: "Confirmed pregnant",
@@ -116,6 +125,7 @@ export type EnumKind =
   | "txType"
   | "taskCategory"
   | "outcome"
+  | "lossCause"
   | "bucket";
 
 /**

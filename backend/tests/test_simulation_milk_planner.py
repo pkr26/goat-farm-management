@@ -21,11 +21,13 @@ def test_thousand_litres_plans_a_herd_that_ships_it() -> None:
     herd = report.herd
     # Analytic seed: f = target x days / lactation litres = 12.7 freshenings a
     # month; the converged herd sits near that times the calving interval
-    # (14.2 months) — a wide but sane band.
+    # (14.2 months) — a wide but sane band. The calf-milk allowance (heifer
+    # calves drink what the tank never ships) pushes the needed freshenings
+    # above the bare seed, hence the wider band.
     assert 130.0 <= herd.breeding_does <= 300.0
     assert herd.milking_does > 0.0
     assert herd.milking_does < herd.breeding_does
-    assert herd.calvings_per_month == pytest.approx(12.7, abs=3.0)
+    assert herd.calvings_per_month == pytest.approx(12.7, abs=4.5)
     # The existing 60-doe foundation is credited; procurement is the ramp gap
     # plus the replacement bridge, never less than the ramp tranches alone.
     assert herd.starting_does_credited == 60.0
@@ -49,10 +51,10 @@ def test_thousand_litres_plans_a_herd_that_ships_it() -> None:
     # still swing with the season — the final month sits in the July trough).
     final_twelve = [m.projected_daily_litres for m in report.projection[-12:]]
     assert sum(final_twelve) / 12.0 == pytest.approx(1000.0, rel=0.02)
-    # Fat-based procurement price: 900 Rs/kg fat x 6.8% = 61.2 Rs/L.
+    # Fat-based procurement price: the verified 850 Rs/kg fat x 6.8% = 57.8 Rs/L.
     month = report.projection[-1]
     assert month.projected_monthly_revenue == pytest.approx(
-        month.projected_monthly_litres * 900.0 * 6.8 / 100.0, rel=1e-9
+        month.projected_monthly_litres * 850.0 * 6.8 / 100.0, rel=1e-9
     )
 
 

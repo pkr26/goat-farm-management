@@ -148,7 +148,7 @@ export default function MilkPage() {
       return;
     }
     if (!Number.isFinite(parsedLitres) || parsedLitres <= 0 || parsedLitres > 100) {
-      setFormError("Litres must be between 0 and 100 for one milking.");
+      setFormError("Litres must be greater than 0 and up to 100 for one milking.");
       return;
     }
     // Fat is only ever submitted by the quality role. A stale value left in

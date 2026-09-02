@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ..models import MAX_RECUR_DAYS, MAX_TASK_TITLE_LENGTH  # single source of truth
 from .common import BoundedId, PostgresText, StrictInputModel, StrictInt
 
+TaskStatusStr = Literal["PENDING", "DONE", "SKIPPED", "VERIFIED"]
 TaskCategoryStr = Literal[
     "VACCINE",
     "DEWORMING",
@@ -52,8 +53,8 @@ class TaskOut(BaseModel):
     id: int
     title: str
     due_date: date
-    status: str  # PENDING | DONE | SKIPPED | VERIFIED
-    category: str
+    status: TaskStatusStr
+    category: TaskCategoryStr
     auto_generated: bool
     animal_id: int | None
     purchase_batch_id: int | None

@@ -657,7 +657,7 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
     assert resp.status_code == 200, resp.text
     await backdate_latest_bucket_move(doe, today() - timedelta(days=155))
     br2 = await make_breeding(
-        client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=150))
+        client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=136))
     )
     assert (
         await ultrasound(
@@ -665,7 +665,7 @@ async def test_second_kidding_auto_tags_do_not_collide(client: httpx.AsyncClient
             owner,
             br2,
             kid_count=1,
-            date_str=iso(today() - timedelta(days=118)),
+            date_str=iso(today() - timedelta(days=104)),
         )
     ).status_code == 200
     resp = await post_kidding(client, owner, br2, kids=[{"sex": "M"}])
@@ -1015,14 +1015,14 @@ async def test_second_kidding_blank_tags_succeeds_and_uniquifies(client: httpx.A
     assert resp.status_code == 200, resp.text
     await backdate_latest_bucket_move(doe, today() - timedelta(days=155))
     br2 = await make_breeding(  # doe is back in RESTING, ready again
-        client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=150))
+        client, owner, doe, buck, breeding_date=iso(today() - timedelta(days=136))
     )
     assert (
         await ultrasound(
             client,
             owner,
             br2,
-            date_str=iso(today() - timedelta(days=118)),
+            date_str=iso(today() - timedelta(days=104)),
         )
     ).status_code == 200
     resp = await post_kidding(client, owner, br2)  # must NOT silently fail

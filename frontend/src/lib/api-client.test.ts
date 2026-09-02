@@ -100,7 +100,10 @@ describe("apiFetch", () => {
 
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(422);
-    expect(err.detail).toBe("field required; value is not valid");
+    // 422s lead with the operator-friendly sentence and keep the specifics.
+    expect(err.detail).toBe(
+      "The server rejected these values (tag_number: field required; sex: value is not valid). Check the entered data and try again.",
+    );
   });
 
   it("refreshes once for concurrent 401s, then retries with the new token", async () => {

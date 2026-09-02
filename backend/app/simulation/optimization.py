@@ -44,8 +44,14 @@ def _candidate_from_core(
         and core.additional_working_capital_required > policy.maximum_funding_gap
     ):
         violations.append("liquidity funding gap exceeds the configured maximum")
-    if core.min_dscr is not None and core.min_dscr < policy.minimum_dscr:
-        violations.append("minimum DSCR is below the configured floor")
+    # DSCR gate follows the NABARD bankable-scheme criterion: the AVERAGE
+    # coverage over the principal-repaying years (the engine's avg_dscr
+    # already excludes the interest-only moratorium and the refinancing
+    # balloon). Gating on the single weakest repaying year alone rejected
+    # every candidate on both flagship presets regardless of economics — a
+    # thin year in a viable plan is priced by the average, not fatal.
+    if core.avg_dscr is not None and core.avg_dscr < policy.minimum_dscr:
+        violations.append("average DSCR is below the configured floor")
     if core.projected_peak_head > core.capacity_places + 1e-9:
         violations.append("projected herd exceeds funded housing/equipment capacity")
     return OptimizationCandidate(

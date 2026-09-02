@@ -210,7 +210,7 @@ async def test_register_user_object_never_exposes_password(client: httpx.AsyncCl
     )
     assert resp.status_code == 201, resp.text
     user = resp.json()["user"]
-    assert set(user) == {"id", "email", "name"}
+    assert set(user) == {"id", "email", "name", "must_change_password"}
     assert "password" not in user and "password_hash" not in user
 
 
@@ -2586,7 +2586,7 @@ async def test_me_happy_path(client: httpx.AsyncClient) -> None:
     body = resp.json()
     assert body["email"] == "me@farm.in"
     assert body["name"] == "Meena"
-    assert set(body) == {"id", "email", "name"}
+    assert set(body) == {"id", "email", "name", "must_change_password"}
 
 
 async def test_account_export_is_machine_readable_and_tenant_minimal(
@@ -2702,7 +2702,9 @@ async def test_account_delete_requires_password_rejects_owners_and_cleans_worker
     deleted = await client.request(
         "DELETE",
         "/api/auth/account",
-        json={"current_password": "workerpass123"},
+        # The shared test client completes the forced rotation on login, so
+        # the worker's current password is the derived rotated form.
+        json={"current_password": "workerpass123!r1"},
         headers=worker,
     )
     assert deleted.status_code == 204, deleted.text

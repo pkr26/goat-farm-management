@@ -6,6 +6,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from functools import lru_cache
+import os
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -14,6 +15,20 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def _dev_key_dir() -> Path:
+    """Default dev-key directory outside the repository working tree.
+
+    Existing repo-local keys (backend/keys/) keep working when present, so
+    current development setups are not invalidated; new generations land in
+    the user cache where folder zips and ad-hoc backups cannot reach them.
+    """
+    repo_keys = BACKEND_DIR / "keys"
+    if (repo_keys / "jwt_private.pem").exists():
+        return repo_keys
+    base = os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
+    return Path(base) / "goatfarm" / "keys"
 MAX_PREVIOUS_JWT_PUBLIC_KEYS = 3
 MAX_PREVIOUS_IDEMPOTENCY_HMAC_SECRETS = 3
 MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH = 32
@@ -148,11 +163,14 @@ class Settings(BaseSettings):
     max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=20_971_520)
     max_request_target_bytes: int = Field(default=8_192, ge=256, le=65_536)
 
-    # JWT: RS256 keypair lives in backend/keys/ (generated on first run,
-    # gitignored). Access token travels in the Authorization header; the
-    # refresh token in an httpOnly SameSite=Lax cookie.
-    jwt_private_key_path: Path = BACKEND_DIR / "keys" / "jwt_private.pem"
-    jwt_public_key_path: Path = BACKEND_DIR / "keys" / "jwt_public.pem"
+    # JWT: RS256 keypair. Development generates its pair under the user's
+    # cache directory (OUTSIDE the repository working tree — zips, cloud-sync
+    # folders and `cp -r` backups of the repo must never pick up the live
+    # signing key); production supplies real keys via explicitly configured
+    # paths. Access token travels in the Authorization header; the refresh
+    # token in an httpOnly SameSite=Lax cookie.
+    jwt_private_key_path: Path = _dev_key_dir() / "jwt_private.pem"
+    jwt_public_key_path: Path = _dev_key_dir() / "jwt_public.pem"
     # Verification-only public keys retained from an old pair or pre-staged
     # for the next pair. Keeping this list small bounds legacy-token
     # verification work; the environment value is a JSON array of paths.

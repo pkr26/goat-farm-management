@@ -294,7 +294,9 @@ describe("apiFetch ApiError detail extraction", () => {
 
     const err = await catchApiError(apiFetch("/api/animals"));
 
-    expect(err.detail).toBe("plain string error; 7");
+    expect(err.detail).toBe(
+      "The server rejected these values (plain string error; 7). Check the entered data and try again.",
+    );
   });
 
   it("stringifies array entries that lack a msg field", async () => {
@@ -304,7 +306,9 @@ describe("apiFetch ApiError detail extraction", () => {
 
     const err = await catchApiError(apiFetch("/api/animals"));
 
-    expect(err.detail).toBe("[object Object]");
+    expect(err.detail).toBe(
+      "The server rejected these values ([object Object]). Check the entered data and try again.",
+    );
   });
 
   it("exposes status and detail and behaves as an Error", async () => {
@@ -946,7 +950,10 @@ describe("apiFetch detail extraction — remaining shapes", () => {
 
     const err = await catchApiError(apiFetch("/api/animals"));
 
-    expect(err.detail).toBe("");
+    // Empty specifics still get the plain-language 422 sentence.
+    expect(err.detail).toBe(
+      "The server rejected these values. Check the entered data and try again.",
+    );
     expect(err.status).toBe(422);
   });
 

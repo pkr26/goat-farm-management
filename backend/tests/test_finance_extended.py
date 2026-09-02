@@ -297,17 +297,69 @@ async def worker_headers(client: httpx.AsyncClient, owner: dict, role_id: int, e
 @pytest.mark.parametrize("category", ALL_CATEGORIES)
 async def test_create_income_every_category(client: httpx.AsyncClient, category: str) -> None:
     # A dairy farm: MILK income is gated to buffalo dairies, and this suite
-    # must keep proving all ten enum categories book as income somewhere.
+    # must keep proving the user-bookable enum categories book as income.
+    # ANIMAL_SALE/ANIMAL_PURCHASE are system-generated only (the animal
+    # workflows write them with provenance) and are asserted separately.
     owner = await dairy_owner(client)
-    txn = await add_txn(client, owner, type="INCOME", category=category, amount=500.0)
+    if category in ("ANIMAL_SALE", "ANIMAL_PURCHASE"):
+        pytest.skip("system-generated categories reject manual rows")
+    extra: dict = {"amount": 500.0}
+    if category == "MILK":
+        # Milk income must carry litres + price provenance, and the litres
+        # must reconcile against recorded parlour production.
+        buffalo = await client.post(
+            "/api/animals",
+            json={
+                "tag_number": "FD-MILK-1",
+                "sex": "F",
+                "source": "PURCHASED",
+                "date_of_birth": "2019-01-01",
+                "current_bucket": "FOUNDATION",
+                "historical_import_reason": "Foundation herd import",
+                "weight_kg": 520,
+                "purchase_date": iso(today() - timedelta(days=90)),
+            },
+            headers=owner,
+        )
+        assert buffalo.status_code in (200, 201), buffalo.text
+        yield_row = await client.post(
+            "/api/milk/new",
+            json={
+                "animal_id": buffalo.json()["id"],
+                "date": iso(today()),
+                "shift": "MORNING",
+                "litres": 10.0,
+            },
+            headers=owner,
+        )
+        assert yield_row.status_code == 201, yield_row.text
+        extra = {"milk_litres": 10.0, "milk_unit_price_per_litre": 50.0, "amount": 500.0}
+    txn = await add_txn(client, owner, type="INCOME", category=category, **extra)
     assert txn["type"] == "INCOME"
     assert txn["category"] == category
     assert txn["amount"] == 500.0
     assert txn["id"] >= 1
 
 
+@pytest.mark.parametrize("category", ["ANIMAL_SALE", "ANIMAL_PURCHASE"])
+async def test_system_categories_reject_manual_rows(
+    client: httpx.AsyncClient, category: str
+) -> None:
+    owner = await dairy_owner(client)
+    resp = await client.post(
+        "/api/finance/new",
+        json=txn_payload(type="INCOME", category=category, amount=500.0),
+        headers=owner,
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list) and "cannot be created manually" in detail[0]["msg"]
+
+
 @pytest.mark.parametrize("category", ALL_CATEGORIES)
 async def test_create_expense_every_category(client: httpx.AsyncClient, category: str) -> None:
+    if category in ("ANIMAL_SALE", "ANIMAL_PURCHASE"):
+        pytest.skip("system-generated categories reject manual rows")
     owner = await dairy_owner(client)
     txn = await add_txn(client, owner, type="EXPENSE", category=category, amount=750.5)
     assert txn["type"] == "EXPENSE"
@@ -1958,7 +2010,8 @@ async def test_health_event_date_correction_is_refused(client: httpx.AsyncClient
 
 async def test_totals_hand_computed(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
-    await add_txn(client, owner, type="INCOME", category="ANIMAL_SALE", amount=1000.0)
+    # OTHER, not ANIMAL_SALE: system categories cannot be booked manually.
+    await add_txn(client, owner, type="INCOME", category="OTHER", amount=1000.0)
     # MANURE, not MILK: a goat (meat) farm cannot book dairy income.
     await add_txn(client, owner, type="INCOME", category="MANURE", amount=2500.75)
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=499.25)
@@ -2124,7 +2177,8 @@ async def test_combined_filters(client: httpx.AsyncClient) -> None:
 async def test_pnl_single_month_hand_computed(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
     d = today().replace(day=1)
-    await add_txn(client, owner, type="INCOME", category="ANIMAL_SALE", amount=1000.0, date=iso(d))
+    # OTHER, not ANIMAL_SALE: system categories cannot be booked manually.
+    await add_txn(client, owner, type="INCOME", category="OTHER", amount=1000.0, date=iso(d))
     await add_txn(client, owner, type="INCOME", category="MANURE", amount=500.5, date=iso(d))
     await add_txn(client, owner, type="EXPENSE", category="FEED", amount=200.25, date=iso(d))
     data = await get_finance(client, owner)
@@ -2135,7 +2189,7 @@ async def test_pnl_single_month_hand_computed(client: httpx.AsyncClient) -> None
     assert row["expense"] == 200.25
     assert row["net"] == 1300.25
     assert row["categories"] == {
-        "ANIMAL_SALE": {"income": 1000.0, "expense": 0.0},
+        "OTHER": {"income": 1000.0, "expense": 0.0},
         "MANURE": {"income": 500.5, "expense": 0.0},
         "FEED": {"income": 0.0, "expense": 200.25},
     }

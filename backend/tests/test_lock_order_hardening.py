@@ -253,7 +253,10 @@ async def test_linked_health_locks_animal_before_task_status_change(
             status_request = asyncio.create_task(
                 status_client.post(
                     f"/api/animals/{animal_id}/status",
-                    json={"new_status": "SOLD"},
+                    # CULLED, not SOLD: a quarantined animal may not be sold
+                    # (biosecurity), but a cull remains a legal exit and takes
+                    # exactly the same lock path under test.
+                    json={"new_status": "CULLED"},
                     headers=owner,
                 )
             )
@@ -284,7 +287,7 @@ async def test_linked_health_locks_animal_before_task_status_change(
             )
         ).scalar_one()
     assert task is not None and task.status == TaskStatus.DONE.value
-    assert animal is not None and animal.status == "SOLD"
+    assert animal is not None and animal.status == "CULLED"
     assert event_count == 1
 
 
@@ -1403,7 +1406,7 @@ async def test_account_tombstone_wins_before_personal_task_assignment(
             delete_client.request(
                 "DELETE",
                 "/api/auth/account",
-                json={"current_password": WORKER_PASSWORD},
+                json={"current_password": WORKER_PASSWORD + "!r1"},
                 headers=worker,
             )
         )
@@ -1795,7 +1798,7 @@ async def test_account_tombstone_wins_before_blocked_mutation_authorization(
             delete_client.request(
                 "DELETE",
                 "/api/auth/account",
-                json={"current_password": WORKER_PASSWORD},
+                json={"current_password": WORKER_PASSWORD + "!r1"},
                 headers=worker,
             )
         )

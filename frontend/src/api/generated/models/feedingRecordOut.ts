@@ -4,12 +4,14 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { FeedingRecordOutBucket } from './feedingRecordOutBucket';
+import type { FeedingRecordOutShift } from './feedingRecordOutShift';
 
 export interface FeedingRecordOut {
   id: number;
   date: string;
-  shift: string;
-  bucket: string;
+  shift: FeedingRecordOutShift;
+  bucket: FeedingRecordOutBucket;
   recipe_code: string | null;
   qty_kg: number;
 }

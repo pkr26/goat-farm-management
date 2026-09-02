@@ -657,7 +657,7 @@ describe("BreedingPage branches", () => {
     ];
     await renderLoaded();
 
-    expect(within(rowOfText("G-005")).getByText("4 Aug 2026 · INJURY")).toBeInTheDocument();
+    expect(within(rowOfText("G-005")).getByText("4 Aug 2026 · Injury")).toBeInTheDocument();
     expect(within(rowOfText("G-006")).queryByText(/UNKNOWN/)).not.toBeInTheDocument();
     expect(within(rowOfText("G-007")).queryByText(/INJURY/)).not.toBeInTheDocument();
     expect(within(rowOfText("G-010")).queryByText(/UNKNOWN/)).not.toBeInTheDocument();

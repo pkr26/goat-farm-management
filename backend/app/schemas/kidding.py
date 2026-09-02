@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .animals import Sex
 from .breeding import BreedingRecordOut
 from .common import (
     MAX_FREE_TEXT_LENGTH,
@@ -53,9 +54,9 @@ class KidEntryOut(BaseModel):
 
     id: int
     tag: str | None
-    sex: str
+    sex: Sex
     birth_weight: float | None
-    status: str
+    status: KidStatusStr
     mortality_reported_at: date | None
     animal_id: int | None
 
@@ -67,7 +68,7 @@ class KiddingRecordOut(BaseModel):
     doe_id: int
     date: date
     breeding_record_id: int | None
-    ease: str
+    ease: KiddingEaseStr
     notes: str | None
     kids: list[KidEntryOut] = []
     doe_tag: str | None = None

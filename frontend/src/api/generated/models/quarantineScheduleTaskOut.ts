@@ -4,6 +4,8 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { QuarantineScheduleTaskOutCategory } from './quarantineScheduleTaskOutCategory';
+import type { QuarantineScheduleTaskOutStatus } from './quarantineScheduleTaskOutStatus';
 
 /**
  * Non-attributed quarantine schedule row for purchase workflows.
@@ -12,6 +14,6 @@ export interface QuarantineScheduleTaskOut {
   id: number;
   title: string;
   due_date: string;
-  status: string;
-  category: string;
+  status: QuarantineScheduleTaskOutStatus;
+  category: QuarantineScheduleTaskOutCategory;
 }

@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import FeedFinishedStock, FeedingRecord, FeedInventory, FeedRecipe
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET
 from ..schemas.feeding import (
     BucketAllocationOut,
     DispenseIn,
@@ -43,7 +43,7 @@ from ..services import (
 )
 from ..utils import today
 
-router = APIRouter(prefix="/api/feeding", tags=["feeding"])
+router = APIRouter(prefix="/api/feeding", tags=["feeding"], responses=COMMON_ERROR_RESPONSES)
 TODAY_PLAN_RECORD_LIMIT = 200
 
 FeedingView = Annotated[set[str], Depends(require_perm("feeding.view"))]

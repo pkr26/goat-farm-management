@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { ScheduleRowOutStatus } from './scheduleRowOutStatus';
 
 export interface ScheduleRowOut {
   template_id: number;
@@ -13,5 +14,5 @@ export interface ScheduleRowOut {
   booster_due: string | null;
   last_done: string | null;
   next_due: string | null;
-  status: string;
+  status: ScheduleRowOutStatus;
 }

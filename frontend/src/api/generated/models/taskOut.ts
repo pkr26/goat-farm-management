@@ -4,13 +4,15 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { TaskOutCategory } from './taskOutCategory';
+import type { TaskOutStatus } from './taskOutStatus';
 
 export interface TaskOut {
   id: number;
   title: string;
   due_date: string;
-  status: string;
-  category: string;
+  status: TaskOutStatus;
+  category: TaskOutCategory;
   auto_generated: boolean;
   animal_id: number | null;
   purchase_batch_id: number | null;

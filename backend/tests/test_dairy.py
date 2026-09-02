@@ -438,8 +438,30 @@ async def test_milk_summary_weighted_fat_and_animals_total(client):
     assert summary["daily"][0]["recorded_animals"] == 3
 
 
+async def _record_parlour_milk(client, headers, litres_by_day):
+    """Record parlour yields on a purchased adult buffalo so milk-income
+    sales reconcile against real production."""
+    animal = await _create_animal(client, headers)
+    for day, litres in litres_by_day:
+        resp = await client.post(
+            "/api/milk/new",
+            json={
+                "animal_id": animal["id"],
+                "date": day,
+                "shift": "MORNING",
+                "litres": litres,
+                "fat_pct": 6.9,
+            },
+            headers=headers,
+        )
+        assert resp.status_code == 201, resp.text
+    return animal
+
+
 async def test_milk_sale_transaction_provenance(client):
     headers = await _dairy_owner(client)
+    today = date.today()
+    await _record_parlour_milk(client, headers, [(today.isoformat(), 35.0), ((today - timedelta(days=1)).isoformat(), 35.0)])
     resp = await client.post(
         "/api/finance/new",
         json={
@@ -480,7 +502,12 @@ async def test_milk_income_rejected_on_goat_farm(client):
         "date": date.today().isoformat(),
         "type": "INCOME",
         "category": "MILK",
-        "amount": 500.0,
+        "amount": 2800.0,
+        # Complete provenance: the dairy-farm gate is what must refuse this
+        # row on a goat farm (a provenance-less row is refused earlier by the
+        # schema's mandatory-provenance rule).
+        "milk_litres": 50.0,
+        "milk_unit_price_per_litre": 56.0,
     }
     resp = await client.post("/api/finance/new", json=payload, headers=headers)
     assert resp.status_code == 422, resp.text
@@ -496,7 +523,8 @@ async def test_milk_income_rejected_on_goat_farm(client):
     other = (
         await client.post(
             "/api/finance/new",
-            json=payload | {"category": "OTHER", "type": "EXPENSE"},
+            json=payload
+            | {"category": "OTHER", "type": "EXPENSE", "milk_litres": None, "milk_unit_price_per_litre": None},
             headers=headers,
         )
     ).json()
@@ -512,6 +540,14 @@ async def test_milk_income_rejected_on_goat_farm(client):
 async def test_milk_fat_priced_sale_provenance(client):
     """Fat-based procurement: litres x fat% x ₹/kg-fat must price the amount."""
     headers = await _dairy_owner(client, email="dairy-fat-price@farm.in")
+    today = date.today()
+    # Ten days of parlour yield: the test books several cumulative sales
+    # (70 + 70 + 100 + 100 L), all of which must reconcile against production.
+    await _record_parlour_milk(
+        client,
+        headers,
+        [((today - timedelta(days=n)).isoformat(), 35.0) for n in range(10)],
+    )
     base = {
         "date": date.today().isoformat(),
         "type": "INCOME",
@@ -683,10 +719,10 @@ def test_murrah_preset_defaults():
     assert a.reproduction.conception_rate == pytest.approx(0.45)
     # Calibrated to the 2025-26 CIRB/NDRI lactation and Telangana procurement
     # figures (see the preset docstring): 2,100 L over a 305-day lactation,
-    # Vijaya/Sangam-style procurement at Rs 900/kg fat blended with direct
+    # Verified procurement basis Rs 850/kg fat (Vijaya/Sangam 2025-26)
     # sales (Rs 58/L flat fallback).
     assert a.sales.lactation_milk_litres == pytest.approx(2100.0)
-    assert a.sales.milk_price_per_kg_fat == pytest.approx(900.0)
+    assert a.sales.milk_price_per_kg_fat == pytest.approx(850.0)
     assert a.sales.milk_price_per_litre == pytest.approx(58.0)
     assert a.sales.milk_fat_pct == pytest.approx(6.8)
     assert a.sales.male_calf_sell_at_birth_fraction == pytest.approx(0.9)

@@ -18,7 +18,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Animal, Farm, MilkRecord
+from ..models import Animal, Farm, MilkRecord, species_profile
 from ..utils import today, utcnow
 
 
@@ -74,6 +74,26 @@ async def record_milk(
             )
         )
     ).scalar_one_or_none()
+    # Species sanity band on the whole day's yield (not just one shift):
+    # Murrah peak production is ~18-20 L/day, so a day total beyond the
+    # profile's cap is a units error or an inflated ledger, whichever way the
+    # three shifts combine — including through a correction re-key.
+    day_cap = species_profile(farm.farm_type).max_daily_milk_litres
+    if day_cap > 0:
+        other_shifts = (
+            await db.execute(
+                select(func.coalesce(func.sum(MilkRecord.litres), 0.0)).where(
+                    MilkRecord.animal_id == animal.id,
+                    MilkRecord.date == record_date,
+                    MilkRecord.shift != shift,
+                )
+            )
+        ).scalar_one()
+        if float(other_shifts) + _litres_quantum(litres) > day_cap:
+            raise ValueError(
+                f"{animal.tag_number}'s total yield for {record_date.isoformat()} would "
+                f"exceed the {day_cap:.0f} L/day sanity band for this species"
+            )
     clean_notes = (notes or "").strip() or None
     clean_reason = (correction_reason or "").strip() or None
     if existing is not None:

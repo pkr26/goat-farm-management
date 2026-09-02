@@ -404,7 +404,11 @@ async def test_ultrasound_pregnant_creates_three_followup_tasks(
     vaccine = tasks_by_category(tasks, "VACCINE")
     moves = tasks_by_category(tasks, "BUCKET_MOVE")
     kidding = tasks_by_category(tasks, "KIDDING_DUE")
-    assert [t["due_date"] for t in vaccine] == [(ekd - timedelta(days=40)).isoformat()]
+    # Primary ET+TT dose at EKD-40 plus its booster 15 days later.
+    assert [t["due_date"] for t in vaccine] == [
+        (ekd - timedelta(days=40)).isoformat(),
+        (ekd - timedelta(days=25)).isoformat(),
+    ]
     assert [t["due_date"] for t in moves] == [(ekd - timedelta(days=15)).isoformat()]
     assert [t["due_date"] for t in kidding] == [ekd.isoformat()]
     assert all(t["animal_id"] == doe["id"] for t in vaccine + moves + kidding)
@@ -829,7 +833,7 @@ async def test_monthly_pnl_aggregation(client: httpx.AsyncClient) -> None:
     current_month = today().replace(day=1)
     previous_month = (current_month - timedelta(days=1)).replace(day=1)
     txns = [
-        (previous_month, "INCOME", "ANIMAL_SALE", 23000.0),
+        (previous_month, "INCOME", "OTHER", 23000.0),
         (previous_month, "EXPENSE", "FEED", 8000.0),
         (previous_month, "EXPENSE", "VET", 1500.0),
         (current_month, "INCOME", "MANURE", 1500.0),

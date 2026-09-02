@@ -4,22 +4,27 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { AnimalOutBirthType } from './animalOutBirthType';
+import type { AnimalOutCurrentBucket } from './animalOutCurrentBucket';
+import type { AnimalOutSex } from './animalOutSex';
+import type { AnimalOutSource } from './animalOutSource';
+import type { AnimalOutStatus } from './animalOutStatus';
 
 export interface AnimalOut {
   id: number;
   tag_number: string;
   name: string | null;
   breed: string;
-  sex: string;
+  sex: AnimalOutSex;
   date_of_birth: string | null;
   estimated_dob: string | null;
-  birth_type: string | null;
-  source: string;
+  birth_type: AnimalOutBirthType;
+  source: AnimalOutSource;
   dam_id: number | null;
   sire_id: number | null;
   birth_weight: number | null;
-  current_bucket: string;
-  status: string;
+  current_bucket: AnimalOutCurrentBucket;
+  status: AnimalOutStatus;
   status_date: string | null;
   sale_price: number | null;
   purchase_date: string | null;

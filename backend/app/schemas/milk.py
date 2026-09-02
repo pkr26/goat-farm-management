@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .common import BoundedId, PastOrTodayDate, PostgresText, StrictInputModel
+from .common import BoundedId, FiniteFloat, PastOrTodayDate, PostgresText, StrictInputModel
 
 MilkShift = Literal["MORNING", "AFTERNOON", "NIGHT"]
 
@@ -14,11 +14,13 @@ class MilkRecordIn(StrictInputModel):
     animal_id: BoundedId
     date: PastOrTodayDate
     shift: MilkShift
-    # A single buffalo's per-milking yield; >100 L is a units error.
-    litres: float = Field(gt=0, le=100)
+    # A single buffalo's per-milking yield; >100 L is a units error. Strict
+    # finite floats: "8" as a JSON string or NaN must not look like a recorded
+    # measurement.
+    litres: FiniteFloat = Field(gt=0, le=100)
     # Murrah milk runs 6.0–7.5% fat; 3–12 rejects typos without binding the
     # biology. The DB CHECK mirrors these bounds.
-    fat_pct: float | None = Field(default=None, ge=3, le=12)
+    fat_pct: FiniteFloat | None = Field(default=None, ge=3, le=12)
     notes: PostgresText | None = Field(default=None, max_length=255)
     # Required when this submission replaces an already-recorded milking: the
     # correction is written beside the frozen original reading, so a silent
@@ -32,7 +34,7 @@ class MilkRecordOut(BaseModel):
     id: int
     animal_id: int
     date: date
-    shift: str
+    shift: MilkShift
     litres: float
     fat_pct: float | None
     notes: str | None

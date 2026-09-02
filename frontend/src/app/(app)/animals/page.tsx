@@ -288,8 +288,33 @@ type CreateValues = z.output<ReturnType<typeof createAnimalSchema>>;
 const emptyToNull = (v: string | undefined) => (v ? v : null);
 
 function pageFromSearchParams(searchParams: URLSearchParams): number {
-  const parsed = Number(searchParams.get("page"));
-  return Number.isSafeInteger(parsed) && parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;
+  const raw = searchParams.get("page") ?? "";
+  // Strict grammar (the tasks board's): Number() accepts JS exotics like
+  // "0x10" and "1e2" that then jump deep into the register.
+  if (!/^(0|[1-9]\d*)$/.test(raw)) return 1;
+  const parsed = Number(raw);
+  return parsed >= 1 ? Math.min(parsed, MAX_PAGE) : 1;
+}
+
+// URL filter values are attacker-controlled: validate each against the
+// generated enum and fall back to ALL, never forwarding a hostile link's
+// garbage into a guaranteed-422 request (the finance ledger's pattern).
+function bucketFromSearchParams(searchParams: URLSearchParams): string {
+  const raw = searchParams.get("bucket");
+  const values = Object.values(ListAnimalsApiAnimalsGetBucket) as string[];
+  return raw && values.includes(raw) ? raw : ALL;
+}
+
+function sexFromSearchParams(searchParams: URLSearchParams): string {
+  const raw = searchParams.get("sex");
+  const values = Object.values(ListAnimalsApiAnimalsGetSex) as string[];
+  return raw && values.includes(raw) ? raw : ALL;
+}
+
+function statusFromSearchParams(searchParams: URLSearchParams): string {
+  const raw = searchParams.get("status");
+  const values = Object.values(ListAnimalsApiAnimalsGetStatus) as string[];
+  return raw && values.includes(raw) ? raw : ALL;
 }
 
 function animalListUrl({
@@ -804,9 +829,9 @@ function AnimalsPageContent() {
   // useSearchParams object identity itself is not stable.
   const paramsKey = searchParams.toString();
 
-  const [bucket, setBucket] = useState(searchParams.get("bucket") ?? ALL);
-  const [sex, setSex] = useState(searchParams.get("sex") ?? ALL);
-  const [status, setStatus] = useState(searchParams.get("status") ?? ALL);
+  const [bucket, setBucket] = useState(() => bucketFromSearchParams(searchParams));
+  const [sex, setSex] = useState(() => sexFromSearchParams(searchParams));
+  const [status, setStatus] = useState(() => statusFromSearchParams(searchParams));
   const [q, setQ] = useState(clampSearch(searchParams.get("q") ?? ""));
   const [debouncedQ, setDebouncedQ] = useState(q.trim());
   const [searchNavigationPending, setSearchNavigationPending] = useState(false);
@@ -928,9 +953,9 @@ function AnimalsPageContent() {
       pending.clear();
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setBucket(params.get("bucket") ?? ALL);
-    setSex(params.get("sex") ?? ALL);
-    setStatus(params.get("status") ?? ALL);
+    setBucket(bucketFromSearchParams(params));
+    setSex(sexFromSearchParams(params));
+    setStatus(statusFromSearchParams(params));
     const nextQ = clampSearch(params.get("q") ?? "");
     if (!hasNewerSearchEdit) {
       setQ(nextQ);
@@ -1272,9 +1297,16 @@ function AnimalsPageContent() {
           <p className="text-sm text-destructive">
             {query.error instanceof ApiError ? query.error.detail : "Could not load animals."}
           </p>
-          <Button type="button" variant="outline" onClick={() => void query.refetch()}>
-            Retry animals
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+              Retry animals
+            </Button>
+            {filtersActive ? (
+              <Button type="button" variant="ghost" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : !payload || payload.animals.length === 0 ? (
         filtersActive ? (

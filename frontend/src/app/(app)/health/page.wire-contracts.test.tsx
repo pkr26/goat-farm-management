@@ -14,7 +14,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AnimalOut, HealthEventOut, TaskOut } from "@/api/generated/models";
+import type { AnimalOut, HealthEventOut, TaskOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { SCHEDULE_TEMPLATES, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
@@ -62,7 +62,7 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     dam_id: null,
     sire_id: null,
     birth_weight: null,
-    current_bucket: "LACTATING",
+    current_bucket: "LACTATING" as AnimalOutCurrentBucket,
     status: "ACTIVE",
     status_date: null,
     sale_price: null,

@@ -1,6 +1,7 @@
 """FastAPI app factory. Dev: uvicorn app.main:app --reload (from backend/)."""
 
 import asyncio
+import os
 import logging
 import math
 import re
@@ -316,6 +317,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # seed only fixed-size global reference data; tenant role/inventory/task
     # repair is the finite post-readiness worker below.
     logger.info("startup (environment=%s)", get_settings().environment)
+    # Single-process guard: the auth rate limiter, simulation CPU budget and
+    # worker-idempotency gates are in-memory per-process controls that the
+    # provided Dockerfile's `--workers 1` makes correct. Any other launcher
+    # (bare uvicorn --workers N, replicas) silently multiplies every budget
+    # — surface that loudly instead of mis-deploying quietly. Detecting the
+    # actual worker count is not reliably possible from inside the process.
+    if os.environ.get("UVICORN_WORKERS", "1") != "1" or os.environ.get("WEB_CONCURRENCY", "1") != "1":
+        logger.warning(
+            "UVICORN_WORKERS/WEB_CONCURRENCY indicates a multi-process deployment: "
+            "auth throttles, the simulation CPU budget and worker idempotency gates "
+            "are per-process and will be multiplied. The provided Dockerfile runs "
+            "--workers 1 by design."
+        )
     # Fail before accepting traffic when active/previous production key files
     # are missing, malformed, weak, duplicate, unreadable, or when the active
     # pair does not match. Development may generate its active pair here.

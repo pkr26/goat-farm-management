@@ -1,26 +1,27 @@
-"""Breed constants (Osmanabadi, per SPEC) and enum-derived policy constants."""
+"""Breed constants (Osmanabadi, per SPEC) and enum-derived policy constants.
+
+Biology numbers are aliases of ``GOAT_PROFILE`` (models/species.py) so the
+legacy names and the species profile can never drift apart; the parity test
+in tests/test_schema_parity.py asserts the identity.
+"""
 
 from .enums import Bucket, FeedingShift, TaskCategory
+from .species import GOAT_PROFILE
 
-GESTATION_DAYS = 150
-KIDDING_WINDOW_DAYS = (145, 155)
+GESTATION_DAYS = GOAT_PROFILE.gestation_days
+KIDDING_WINDOW_DAYS = GOAT_PROFILE.parturition_window_days
 # Sanity band for RECORDING a kidding (services.record_kidding): the SPEC
 # window above drives planning (expected dates, due lists); for after-the-fact
 # record-keeping any plausible gestation is accepted, but a "kidding" days or
 # years post-breeding is a data-entry error, not an event.
-MIN_GESTATION_DAYS = 100
-MAX_GESTATION_DAYS = 200
-ULTRASOUND_AFTER_BREEDING_DAYS = 32
-MIN_BREEDING_AGE_MONTHS = 10
-MIN_BREEDING_WEIGHT_KG = 22.0
-# Sires need their own explicit floor.  The operational model previously
-# treated every active male outside quarantine as a buck, including newborn
-# male kids.  Twelve months matches the adult-buck boundary already used by
-# the live-herd simulation snapshot; 25 kg is a deliberately conservative
-# minimum below the 30 kg Osmanabadi adult-buck default.
-MIN_BUCK_BREEDING_AGE_MONTHS = 12
-MIN_BUCK_BREEDING_WEIGHT_KG = 25.0
-WEANING_DAYS = 60
+MIN_GESTATION_DAYS = GOAT_PROFILE.min_gestation_days
+MAX_GESTATION_DAYS = GOAT_PROFILE.max_gestation_days
+ULTRASOUND_AFTER_BREEDING_DAYS = GOAT_PROFILE.pregnancy_check_after_service_days
+MIN_BREEDING_AGE_MONTHS = GOAT_PROFILE.min_breeding_age_months
+MIN_BREEDING_WEIGHT_KG = GOAT_PROFILE.min_breeding_weight_kg
+MIN_BUCK_BREEDING_AGE_MONTHS = GOAT_PROFILE.min_sire_breeding_age_months
+MIN_BUCK_BREEDING_WEIGHT_KG = GOAT_PROFILE.min_sire_breeding_weight_kg
+WEANING_DAYS = GOAT_PROFILE.weaning_days
 # Every BucketMove written under ``history_override`` carries this prefix. A
 # history correction can round-trip an animal RECOVERY -> anything -> RECOVERY
 # without it ever weaning, so "did this kid genuinely leave its birth cohort?"
@@ -30,12 +31,20 @@ WEANING_DAYS = 60
 HISTORY_OVERRIDE_REASON_PREFIX = "[HISTORY OVERRIDE] "
 # A kidding with no surviving kids has no weaning event to move the doe out
 # of RECOVERY. Keep that maternal recovery period explicit and deterministic.
-POSTPARTUM_RECOVERY_DAYS = 14
+POSTPARTUM_RECOVERY_DAYS = GOAT_PROFILE.postpartum_recovery_days
+# Buck mating policy: enforced by services.breeding (a buck's open services
+# are capped at the ratio) and quoted in the seeded BREEDING bucket text.
 BUCK_ROTATION_DAYS = 7
 BUCK_DOE_RATIO = 20
+# Meat-sale readiness window for male kids: enforced as the minimum sale age
+# on the status-change write path and single-sourced by the dashboard's
+# market-ready rule.
 MEAT_SALE_AGE_MONTHS = (8, 9)
 MEAT_SALE_WEIGHT_KG = (24.0, 28.0)
-MAX_FAILED_CYCLES_BEFORE_CULL = 2
+# Species-aware cull thresholds live on the SpeciesProfile
+# (failed_services_before_cull); this alias is kept for the parity test and
+# any goat-path references.
+MAX_FAILED_CYCLES_BEFORE_CULL = GOAT_PROFILE.failed_services_before_cull
 
 # Input sanity caps — single source of truth: services enforce
 # them in the domain layer, schemas mirror them as Field bounds, and the

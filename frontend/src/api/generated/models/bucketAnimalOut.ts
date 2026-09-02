@@ -4,6 +4,7 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { BucketAnimalOutSex } from './bucketAnimalOutSex';
 
 /**
  * Operational fields consumed by the bucket-board table.
@@ -12,7 +13,7 @@ export interface BucketAnimalOut {
   id: number;
   tag_number: string;
   name: string | null;
-  sex: string;
+  sex: BucketAnimalOutSex;
   latest_weight_kg: number | null;
   days_in_current_bucket: number;
 }

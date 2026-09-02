@@ -174,6 +174,18 @@ async def current_user(
     # the ORM identity map so the later populate-existing reload can compare
     # exactly what this request authenticated.
     request.state.authenticated_token_version = claims.token_version
+    # Forced credential rotation: an owner-provisioned (or owner-reset)
+    # password must be changed by its holder before any domain mutation. The
+    # auth module itself stays reachable — login, logout, /me and
+    # change-password are exactly how the worker clears the flag.
+    if user.must_change_password and not request.url.path.startswith("/api/auth/"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This password was set by the farm owner — change it before "
+                "using the farm (Account → Change password)."
+            ),
+        )
     return user
 
 

@@ -47,17 +47,21 @@ LEGAL_BUCKET_TRANSITIONS: dict[tuple[str, str], frozenset[str]] = {
     # would otherwise be stuck in the bucket for good.
     (Bucket.QUARANTINE.value, Bucket.FOUNDATION.value): frozenset({"manual", "quarantine_release"}),
     (Bucket.FOUNDATION.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
-    (Bucket.FEMALE_KIDS.value, Bucket.FOUNDATION.value): frozenset({"manual"}),
+    # "weaning" is the dairy milk-weaning graduation (day-90 heifers leave the
+    # calf shed); goat weaning never targets FOUNDATION from FEMALE_KIDS.
+    (Bucket.FEMALE_KIDS.value, Bucket.FOUNDATION.value): frozenset({"manual", "weaning"}),
     (Bucket.FEMALE_KIDS.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
     (Bucket.MALE_KIDS.value, Bucket.BREEDING.value): frozenset({"manual"}),
     (Bucket.RESTING.value, Bucket.BREEDING.value): frozenset({"manual", "breeding"}),
-    (Bucket.BREEDING.value, Bucket.RESTING.value): frozenset({"manual"}),
     (Bucket.BREEDING.value, Bucket.PREGNANCY_EARLY.value): frozenset({"ultrasound"}),
     (Bucket.PREGNANCY_EARLY.value, Bucket.PREGNANCY_LATE.value): frozenset({"manual"}),
     (Bucket.PREGNANCY_EARLY.value, Bucket.DELIVERY.value): frozenset({"delivery"}),
     (Bucket.PREGNANCY_LATE.value, Bucket.DELIVERY.value): frozenset({"manual", "delivery"}),
     (Bucket.PREGNANCY_EARLY.value, Bucket.RESTING.value): frozenset({"abortion"}),
     (Bucket.PREGNANCY_LATE.value, Bucket.RESTING.value): frozenset({"abortion"}),
+    # A doe history-overridden from PREGNANCY_* back to BREEDING still carries
+    # her confirmed pregnancy; recording its loss must remain possible.
+    (Bucket.BREEDING.value, Bucket.RESTING.value): frozenset({"manual", "abortion"}),
     (Bucket.DELIVERY.value, Bucket.RESTING.value): frozenset({"abortion", "weaning"}),
     (Bucket.PREGNANCY_EARLY.value, Bucket.RECOVERY.value): frozenset({"kidding"}),
     (Bucket.PREGNANCY_LATE.value, Bucket.RECOVERY.value): frozenset({"kidding"}),

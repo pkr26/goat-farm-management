@@ -228,28 +228,28 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     )
 
     assert _explanation_digest(default) == (
-        "f6512d6f8400098e569f6c093b9efa235fe9c1dcd9cf136ec13afb0f9f7061f8"
+        "6b4b990cf59291fb907ef0b27f25e336d3fc96d2cdf0d073c5255a556f8cd83e"
     )
     assert _explanation_digest(viable) == (
-        "2a9dbeaa536186f0f8565f3faad093533ff1e90d64208627db0e09ad00c3c8bf"
+        "a4d5754d982bc4cb8206b48dc4a4f1958554dabd40dfcd39b764d6869e631a51"
     )
     assert _explanation_digest(no_debt) == (
-        "fc846816a3b9b59336e3cbf3e4ce679fcae85f967469958e050556258feb808d"
+        "15f84337b72b449a48a707c8ffb4cdbf392da4c61778511b3c5ce546d502a61c"
     )
     assert _report_digest(default) == (
-        "02225f1c0c64f0f5aa3de5ac23a1b941dcf1fb5c00b83e2c5634e054cc8d0c12"
+        "0c0d3ee4a7feb6d2802e0d595d37f06c5354f539f4bdecaf0fbdf31c34534c31"
     )
     assert _report_digest(viable) == (
-        "856e21754644c596320e61e434add6482656da13822865a93d023a350c1054c0"
+        "35c1fb2a993eec0c824b93307991996c4992f9082a909c5c96a1eca7d5b9dee9"
     )
     assert _report_digest(no_debt) == (
-        "0aa942f3ad6a61488c0399d82b303e5d7c290704e1ba8f968bd5f8f6ca2830aa"
+        "a8bb3e06f6ad8daec2bb3a373b5af09e501087d4b0adbc5fc3be267f09d74039"
     )
-    # The narratives gained the equity-basis NPV/BCR notes, the payback
-    # terminal-value disclosure and the MC-events note in the recalibration
-    # contract update; the risk branch digest changed with them.
+    # Digests regenerated in the audit-remediation contract update: the
+    # labour-rule, DSCR-window and growth-curve corrections changed the
+    # default run's numbers, so every narrative quoting them re-hashed.
     assert _report_digest(risk) == (
-        "299b0fc79cf9063d4450b58191605b1513113ab8db4ca5f9d4da5997f64e0d9e"
+        "6b64fe4e7737d336763da11ee4d3b632f8152be107309b769841d1479a09ae81"
     )
 
 
@@ -289,7 +289,7 @@ def test_verdict_viable_with_caution_for_borderline_run() -> None:
     a = SimulationAssumptions()
     a.herd.male_growers = 60  # early meat revenue keeps year-1 EBITDA positive
     a.finance.moratorium_months = 0  # full EMI from month 1 squeezes year-1 DSCR
-    a.sales.meat_price_per_kg = 1000.0
+    a.sales.meat_price_per_kg = 550.0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     assert m.npv > 0.0 and m.bcr is not None and m.bcr >= 1.0
@@ -306,6 +306,9 @@ def test_verdict_never_hides_a_negative_weakest_debt_year() -> None:
     standard checks pass" with no mention of the DSCR."""
     a = SimulationAssumptions()
     a.sales.meat_price_per_kg = 1200.0
+    # Full EMI from month 1: year 1 is a PRINCIPAL-REPAYING year (moratorium
+    # years are excluded from min_dscr by design) that cannot service the loan.
+    a.finance.moratorium_months = 0
     res = run_simulation(a, with_break_even=False)
     m = res.metrics
     # Everything else passes; only year 1 cannot service the loan.
@@ -402,7 +405,11 @@ def test_dscr_explanations_never_claim_no_debt_when_debt_years_exist() -> None:
     service exists", so the stock default (year-1 DSCR -6.13 over six real
     debt years) was described as having no debt in the horizon at all — while
     the figures in the same payload said debt_years = 6."""
-    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    # A loss-making run (heavy hired labour) supplies the negative-DSCR shape
+    # the calibrated defaults no longer produce after the labour-rule fix.
+    a = SimulationAssumptions()
+    a.costs.labour_per_month = 42000.0  # three hired workers for a 50+2 unit
+    res = run_simulation(a, with_break_even=False)
     m = res.metrics
     assert m.avg_dscr is not None and m.avg_dscr < 0.0
     assert m.min_dscr is not None and m.min_dscr < 0.0
@@ -1029,7 +1036,11 @@ def test_optimizer_report_exposes_the_complete_recommended_plan() -> None:
 
 
 def test_payback_explanation_says_never_covers_when_no_payback() -> None:
-    res = run_simulation(SimulationAssumptions(), with_break_even=False)
+    # A loss-making run (heavy hired labour) never covers its equity; the
+    # calibrated defaults now reach a terminal-value close at month 120.
+    a = SimulationAssumptions()
+    a.costs.labour_per_month = 42000.0
+    res = run_simulation(a, with_break_even=False)
     assert res.metrics.payback_month is None
     entry = next(e for e in res.metric_explanations if e.key == "payback_month")
     assert "never covers" in entry.explanation
@@ -1041,7 +1052,7 @@ def test_payback_discloses_when_only_terminal_value_closes_the_gap() -> None:
     recovery closing the gap: the disclosure (and its terminal_driven figure)
     must say so, or a lifetime of losses reads as 'paid back'."""
     a = SimulationAssumptions()
-    a.sales.meat_price_per_kg = 700.0
+    a.sales.meat_price_per_kg = 440.0
     res = run_simulation(a, with_break_even=False)
     assert res.metrics.payback_month == a.meta.horizon_months
     entry = next(e for e in res.metric_explanations if e.key == "payback_month")

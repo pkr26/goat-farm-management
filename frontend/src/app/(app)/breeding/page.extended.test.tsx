@@ -257,7 +257,7 @@ describe("BreedingPage", () => {
             id: 2,
             outcome: "ABORTED",
             loss_date: String(abortBody.loss_date),
-            loss_cause: String(abortBody.cause),
+            loss_cause: abortBody.cause as BreedingRecordOut["loss_cause"],
             loss_notes: abortBody.notes as string | null,
           }),
         );
@@ -295,7 +295,7 @@ describe("BreedingPage", () => {
   it("renders the recorded pregnancy-loss facts", async () => {
     await renderLoaded();
     const row = rowOf("Aborted");
-    expect(within(row).getByText("4 Aug 2026 · INJURY")).toBeInTheDocument();
+    expect(within(row).getByText("4 Aug 2026 · Injury")).toBeInTheDocument();
     expect(within(row).getByText("Fence accident")).toBeInTheDocument();
   });
 

@@ -14,11 +14,12 @@ from ..models import (
     BucketMove,
     WeightRecord,
 )
+from ..schemas.common import COMMON_ERROR_RESPONSES
 from ..schemas.buckets import BucketBoardRow
 from ..schemas.summaries import BucketAnimalOut
 from ..utils import business_date, today
 
-router = APIRouter(prefix="/api/buckets", tags=["buckets"])
+router = APIRouter(prefix="/api/buckets", tags=["buckets"], responses=COMMON_ERROR_RESPONSES)
 BUCKET_ANIMAL_PREVIEW_LIMIT = 100
 
 

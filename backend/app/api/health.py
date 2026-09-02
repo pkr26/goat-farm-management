@@ -26,7 +26,7 @@ from ..models import (
     TaskStatus,
     VaccineTemplate,
 )
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.health import (
     MAX_BULK_BUCKET_TARGETS,
     MAX_BULK_HEALTH_TARGETS,
@@ -68,7 +68,7 @@ from ..services import (
 from ..utils import today, utcnow
 from ._shared import visible_to
 
-router = APIRouter(prefix="/api/health", tags=["health"])
+router = APIRouter(prefix="/api/health", tags=["health"], responses=COMMON_ERROR_RESPONSES)
 
 VIEW = Annotated[set[str], Depends(require_perm("health.view"))]
 MANAGE = Annotated[set[str], Depends(require_perm("health.manage"))]

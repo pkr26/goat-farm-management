@@ -103,7 +103,8 @@ const MAX_HEALTH_EVENT_COST = 1_000_000_000;
 const MAX_HEALTH_EVENT_NOTES = 4_000;
 /** Mirrors backend/app/models/constants.py. An immutable event with a
  * mistyped withdrawal year must not hold an animal out of sale indefinitely. */
-const MAX_WITHDRAWAL_DAYS = 730;
+import { MAX_WITHDRAWAL_DAYS as MAX_WITHDRAWAL_DAYS_CAP } from "@/lib/backend-caps";
+const MAX_WITHDRAWAL_DAYS = MAX_WITHDRAWAL_DAYS_CAP;
 /** Sentinel for "no selection" in optional selects (empty string is not a valid item value). */
 const NONE = "none";
 /** value → label map for the root `items` prop: without it, Base UI's

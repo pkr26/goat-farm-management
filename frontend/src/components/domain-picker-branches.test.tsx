@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AnimalOut } from "@/api/generated/models";
+import type { AnimalOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { BreedingCandidatePicker } from "@/components/breeding-candidate-picker";
 import {
@@ -67,7 +67,7 @@ function animal(overrides: Partial<AnimalOut> = {}): AnimalOut {
     dam_id: null,
     sire_id: null,
     birth_weight: null,
-    current_bucket: "GROWER_FEMALE",
+    current_bucket: "GROWER_FEMALE" as AnimalOutCurrentBucket,
     status: "ACTIVE",
     status_date: null,
     sale_price: null,

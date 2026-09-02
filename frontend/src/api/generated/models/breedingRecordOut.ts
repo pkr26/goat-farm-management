@@ -4,6 +4,9 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { BreedingRecordOutLossCause } from './breedingRecordOutLossCause';
+import type { BreedingRecordOutMethod } from './breedingRecordOutMethod';
+import type { BreedingRecordOutOutcome } from './breedingRecordOutOutcome';
 
 export interface BreedingRecordOut {
   id: number;
@@ -11,7 +14,7 @@ export interface BreedingRecordOut {
   buck_id: number | null;
   semen_sire_name: string | null;
   breeding_date: string;
-  method: string;
+  method: BreedingRecordOutMethod;
   heat_cycle_number: number;
   ultrasound_date: string | null;
   ultrasound_result_date: string | null;
@@ -19,9 +22,9 @@ export interface BreedingRecordOut {
   pregnant: boolean | null;
   kid_count_detected: number | null;
   expected_kidding_date: string | null;
-  outcome: string;
+  outcome: BreedingRecordOutOutcome;
   loss_date: string | null;
-  loss_cause: string | null;
+  loss_cause: BreedingRecordOutLossCause;
   loss_notes: string | null;
   loss_recorded_by_id: number | null;
   loss_recorded_at: string | null;

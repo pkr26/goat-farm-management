@@ -327,17 +327,22 @@ function RowActions({
             <span className="text-xs text-muted-foreground">
               Linked form unavailable with your permissions.
             </span>
+          ) : lockedFutureCompletion || lockedFutureRecurrence ? (
+            // A future-locked duty with no permitted linked form renders
+            // nothing at all without this hint — an inert row the operator
+            // cannot explain.
+            <span className="text-xs text-muted-foreground">
+              Not due yet — actions open on the due date.
+            </span>
           ) : (
-            !lockedFutureCompletion && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={actionFlight.pending}
-                onClick={() => void completeTask()}
-              >
-                {actionError?.action === "complete" ? "Retry complete" : "Complete"}
-              </Button>
-            )
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={actionFlight.pending}
+              onClick={() => void completeTask()}
+            >
+              {actionError?.action === "complete" ? "Retry complete" : "Complete"}
+            </Button>
           )}
           {/* Quarantine-gate and weaning duties always 409 a skip (see
               taskSkipUnavailable) — don't offer an action that cannot

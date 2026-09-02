@@ -4,9 +4,10 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { FeedRecipeLineOutCategory } from './feedRecipeLineOutCategory';
 
 export interface FeedRecipeLineOut {
   ingredient: string;
   kg_per_100kg: number;
-  category: string;
+  category: FeedRecipeLineOutCategory;
 }

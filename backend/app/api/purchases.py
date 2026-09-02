@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
 from ..models import Animal, PurchaseBatch, Task, TaskStatus
-from ..schemas.common import MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
+from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.purchases import (
     PurchaseBatchDetailOut,
     PurchaseBatchIn,
@@ -27,7 +27,7 @@ from ..services import (
 from ..utils import today
 from ._shared import TASK_LOADS, animal_computed_facts, animal_out, task_out, visible_to
 
-router = APIRouter(prefix="/api/purchases", tags=["purchases"])
+router = APIRouter(prefix="/api/purchases", tags=["purchases"], responses=COMMON_ERROR_RESPONSES)
 
 PurchasesView = Annotated[set[str], Depends(require_perm("purchases.view"))]
 PurchasesManage = Annotated[set[str], Depends(require_perm("purchases.manage"))]

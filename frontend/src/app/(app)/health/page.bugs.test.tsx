@@ -14,7 +14,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AnimalOut, TaskOut } from "@/api/generated/models";
+import type { AnimalOut, TaskOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday } from "@/lib/format";
@@ -57,7 +57,7 @@ const ANIMAL: AnimalOut = {
   dam_id: null,
   sire_id: null,
   birth_weight: null,
-  current_bucket: "LACTATING",
+  current_bucket: "LACTATING" as AnimalOutCurrentBucket,
   status: "ACTIVE",
   status_date: null,
   sale_price: null,

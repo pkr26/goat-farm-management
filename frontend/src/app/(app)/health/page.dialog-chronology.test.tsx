@@ -12,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { HealthEventOut, TaskOut } from "@/api/generated/models";
+import type { TaskOutCategory, HealthEventOut, TaskOut, TaskOutStatus} from "@/api/generated/models";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { farmToday } from "@/lib/format";
@@ -91,7 +91,7 @@ function makeTask(overrides: Partial<TaskOut>): TaskOut {
     title: "Task",
     due_date: TODAY,
     status: "PENDING",
-    category: "OTHER",
+    category: "HOOF_TRIM" as TaskOutCategory,
     auto_generated: false,
     animal_id: null,
     purchase_batch_id: null,
@@ -334,7 +334,7 @@ describe("HealthPage dialog branches", () => {
         title: "Already administered vaccination",
         category: "VACCINE",
         animal_id: 3,
-        status: "COMPLETED",
+        status: "COMPLETED" as TaskOutStatus,
       }),
     ];
     const { user, dialog } = await openDialog();
@@ -354,7 +354,7 @@ describe("HealthPage dialog branches", () => {
         title: "Completed PPR duty",
         category: "VACCINE",
         animal_id: 3,
-        status: "COMPLETED",
+        status: "COMPLETED" as TaskOutStatus,
       }),
     ];
     const { dialog } = await openDeepLink("task_id=734&animal_id=3");
@@ -370,7 +370,7 @@ describe("HealthPage dialog branches", () => {
   it("refuses a deep-linked duty that is not a vaccination or deworming duty", async () => {
     tasks = [];
     unlistedTasks = [
-      makeTask({ id: 735, title: "Trim hooves", category: "HOOF_TRIM", animal_id: 3 }),
+      makeTask({ id: 735, title: "Trim hooves", category: "HOOF_TRIM" as TaskOutCategory, animal_id: 3 }),
     ];
     const { dialog } = await openDeepLink("task_id=735&animal_id=3");
 

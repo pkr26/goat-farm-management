@@ -112,6 +112,8 @@ describe("customInstance", () => {
     expect(caught).toBeInstanceOf(ApiError);
     if (!(caught instanceof ApiError)) throw new Error("Expected ApiError");
     expect(generatedErrorStatus(caught)).toBe(422);
-    expect(caught.detail).toBe("Field required");
+    expect(caught.detail).toBe(
+      "The server rejected these values (name: Field required). Check the entered data and try again.",
+    );
   });
 });

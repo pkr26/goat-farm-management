@@ -420,7 +420,7 @@ async def _doe_with_two_retained_recovery_litters(
         client,
         headers,
         tag="TWO-LITTER-DOE",
-        breeding_date=today() - timedelta(days=310),
+        breeding_date=today() - timedelta(days=340),
     )
     first = await confirm(client, headers, first["id"], kid_count=1)
     await kid_on_ekd(
@@ -431,13 +431,13 @@ async def _doe_with_two_retained_recovery_litters(
     )
 
     await move_to(client, headers, doe["id"], "RESTING", history_override=True)
-    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=155))
+    await backdate_latest_bucket_move(doe["id"], today() - timedelta(days=185))
     second = await make_breeding(
         client,
         headers,
         doe["id"],
         buck["id"],
-        breeding_date=iso(today() - timedelta(days=150)),
+        breeding_date=iso(today() - timedelta(days=176)),
     )
     second = await confirm(client, headers, second["id"], kid_count=1)
     await kid_on_ekd(

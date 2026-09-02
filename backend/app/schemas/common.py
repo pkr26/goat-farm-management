@@ -152,3 +152,23 @@ QuantityKgFloat = Annotated[
 ]
 WeightKgFloat = Annotated[PositiveFloat, Field(le=1000)]
 NonNegativeWeightKgFloat = Annotated[NonNegativeFloat, Field(le=1000)]
+
+
+class ErrorOut(BaseModel):
+    """Documented shape of every raised-error response ({"detail": ...})."""
+
+    detail: str
+
+
+# Router-level OpenAPI response declarations: handlers systematically raise
+# HTTPException(400|401|403|404|409|422|429) that the generated contract used
+# to leave undeclared (53/86 routes), so consumers could not know a route can
+# 409/404. APIRouter(responses=...) merges these into every route's docs.
+COMMON_ERROR_RESPONSES = {
+    400: {"model": ErrorOut, "description": "Rejected (invalid state or values)"},
+    401: {"model": ErrorOut, "description": "Not authenticated"},
+    403: {"model": ErrorOut, "description": "Authenticated but not permitted"},
+    404: {"model": ErrorOut, "description": "Not found (or belongs to another farm)"},
+    409: {"model": ErrorOut, "description": "Conflict (state, replay, or race)"},
+    429: {"model": ErrorOut, "description": "Rate limited"},
+}

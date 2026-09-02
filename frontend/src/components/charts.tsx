@@ -50,7 +50,7 @@ export function Sparkline({
   const max = Math.max(...values);
   const span = max - min || 1;
   const points = values.map((value, i) => {
-    const x = (i / (data.length - 1)) * width;
+    const x = (i / (values.length - 1)) * width;
     const y = height - 2 - ((value - min) / span) * (height - 4);
     return [x, y] as const;
   });

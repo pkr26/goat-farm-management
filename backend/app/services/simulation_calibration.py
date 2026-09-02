@@ -664,17 +664,19 @@ async def calibrate_farm_assumptions(
                 for kid_row in weaned_rows
             )
             previous_kid_mortality = assumptions.mortality.kid_pre_weaning
-            # The engine expects an annualized class rate but each kid is
-            # exposed to the pre-weaning class for three model months, not for
-            # the whole historical lookback window.
-            calibrated_kid_mortality = _annualized_fraction(died, len(weaned_rows), 3)
-            assumptions.mortality.kid_pre_weaning = min(0.9, calibrated_kid_mortality)
+            # The engine consumes kid_pre_weaning as a WHOLE-PHASE rate: the
+            # pre-wean class removes exactly this fraction of each crop
+            # (engine.py phase_monthly_mortality_rate). Write the observed
+            # phase fraction directly — annualizing it (1-(1-x)^(12/3))
+            # inflated a 10% observed loss into a 34% modelled loss (3.4x).
+            calibrated_kid_mortality = min(0.9, died / len(weaned_rows))
+            assumptions.mortality.kid_pre_weaning = calibrated_kid_mortality
             record(
                 "mortality.kid_pre_weaning",
                 previous_kid_mortality,
                 assumptions.mortality.kid_pre_weaning,
                 len(weaned_rows),
-                "Dependent-kid deaths annualized from three months of pre-weaning exposure, "
+                "Dependent-kid deaths as the observed whole-phase pre-weaning fraction, "
                 "counting only kids born early enough to have completed it and deaths "
                 "reported within that three-month window",
                 "kid_entries",

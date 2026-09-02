@@ -4,11 +4,13 @@
  * Goat Farm Management API
  * OpenAPI spec version: 2.0.0
  */
+import type { BucketMoveOutFromBucket } from './bucketMoveOutFromBucket';
+import type { BucketMoveOutToBucket } from './bucketMoveOutToBucket';
 
 export interface BucketMoveOut {
   id: number;
-  from_bucket: string | null;
-  to_bucket: string;
+  from_bucket: BucketMoveOutFromBucket;
+  to_bucket: BucketMoveOutToBucket;
   reason: string | null;
   effective_date: string;
   moved_at: string;
