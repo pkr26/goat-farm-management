@@ -1149,6 +1149,7 @@ async def test_simulation_cpu_phase_releases_database_checkout(
                 monte_carlo: bool,
                 sensitivity: bool,
                 optimization: bool,
+                nouns: object = None,
                 *,
                 started_signal: asyncio.Event = started,
                 release_signal: asyncio.Event = release,
@@ -1160,6 +1161,7 @@ async def test_simulation_cpu_phase_releases_database_checkout(
                     monte_carlo,
                     sensitivity,
                     optimization,
+                    nouns,  # type: ignore[arg-type]
                 )
 
             monkeypatch.setattr(simulation_api, "_run_offloaded", parked_run)

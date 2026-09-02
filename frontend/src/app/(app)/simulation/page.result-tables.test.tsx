@@ -393,30 +393,30 @@ describe("SimulationPage cash-flow tables", () => {
 
     const [, lossYear, profitYear] = within(cardOf("Annual P&L")).getAllByRole("row");
     const lossCells = cells(lossYear);
-    expect(lossCells[11]).toHaveTextContent("-₹30,000");
-    expect(lossCells[11]).toHaveClass("text-right", "tabular-nums", "text-destructive");
+    expect(lossCells[15]).toHaveTextContent("-₹30,000");
+    expect(lossCells[15]).toHaveClass("text-right", "tabular-nums", "text-destructive");
     const profitCells = cells(profitYear);
-    expect(profitCells[11]).toHaveTextContent("₹40,000");
+    expect(profitCells[15]).toHaveTextContent("₹40,000");
     // A non-negative figure carries no styling beyond the neutral money cells.
-    expect(profitCells[11].className).toBe(profitCells[1].className);
+    expect(profitCells[15].className).toBe(profitCells[1].className);
 
     const projection = cardOf("Monthly projection");
     const [, deficitMonth, surplusMonth] = within(projection).getAllByRole("row");
     const deficitCells = cells(deficitMonth);
-    expect(deficitCells[13]).toHaveTextContent("-₹7,000");
-    expect(deficitCells[14]).toHaveTextContent("-₹5,000");
-    expect(deficitCells[15]).toHaveTextContent("-₹7,000");
-    for (const index of [13, 14, 15])
+    expect(deficitCells[16]).toHaveTextContent("-₹7,000");
+    expect(deficitCells[17]).toHaveTextContent("-₹5,000");
+    expect(deficitCells[18]).toHaveTextContent("-₹7,000");
+    for (const index of [16, 17, 18])
       expect(deficitCells[index]).toHaveClass(
         "text-right",
         "tabular-nums",
         "text-destructive",
       );
     const surplusCells = cells(surplusMonth);
-    expect(surplusCells[13]).toHaveTextContent("₹12,000");
-    expect(surplusCells[14]).toHaveTextContent("₹43,000");
-    expect(surplusCells[15]).toHaveTextContent("₹5,000");
-    for (const index of [13, 14, 15])
+    expect(surplusCells[16]).toHaveTextContent("₹12,000");
+    expect(surplusCells[17]).toHaveTextContent("₹43,000");
+    expect(surplusCells[18]).toHaveTextContent("₹5,000");
+    for (const index of [16, 17, 18])
       expect(surplusCells[index].className).toBe(surplusCells[6].className);
   });
 
@@ -430,11 +430,11 @@ describe("SimulationPage cash-flow tables", () => {
 
     const [, deficitMonth, surplusMonth] = within(projection).getAllByRole("row");
     expect(deficitMonth).toHaveClass("bg-warning-tint/50");
-    expect(cells(deficitMonth)[17]).toHaveTextContent(
+    expect(cells(deficitMonth)[20]).toHaveTextContent(
       "Purchased 10 doe(s) at ₹8,000/head (₹80,000)",
     );
     expect(surplusMonth).not.toHaveClass("bg-warning-tint/50");
-    expect(cells(surplusMonth)[17]).toHaveTextContent("—");
+    expect(cells(surplusMonth)[20]).toHaveTextContent("—");
   });
 });
 

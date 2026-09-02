@@ -109,6 +109,7 @@ from .results import (
     ViabilityMetrics,
 )
 from .shocks import MonthlyShockPath
+from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 MODEL_VERSION = "3.0.0"
 
@@ -350,7 +351,11 @@ def _ceil_head_ratio(heads: float, heads_per_unit: int) -> int:
     return math.ceil(ratio)
 
 
-def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = None) -> _CoreResult:
+def _run_core(
+    a: SimulationAssumptions,
+    shock_path: MonthlyShockPath | None = None,
+    nouns: SpeciesNouns | None = None,
+) -> _CoreResult:
     r = a.reproduction
     mort = a.mortality
     cull = a.culling
@@ -360,6 +365,8 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
     costs = a.costs
     fin = a.finance
     shocks = shock_path or MonthlyShockPath.neutral(a.meta.horizon_months)
+    if nouns is None:
+        nouns = GOAT_NOUNS
 
     # Dairy regime (saleable milk): lactation overlaps pregnancy — buffaloes
     # (and dairy goats) are bred back during lactation, so the doe pools track
@@ -688,7 +695,7 @@ def _run_core(a: SimulationAssumptions, shock_path: MonthlyShockPath | None = No
         # Purchases are opex (never project cost); adult sales are booked as
         # culls, young-stock sales as meat sales.
         for event in events_by_month.get(month, ()):
-            label = _EVENT_LABELS[event.animal_class]
+            label = nouns.event_label(event.animal_class)
             if event.kind == "purchase":
                 n = event.count
                 if event.animal_class == "doe":
@@ -2059,15 +2066,23 @@ def run_simulation(
     with_monte_carlo: bool = False,
     with_sensitivity: bool = False,
     with_optimization: bool = False,
+    nouns: SpeciesNouns | None = None,
 ) -> SimulationResult:
-    """Run the deterministic simulation and assemble the full result model."""
+    """Run the deterministic simulation and assemble the full result model.
+
+    ``nouns`` supplies the species vocabulary for every human-readable string
+    the result carries (narrative report, monthly event log). It defaults to
+    the goat set; the API layer passes the authenticated farm's own nouns so a
+    buffalo dairy never reads "doe" or "kid"."""
+    if nouns is None:
+        nouns = GOAT_NOUNS
     # Programmatic callers mutate copies attribute-by-attribute
     # (model_copy + assignment), which bypasses every model validator — an
     # incoherent variant (say loan + subsidy > 1, i.e. negative equity) then
     # ran to completion with garbage metrics. Revalidating the whole document
     # once per public run is nanoseconds against a 120-month engine pass.
     assumptions = SimulationAssumptions.model_validate(assumptions.model_dump())
-    core = _run_core(assumptions)
+    core = _run_core(assumptions, nouns=nouns)
     metrics = ViabilityMetrics(
         project_cost=core.project_cost,
         loan_amount=core.loan_amount,
@@ -2140,7 +2155,7 @@ def run_simulation(
     from .explain import build_metric_explanations, build_narrative_report
 
     result.metric_explanations = build_metric_explanations(
-        assumptions, result, break_even_computed=with_break_even
+        assumptions, result, break_even_computed=with_break_even, nouns=nouns
     )
-    result.narrative_report = build_narrative_report(assumptions, result)
+    result.narrative_report = build_narrative_report(assumptions, result, nouns=nouns)
     return result

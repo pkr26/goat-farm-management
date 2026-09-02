@@ -72,6 +72,7 @@ from ..simulation.engine import run_simulation
 from ..simulation.milk_planner import MilkPlanReport, build_milk_plan
 from ..simulation.planner import PlanReport, SaleTarget, build_plan_report
 from ..simulation.results import SimulationResult
+from ..simulation.vocabulary import GOAT_NOUNS, SpeciesNouns, nouns_for_farm_type
 from ..utils import today
 
 router = APIRouter(prefix="/api/simulation", tags=["simulation"], responses=COMMON_ERROR_RESPONSES)
@@ -199,12 +200,14 @@ def _run(
     monte_carlo: bool,
     sensitivity: bool,
     optimization: bool,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> SimulationResult:
     result = run_simulation(
         assumptions,
         with_monte_carlo=monte_carlo,
         with_sensitivity=sensitivity,
         with_optimization=optimization,
+        nouns=nouns,
     )
     # Defense in depth past the input caps: bounded inputs can still overflow
     # derived math (a near-zero fodder yield makes the land requirement 1/ε →
@@ -220,9 +223,12 @@ async def _run_offloaded(
     monte_carlo: bool,
     sensitivity: bool,
     optimization: bool,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> SimulationResult:
     """Offload one standard run (see ``_offload`` for the machinery)."""
-    return await _offload(lambda: _run(assumptions, monte_carlo, sensitivity, optimization))
+    return await _offload(
+        lambda: _run(assumptions, monte_carlo, sensitivity, optimization, nouns)
+    )
 
 
 async def _offload[T](work: Callable[[], T]) -> T:
@@ -610,6 +616,7 @@ async def _run_for_farm(
     monte_carlo: bool,
     sensitivity: bool,
     optimization: bool,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> SimulationResult:
     cost = _run_cost(assumptions, monte_carlo, sensitivity, optimization)
 
@@ -618,7 +625,9 @@ async def _run_for_farm(
         # limiter turns away never runs and must not spend the budget.
         _check_run_budget(farm_id, user_id, cost)
         _charge_run_budget(farm_id, user_id, cost)
-        return await _run_offloaded(assumptions, monte_carlo, sensitivity, optimization)
+        return await _run_offloaded(
+            assumptions, monte_carlo, sensitivity, optimization, nouns
+        )
 
     return await _with_run_limits(farm_id, user_id, run)
 
@@ -774,6 +783,10 @@ async def run_adhoc(
     """Run a simulation from posted assumptions (no persistence)."""
     farm_id = farm.id
     user_id = user.id
+    # Immutable request snapshot, captured before the rollback below expires
+    # the ORM row (a post-rollback attribute read re-queries the detached
+    # object and raises MissingGreenlet inside the worker thread).
+    nouns = nouns_for_farm_type(farm.farm_type)
     # Unsafe-request authorization deliberately pins Membership/User/Role rows
     # only for the database mutation it authorizes. A simulation is CPU-only
     # after admission; retaining that transaction for a worst-case ~25-second
@@ -788,6 +801,7 @@ async def run_adhoc(
         payload.monte_carlo,
         payload.sensitivity,
         payload.optimization,
+        nouns,
     )
 
 
@@ -817,6 +831,8 @@ async def plan_sales(
             )
     farm_id = farm.id
     user_id = user.id
+    # Snapshot before the rollback expires the ORM row (see run_adhoc).
+    nouns = nouns_for_farm_type(farm.farm_type)
     await db.rollback()
 
     targets = [
@@ -837,6 +853,7 @@ async def plan_sales(
                     targets,
                     close_gaps_enabled=payload.close_gaps,
                     risk_runs=payload.risk_runs,
+                    nouns=nouns,
                 )
             )
         except ValidationError as exc:
@@ -1050,6 +1067,7 @@ async def compare_scenarios(
 
     farm_id = farm.id
     user_id = user.id
+    nouns = nouns_for_farm_type(farm.farm_type)
 
     async def run_compare() -> ScenarioCompareOut:
         scenarios = [await _get_scenario(db, farm_id, scenario_id) for scenario_id in id_list]
@@ -1064,7 +1082,9 @@ async def compare_scenarios(
         _charge_run_budget(farm_id, user_id, cost)
         return ScenarioCompareOut(
             scenarios=scenario_snapshots,
-            results=[await _run_offloaded(a, False, False, False) for a in loaded],
+            results=[
+                await _run_offloaded(a, False, False, False, nouns) for a in loaded
+            ],
         )
 
     return await _with_run_limits(farm_id, user_id, run_compare)
@@ -1144,6 +1164,7 @@ async def run_scenario(
     """Run a stored scenario's assumptions (optionally with MC / sensitivity)."""
     farm_id = farm.id
     user_id = user.id
+    nouns = nouns_for_farm_type(farm.farm_type)
     scenario = await _get_scenario(db, farm_id, scenario_id)
     assumptions = _load_assumptions(scenario)
     # The validated assumptions are a complete point-in-time scenario snapshot;
@@ -1157,4 +1178,5 @@ async def run_scenario(
         monte_carlo,
         sensitivity,
         optimization,
+        nouns,
     )

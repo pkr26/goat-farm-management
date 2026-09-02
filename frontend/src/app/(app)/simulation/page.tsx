@@ -123,6 +123,11 @@ import {
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
 import { formatFarmDateTime, formatLitres, formatMoney } from "@/lib/format";
+import {
+  SIMULATION_SECTION_HELP,
+  simulationFieldHelp,
+  speciesAwareLabel,
+} from "@/lib/simulation-field-help";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
 import { PermissionsError } from "@/components/permissions-error";
@@ -719,6 +724,77 @@ function MetricCard({
   );
 }
 
+/** Contents of the field-explanation dialog opened by a "?" button. */
+type FieldHelpState = {
+  label: string;
+  body: string | null;
+  facts: { term: string; value: string }[];
+};
+
+/** The "?" affordance beside every assumption label: opens the field's
+ *  plain-language explanation — what the term is and what the values mean.
+ *  Swallows the click so it never toggles a surrounding <summary>/<details>. */
+function FieldHelpButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={`What is ${label}?`}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 text-[10px] font-semibold leading-none text-muted-foreground hover:bg-accent"
+    >
+      {/* The accessible name is content-based (not an aria-label): an
+          aria-label containing the field name collides with getByLabelText
+          queries for the input the adjacent <Label> points at. */}
+      <span className="sr-only">Explain {label}</span>?
+    </button>
+  );
+}
+
+/** Unit/range/current-value facts shown under a field's explanation. */
+function fieldFacts(
+  rule: NumericRule | NumberArrayRule | undefined,
+  value: unknown,
+  options?: Record<string, string>,
+): { term: string; value: string }[] {
+  const facts: { term: string; value: string }[] = [];
+  if (options) facts.push({ term: "Choices", value: Object.values(options).join(", ") });
+  if (rule && "unit" in rule && rule.unit !== undefined)
+    facts.push({ term: "Unit", value: rule.unit });
+  if (rule) {
+    const bounds: string[] = [];
+    if (rule.exclusiveMin !== undefined) bounds.push(`greater than ${rule.exclusiveMin}`);
+    if (rule.min !== undefined) bounds.push(`at least ${rule.min}`);
+    if (rule.max !== undefined) bounds.push(`at most ${rule.max}`);
+    if ("exactLength" in rule && rule.exactLength !== undefined)
+      bounds.push(`exactly ${rule.exactLength} values`);
+    if ("maxLength" in rule && rule.maxLength !== undefined)
+      bounds.push(`at most ${rule.maxLength} values`);
+    if (rule.integer) bounds.push("whole numbers only");
+    if (bounds.length > 0) facts.push({ term: "Allowed values", value: bounds.join(", ") });
+  }
+  if (typeof value === "boolean") facts.push({ term: "Current value", value: value ? "On" : "Off" });
+  else if (typeof value === "number")
+    facts.push({ term: "Current value", value: String(value) });
+  else if (typeof value === "string" && value.length > 0 && value.length <= 80)
+    facts.push({ term: "Current value", value });
+  else if (Array.isArray(value))
+    facts.push({
+      term: "Current value",
+      value: value.length <= 12 ? value.join(", ") : `${value.length} values`,
+    });
+  return facts;
+}
+
 type NumberInputProps = Omit<
   ComponentProps<typeof Input>,
   "type" | "value" | "onChange" | "onBlur"
@@ -1149,6 +1225,8 @@ export default function SimulationPage() {
     repeat: 6,
   });
   const [explanation, setExplanation] = useState<MetricExplanation | null>(null);
+  /** The "?" dialog: one assumption term's explanation + unit/range/value. */
+  const [fieldExplain, setFieldExplain] = useState<FieldHelpState | null>(null);
   const [calibration, setCalibration] = useState<FarmCalibrationOut | null>(null);
   const [calibrationLookback, setCalibrationLookback] = useState(24);
   // Updated synchronously by every live calibration-parameter control. A
@@ -2096,6 +2174,30 @@ export default function SimulationPage() {
     });
   }
 
+  /** Species-aware display label for one assumption field. */
+  function fieldLabelFor(key: string): string {
+    return speciesAwareLabel(humanize(key), simVocabulary);
+  }
+
+  /** Opens the "?" dialog for one field: explanation plus unit/range/value. */
+  function openFieldHelp(
+    section: string,
+    key: string,
+    value: unknown,
+    rule?: NumericRule | NumberArrayRule,
+    options?: Record<string, string>,
+    subKey?: string,
+  ): void {
+    const path = subKey ? `${section}.${key}.${subKey}` : `${section}.${key}`;
+    const entry = simulationFieldHelp(path, simVocabulary);
+    const label = entry?.label ?? fieldLabelFor(subKey ?? key);
+    setFieldExplain({
+      label,
+      body: entry?.help.body ?? null,
+      facts: fieldFacts(rule, value, options),
+    });
+  }
+
   /** One editor row; the input type follows the value type. */
   function renderField(section: string, key: string, value: unknown) {
     const id = `sim-${section}-${key}`;
@@ -2103,7 +2205,13 @@ export default function SimulationPage() {
     if (stringOptions) {
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>{humanize(key)}</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{fieldLabelFor(key)}</Label>
+            <FieldHelpButton
+              label={fieldLabelFor(key)}
+              onClick={() => openFieldHelp(section, key, value, undefined, stringOptions)}
+            />
+          </div>
           <Select
             value={String(value)}
             onValueChange={(v) => updateField(section, key, v)}
@@ -2130,7 +2238,13 @@ export default function SimulationPage() {
       const rule = numericRule(section, key);
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>{humanize(key)}</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{fieldLabelFor(key)}</Label>
+            <FieldHelpButton
+              label={fieldLabelFor(key)}
+              onClick={() => openFieldHelp(section, key, value, rule)}
+            />
+          </div>
           <NumberInput
             id={id}
             value={value}
@@ -2149,7 +2263,13 @@ export default function SimulationPage() {
       const rule = numericRule(section, key);
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>{humanize(key)}</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{fieldLabelFor(key)}</Label>
+            <FieldHelpButton
+              label={fieldLabelFor(key)}
+              onClick={() => openFieldHelp(section, key, value, rule)}
+            />
+          </div>
           <NumberInput
             key={
               section === "meta" && key === "horizon_months"
@@ -2175,8 +2295,12 @@ export default function SimulationPage() {
             onCheckedChange={(checked) => updateField(section, key, checked === true)}
           />
           <Label htmlFor={id} className="font-normal">
-            {humanize(key)}
+            {fieldLabelFor(key)}
           </Label>
+          <FieldHelpButton
+            label={fieldLabelFor(key)}
+            onClick={() => openFieldHelp(section, key, value)}
+          />
         </div>
       );
     }
@@ -2188,7 +2312,13 @@ export default function SimulationPage() {
       const errorId = `${id}-error`;
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>{humanize(key)}</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{fieldLabelFor(key)}</Label>
+            <FieldHelpButton
+              label={fieldLabelFor(key)}
+              onClick={() => openFieldHelp(section, key, value)}
+            />
+          </div>
           <Input
             id={id}
             type={isMonth ? "month" : "text"}
@@ -2211,9 +2341,15 @@ export default function SimulationPage() {
       const rule = numberArrayRule(section, key, horizonMonths);
       return (
         <div key={id} className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-          <Label htmlFor={id}>
-            {humanize(key)} ({rule.itemLabel}, comma-separated)
-          </Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>
+              {fieldLabelFor(key)} ({rule.itemLabel}, comma-separated)
+            </Label>
+            <FieldHelpButton
+              label={fieldLabelFor(key)}
+              onClick={() => openFieldHelp(section, key, value, rule)}
+            />
+          </div>
           <NumberArrayInput
             id={id}
             value={value as number[]}
@@ -2226,12 +2362,19 @@ export default function SimulationPage() {
     }
     if (value && typeof value === "object") {
       // Nested parameter object (e.g. risk.meat_price = {enabled, low, high}).
+      const parentLabel = fieldLabelFor(key);
       return (
         <div
           key={id}
           className="space-y-2 rounded-lg border p-3 sm:col-span-2 lg:col-span-3"
         >
-          <p className="text-sm font-medium">{humanize(key)}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-medium">{parentLabel}</p>
+            <FieldHelpButton
+              label={parentLabel}
+              onClick={() => openFieldHelp(section, key, value)}
+            />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Object.entries(value as SectionValues).map(([subKey, subValue]) =>
               renderNestedField(section, key, subKey, subValue),
@@ -2245,6 +2388,7 @@ export default function SimulationPage() {
 
   function renderNestedField(section: string, key: string, subKey: string, value: unknown) {
     const id = `sim-${section}-${key}-${subKey}`;
+    const subLabel = humanize(subKey);
     if (typeof value === "number") {
       const rule: NumericRule =
         section === "risk" && (subKey === "low" || subKey === "high")
@@ -2252,7 +2396,13 @@ export default function SimulationPage() {
           : numericRule(section, subKey);
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>{humanize(subKey)}</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{subLabel}</Label>
+            <FieldHelpButton
+              label={subLabel}
+              onClick={() => openFieldHelp(section, key, value, rule, undefined, subKey)}
+            />
+          </div>
           <NumberInput
             id={id}
             value={value}
@@ -2275,15 +2425,25 @@ export default function SimulationPage() {
             }
           />
           <Label htmlFor={id} className="font-normal">
-            {humanize(subKey)}
+            {subLabel}
           </Label>
+          <FieldHelpButton
+            label={subLabel}
+            onClick={() => openFieldHelp(section, key, value, undefined, undefined, subKey)}
+          />
         </div>
       );
     }
     if (typeof value === "string") {
       return (
         <div key={id} className="space-y-1.5">
-          <Label htmlFor={id}>{humanize(subKey)}</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor={id}>{subLabel}</Label>
+            <FieldHelpButton
+              label={subLabel}
+              onClick={() => openFieldHelp(section, key, value, undefined, undefined, subKey)}
+            />
+          </div>
           <Input
             id={id}
             type="text"
@@ -2587,14 +2747,24 @@ export default function SimulationPage() {
 
         <DataTableCard
           title="Annual P&amp;L"
-          description="Accrual profit, tax, debt service and project cash flow by year."
+          description="Accrual profit, tax, debt service and project cash flow by year. Revenue splits into meat (young-stock sold at live weight), cull (spent-animal disposals), milk and manure."
         >
           <div className="overflow-x-auto">
-            <Table className="min-w-[1400px]">
+            <Table className="min-w-[1700px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Year</TableHead>
                   <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead className="text-right" title="Young-stock meat sales (surplus males and females sold at live weight)">
+                    Meat ₹
+                  </TableHead>
+                  <TableHead className="text-right" title="Cull animal disposals (spent females, rotated males, repeat breeders)">
+                    Cull ₹
+                  </TableHead>
+                  <TableHead className="text-right">Milk ₹</TableHead>
+                  <TableHead className="text-right" title="Manure/dung income">
+                    Manure ₹
+                  </TableHead>
                   <TableHead className="text-right">Opex</TableHead>
                   <TableHead className="text-right">EBITDA</TableHead>
                   <TableHead className="text-right">Depreciation</TableHead>
@@ -2613,6 +2783,10 @@ export default function SimulationPage() {
                     <TableCell>{row.year}</TableCell>
                     {[
                       row.total_revenue,
+                      row.meat_revenue,
+                      row.cull_revenue,
+                      row.milk_revenue,
+                      row.manure_revenue,
                       row.total_opex,
                       row.ebitda,
                       row.depreciation,
@@ -2644,7 +2818,7 @@ export default function SimulationPage() {
           description={`Herd and cash-flow detail over ${r.months.length} months.`}
         >
           <div className="max-h-96 overflow-auto rounded-lg border">
-            <Table className="min-w-[1100px]">
+            <Table className="min-w-[1400px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Month</TableHead>
@@ -2654,6 +2828,9 @@ export default function SimulationPage() {
                   <TableHead>Sales head</TableHead>
                   <TableHead className="text-right">Meat ₹/kg</TableHead>
                   <TableHead className="text-right">Sales revenue</TableHead>
+                  <TableHead className="text-right">Cull head</TableHead>
+                  <TableHead className="text-right">Cull revenue</TableHead>
+                  <TableHead className="text-right">Milk revenue</TableHead>
                   <TableHead className="text-right">Purchased green kg</TableHead>
                   <TableHead className="text-right">Feed cost</TableHead>
                   <TableHead className="text-right">Selling cost</TableHead>
@@ -2687,6 +2864,15 @@ export default function SimulationPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatMoney(row.sales_revenue)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatHead(row.culls_head)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.cull_revenue)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(row.milk_revenue)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatHead(row.feed_purchased_green_kg)}
@@ -3328,8 +3514,18 @@ export default function SimulationPage() {
                 open={section === "meta" || section === "herd"}
                 className="rounded-lg border"
               >
-                <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium hover:bg-muted/50">
+                <summary className="flex cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm font-medium hover:bg-muted/50">
                   {humanize(section)}
+                  <FieldHelpButton
+                    label={humanize(section)}
+                    onClick={() =>
+                      setFieldExplain({
+                        label: `${humanize(section)} assumptions`,
+                        body: SIMULATION_SECTION_HELP[section]?.(simVocabulary) ?? null,
+                        facts: [],
+                      })
+                    }
+                  />
                 </summary>
                 <div className="grid gap-3 border-t px-4 py-3 sm:grid-cols-2 lg:grid-cols-3">
                   {Object.entries(values).map(([key, value]) =>
@@ -4380,6 +4576,43 @@ export default function SimulationPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+      {/* The "?" explanation dialog: one assumption term, its meaning, and the
+          unit/allowed range/current value the editor derives for it. */}
+      <Dialog
+        open={fieldExplain !== null}
+        onOpenChange={(open) => {
+          if (!open) setFieldExplain(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{fieldExplain?.label}</DialogTitle>
+          </DialogHeader>
+          {fieldExplain && (
+            <div className="space-y-4">
+              {fieldExplain.body ? (
+                <p className="text-sm text-muted-foreground">{fieldExplain.body}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No written explanation for this field yet — the unit, allowed
+                  values and current value are listed below.
+                </p>
+              )}
+              {fieldExplain.facts.length > 0 && (
+                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+                  {fieldExplain.facts.map((fact) => (
+                    <div key={fact.term} className="contents">
+                      <dt className="text-muted-foreground">{fact.term}</dt>
+                      <dd>{fact.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

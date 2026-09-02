@@ -359,18 +359,18 @@ describe("SimulationPage monthly projection sign boundaries", () => {
     const [, breakEven, surplus, deficit] = within(projection).getAllByRole("row");
 
     // Net cash flow, cash balance and cumulative cash flow, in that order.
-    for (const index of [13, 14, 15]) {
+    for (const index of [16, 17, 18]) {
       expect(cells(breakEven)[index]).toHaveTextContent("₹0");
       expect(cells(breakEven)[index]).not.toHaveClass("text-destructive");
       expect(cells(surplus)[index]).not.toHaveClass("text-destructive");
       expect(cells(deficit)[index]).toHaveClass("text-destructive");
     }
-    expect(cells(surplus)[13]).toHaveTextContent("₹9,000");
-    expect(cells(surplus)[14]).toHaveTextContent("₹9,000");
-    expect(cells(surplus)[15]).toHaveTextContent("₹9,000");
-    expect(cells(deficit)[13]).toHaveTextContent("-₹4,000");
-    expect(cells(deficit)[14]).toHaveTextContent("-₹1,500");
-    expect(cells(deficit)[15]).toHaveTextContent("-₹2,000");
+    expect(cells(surplus)[16]).toHaveTextContent("₹9,000");
+    expect(cells(surplus)[17]).toHaveTextContent("₹9,000");
+    expect(cells(surplus)[18]).toHaveTextContent("₹9,000");
+    expect(cells(deficit)[16]).toHaveTextContent("-₹4,000");
+    expect(cells(deficit)[17]).toHaveTextContent("-₹1,500");
+    expect(cells(deficit)[18]).toHaveTextContent("-₹2,000");
   });
 
   // An empty event list is not an event: a month that reports `[]` has to read
@@ -382,11 +382,11 @@ describe("SimulationPage monthly projection sign boundaries", () => {
       cardOf("Monthly projection"),
     ).getAllByRole("row");
 
-    expect(cells(breakEven)[17]).toHaveTextContent("—");
+    expect(cells(breakEven)[20]).toHaveTextContent("—");
     expect(breakEven).not.toHaveClass("bg-warning-tint/50");
-    expect(cells(surplus)[17]).toHaveTextContent("—");
+    expect(cells(surplus)[20]).toHaveTextContent("—");
     expect(surplus).not.toHaveClass("bg-warning-tint/50");
-    expect(cells(deficit)[17]).toHaveTextContent(
+    expect(cells(deficit)[20]).toHaveTextContent(
       "Drought: green fodder yield down 40%",
     );
     expect(deficit).toHaveClass("bg-warning-tint/50");

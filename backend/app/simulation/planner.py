@@ -39,6 +39,7 @@ from .assumptions import (
 from .engine import _run_core, monthly_mortality_rate
 from .montecarlo import _apply_draws, _correlated_draws, _event_shock_path
 from .results import EventFill
+from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 # Same vocabulary as HerdEventAssumptions.animal_class.
 PlanAnimalClass = Literal[
@@ -387,6 +388,7 @@ def close_gaps(
     targets: list[SaleTarget],
     *,
     max_iterations: int = 8,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> tuple[list[HerdEventAssumptions], PlanEvaluation, bool, list[str]]:
     """Iteratively add doe purchases until every young-stock target fills.
 
@@ -402,21 +404,22 @@ def close_gaps(
     for target, fill in zip(targets, evaluation.targets, strict=True):
         if fill.met:
             continue
-        label = target.animal_class.replace("_", " ")
+        label = nouns.event_label(target.animal_class)
         if target.animal_class in _PURCHASE_BACKED_CLASSES:
             notes.append(
-                f"Month {target.month}: selling {target.count:g} {label}(s) "
+                f"Month {target.month}: selling {target.count:g} {label} "
                 f"exceeds the projected pool by {fill.shortfall:.1f} head."
             )
         else:
             # Policy exclusion, not a biology limit: say so, and do not let
             # the generic "move it later" advice fire for a cause it cannot fix.
             notes.append(
-                f"Month {target.month}: selling {target.count:g} {label}(s) exceeds the "
+                f"Month {target.month}: selling {target.count:g} {label} exceeds the "
                 f"projected pool by {fill.shortfall:.1f} head. The planner never buys "
-                "breeding stock to fuel cull sales — a doe bought for her lifetime of "
-                "kids is worth far more than her meat. Sell fewer, or grow the pool by "
-                "retaining more young stock in earlier months."
+                f"breeding stock to fuel cull sales — a {nouns.female} bought for her "
+                f"lifetime of {nouns.young_plural} is worth far more than her meat. "
+                "Sell fewer, or grow the pool by retaining more young stock in "
+                "earlier months."
             )
 
     def _class_entry_age(animal_class: str) -> int:
@@ -460,8 +463,8 @@ def close_gaps(
                 earliest = _earliest_supply_month(target.animal_class)
                 notes.append(
                     f"Month {target.month}: impossible to supply with fresh purchases — "
-                    f"the earliest month a doe bought at month 1 puts "
-                    f"{target.animal_class.replace('_', ' ')} in the sale pool is month "
+                    f"the earliest month a {nouns.female} bought at month 1 puts "
+                    f"{nouns.event_label(target.animal_class)} in the sale pool is month "
                     f"{earliest}. Move the sale to at least that month or source the "
                     "animals as young stock."
                 )
@@ -571,6 +574,7 @@ def build_plan_report(
     *,
     close_gaps_enabled: bool = True,
     risk_runs: int = 0,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> PlanReport:
     """Full planner pass: evaluate, close gaps, then risk-score the closed plan."""
     assumptions = SimulationAssumptions.model_validate(assumptions.model_dump())
@@ -581,12 +585,14 @@ def build_plan_report(
     notes: list[str] = []
 
     if close_gaps_enabled and not before.all_met:
-        purchases, after, gaps_closed, gap_notes = close_gaps(assumptions, targets)
+        purchases, after, gaps_closed, gap_notes = close_gaps(
+            assumptions, targets, nouns=nouns
+        )
         notes.extend(gap_notes)
         if not gaps_closed:
             notes.append(
                 "Gap closing stopped with a shortfall remaining: the biology "
-                "(litter size, mortality, kidding interval) cannot reliably "
+                f"(litter size, mortality, {nouns.parturition} interval) cannot reliably "
                 "produce these targets even with early purchases. Reduce the "
                 "targets or move them later."
             )

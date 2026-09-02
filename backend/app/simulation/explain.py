@@ -8,6 +8,7 @@ No AI and no external calls — the same run always yields the same text.
 
 from .assumptions import SimulationAssumptions
 from .results import MetricExplanation, ReportSection, SensitivityItem, SimulationResult
+from .vocabulary import GOAT_NOUNS, SpeciesNouns
 
 
 def _inr(value: float) -> str:
@@ -53,6 +54,16 @@ def _year_of(month: int) -> str:
     return f"month {month} (year {(month - 1) // 12 + 1})"
 
 
+def _female_counted(count: float, nouns: SpeciesNouns) -> str:
+    """Female noun for a known head count: plural unless exactly one."""
+    return nouns.female if count == 1 else nouns.female_plural
+
+
+def _male_counted(count: float, nouns: SpeciesNouns) -> str:
+    """Male noun for a known head count: plural unless exactly one."""
+    return nouns.male if count == 1 else nouns.male_plural
+
+
 def _outstanding_at_horizon(a: SimulationAssumptions, result: SimulationResult) -> float:
     """Loan balance the engine force-repays in the final simulated month."""
     horizon = a.meta.horizon_months
@@ -78,6 +89,7 @@ def build_metric_explanations(
     result: SimulationResult,
     *,
     break_even_computed: bool = True,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> list[MetricExplanation]:
     """One explanation per viability metric, in display order.
 
@@ -580,9 +592,15 @@ def _festival_figures(assumptions: SimulationAssumptions) -> dict[str, float | s
 
 
 def build_narrative_report(
-    a: SimulationAssumptions, result: SimulationResult
+    a: SimulationAssumptions,
+    result: SimulationResult,
+    *,
+    nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> list[ReportSection]:
-    """The full 'what this means for your farm' report, in display order."""
+    """The full 'what this means for your farm' report, in display order.
+
+    ``nouns`` carries the farm's species vocabulary so a buffalo dairy report
+    reads "milking buffalo" and "calves", never goat nouns."""
     m = result.metrics
     months = result.months
     horizon = a.meta.horizon_months
@@ -611,11 +629,12 @@ def build_narrative_report(
             title="Overview",
             paragraphs=[
                 f"This projection runs {horizon} months ({years:g} years) from "
-                f"{a.meta.start_year_month}. You start with {a.herd.does} does and "
-                f"{a.herd.bucks} bucks"
+                f"{a.meta.start_year_month}. You start with {a.herd.does} "
+                f"{_female_counted(a.herd.does, nouns)} and {a.herd.bucks} "
+                f"{_male_counted(a.herd.bucks, nouns)}"
                 + (
                     f" plus "
-                    f"{a.herd.female_kids + a.herd.male_kids:g} kids, "
+                    f"{a.herd.female_kids + a.herd.male_kids:g} {nouns.young_plural}, "
                     f"{a.herd.female_weaners + a.herd.male_weaners:g} weaners and "
                     f"{a.herd.female_growers + a.herd.male_growers:g} growers"
                     if (
@@ -662,9 +681,10 @@ def build_narrative_report(
             paragraphs=[
                 f"The herd grows from {start.total_herd:.0f} head in month 1 to a peak of "
                 f"{peak.total_herd:.0f} in {_year_of(peak.month)}, ending at "
-                f"{end.total_herd:.0f} head ({end_does:.0f} breeding does and "
-                f"{end.bucks:.0f} bucks).",
-                f"Over the {years:g} years the farm produces {total_births:.0f} kids, loses "
+                f"{end.total_herd:.0f} head ({end_does:.0f} breeding {nouns.female_plural} "
+                f"and {end.bucks:.0f} {nouns.male_plural}).",
+                f"Over the {years:g} years the farm produces {total_births:.0f} "
+                f"{nouns.young_plural}, loses "
                 f"{total_deaths:.0f} animals to mortality, sells {total_sold:.0f} for meat "
                 f"and disposes of {total_culled:.0f} as culls.",
             ],
@@ -940,9 +960,11 @@ def build_narrative_report(
             recommended = optimization.recommended
             recommendation_paragraphs = [
                 f"Under the {optimization.objective} objective, the highest-ranked feasible "
-                f"plan starts with {recommended.starting_does} does and "
-                f"{recommended.starting_bucks} bucks, targets "
-                f"{recommended.max_breeding_does} breeding does, sells at "
+                f"plan starts with {recommended.starting_does} "
+                f"{_female_counted(recommended.starting_does, nouns)} and "
+                f"{recommended.starting_bucks} "
+                f"{_male_counted(recommended.starting_bucks, nouns)}, targets "
+                f"{recommended.max_breeding_does} breeding {nouns.female_plural}, sells at "
                 f"{recommended.sale_age_months} months, retains "
                 f"{_pct(recommended.female_retention_fraction)} of eligible females and uses "
                 f"{_pct(recommended.loan_fraction)} debt. Its NPV is {_inr(recommended.npv)} "

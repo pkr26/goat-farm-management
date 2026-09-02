@@ -532,18 +532,18 @@ describe("SimulationPage break-even cash rows", () => {
     const [quiet, deficit] = rowsOf("Monthly projection");
     const quietCells = within(quiet).getAllByRole("cell");
     expect(quiet).not.toHaveClass("bg-warning-tint/50");
-    expect(quietCells[17]).toHaveTextContent("—");
-    for (const index of [13, 14]) {
+    expect(quietCells[20]).toHaveTextContent("—");
+    for (const index of [16, 17]) {
       expect(quietCells[index]).toHaveTextContent("₹0");
       expect(quietCells[index]).not.toHaveClass("text-destructive");
     }
 
     const deficitCells = within(deficit).getAllByRole("cell");
     expect(deficit).toHaveClass("bg-warning-tint/50");
-    expect(deficitCells[17]).toHaveTextContent(
+    expect(deficitCells[20]).toHaveTextContent(
       "Purchased 5 doe(s) at ₹8,000/head (₹40,000)",
     );
-    for (const index of [13, 14]) {
+    for (const index of [16, 17]) {
       expect(deficitCells[index]).toHaveTextContent("-₹1");
       expect(deficitCells[index]).toHaveClass("text-destructive");
     }
