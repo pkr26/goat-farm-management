@@ -57,12 +57,14 @@ describe("farm vocabulary", () => {
       pregnancyCheckDays: 32,
       weaningDays: 60,
       youngStayWithDam: true,
+      maxLitterSize: 4,
     });
     expect(buffalo.facts).toEqual({
       gestationWindowDays: { min: 270, max: 350 },
       pregnancyCheckDays: 60,
       weaningDays: 90,
       youngStayWithDam: false,
+      maxLitterSize: 2,
     });
     // The tag generator issues "G-XXXXX" for every species
     // (services/animals.generate_unique_tag) — the prefix must never
@@ -71,6 +73,24 @@ describe("farm vocabulary", () => {
     expect(buffalo.tagPrefix).toBe("G");
     expect(goat.femaleAdultPlural).toBe("does");
     expect(buffalo.femaleAdultPlural).toBe("milking buffalo");
+  });
+
+  it("pins the breeding-entry gates to the backend species floors", async () => {
+    const { farmVocabulary } = await import("@/lib/farm-vocabulary");
+    const goat = farmVocabulary("GOAT");
+    const buffalo = farmVocabulary("BUFFALO_DAIRY");
+    // GOAT_PROFILE / BUFFALO_DAIRY_PROFILE min_breeding_* — the client gate
+    // may not be looser than the server's, or a valid-looking import is
+    // bounced after the operator has filled the form.
+    expect(goat.breedingEntry).toEqual({
+      female: { minMonths: 10, minWeightKg: 22 },
+      male: { minMonths: 12, minWeightKg: 25 },
+    });
+    expect(buffalo.breedingEntry).toEqual({
+      female: { minMonths: 24, minWeightKg: 340 },
+      male: { minMonths: 24, minWeightKg: 350 },
+    });
+    expect(buffalo.breedingGateCopy).toContain("24 months");
   });
 });
 

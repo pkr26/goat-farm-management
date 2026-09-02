@@ -22,6 +22,7 @@ from ..schemas.breeding import (
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..services import (
+    LitterSizeError,
     breeding_candidate_counts,
     breeding_candidate_page,
     breeding_weights_as_of,
@@ -379,6 +380,11 @@ async def submit_ultrasound(
             result_date=result_date,
             created_by_id=user.id,
         )
+    except LitterSizeError as exc:
+        # Detected fetuses above the farm species' biological cap is an input
+        # error (422), not a raced lifecycle state — same mapping as kidding.
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from None
     except ValueError as exc:
         # Defence in depth: change_status now closes a departing doe's PENDING
         # service as UNASSESSED (caught above), so the service's own ACTIVE

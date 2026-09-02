@@ -681,7 +681,9 @@ async def test_direct_sql_rejects_invalid_domain_values_and_states(
             ("ck_breeding_records_expected_date",),
         ),
         InvalidMutation(
-            "UPDATE breeding_records SET kid_count_detected = 4 WHERE id = :id",
+            # 4 is a legal goat quadruplet scan (cross-species max); the DB
+            # CHECK only rejects past the widened ceiling.
+            "UPDATE breeding_records SET kid_count_detected = 5 WHERE id = :id",
             {"id": ids["breeding"]},
             ("ck_breeding_records_kid_count",),
         ),

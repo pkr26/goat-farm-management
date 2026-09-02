@@ -50,8 +50,11 @@ class UltrasoundIn(StrictInputModel):
     # supplied, chronology is enforced against the breeding date; a positive
     # result additionally cannot predate the planned check date.
     date: PastOrTodayDate | None = None
-    # SPEC §BreedingRecord: kid_count_detected is 1/2/3 nullable (SINGLE/TWIN/TRIPLET).
-    kid_count: Annotated[StrictInt, Field(ge=1, le=3)] | None = None
+    # SPEC §BreedingRecord: kid_count_detected is 1/2/3 nullable (SINGLE/TWIN/
+    # TRIPLET). The bound is the cross-species max (goat litters reach 4); the
+    # per-species cap (4 goat / 2 buffalo) is enforced against the farm's
+    # SpeciesProfile by record_ultrasound_result.
+    kid_count: Annotated[StrictInt, Field(ge=1, le=4)] | None = None
 
     @model_validator(mode="after")
     def _kid_count_requires_pregnancy(self) -> "UltrasoundIn":

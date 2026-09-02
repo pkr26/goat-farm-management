@@ -1076,7 +1076,12 @@ export default function SimulationPage() {
   ].every((permission) => can(permission));
   const queryClient = useQueryClient();
 
-  const [breed, setBreed] = useState(DEFAULT_BREED);
+  // The farm's own species preset is the editor's starting economics — a
+  // buffalo dairy must not open on Osmanabadi goat numbers. While the auth
+  // farm list is still hydrating this resolves to the GOAT fallback; the
+  // species-sync effect below corrects the editor once the type is known.
+  const defaultBreed = useFarmType() === "BUFFALO_DAIRY" ? "murrah_dairy" : "osmanabadi";
+  const [breed, setBreed] = useState(defaultBreed);
   const [system, setSystem] = useState<BreedDefaultsApiSimulationDefaultsGetSystem>(
     DEFAULT_SYSTEM,
   );
@@ -1085,7 +1090,7 @@ export default function SimulationPage() {
     breed: string;
     system: BreedDefaultsApiSimulationDefaultsGetSystem;
   }>({
-    breed: DEFAULT_BREED,
+    breed: defaultBreed,
     system: DEFAULT_SYSTEM,
   });
   const [assumptions, setAssumptions] = useState<SimulationAssumptions | null>(null);
@@ -1226,6 +1231,29 @@ export default function SimulationPage() {
       setEditorVersion((version) => version + 1);
     }
   }, [defaultsQuery.data]);
+
+  // Species-sync: useFarmType() resolves to GOAT while the farm list is still
+  // hydrating, so a dairy's first defaults load may have fired for the goat
+  // preset. Once the real farm type is known, move an UNTOUCHED editor (no
+  // scenario loaded, no calibration, breed never changed by hand) onto the
+  // farm species' own preset — mirroring the "Load defaults" button's
+  // intent-claim so a racing loader cannot overwrite the correction.
+  useEffect(() => {
+    const untouched =
+      (submittedParams.breed === DEFAULT_BREED || submittedParams.breed === "murrah_dairy") &&
+      breed === submittedParams.breed &&
+      loadedScenario === null &&
+      calibration === null;
+    if (untouched && submittedParams.breed !== defaultBreed) {
+      editorEpochRef.current += 1;
+      acceptDefaultsRef.current = true;
+      // External-resource → state sync (auth farm list → editor preset), the
+      // same pattern the URL/teardown effects in this app disable the rule for.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBreed(defaultBreed);
+      setSubmittedParams((params) => ({ ...params, breed: defaultBreed }));
+    }
+  }, [breed, defaultBreed, submittedParams.breed, loadedScenario, calibration]);
 
   const snapshotQuery = useHerdSnapshotApiSimulationHerdSnapshotGet(
     // The snapshot buckets females by the breed's age-at-first-breeding, so
@@ -1400,6 +1428,12 @@ export default function SimulationPage() {
     (assumptions?.sales?.lactation_milk_litres ?? 0) > 0 &&
     (assumptions?.reproduction?.lactation_months ?? 0) > 0;
   const simVocabulary = farmVocabulary(useFarmType());
+  // Sale-planner lead time from the scenario's own biology (goat defaults:
+  // 9 mo finish + 5 mo gestation). Hardcoding the goat offsets under a
+  // species-interpolated noun quoted goat gestation for buffalo meat plans.
+  const saleConceivedMonthsAgo =
+    (assumptions?.growth?.sale_age_months ?? 9) + (assumptions?.reproduction?.gestation_months ?? 5);
+  const saleBornMonthsAgo = assumptions?.growth?.sale_age_months ?? 9;
   const eventErrors = validateEvents(events, horizonMonths);
   const assumptionErrors: string[] = [];
   if (assumptions) {
@@ -3639,7 +3673,7 @@ export default function SimulationPage() {
             description={
               isDairyScenario
                 ? "Plan 12–24 months ahead. The sale planner is primarily a meat-herd tool — on a dairy it fits cull and surplus-animal sales, while milk income follows the lactation curve."
-                : `Plan 12–24 months ahead: a ${simVocabulary.species} sold in month T was born around T−10 and conceived around T−15.`
+                : `Plan 12–24 months ahead: a ${simVocabulary.species} sold in month T was born around T−${saleBornMonthsAgo} and conceived around T−${saleConceivedMonthsAgo}.`
             }
           />
         ) : (

@@ -11,6 +11,8 @@ import {
   type RemotePickerOption,
   type RemotePickerPage,
 } from "@/components/remote-picker";
+import { farmVocabulary } from "@/lib/farm-vocabulary";
+import { useFarmType } from "@/hooks/use-farm-type";
 
 interface BreedingCandidatePickerProps {
   id: string;
@@ -58,6 +60,10 @@ export function BreedingCandidatePicker({
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
 }: BreedingCandidatePickerProps) {
+  // Species nouns — a dairy operator must not read "does"/"bucks".
+  const vocabulary = farmVocabulary(useFarmType());
+  const kindNoun =
+    kind === "doe" ? vocabulary.femaleAdultPlural : `${vocabulary.maleAdult}s`;
   async function loadPage({
     query,
     offset,
@@ -89,7 +95,7 @@ export function BreedingCandidatePicker({
       searchLabel="Search breeding candidates"
       searchPlaceholder="Search tag or name…"
       searchMaxLength={60}
-      emptyMessage={`No eligible ${kind === "doe" ? "does" : "bucks"} match this search.`}
+      emptyMessage={`No eligible ${kindNoun} match this search.`}
       noEligibleYetMessage="No listed eligible animals in the records checked yet. Load more to continue."
       sourcePath="/api/breeding/candidates"
       cacheKey={["breeding-candidate-picker", kind]}

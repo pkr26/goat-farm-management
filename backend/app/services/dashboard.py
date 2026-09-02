@@ -105,6 +105,18 @@ async def ready_to_move_suggestions(
         .correlate(Animal)
         .scalar_subquery()
     )
+    # Latest recorded calving/kidding per female — the dairy RESTING→BREEDING
+    # suggestion must respect the same voluntary waiting period the breeding
+    # write path enforces (first AI ~60 days post-calving for buffalo).
+    latest_calving = (
+        select(func.max(KiddingRecord.date))
+        .where(
+            KiddingRecord.farm_id == farm.id,
+            KiddingRecord.doe_id == Animal.id,
+        )
+        .correlate(Animal)
+        .scalar_subquery()
+    )
     active_withdrawal = (
         select(HealthEvent.id)
         .where(
@@ -130,6 +142,7 @@ async def ready_to_move_suggestions(
             func.coalesce(latest_weight_as_of, birth_weight_as_of).label("latest_weight_as_of"),
             latest_move.label("latest_effective_date"),
             latest_open_pregnancy.label("open_pregnancy_date"),
+            latest_calving.label("latest_calving_date"),
             active_withdrawal.label("has_active_withdrawal"),
         )
         .where(Animal.farm_id == farm.id, Animal.status == AnimalStatus.ACTIVE.value)
@@ -139,18 +152,16 @@ async def ready_to_move_suggestions(
     # Species-aware thresholds: every write path resolves biology through
     # species_profile(farm.farm_type); the suggestion widget must not quote
     # goat numbers on a buffalo dairy (10 mo/22 kg breeding, 8 mo/24 kg sale,
-    # gestation day 100/135). Gestation stage gates scale from the species'
-    # gestation length (2/3 for EARLY→LATE). The due window mirrors the
-    # authoritative delivery-move duty exactly — goats move to the kidding
-    # pen ~2 weeks out (150−15=135), buffalo ride the dry-off point ~60 days
-    # before calving (310−60=250) — never a generic 90% ratio, which on a
-    # dairy would suggest the dry-group move 29 days AFTER dry therapy starts.
+    # gestation day 100/135). The EARLY→LATE and delivery-move gates mirror
+    # the species profile — goats move to the kidding pen ~2 weeks out
+    # (150−15=135), buffalo ride the dry-off point ~60 days before calving
+    # (310−60=250) — and the seeded bucket definitions (goat "day 100",
+    # dairy "month 5") own the EARLY→LATE boundary.
     profile = species_profile(farm.farm_type)
     age_cutoff = add_months(reference_date, -profile.min_breeding_age_months)
     breeding_weight = profile.min_breeding_weight_kg
-    pregnancy_late_day = round(profile.gestation_days * 2 / 3)
-    delivery_move_lead_days = 15 if profile.young_stay_with_dam else 60
-    due_window_day = profile.gestation_days - delivery_move_lead_days
+    pregnancy_late_day = profile.pregnancy_late_day
+    due_window_day = profile.gestation_days - profile.prepartum_move_lead_days
     created_local_date = cast(
         func.timezone(
             farm.timezone,
@@ -162,6 +173,26 @@ async def ready_to_move_suggestions(
         context.c.latest_effective_date,
         created_local_date,
     )
+    # RESTING→BREEDING readiness. Goat: the ~30-day dry-off + flush program.
+    # Dairy: RESTING is the post-fresh transition, and the write path refuses
+    # a service inside the species' voluntary waiting period after calving —
+    # the suggestion must not fire before that same boundary (first AI at
+    # ~60 days post-calving). A buffalo with no recorded calving (purchased
+    # dry animal) falls back to the same 30-day settling floor.
+    if profile.young_stay_with_dam:
+        resting_ready = bucket_started_local_date <= reference_date - timedelta(days=30)
+    else:
+        resting_ready = or_(
+            and_(
+                context.c.latest_calving_date.is_not(None),
+                context.c.latest_calving_date
+                <= reference_date - timedelta(days=profile.voluntary_waiting_days),
+            ),
+            and_(
+                context.c.latest_calving_date.is_(None),
+                bucket_started_local_date <= reference_date - timedelta(days=30),
+            ),
+        )
     breeding_rules = [
         and_(
             context.c.sex == "F",
@@ -174,7 +205,7 @@ async def ready_to_move_suggestions(
         and_(
             context.c.sex == "F",
             context.c.current_bucket == Bucket.RESTING.value,
-            bucket_started_local_date <= reference_date - timedelta(days=30),
+            resting_ready,
             context.c.effective_dob.is_not(None),
             context.c.effective_dob <= age_cutoff,
             context.c.latest_weight_as_of >= breeding_weight,
@@ -243,7 +274,16 @@ async def ready_to_move_suggestions(
                 0,
             )
             target = Bucket.BREEDING.value
-            reason = f"{bucket_days} days resting (flush done)"
+            if profile.young_stay_with_dam:
+                reason = f"{bucket_days} days resting (flush done)"
+            elif row.latest_calving_date is not None:
+                calved_days = (reference_date - row.latest_calving_date).days
+                reason = (
+                    f"{calved_days} days post-calving "
+                    f"(first AI due ~day {profile.voluntary_waiting_days})"
+                )
+            else:
+                reason = f"{bucket_days} days settling (no calving on record)"
         elif bucket == Bucket.PREGNANCY_EARLY.value:
             gestation_day = (reference_date - row.open_pregnancy_date).days
             target = Bucket.PREGNANCY_LATE.value

@@ -36,6 +36,7 @@ from ._common import (
 )
 from .animals import move_animal
 from .health import PRE_CALVING_THERAPY_TITLE, PRE_KIDDING_VACCINE_TITLE
+from .kidding import LitterSizeError
 
 BreedingCandidateKind = Literal["doe", "buck"]
 
@@ -581,6 +582,14 @@ async def record_ultrasound_result(
             "A not-pregnant result cannot be recorded after the maximum "
             f"{max_gestation}-day gestation window"
         )
+    if pregnant and kid_count is not None and kid_count > profile.max_litter_size:
+        # Species cap on detected fetuses, mirroring record_kidding's cap on
+        # the delivered litter: a goat scan may report up to 4, a buffalo
+        # scan up to 2. The schema bound only carries the cross-species max.
+        raise LitterSizeError(
+            f"A {profile.farm_type.lower()} pregnancy cannot carry more than "
+            f"{profile.max_litter_size} {profile.young_plural} (detected {kid_count})"
+        )
     if not pregnant:
         # The negative path deliberately accepts results well before the
         # planned +32-day scan (see the ultrasound_date block below), but
@@ -652,16 +661,17 @@ async def record_ultrasound_result(
             allow_restricted_reclassification=True,
         )
         if farm_type != "GOAT":
-            # Buffalo: dry-off ~60 days before calving (dry buffalo therapy)
-            # and the dry-group/calving-pen move at the same point, so the
-            # dam reaches the dry TMR when the therapy starts instead of
-            # three weeks later (README: "dry-off 60 days before calving").
+            # Buffalo: dry-off and the dry-group/calving-pen move share the
+            # species' prepartum lead (~60 days before calving), so the dam
+            # reaches the dry TMR when the therapy starts instead of three
+            # weeks later (README: "dry-off 60 days before calving").
+            dry_off_date = ekd - timedelta(days=profile.prepartum_move_lead_days)
             await _add_task(
                 db,
                 br.farm_id,
                 farm_type,
                 f"{PRE_CALVING_THERAPY_TITLE}: {doe.tag_number}",
-                ekd - timedelta(days=60),
+                dry_off_date,
                 TaskCategory.VACCINE,
                 animal_id=doe.id,
                 breeding_record_id=br.id,
@@ -671,7 +681,7 @@ async def record_ultrasound_result(
                 br.farm_id,
                 farm_type,
                 f"Move {doe.tag_number} to DELIVERY (dry off, calving in ~2 months)",
-                ekd - timedelta(days=60),
+                dry_off_date,
                 TaskCategory.BUCKET_MOVE,
                 animal_id=doe.id,
                 breeding_record_id=br.id,

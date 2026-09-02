@@ -100,7 +100,6 @@ const KID_STATUS_ITEMS: Record<string, string> = Object.fromEntries(
   KID_STATUSES.map((s) => [s, enumLabel("kidStatus", s)]),
 );
 const KID_SEX_ITEMS: Record<string, string> = { F: "Female", M: "Male" };
-const MAX_KIDS = 10;
 const KIDDING_HISTORY_LIMIT = 50;
 const DUE_LIST_LIMIT = 25;
 
@@ -132,7 +131,13 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
       kids: z
         .array(kidSchema)
         .min(1, `At least one ${vocabulary.young}`)
-        .max(MAX_KIDS, `At most ${MAX_KIDS} ${vocabulary.youngPlural}`),
+        // Species litter cap (goat ≤4, buffalo ≤2) mirrors
+        // SpeciesProfile.max_litter_size — LitterSizeError on the server.
+        // The wire schema's own ceiling (10) is looser on purpose.
+        .max(
+          vocabulary.facts.maxLitterSize,
+          `A ${vocabulary.parturition} delivers at most ${vocabulary.facts.maxLitterSize} ${vocabulary.youngPlural} on this farm`,
+        ),
     })
     .superRefine((values, ctx) => {
       // Mirrors services/kidding.py: a died kid needs a mortality date that is on
@@ -234,7 +239,9 @@ function RecordKiddingDialog({
       date: localToday(),
       ease: "NORMAL",
       notes: "",
-      kids: [emptyKid(), emptyKid()], // twins are the norm (v1 parity)
+      // Goat kiddings norm to twins (v1 parity); a buffalo calving is a
+      // single calf unless twins are recorded.
+      kids: vocabulary.dairy ? [emptyKid()] : [emptyKid(), emptyKid()],
     },
   });
   const { fields, append, remove } = useFieldArray({ control, name: "kids" });
@@ -380,7 +387,7 @@ function RecordKiddingDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={fields.length >= MAX_KIDS}
+                disabled={fields.length >= vocabulary.facts.maxLitterSize}
                 onClick={() => append(emptyKid())}
               >
                 <Plus />

@@ -788,10 +788,9 @@ function FeedingPageContent() {
         <p className="mt-3 text-sm text-muted-foreground">
           Shifts: {enumLabel("shift", "MORNING")} 6:30 AM (sweep bunks first) ·{" "}
           {enumLabel("shift", "AFTERNOON")} 1:30 PM · {enumLabel("shift", "NIGHT")} 7:30 PM.{" "}
-          {enumLabel("bucket", "RESTING", farmType)} switches{" "}
-          {enumLabel("bucket", "MAINTENANCE", farmType)} →{" "}
-          {enumLabel("bucket", "FLUSH", farmType)} at day 10;{" "}
-          {enumLabel("bucket", "MALE_KIDS", farmType)} frame-builder → fattening at day 91.
+          {farmType === "BUFFALO_DAIRY"
+            ? `${enumLabel("bucket", "RESTING", farmType)} stays on the post-fresh medium-yield TMR (D_LACTATION_MED) until first AI; calves move calf starter → growing-heifer TMR (D_HEIFER_GROWING) at day 91.`
+            : `${enumLabel("bucket", "RESTING", farmType)} switches ${enumLabel("bucket", "MAINTENANCE", farmType)} → ${enumLabel("bucket", "FLUSH", farmType)} at day 10; ${enumLabel("bucket", "MALE_KIDS", farmType)} frame-builder → fattening at day 91.`}
         </p>
       </DataTableCard>
 

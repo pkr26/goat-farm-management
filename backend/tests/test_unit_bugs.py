@@ -180,7 +180,12 @@ def test_kidding_ease_rejects_caesarean_per_spec() -> None:
 # FIXED — regression test
 # SPEC §BreedingRecord documents kid_count_detected as "1/2/3 nullable"
 # (matching BirthType SINGLE/TWIN/TRIPLET), but UltrasoundIn.kid_count used
-# to allow ge=1, le=5. Now capped at le=3.
-def test_ultrasound_kid_count_capped_at_3_per_spec() -> None:
+# to allow ge=1, le=5. The schema now carries the cross-species maximum
+# (goat litters reach quadruplets, SpeciesProfile.max_litter_size = 4);
+# the per-species cap (4 goat / 2 buffalo) is enforced by
+# record_ultrasound_result — pinned end-to-end in
+# test_dairy.test_ultrasound_kid_count_is_species_capped.
+def test_ultrasound_kid_count_bounded_at_cross_species_max() -> None:
+    UltrasoundIn(pregnant=True, kid_count=4)
     with pytest.raises(ValidationError):
-        UltrasoundIn(pregnant=True, kid_count=4)
+        UltrasoundIn(pregnant=True, kid_count=5)

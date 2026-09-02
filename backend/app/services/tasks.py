@@ -292,7 +292,8 @@ async def _guard_generated_movement_task(
         != breeding.expected_kidding_date
         # Goat: pre-kidding pen move ~2 weeks out. Dairy: the dry-group /
         # calving-pen move rides the dry-off point ~60 days before calving.
-        - timedelta(days=15 if movement_profile.young_stay_with_dam else 60)
+        # Both leads live on the species profile.
+        - timedelta(days=movement_profile.prepartum_move_lead_days)
     ):
         raise ValueError("The delivery movement duty does not match the recorded pregnancy")
     return kidding, kids

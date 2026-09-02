@@ -835,6 +835,10 @@ async def move_bucket(
             context=context,
             reference_date=reference_date,
             facts=transition_facts,
+            # The BREEDING-entry gate inside is species-aware (goat 10 mo/
+            # 22 kg, buffalo 24 mo/340 kg); the GOAT default here would let a
+            # juvenile buffalo heifer into the breeding pool.
+            farm_type=farm.farm_type,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
@@ -880,6 +884,7 @@ async def move_bucket(
         context=context,
         reference_date=reference_date,
         facts=transition_facts,
+        farm_type=farm.farm_type,
     )
     await db.commit()
     return await _animal_out(

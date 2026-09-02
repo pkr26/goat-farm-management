@@ -1,6 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Species nouns come from the session farm type; these prop-capture tests
+// run outside the auth providers, so pin the GOAT vocabulary.
+vi.mock("@/hooks/use-farm-type", () => ({ useFarmType: () => "GOAT" }));
+
 import type { AnimalOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
 import { BreedingCandidatePicker } from "@/components/breeding-candidate-picker";

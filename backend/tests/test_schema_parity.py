@@ -127,11 +127,18 @@ def test_species_policy_profiles_are_coherent() -> None:
     assert goat.failed_services_before_cull == 2
     assert goat.max_litter_size == 4
     assert goat.max_daily_milk_litres == 0.0
+    # SPEC: goat "day 100" EARLY→LATE exit, kidding pen ~2 weeks pre-due.
+    assert goat.pregnancy_late_day == 100
+    assert goat.prepartum_move_lead_days == 15
     assert buffalo.voluntary_waiting_days == 60
     assert buffalo.failed_services_before_cull == 3
     assert buffalo.max_litter_size == 2
     assert buffalo.max_daily_milk_litres == 40.0
     assert buffalo.max_gestation_days == 350  # the widened CHECK ceiling
+    # Dairy: EARLY→LATE at month 5 (5 × 30.44 d); dry-off + dry-group move
+    # ~60 days before calving — both mirroring the seeded bucket definitions.
+    assert buffalo.pregnancy_late_day == 152
+    assert buffalo.prepartum_move_lead_days == 60
 
 
 def test_preset_role_code_catalog_matches_seed_definitions() -> None:

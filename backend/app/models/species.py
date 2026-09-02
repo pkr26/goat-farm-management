@@ -49,6 +49,14 @@ class SpeciesProfile:
     min_sire_breeding_weight_kg: float
     weaning_days: int
     postpartum_recovery_days: int
+    # Gestation day when PREGNANCY_EARLY becomes PREGNANCY_LATE (goat SPEC:
+    # day 100; dairy protocol: month 5 of gestation). Mirrors the seeded
+    # bucket-definition exit rules, which are the operator-facing promise.
+    pregnancy_late_day: int
+    # Days before the expected parturition when the dam moves to DELIVERY.
+    # Goats enter the kidding pen ~2 weeks out; dairy dry-off and the dry-group
+    # move share the ~60-days-before-calving point.
+    prepartum_move_lead_days: int
     # Goat kids stay with the doe (RECOVERY) until weaning; dairy calves are
     # separated within 24h and raised in the calf shed, so the dam's fresh-pen
     # exit never depends on calf survival.
@@ -83,6 +91,8 @@ GOAT_PROFILE = SpeciesProfile(
     min_sire_breeding_weight_kg=25.0,
     weaning_days=60,
     postpartum_recovery_days=14,
+    pregnancy_late_day=100,  # SPEC: "Pregnancy A (day 35-100)" exits at day 100
+    prepartum_move_lead_days=15,  # kidding pen ~2 weeks before due
     young_stay_with_dam=True,
     voluntary_waiting_days=14,
     failed_services_before_cull=2,
@@ -109,6 +119,8 @@ BUFFALO_DAIRY_PROFILE = SpeciesProfile(
     min_sire_breeding_weight_kg=350.0,
     weaning_days=90,
     postpartum_recovery_days=10,
+    pregnancy_late_day=152,  # month 5 of gestation (5 x 30.44 days)
+    prepartum_move_lead_days=60,  # dry-off + dry-group move ~60 days before calving
     young_stay_with_dam=False,
     voluntary_waiting_days=60,
     failed_services_before_cull=3,

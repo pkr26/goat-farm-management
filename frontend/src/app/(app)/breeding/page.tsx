@@ -316,7 +316,11 @@ function NewBreedingDialog({
                   [
                     ["NATURAL", enumLabel("method", "NATURAL"), `Herd ${vocabulary.maleAdult}`],
                     ["AI", enumLabel("method", "AI"), "Conventional semen"],
-                    ["AI_SEXED", enumLabel("method", "AI_SEXED"), "~90% female calves"],
+                    [
+                      "AI_SEXED",
+                      enumLabel("method", "AI_SEXED"),
+                      `~90% female ${vocabulary.youngPlural}`,
+                    ],
                   ] as const
                 ).map(([value, title, hint]) => (
                   <label
@@ -371,16 +375,18 @@ function NewBreedingDialog({
               </div>
             ) : (
               <div className="space-y-1.5">
-                <Label htmlFor="breeding-semen-sire">Semen bull (optional)</Label>
+                <Label htmlFor="breeding-semen-sire">Semen {vocabulary.maleAdult} (optional)</Label>
                 <Input
                   id="breeding-semen-sire"
                   maxLength={120}
-                  placeholder="Bull name / straw code, e.g. Karanvir 999"
+                  placeholder={`${cap(vocabulary.maleAdult)} name / straw code${vocabulary.dairy ? ", e.g. Karanvir 999" : ""}`}
                   aria-describedby="breeding-semen-sire-hint"
                   {...register("semen_sire_name")}
                 />
                 <p id="breeding-semen-sire-hint" className="text-xs text-muted-foreground">
-                  The sire on the straw — verifiable daughters&apos; yield &gt;3,000 kg/lactation.
+                  {vocabulary.dairy
+                    ? "The sire on the straw — verifiable daughters' yield >3,000 kg/lactation."
+                    : `The sire named on the straw used for this ${vocabulary.femaleAdult}.`}
                 </p>
               </div>
             )}
@@ -473,7 +479,13 @@ function UltrasoundDialog({
             negativeResultGapDays < EARLIEST_RETURN_TO_HEAT_DAYS
           ? `A not-pregnant result ${negativeResultGapDays} days after service is not observable — record it on the service day or the day after, or from day ${EARLIEST_RETURN_TO_HEAT_DAYS} (return to heat).`
           : null;
-  const kidCountError = pregnant && !["1", "2", "3"].includes(kidCount)
+  // Species litter cap (goat scans reach 4; buffalo cap at 2) mirrors
+  // backend SpeciesProfile.max_litter_size — the server 422s past the cap.
+  const detectedOptions = Array.from(
+    { length: vocabulary.facts.maxLitterSize },
+    (_, index) => String(index + 1),
+  );
+  const kidCountError = pregnant && !detectedOptions.includes(kidCount)
     ? `Select the detected ${vocabulary.young} count`
     : null;
 
@@ -569,7 +581,9 @@ function UltrasoundDialog({
               onCheckedChange={(checked) => {
                 const selected = checked === true;
                 setPregnant(selected);
-                setKidCount(selected ? "2" : "");
+                // Goat parity norms to twins; a buffalo pregnancy is a single
+                // calf unless twins are detected.
+                setKidCount(selected ? (vocabulary.dairy ? "1" : "2") : "");
               }}
             />
             <Label htmlFor="pregnant">Pregnant — confirmed</Label>
@@ -588,7 +602,7 @@ function UltrasoundDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {["1", "2", "3"].map((n) => (
+                  {detectedOptions.map((n) => (
                     <SelectItem key={n} value={n}>
                       {n}
                     </SelectItem>

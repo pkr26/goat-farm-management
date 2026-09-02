@@ -531,13 +531,14 @@ describe("KiddingPage", () => {
     );
   });
 
-  it("adds kid rows up to 10, then disables the add button", async () => {
+  it("adds kid rows up to the goat litter cap (4), then disables the add button", async () => {
     const { user, dialog } = await openDialog();
     const add = within(dialog).getByRole("button", { name: "Add kid" });
-    for (let i = 0; i < 7; i += 1) await user.click(add);
-    expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(9);
+    // Opens on the twins default; two more rows reach the species cap.
     await user.click(add);
-    expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(10);
+    expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(3);
+    await user.click(add);
+    expect(within(dialog).getAllByPlaceholderText("auto")).toHaveLength(4);
     expect(add).toBeDisabled();
   });
 

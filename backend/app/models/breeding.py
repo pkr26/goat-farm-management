@@ -116,7 +116,10 @@ class BreedingRecord(Base):
             name="ck_breeding_records_expected_date",
         ),
         CheckConstraint(
-            "kid_count_detected IS NULL OR kid_count_detected BETWEEN 1 AND 3",
+            # Cross-species maximum: goat litters reach quadruplets (profile
+            # max_litter_size = 4); the per-species cap (4 goat / 2 buffalo)
+            # is enforced by services.breeding.record_ultrasound_result.
+            "kid_count_detected IS NULL OR kid_count_detected BETWEEN 1 AND 4",
             name="ck_breeding_records_kid_count",
         ),
         # UNASSESSED shares PENDING's shape on purpose: closing an unassessable

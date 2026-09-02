@@ -25,9 +25,9 @@ PRESET_ROLE_PARENT = "c3d4e5f6a7b1"
 PRESET_ROLE_INTEGRITY = "d5e7f9a1b3c4"
 KIDDING_LOCK_ORDER_PARENT = PRESET_ROLE_INTEGRITY
 KIDDING_LOCK_ORDER = "e7f9a1b3c5d8"
-# Autogenerate-drift checks must run at the CURRENT head (species
-# reference-data backfill).
-HEAD = "b5d7f9a1c3e5"
+# Autogenerate-drift checks must run at the CURRENT head (kid-count CHECK
+# widened to the cross-species maximum).
+HEAD = "f9b3c7d1e5a2"
 LEGACY_LOSS_NOTE = "Legacy pregnancy-loss row; original date and cause were not captured."
 ADMIN_URL = "postgresql://localhost:5432/postgres"
 

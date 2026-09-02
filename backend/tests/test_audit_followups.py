@@ -116,7 +116,12 @@ async def test_dairy_weaning_completes_when_dam_rebred_at_vwp(client: httpx.Asyn
     assert rebred.status_code == 201, rebred.text
 
     duties = (await client.get("/api/tasks?limit=200", headers=headers)).json()
-    duty_rows = [*(duties.get("overdue") or []), *(duties.get("upcoming") or [])]
+    # All three tabs: a duty due exactly today is filed under "today".
+    duty_rows = [
+        *(duties.get("today") or []),
+        *(duties.get("overdue") or []),
+        *(duties.get("upcoming") or []),
+    ]
     weaning = next(
         task
         for task in duty_rows

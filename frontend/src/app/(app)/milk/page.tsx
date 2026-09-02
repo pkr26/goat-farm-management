@@ -277,7 +277,7 @@ export default function MilkPage() {
           icon={Droplets}
           label="Average fat"
           value={summaryData?.avg_fat_pct != null ? `${summaryData.avg_fat_pct.toFixed(1)}%` : "—"}
-          hint={`${vocabulary.typeLabel} benchmark 6.5–7.5%`}
+          hint={`${vocabulary.typeLabel} benchmark 6.0–7.5%`}
         />
       </div>
 

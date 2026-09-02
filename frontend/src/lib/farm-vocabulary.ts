@@ -31,6 +31,8 @@ export interface SpeciesFacts {
   /** True when newborn young stay with the dam (RECOVERY) instead of being
    * separated into sexed pens (young_stay_with_dam). */
   youngStayWithDam: boolean;
+  /** Biological cap on litter size (max_litter_size): goat ≤4, buffalo ≤2. */
+  maxLitterSize: number;
 }
 
 export interface FarmVocabulary {
@@ -98,6 +100,7 @@ const GOAT_VOCABULARY: FarmVocabulary = {
     pregnancyCheckDays: 32,
     weaningDays: 60,
     youngStayWithDam: true,
+    maxLitterSize: 4,
   },
 };
 
@@ -115,12 +118,12 @@ const BUFFALO_VOCABULARY: FarmVocabulary = {
   parturitionPast: "calved",
   dueLabel: "Calving due",
   breedingGateCopy:
-    "Heifers are bred at 22–24 months and ≥340 kg (AI at 60 days post-calving; max 3 services before cull review).",
+    "Heifers are bred at 24 months and ≥340 kg (AI at 60 days post-calving; max 3 services before cull review).",
   dairy: true,
   defaultBreed: "Murrah",
   tagPrefix: "G",
   breedingEntry: {
-    female: { minMonths: 22, minWeightKg: 340 },
+    female: { minMonths: 24, minWeightKg: 340 },
     male: { minMonths: 24, minWeightKg: 350 },
   },
   facts: {
@@ -128,6 +131,7 @@ const BUFFALO_VOCABULARY: FarmVocabulary = {
     pregnancyCheckDays: 60,
     weaningDays: 90,
     youngStayWithDam: false,
+    maxLitterSize: 2,
   },
 };
 

@@ -315,7 +315,14 @@ async def test_dairy_fresh_pen_exit_with_live_calf(client: httpx.AsyncClient):
     )
     assert calved.status_code in (200, 201), calved.text
     duties = (await client.get("/api/tasks?limit=200", headers=headers)).json()
-    duty_rows = [*(duties.get("overdue") or []), *(duties.get("upcoming") or [])]
+    # Include every tab: the +10-day fresh-pen duty lands on today's date when
+    # the test runs in a timezone whose calendar day matches the farm's
+    # (Asia/Kolkata) — a due-today duty is filed under "today", not "overdue".
+    duty_rows = [
+        *(duties.get("today") or []),
+        *(duties.get("overdue") or []),
+        *(duties.get("upcoming") or []),
+    ]
     assert duty_rows, "no duties returned"
     fresh = next(
         task
@@ -324,7 +331,9 @@ async def test_dairy_fresh_pen_exit_with_live_calf(client: httpx.AsyncClient):
         and task.get("breeding_record_id") == confirmed["id"]
         and "RESTING after the fresh period" in task["title"]
     )
-    # Calving was ~70 days ago, so the +10-day fresh-pen duty is overdue.
+    # Calving was 10 days ago (breeding −320 d + 310 d), so the +10-day
+    # fresh-pen duty is due today — filed under the "today" tab, which the
+    # duty_rows concatenation above includes.
     # The audit's blocker: completing it used to 409 "invalid while a kid
     # survives" because the survivorship check lacked the species gate, and
     # skip refused as "the only way out" — stranding the dam to day 90.
@@ -382,7 +391,12 @@ async def test_dairy_weaning_duty_graduates_heifers_to_foundation(client: httpx.
     heifer_id = calved.json()["kids"][0]["animal_id"]
 
     duties = (await client.get("/api/tasks?limit=200", headers=headers)).json()
-    duty_rows = [*(duties.get("overdue") or []), *(duties.get("upcoming") or [])]
+    # All three tabs: a duty due exactly today is filed under "today".
+    duty_rows = [
+        *(duties.get("today") or []),
+        *(duties.get("overdue") or []),
+        *(duties.get("upcoming") or []),
+    ]
     weaning = next(
         task
         for task in duty_rows

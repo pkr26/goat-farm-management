@@ -252,7 +252,7 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     }
     if (values.current_bucket !== AnimalCreateInCurrentBucket.BREEDING) return;
 
-    // Species gates mirror backend/app/models/species.py — a 22-month-old
+    // Species gates mirror backend/app/models/species.py — a 23-month-old
     // Murrah heifer must not be judged by goat thresholds (and vice versa).
     const rules =
       values.sex === AnimalCreateInSex.M ? vocabulary.breedingEntry.male : vocabulary.breedingEntry.female;

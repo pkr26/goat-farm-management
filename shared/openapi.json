@@ -21749,7 +21749,7 @@
             "anyOf": [
               {
                 "type": "integer",
-                "maximum": 3.0,
+                "maximum": 4.0,
                 "minimum": 1.0
               },
               {

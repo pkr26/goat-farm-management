@@ -224,6 +224,9 @@ async def batch_detail(
                     farm.timezone,
                     permissions=perms,
                     computed=computed[animal.id],
+                    # is_breeding_ready inside is species-aware; without the
+                    # farm type a dairy's listing is judged by goat thresholds.
+                    farm_type=farm.farm_type,
                 )
                 if "animals.view" in perms
                 else PurchaseQuarantineAnimalOut.model_validate(animal)

@@ -548,10 +548,13 @@ describe("BreedingPage copy and write bookkeeping", () => {
     const kidCount = within(dialog).getByLabelText("Kid count detected");
     expect(kidCount).toHaveTextContent("2");
     await user.click(kidCount);
+    // Goat litter cap is 4 (SpeciesProfile.max_litter_size); a buffalo
+    // session would offer only 1–2.
     expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual([
       "1",
       "2",
       "3",
+      "4",
     ]);
 
     await user.click(screen.getByRole("option", { name: "1" }));

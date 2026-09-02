@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { useState, type ReactNode } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { AnimalOut, HealthPurchaseBatchOptionOut, AnimalOutCurrentBucket} from "@/api/generated/models";
 import { AnimalPicker } from "@/components/animal-picker";
@@ -12,6 +12,10 @@ import { HealthPurchaseBatchPicker } from "@/components/health-target-pickers";
 import { Label } from "@/components/ui/label";
 import { createTestQueryClient } from "@/test/render";
 import { server } from "@/test/msw-server";
+
+// Species nouns come from the session farm type; these harnesses run
+// outside the auth providers, so pin the GOAT vocabulary.
+vi.mock("@/hooks/use-farm-type", () => ({ useFarmType: () => "GOAT" }));
 
 function animal(id: number): AnimalOut {
   return {

@@ -144,4 +144,23 @@ describe("KiddingPage — species gestation windows", () => {
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ date: addDays(TODAY, -5) });
   });
+
+  it("caps a buffalo calving at one calf by default and two rows maximum", async () => {
+    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])));
+    stubKiddingEndpoints(listPayload([makeBreeding({ breeding_date: addDays(TODAY, -300) })]), posts);
+    renderWithProviders(<KiddingPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Record calving/i }));
+
+    // Single-calf norm: one row on open, not the goat twins default.
+    expect(await screen.findAllByPlaceholderText("auto")).toHaveLength(1);
+
+    // Species litter cap of 2: one add is possible, the second is not.
+    const add = screen.getByRole("button", { name: /Add calf/i });
+    await user.click(add);
+    expect(screen.getAllByPlaceholderText("auto")).toHaveLength(2);
+    expect(add).toBeDisabled();
+  });
 });

@@ -250,6 +250,79 @@ async def test_buffalo_breeding_gates(client):
     assert young["tag_number"] not in tags
 
 
+async def test_ultrasound_kid_count_is_species_capped(client):
+    """Detected-fetus counts follow the species litter cap: goat scans may
+    report 4 (SpeciesProfile.max_litter_size), a buffalo PD stops at 2."""
+    headers = await _dairy_owner(client, email="litter-cap@farm.in")
+    animal = await _create_animal(client, headers)
+    bred = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": animal["id"],
+            "breeding_date": (date.today() - timedelta(days=320)).isoformat(),
+            "method": "AI",
+            "semen_sire_name": "Karanvir 999",
+        },
+        headers=headers,
+    )
+    assert bred.status_code == 201, bred.text
+    too_many = await client.post(
+        f"/api/breeding/{bred.json()['id']}/ultrasound",
+        json={
+            "pregnant": True,
+            "kid_count": 3,
+            "date": (date.today() - timedelta(days=255)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert too_many.status_code == 422, too_many.text
+    assert "cannot carry more than 2 calves" in too_many.json()["detail"]
+
+    # Goat side of the cap: a quadruplet scan is a legal goat observation.
+    goat_headers = await register(client, email="litter-cap-goat@farm.in")
+    goat_headers = await create_farm(client, goat_headers, "Goat Litter Farm")
+    doe = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "DOE-QUAD",
+            "sex": "F",
+            "breed": "Osmanabadi",
+            "date_of_birth": (date.today() - timedelta(days=400)).isoformat(),
+            "source": "PURCHASED",
+            "current_bucket": "BREEDING",
+            "historical_import_reason": "litter-cap fixture",
+            "weight_kg": 30.0,
+            # Dated before the backdated service so the eligibility gate's
+            # as-of weight query sees it.
+            "weight_date": (date.today() - timedelta(days=390)).isoformat(),
+        },
+        headers=goat_headers,
+    )
+    assert doe.status_code in (200, 201), doe.text
+    gb = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe.json()["id"],
+            "breeding_date": (date.today() - timedelta(days=40)).isoformat(),
+            "method": "AI",
+            "semen_sire_name": "Semen sire 7",
+        },
+        headers=goat_headers,
+    )
+    assert gb.status_code == 201, gb.text
+    quad = await client.post(
+        f"/api/breeding/{gb.json()['id']}/ultrasound",
+        json={
+            "pregnant": True,
+            "kid_count": 4,
+            "date": (date.today() - timedelta(days=8)).isoformat(),
+        },
+        headers=goat_headers,
+    )
+    assert quad.status_code == 200, quad.text
+    assert quad.json()["kid_count_detected"] == 4
+
+
 # --- milk records ---------------------------------------------------------------
 
 
