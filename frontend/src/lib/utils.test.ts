@@ -143,4 +143,17 @@ describe("safeAppPath", () => {
   ])("keeps a canonical local path that merely ends in a double slash (%j)", (raw) => {
     expect(safeAppPath(raw)).toBe(raw);
   });
+
+  it("keeps the root path and single-segment app paths unchanged", () => {
+    expect(safeAppPath("/")).toBe("/");
+    expect(safeAppPath("/tasks")).toBe("/tasks");
+    expect(safeAppPath("/animals/7/weights")).toBe("/animals/7/weights");
+  });
+
+  it("still rejects a path the URL parser canonicalizes away from the raw input", () => {
+    // Dot segments are resolved by the URL constructor, so the parsed
+    // pathname no longer equals the raw path.
+    expect(safeAppPath("/tasks/../finance")).toBeNull();
+    expect(safeAppPath("//evil.example/tasks")).toBeNull();
+  });
 });

@@ -540,4 +540,225 @@ describe("idempotency mutation boundaries", () => {
     );
     expect(retryKey).not.toBe(firstKey);
   });
+
+  describe("mutation-hardening round 2", () => {
+    /** Mirrors persistentSignature()/sha256() so tests can seed a record the
+     * recovery path will actually match for runProtected()'s defaults. */
+    async function digestOfDefaultRequest(): Promise<string> {
+      const headers = new Headers({});
+      const signature = [
+        "v1",
+        "POST",
+        "actor-101",
+        "farm-17",
+        "/api/finance/new",
+        "{}",
+        Array.from(headers.entries())
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([name, value]) => `${name.toLowerCase()}:${value}`)
+          .join("\n"),
+      ].join("\u0000");
+      const buffer = await globalThis.crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(signature),
+      );
+      return Array.from(new Uint8Array(buffer), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("");
+    }
+
+    function seedRecord(overrides: Partial<StoredRecord>): void {
+      window.sessionStorage.setItem(
+        IDEMPOTENCY_SESSION_STORAGE_KEY,
+        JSON.stringify([
+          {
+            version: 1,
+            digest: VALID_DIGEST,
+            key: VALID_KEY,
+            expiresAt: NOW + 30_000,
+            ...overrides,
+          },
+        ]),
+      );
+    }
+
+    async function sentKeys(
+      execute: ReturnType<typeof vi.fn>,
+    ): Promise<Array<string | null>> {
+      return execute.mock.calls.map(
+        (call) => new Headers(call[0].headers).get("Idempotency-Key"),
+      );
+    }
+
+    const STRICT_UUID =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    it("recovers the exact persisted key when the digest matches", async () => {
+      seedRecord({ digest: await digestOfDefaultRequest() });
+      const execute = vi.fn().mockResolvedValue({ ok: true });
+
+      await expect(runProtected(execute)).resolves.toEqual({ ok: true });
+
+      expect(await sentKeys(execute)).toEqual([VALID_KEY]);
+    });
+
+    it.each([
+      ["trailing", `${VALID_KEY}z`],
+      ["leading", `z${VALID_KEY}`],
+    ])("treats a persisted key with %s junk as invalid", async (_label, key) => {
+      seedRecord({ digest: await digestOfDefaultRequest(), key });
+      const execute = vi.fn().mockResolvedValue({ ok: true });
+
+      await expect(runProtected(execute)).resolves.toEqual({ ok: true });
+
+      const [sent] = await sentKeys(execute);
+      expect(sent).not.toBe(key);
+      expect(sent).toMatch(STRICT_UUID);
+    });
+
+    it.each([
+      ["trailing", `${VALID_DIGEST}z`],
+      ["leading", `z${VALID_DIGEST}`],
+    ])("sanitizes a persisted digest with %s junk", async (_label, digest) => {
+      seedRecord({ digest });
+      const execute = vi.fn().mockResolvedValue({ ok: true });
+
+      await expect(runProtected(execute)).resolves.toEqual({ ok: true });
+
+      const [sent] = await sentKeys(execute);
+      expect(sent).not.toBe(VALID_KEY);
+      expect(sent).toMatch(STRICT_UUID);
+    });
+
+    it("persists under the literal versioned session-storage key", async () => {
+      const retryable = { status: 503 };
+      await rejectionOf(runProtected(vi.fn().mockRejectedValue(retryable)));
+      await Promise.resolve();
+
+      // Deliberately NOT the exported constant: the storage key is a stable
+      // browser-profile contract and must not silently drift.
+      expect(window.sessionStorage.getItem("goatfarm:idempotency:v1")).not.toBeNull();
+    });
+
+    it("retains a retryable key in memory until one millisecond before the TTL", async () => {
+      let now = NOW;
+      vi.mocked(Date.now).mockImplementation(() => now);
+      const retryable = { status: 503 };
+      const execute = vi.fn(async (init: RequestInit) => {
+        void init;
+        if (execute.mock.calls.length === 1) throw retryable;
+        return { ok: true };
+      });
+
+      await rejectionOf(runProtected(execute, { actorScope: null }));
+      now = NOW + TTL_MS - 1;
+      await expect(
+        runProtected(execute, { actorScope: null }),
+      ).resolves.toEqual({ ok: true });
+
+      const keys = await sentKeys(execute);
+      expect(keys).toHaveLength(2);
+      expect(keys[1]).toBe(keys[0]);
+    });
+
+    it("expires the retained key once the full TTL has elapsed", async () => {
+      let now = NOW;
+      vi.mocked(Date.now).mockImplementation(() => now);
+      const retryable = { status: 503 };
+      const execute = vi.fn(async (init: RequestInit) => {
+        void init;
+        if (execute.mock.calls.length === 1) throw retryable;
+        return { ok: true };
+      });
+
+      await rejectionOf(runProtected(execute, { actorScope: null }));
+      now = NOW + TTL_MS;
+      await expect(
+        runProtected(execute, { actorScope: null }),
+      ).resolves.toEqual({ ok: true });
+
+      const keys = await sentKeys(execute);
+      expect(keys[1]).not.toBe(keys[0]);
+    });
+
+    it("falls back to memory-only idempotency when the digest backend fails", async () => {
+      vi.stubGlobal("crypto", {
+        randomUUID: () => VALID_KEY,
+        getRandomValues: () => {
+          throw new Error("unused on this path");
+        },
+        subtle: {
+          digest: vi.fn().mockRejectedValue(new Error("digest unavailable")),
+        },
+      });
+      const execute = vi.fn().mockResolvedValue({ ok: true });
+
+      await expect(runProtected(execute)).resolves.toEqual({ ok: true });
+
+      expect(await sentKeys(execute)).toEqual([VALID_KEY]);
+    });
+
+    it("stays silent and memory-only when sessionStorage access throws", async () => {
+      const original = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+      try {
+        Object.defineProperty(window, "sessionStorage", {
+          configurable: true,
+          get() {
+            throw new DOMException("storage denied", "SecurityError");
+          },
+        });
+        const retryable = { status: 503 };
+        const execute = vi.fn().mockRejectedValue(retryable);
+
+        expect(await rejectionOf(runProtected(execute))).toBe(retryable);
+      } finally {
+        Object.defineProperty(window, "sessionStorage", original!);
+      }
+    });
+
+    it("keeps working when window is entirely unavailable", async () => {
+      const realWindow = window;
+      vi.stubGlobal("window", undefined);
+      try {
+        const retryable = { status: 503 };
+        const execute = vi
+          .fn()
+          .mockRejectedValueOnce(retryable)
+          .mockResolvedValueOnce({ ok: true });
+
+        expect(await rejectionOf(runProtected(execute))).toBe(retryable);
+        await expect(runProtected(execute)).resolves.toEqual({ ok: true });
+        expect(() => clearPersistedIdempotencyRequestState()).not.toThrow();
+      } finally {
+        vi.stubGlobal("window", realWindow);
+      }
+    });
+
+    it("falls back to plain path splitting for a URL the parser rejects", () => {
+      const hostile = "http://ex ample.com/api/tasks?x=1";
+      expect(() => isIdempotencyProtectedMutation(hostile, "POST")).not.toThrow();
+      expect(isIdempotencyProtectedMutation(hostile, "POST")).toBe(false);
+    });
+
+    it("protects every exact-match route in the allowlist", () => {
+      const routes = [
+        "/api/auth/farms",
+        "/api/finance/new",
+        "/api/purchases/new",
+        "/api/animals",
+        "/api/tasks",
+        "/api/team/workers",
+        "/api/health/events",
+        "/api/simulation/scenarios",
+        "/api/breeding",
+        "/api/kidding",
+        "/api/feeding/dispense",
+        "/api/feeding/mix",
+      ];
+      for (const route of routes) {
+        expect(isIdempotencyProtectedMutation(route, "POST")).toBe(true);
+        expect(isIdempotencyProtectedMutation(`${route}/`, "POST")).toBe(false);
+      }
+    });
+  });
 });

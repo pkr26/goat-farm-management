@@ -7,6 +7,7 @@ import {
   MIN_PERSISTED_MONEY_MESSAGE,
   formatPersistedKg,
   isPersistableNonnegativeMoney,
+  isPersistableNonnegativeWeight,
 } from "./persisted-numbers";
 
 describe("persisted number boundaries", () => {
@@ -43,5 +44,20 @@ describe("persisted number boundaries", () => {
     expect(isPersistableNonnegativeMoney(Number.NaN)).toBe(false);
     expect(isPersistableNonnegativeMoney(Number.POSITIVE_INFINITY)).toBe(false);
     expect(isPersistableNonnegativeMoney(Number.NEGATIVE_INFINITY)).toBe(false);
+  });
+
+  it("accepts exactly zero or weights at and above the kg threshold", () => {
+    expect(isPersistableNonnegativeWeight(0)).toBe(true);
+    expect(isPersistableNonnegativeWeight(-0)).toBe(true);
+    expect(isPersistableNonnegativeWeight(MIN_PERSISTED_KG)).toBe(true);
+    expect(isPersistableNonnegativeWeight(42.5)).toBe(true);
+  });
+
+  it("rejects negative, sub-threshold, NaN and infinite weights", () => {
+    expect(isPersistableNonnegativeWeight(-1)).toBe(false);
+    expect(isPersistableNonnegativeWeight(MIN_PERSISTED_KG - 0.0001)).toBe(false);
+    expect(isPersistableNonnegativeWeight(Number.NaN)).toBe(false);
+    expect(isPersistableNonnegativeWeight(Number.POSITIVE_INFINITY)).toBe(false);
+    expect(isPersistableNonnegativeWeight(Number.NEGATIVE_INFINITY)).toBe(false);
   });
 });

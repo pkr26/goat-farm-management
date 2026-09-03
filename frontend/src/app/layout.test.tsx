@@ -89,6 +89,19 @@ describe("RootLayout", () => {
         options: { subsets: ["latin"], variable: "--font-jetbrains-mono" },
       },
     ]);
+
+    // The metadata literal re-evaluates on the fresh import above, so assert
+    // it here too — this test owns module-scope coverage, and the metadata
+    // assertions alone (in tests that never re-import) are not selected by
+    // Stryker's per-test runner for these statically-covered mutants.
+    const { metadata: freshMetadata } = await import("./layout");
+    expect(freshMetadata.title).toEqual({
+      default: "Herdly — Livestock farm management",
+      template: "%s · Herdly",
+    });
+    expect(freshMetadata.description).toBe(
+      "Commercial goat and buffalo dairy farm management — herd, health, breeding, milk and finance in one place.",
+    );
   });
 
   it("exports the document metadata Next renders into <head>", () => {

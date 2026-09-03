@@ -107,4 +107,57 @@ describe("useUrlState", () => {
       scroll: false,
     });
   });
+
+  it("reads params from the current commit, not a stale closure", () => {
+    setParams("q=first&offset=9");
+    const { result, rerender } = renderHook(() => useUrlState());
+    expect(result.current.get("q")).toBe("first");
+
+    setParams("q=second&offset=10");
+    rerender();
+
+    expect(result.current.get("q")).toBe("second");
+    expect(result.current.getNumber("offset", 0)).toBe(10);
+  });
+
+  it("clamps against the full safe-integer range by default", () => {
+    setParams("offset=5&delta=-3");
+    const { result } = renderHook(() => useUrlState());
+
+    expect(result.current.getNumber("offset", 0)).toBe(5);
+    expect(result.current.getNumber("delta", 0)).toBe(-3);
+  });
+
+  it("maps a whitespace-only param to the fallback instead of zero", () => {
+    setParams("offset=%20");
+    const { result } = renderHook(() => useUrlState());
+
+    expect(result.current.getNumber("offset", 7)).toBe(7);
+  });
+
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["an empty string", ""],
+  ])("deletes an existing key when the update value is %s", (_label, value) => {
+    setParams("k=old");
+    const { result } = renderHook(() => useUrlState());
+
+    act(() => result.current.set({ k: value }));
+
+    expect(nav.replace).toHaveBeenLastCalledWith("/health", { scroll: false });
+  });
+
+  it("returns null when setting a param to its current committed value", () => {
+    setParams("offset=50");
+    const { result } = renderHook(() => useUrlState());
+    let returned: string | null = "sentinel";
+
+    act(() => {
+      returned = result.current.set({ offset: 50 });
+    });
+
+    expect(returned).toBeNull();
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
 });

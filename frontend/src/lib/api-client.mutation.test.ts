@@ -404,4 +404,133 @@ describe("api-client mutation boundaries", () => {
     ).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("coordinates refresh under the literal auth Web Lock name", async () => {
+    const lockRequest = vi.fn(
+      async (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) => callback(),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    setAccessToken("expired", 1);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(401, { detail: "expired" }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: "opaque-token",
+          user: { id: 1, email: "actor-1@test", name: null },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    await expect(apiFetch("/api/animals")).resolves.toEqual({ ok: true });
+
+    expect(lockRequest).toHaveBeenCalledTimes(1);
+    expect(lockRequest).toHaveBeenCalledWith(
+      "goatfarm-auth-refresh",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.any(Function),
+    );
+  });
+
+  it.each([
+    ["/api/auth/refresh", "POST"],
+    ["/api/auth/logout", "POST"],
+  ])("serializes the cookie mutation %s %s under the auth lock", async (path, method) => {
+    const lockRequest = vi.fn(
+      async (
+        _name: string,
+        _options: LockOptions,
+        callback: () => Promise<unknown>,
+      ) => callback(),
+    );
+    vi.stubGlobal("navigator", { locks: { request: lockRequest } });
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await apiFetch(path, { method });
+
+    expect(lockRequest).toHaveBeenCalledTimes(1);
+    expect(lockRequest).toHaveBeenCalledWith(
+      "goatfarm-auth-refresh",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.any(Function),
+    );
+  });
+
+  it.each([
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/refresh",
+    "/api/auth/logout",
+  ])("reports the original 401 on %s without attempting a refresh", async (path) => {
+    const failure = vi.fn();
+    setOnAuthFailure(failure);
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { detail: "no session" }));
+
+    const error = await rejectionOf(apiFetch(path, { method: "POST", body: "{}" }));
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 401, detail: "no session" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(failure).not.toHaveBeenCalled();
+  });
+
+  it("joins multi-segment 422 locations with dots inside the plain-language wrapper", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, {
+        detail: [{ loc: ["body", "lineage", "0"], msg: "Input should be 'DAM'" }],
+      }),
+    );
+
+    const error = await rejectionOf(apiFetch("/api/animals"));
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).detail).toBe(
+      "The server rejected these values (lineage.0: Input should be 'DAM'). Check the entered data and try again.",
+    );
+  });
+
+  it("returns array error specifics verbatim for a non-422 status", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(400, {
+        detail: [{ loc: ["body", "amount"], msg: "greater than zero" }],
+      }),
+    );
+
+    const error = await rejectionOf(apiFetch("/api/animals"));
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).detail).toBe("amount: greater than zero");
+  });
+
+  it.each([
+    ["/api/simulation/run", 300_000],
+    ["/api/simulation/scenarios/12/run", 300_000],
+    ["/api/simulation/scenarios/abc/run", 60_000],
+    ["/api/simulation/run/x", 60_000],
+    ["/api/v2/api/simulation/run", 60_000],
+  ])("applies the %sms request budget to %s", async (path, timeoutMs) => {
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => new AbortController().signal);
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+
+    await expect(
+      apiFetch(path, { method: "POST", body: "{}" }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(timeout).toHaveBeenCalledTimes(1);
+    expect(timeout).toHaveBeenCalledWith(timeoutMs);
+  });
+
+  it("rejects an unparseable absolute URL as an unsafe path, not a TypeError", async () => {
+    // A space in the authority makes the URL constructor throw; the wrapper
+    // must still answer with its own UnsafeApiPathError.
+    const error = await rejectionOf(apiFetch("http://ex ample.com/api"));
+
+    expect(error).toMatchObject({ name: "UnsafeApiPathError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
