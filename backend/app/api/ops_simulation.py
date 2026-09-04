@@ -22,7 +22,11 @@ from pydantic import ValidationError
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models.species import GOAT
 from ..schemas.common import COMMON_ERROR_RESPONSES
-from ..schemas.ops_simulation import DailyOpsRunIn, DailyOpsRunOut
+from ..schemas.ops_simulation import (
+    MAX_LEDGER_HEAD_DAYS,
+    DailyOpsRunIn,
+    DailyOpsRunOut,
+)
 from ..simulation.daily_ops import (
     DailyOpsInput,
     build_daily_ledger,
@@ -83,19 +87,37 @@ async def run_daily_ops_simulation(
         ]
         raise HTTPException(status_code=422, detail=errors[:3]) from exc
 
-    # Priced per simulated day: each day plans feed, cleaning and duties for
-    # at most ten buildings, so this stays deliberately cheap next to a
-    # monthly engine run while still throttling runaway horizons.
-    cost = payload.horizon_days
+    if payload.include_ledger:
+        head_days = payload.horizon_days * len(payload.animals)
+        if head_days > MAX_LEDGER_HEAD_DAYS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"The day-by-day ledger is available for runs up to "
+                    f"{MAX_LEDGER_HEAD_DAYS:,} head-days; this run is {head_days:,}. "
+                    "Re-run without the ledger or narrow the herd or horizon."
+                ),
+            )
+
+    # Priced by simulated days × herd size: engine work, result size and (with
+    # the ledger) response size all grow with both, so a per-day-only price let
+    # one 500-head year cost the same budget as a single-animal run.
+    cost = payload.horizon_days * (1 + len(payload.animals) // 10)
+
+    def work() -> DailyOpsRunOut:
+        result = run_daily_ops(daily_input)
+        # model_dump/ledger of a maximal herd is seconds of CPU and tens of MB;
+        # serialize off the event loop (same defense as /run: a non-finite
+        # figure would crash JSON encoding).
+        dumped = result.model_dump()
+        if not _finite_payload(dumped):
+            raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
+        ledger = build_daily_ledger(result) if payload.include_ledger else None
+        return DailyOpsRunOut(result=result, ledger=ledger)
 
     async def run() -> DailyOpsRunOut:
         _check_run_budget(farm_id, user_id, cost)
         _charge_run_budget(farm_id, user_id, cost)
-        result = await _offload(lambda: run_daily_ops(daily_input))
-        ledger = build_daily_ledger(result) if payload.include_ledger else None
-        # Same defense as /run: a non-finite figure would crash JSON encoding.
-        if not _finite_payload(result.model_dump()):
-            raise HTTPException(status_code=422, detail="These inputs produce non-finite results.")
-        return DailyOpsRunOut(result=result, ledger=ledger)
+        return await _offload(work)
 
     return await _with_run_limits(farm_id, user_id, run)

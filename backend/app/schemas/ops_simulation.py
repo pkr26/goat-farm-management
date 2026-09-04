@@ -15,7 +15,7 @@ from ..simulation.daily_ops import (
     DailyOpsParams,
     DailyOpsResult,
 )
-from .common import StrictBool, StrictInputModel, StrictInt
+from .common import MAX_ID, StrictBool, StrictInputModel, StrictInt
 
 __all__ = [
     "AnimalStartSpec",
@@ -26,6 +26,12 @@ __all__ = [
     "DailyOpsRunOut",
 ]
 
+# Seed parity with the app's integer bounds (schemas.common.MAX_ID): the seed
+# is echoed back in the result, explanation and ledger, so an unbounded int
+# would amplify a small request body into megabytes of repeated digits.
+MAX_SEED = MAX_ID
+MAX_LEDGER_HEAD_DAYS = 50_000
+
 
 class DailyOpsRunIn(StrictInputModel):
     """One daily-operations simulation run: the starting herd standing in its
@@ -33,11 +39,11 @@ class DailyOpsRunIn(StrictInputModel):
 
     start_date: date
     horizon_days: StrictInt = Field(default=90, ge=7, le=365)
-    seed: StrictInt = Field(default=2026)
+    seed: StrictInt = Field(default=2026, ge=-MAX_SEED, le=MAX_SEED)
     animals: list[AnimalStartSpec] = Field(min_length=1, max_length=500)
     params: DailyOpsParams = Field(default_factory=DailyOpsParams)
     # The ledger re-renders the whole run as one Markdown audit document; it
-    # can be large, so it is opt-in.
+    # can be large, so it is opt-in and capped by run size (head × days).
     include_ledger: StrictBool = False
 
 

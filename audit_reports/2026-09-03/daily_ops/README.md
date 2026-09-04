@@ -13,14 +13,17 @@ Simulation page's "Download ledger" button saves.
      sum to the daily column.
    - Cleaning after the morning feed and after the night feed, each with a
      cleaner-manager verification duty.
-   - A building occupied only during the day (e.g. kids born at 09:00) is fed
-     in its old building that morning and first fed in the new building the
-     next day.
+   - Feeding follows 06:30 occupancy: an animal that moves during the 09:00
+     round (or later) is fed in its old building for all three shifts that
+     day, with night cleaning already in the new building.
 
 2. **Biology dates (GOAT_PROFILE)** — service → pregnancy check +32d →
    gestation day 100 (PREGNANCY_LATE) → EKD−40 / −25 pre-kidding ET+TT
    vaccines → EKD−15 move to DELIVERY → kidding at +150d → weaning at +60d →
-   RESTING flush ~30d → re-bred.
+   RESTING flush ~30d → re-bred. Starter animals without an in-sim record
+   follow their own clocks: a started unweaned kid in RECOVERY (no dam link)
+   weans at weaning age (60 days), and a started RECOVERY doe finishes her
+   14-day postpartum recovery before moving to RESTING.
 
 3. **Quarantine** — protocol duties on days 1/4/5/10/20/30/40/45 of the stay
    (days 1–3 dry roughage only), release to FOUNDATION on day 45.
@@ -28,18 +31,22 @@ Simulation page's "Download ledger" button saves.
 4. **Feeding rules** — per-head rates (kids 1.0, does 1.2, late pregnancy 1.4,
    delivery/recovery 1.5, quarantine 1.1 kg); unweaned kids in RECOVERY on the
    0.3 kg creep line; male kids switch to the fattening mix after day 90.
+   Note: FOUNDATION, FEMALE_KIDS and PREGNANCY_LATE all carry the "Lactating
+   60:40" recipe label by design (see BUCKET_ALLOCATION_REFERENCE in
+   `backend/app/models/feed_rules.py`) — the label is shared, the per-head
+   rates differ.
 
 5. **Every move** — from-building → to-building with a legal context
-   (ultrasound / kidding / weaning / delivery / quarantine_release / abortion /
-   postpartum / breeding), and the animal journeys section tells the same
-   story per tag.
+   (manual / ultrasound / kidding / weaning / orphan weaning / delivery /
+   quarantine_release / abortion / postpartum / breeding), and the animal
+   journeys section tells the same story per tag.
 
 ## Files
 
 | File | Scenario | Notes |
 |---|---|---|
 | `toy_herd_full_cycle.md` | 1 doe + 1 buck, stochastic knobs forced | Dates match the hand-derived golden trace in `backend/tests/test_daily_ops.py` (scan d33, kidding d151, weaning d211, re-breed d241). |
-| `standing_herd_default_rates.md` | 17 head standing herd, default rates, seed 7 | Includes a late-pregnancy doe (kidded day 31), a mid-stay quarantine arrival, kid sales and creep feeding. |
+| `standing_herd_default_rates.md` | 17 head standing herd, default rates, seed 7 | Includes a late-pregnancy doe (kidded day 31), a mid-stay quarantine arrival, kid sales and creep feeding of unweaned kids. R1 (a 28-month starter "kid" in RECOVERY with no dam link) age-weans on day 1 and re-enters breeding. |
 | `quarantine_arrival.md` | 5 fresh arrivals, seed 3 | The 45-day protocol from day 1; empty buildings after release-day moves settle. |
 
 Regenerate: `backend/.venv/bin/python backend/scripts/dump_daily_ops.py`

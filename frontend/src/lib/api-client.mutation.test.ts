@@ -508,9 +508,11 @@ describe("api-client mutation boundaries", () => {
   it.each([
     ["/api/simulation/run", 300_000],
     ["/api/simulation/scenarios/12/run", 300_000],
+    ["/api/ops-sim/run", 300_000],
     ["/api/simulation/scenarios/abc/run", 60_000],
     ["/api/simulation/run/x", 60_000],
     ["/api/v2/api/simulation/run", 60_000],
+    ["/api/ops-sim/run/extra", 60_000],
   ])("applies the %sms request budget to %s", async (path, timeoutMs) => {
     const timeout = vi
       .spyOn(AbortSignal, "timeout")

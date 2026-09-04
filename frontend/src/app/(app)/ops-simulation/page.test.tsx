@@ -328,6 +328,83 @@ describe("OpsSimulationPage — setup and run", () => {
     await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith("Duplicate tags: B1"));
     expect(requests).toHaveLength(0);
   });
+
+  it("refuses to post a row with a non-numeric bred-days value", async () => {
+    const user = userEvent.setup();
+    const requests: Request[] = [];
+    server.use(runHandler(RUN_RESULT, requests));
+    renderWithProviders(<OpsSimulationPage />);
+
+    const bred = await screen.findByLabelText(/^Bred days ago for D1$/);
+    await user.clear(bred);
+    await user.type(bred, "3 weeks");
+
+    await user.click(screen.getByRole("button", { name: /^Run 90 days/ }));
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith(
+        "D1: bred days ago must be a whole number 0–150.",
+      ),
+    );
+    expect(requests).toHaveLength(0);
+  });
+
+  it("refuses to post out-of-bounds per-animal values", async () => {
+    const user = userEvent.setup();
+    const requests: Request[] = [];
+    server.use(runHandler(RUN_RESULT, requests));
+    renderWithProviders(<OpsSimulationPage />);
+
+    const age = await screen.findByLabelText(/^Age months for D1$/);
+    await user.clear(age);
+    await user.type(age, "300");
+
+    await user.click(screen.getByRole("button", { name: /^Run 90 days/ }));
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith("D1: age must be 0–240 months."),
+    );
+    expect(requests).toHaveLength(0);
+  });
+
+  it("mounts the ledger preview only when opened", async () => {
+    const user = userEvent.setup();
+    server.use(runHandler({ ...RUN_RESULT, ledger: "# LEDGER-BODY-MARKER\n" }));
+    renderWithProviders(<OpsSimulationPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Include Markdown ledger" }));
+    await runSimulation(user);
+
+    const toggle = await screen.findByRole("button", {
+      name: "Preview the ledger (Markdown)",
+    });
+    // Megabytes of ledger text never enter the DOM while collapsed.
+    expect(screen.queryByText(/LEDGER-BODY-MARKER/)).not.toBeInTheDocument();
+    await user.click(toggle);
+    expect(await screen.findByText(/LEDGER-BODY-MARKER/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide the ledger preview" }));
+    expect(screen.queryByText(/LEDGER-BODY-MARKER/)).not.toBeInTheDocument();
+  });
+
+  it("prefers the server-provided building name on duty rows", async () => {
+    const user = userEvent.setup();
+    server.use(
+      runHandler({
+        ...RUN_RESULT,
+        days: [
+          {
+            ...DAY_1,
+            tasks: [{ ...DAY_1.tasks[0], building_name: "The Server-Side Mix Station" }],
+          },
+          DAY_1,
+          DAY_1,
+        ],
+      }),
+    );
+    renderWithProviders(<OpsSimulationPage />);
+    await runSimulation(user);
+
+    expect(await screen.findByText("The Server-Side Mix Station")).toBeInTheDocument();
+    expect(screen.queryByText("Feed Store & Mixing Area")).not.toBeInTheDocument();
+  });
 });
 
 describe("OpsSimulationPage — gating", () => {

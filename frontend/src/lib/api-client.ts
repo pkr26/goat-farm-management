@@ -480,11 +480,12 @@ function extractDetail(body: unknown, fallback: string, status?: number): string
  *  takes seconds, and abandoning a write that may already have committed is
  *  worse than waiting. */
 const REQUEST_TIMEOUT_MS = 60_000;
-/** Monte-Carlo + sensitivity + optimization runs legitimately exceed the
- *  shared budget; aborting at 60 s stranded heavy runs client-side while the
- *  server kept computing. Server-bound compute gets a longer leash (M-6). */
+/** Monte-Carlo + sensitivity + optimization runs and the daily-ops engine
+ * legitimately exceed the shared budget; aborting at 60 s stranded heavy runs
+ * client-side while the server kept computing (and the run budget stayed
+ * charged). Server-bound compute gets a longer leash (M-6). */
 const SIMULATION_RUN_TIMEOUT_MS = 300_000;
-const SIMULATION_RUN_PATH = /^\/api\/simulation\/(run|scenarios\/\d+\/run)$/;
+const SIMULATION_RUN_PATH = /^\/api\/(simulation\/(run|scenarios\/\d+\/run)|ops-sim\/run)$/;
 const REFRESH_COOKIE_POST_ROUTES = new Set([
   "/api/auth/register",
   "/api/auth/login",

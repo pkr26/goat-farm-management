@@ -14286,6 +14286,8 @@
           },
           "seed": {
             "type": "integer",
+            "maximum": 4.611686018427388e+18,
+            "minimum": -4.611686018427388e+18,
             "title": "Seed",
             "default": 2026
           },

@@ -437,12 +437,69 @@ def _toy_herd(seed: int, horizon: int = 120) -> DailyOpsInput:
     )
 
 
-def test_every_move_is_legal_and_context_valid() -> None:
-    result = run_daily_ops(_toy_herd(seed=7))
-    for record in result.days:
-        for move in record.moves:
-            allowed = LEGAL_BUCKET_TRANSITIONS[(move.from_bucket, move.to_bucket)]
-            assert move.context in allowed, (move.day, move.tag, move)
+def test_engine_emits_every_simulatable_transition_context() -> None:
+    """Across a battery covering each workflow, the engine stamps exactly the
+    ten contexts the legal graph allows to arise in simulation — a dropped
+    phase (or an illegal shortcut) changes this set."""
+    payloads = [
+        _toy_herd(seed=7, horizon=220),  # P1 kidded day 101 → weaning day 161
+        # age-cull orphan → orphan_weaning
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=200,
+            seed=1,
+            animals=[_doe(age_months=12), _buck()],
+            params=_quiet_params(kid_pre_weaning_mortality=0.9, max_doe_age_months=14),
+        ),
+        # certain abortion → abortion
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=100,
+            seed=1,
+            animals=[_doe(), _buck()],
+            params=_quiet_params(abortion_rate=1.0),
+        ),
+        # stillborn litter → postpartum
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=50,
+            animals=[AnimalStartSpec(tag="P1", sex="F", bucket="DELIVERY", age_months=30, bred_days_ago=140)],
+            params=_quiet_params(stillbirth_rate=1.0),
+        ),
+        # quarantine release
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=46,
+            animals=[AnimalStartSpec(tag="Q1", sex="F", bucket="QUARANTINE", age_months=14)],
+            params=_quiet_params(),
+        ),
+        # started RECOVERY doe → postpartum from the starter clock
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=10,
+            animals=[AnimalStartSpec(tag="R1", sex="F", bucket="RECOVERY", age_months=30, days_in_bucket=5)],
+            params=_quiet_params(),
+        ),
+    ]
+    seen: set[str] = set()
+    for payload in payloads:
+        for record in run_daily_ops(payload).days:
+            for move in record.moves:
+                allowed = LEGAL_BUCKET_TRANSITIONS[(move.from_bucket, move.to_bucket)]
+                assert move.context in allowed, move
+                seen.add(move.context)
+    assert seen == {
+        "manual",
+        "breeding",
+        "ultrasound",
+        "quarantine_release",
+        "delivery",
+        "kidding",
+        "abortion",
+        "postpartum",
+        "weaning",
+        "orphan_weaning",
+    }
 
 
 def test_head_conservation_day_over_day() -> None:
@@ -694,3 +751,374 @@ def test_no_buck_note_when_herd_has_no_sire() -> None:
     )
     assert result.totals.services == 0
     assert any("No buck stood in BREEDING" in note for note in result.notes)
+
+
+# ---------------------------------------------------------------------------
+# 6. Audit-fix goldens: orphan hazard, tag collisions, RECOVERY starters,
+#    abortion window, and previously uncovered branches
+# ---------------------------------------------------------------------------
+
+
+def test_orphan_weaning_on_dam_cull_clears_the_pre_weaning_hazard() -> None:
+    """D1 (12 mo) is served day 1, kidded day 151 and — no longer pregnant —
+    age-culled the same day (12 + 151/30.44 ≈ 17 mo ≥ 14). Her kid is orphan-
+    weaned on its birth day; graduation must also end the pre-weaning hazard:
+    with kid mortality 90% and adult mortality 0, the kid survives to day 365
+    only if the flag is cleared (with the flag kept it dies within weeks)."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=365,
+        seed=1,
+        animals=[_doe(age_months=12), _buck()],
+        params=_quiet_params(kid_pre_weaning_mortality=0.9, max_doe_age_months=14),
+    )
+    result = run_daily_ops(payload)
+    dam = _journey(result, "D1")
+    assert (dam.exit_kind, dam.exit_day) == ("CULLED", 151)
+    kid = _journey(result, "D1-1")
+    assert [(h.day, h.from_bucket, h.to_bucket, h.context) for h in kid.hops] == [
+        (151, "RECOVERY", "FEMALE_KIDS", "orphan_weaning")
+    ]
+    assert (kid.final_status, kid.final_bucket) == ("ACTIVE", "FEMALE_KIDS")
+    # Feeding follows morning occupancy: day 151's ration was planned at 06:30
+    # (before the birth) and by day 152 the kid stands weaned in FEMALE_KIDS —
+    # so this kid never eats a creep line.
+    creep_days = [
+        record.day
+        for record in result.days
+        for line in record.feeding
+        if line.recipe == "CREEP"
+    ]
+    assert creep_days == []
+
+
+def test_orphan_weaned_kids_never_carry_the_kid_hazard() -> None:
+    """Cross-seed invariant: an orphan-weaned kid may only leave the herd by
+    adult mortality — never as a 'Pre-weaning kid loss' while standing in a
+    weaned pen (the audited defect)."""
+    orphans_seen = 0
+    for seed in range(1, 26):
+        result = run_daily_ops(
+            DailyOpsInput(
+                start_date=date(2026, 9, 3),
+                horizon_days=300,
+                seed=seed,
+                animals=[_doe("D1"), _doe("D2"), _doe("D3"), _buck()],
+                params=_quiet_params(
+                    kid_pre_weaning_mortality=0.5, adult_annual_mortality=0.30
+                ),
+            )
+        )
+        for journey in result.journeys:
+            if journey.born_day and any(h.context == "orphan_weaning" for h in journey.hops):
+                orphans_seen += 1
+                assert journey.final_status == "ACTIVE" or (
+                    journey.exit_reason.startswith("Adult mortality")
+                ), journey
+    assert orphans_seen > 0  # the sweep must actually exercise the path
+
+
+def test_newborn_tags_never_replace_starting_animals() -> None:
+    """D1's first female kid would be tagged D1-1, which a starter already
+    owns: the newborn must take D1-2, the starter keeps her journey, and head
+    conservation holds (start 3 + born 1 == final 4)."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=200,
+        seed=1,
+        animals=[
+            _doe(),
+            AnimalStartSpec(tag="D1-1", sex="F", bucket="FEMALE_KIDS", age_months=6),
+            _buck(),
+        ],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    tags = {j.tag for j in result.journeys}
+    assert tags == {"B1", "D1", "D1-1", "D1-2"}
+    starter = _journey(result, "D1-1")
+    assert starter.start_bucket == "FEMALE_KIDS"  # she was never overwritten
+    assert starter.born_day is None and starter.dam_tag is None
+    newborn = _journey(result, "D1-2")
+    assert (newborn.born_day, newborn.dam_tag) == (151, "D1")
+    final_head = sum(row.heads for row in result.days[-1].occupancy)
+    assert (
+        result.head_start + result.totals.kids_born_alive
+        - result.totals.deaths - result.totals.culls - result.totals.sales
+    ) == final_head
+
+
+def test_recovery_starter_kid_weans_by_age() -> None:
+    """Started unweaned kids have no dam link, so the day-60 clock runs on
+    their own age: a 9-month starter kid weans on day 1; a 1-month kid (30
+    days old on day 1) weans on day 31 (= 60 − 30 days of age)."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=35,
+            animals=[
+                AnimalStartSpec(
+                    tag="RK1", sex="F", bucket="RECOVERY", age_months=9, dependent_kid=True
+                ),
+                AnimalStartSpec(
+                    tag="RK2", sex="F", bucket="RECOVERY", age_months=1,
+                    dependent_kid=True, days_in_bucket=30,
+                ),
+            ],
+            params=_quiet_params(),
+        )
+    )
+    assert _moves_of(result, "RK1") == [(1, "RECOVERY", "FEMALE_KIDS", "weaning")]
+    assert _moves_of(result, "RK2") == [(31, "RECOVERY", "FEMALE_KIDS", "weaning")]
+    assert any("Age wean RK1" in h for _, _, h in _tasks_on(result, 1))
+    assert any("Age wean RK2" in h for _, _, h in _tasks_on(result, 31))
+
+
+def test_recovery_starter_doe_finishes_postpartum_recovery() -> None:
+    """A started doe in RECOVERY is mid postpartum recovery. R1 (20 days in
+    the bucket) has exhausted the 14-day window → RESTING on day 1; R2 (5
+    days in) moves on day 10 = 1 + (14 − 5)."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=12,
+            animals=[
+                AnimalStartSpec(
+                    tag="R1", sex="F", bucket="RECOVERY", age_months=30, days_in_bucket=20
+                ),
+                AnimalStartSpec(
+                    tag="R2", sex="F", bucket="RECOVERY", age_months=30, days_in_bucket=5
+                ),
+            ],
+            params=_quiet_params(),
+        )
+    )
+    assert _moves_of(result, "R1") == [(1, "RECOVERY", "RESTING", "postpartum")]
+    assert _moves_of(result, "R2") == [(10, "RECOVERY", "RESTING", "postpartum")]
+
+
+def test_certain_abortion_golden_trace() -> None:
+    """Abortion rate 1.0: the loss fires the same day as the positive scan
+    (the gestation-duties draw follows the 09:00 check), day 33 = 1 + 32.
+    RESTING flush is 30 days → re-served day 63, second scan-and-loss day 95."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=100,
+            seed=1,
+            animals=[_doe(), _buck()],
+            params=_quiet_params(abortion_rate=1.0),
+        )
+    )
+    assert _moves_of(result, "D1") == [
+        (33, "BREEDING", "PREGNANCY_EARLY", "ultrasound"),
+        (33, "PREGNANCY_EARLY", "RESTING", "abortion"),
+        (63, "RESTING", "BREEDING", "breeding"),
+        (95, "BREEDING", "PREGNANCY_EARLY", "ultrasound"),
+        (95, "PREGNANCY_EARLY", "RESTING", "abortion"),
+    ]
+    assert any("Pregnancy loss: D1" in h for _, _, h in _tasks_on(result, 33))
+    assert result.totals.conceptions == 2
+    assert (result.totals.deaths, result.totals.kids_born_alive) == (0, 0)
+
+
+def test_abortion_hazard_anchors_to_the_exposed_window() -> None:
+    """The draw window is scan → kidding (150 − 32 = 118 days), not the whole
+    150-day gestation: the nominal rate must reproduce over the window the
+    engine actually draws on."""
+    from app.models.species import GOAT_PROFILE
+    from app.simulation.daily_ops import _DailyOpsRun, _daily_hazard
+
+    run = _DailyOpsRun(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe()],
+            params=_quiet_params(abortion_rate=0.02),
+        )
+    )
+    exposed = GOAT_PROFILE.gestation_days - GOAT_PROFILE.pregnancy_check_after_service_days
+    assert exposed == 118
+    assert run.abortion_hazard == _daily_hazard(0.02, exposed)
+
+
+def test_kid_death_starts_the_dams_postpartum_clock() -> None:
+    """Kid mortality 1.0: D1-1 dies on her birth day (151) and D1, left with
+    no kids, moves RECOVERY → RESTING at kidding + 14 = day 165."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=170,
+            seed=1,
+            animals=[_doe(), _buck()],
+            params=_quiet_params(kid_pre_weaning_mortality=1.0),
+        )
+    )
+    kid = _journey(result, "D1-1")
+    assert (kid.final_status, kid.exit_day) == ("DEAD", 151)
+    assert kid.exit_reason.startswith("Pre-weaning kid loss")
+    assert _moves_of(result, "D1") == [
+        (33, "BREEDING", "PREGNANCY_EARLY", "ultrasound"),
+        (101, "PREGNANCY_EARLY", "PREGNANCY_LATE", "manual"),
+        (136, "PREGNANCY_LATE", "DELIVERY", "delivery"),
+        (151, "DELIVERY", "RECOVERY", "kidding"),
+        (165, "RECOVERY", "RESTING", "postpartum"),
+    ]
+    assert result.totals.deaths == 1
+
+
+def test_age_cull_fires_for_old_does_and_spares_pregnant_ones() -> None:
+    """max_doe_age 36: a 40-month open doe is culled on day 1; a 40-month
+    pregnant doe (P1, gestation day 50) is exempt until she kids."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[
+                AnimalStartSpec(tag="OLD", sex="F", bucket="BREEDING", age_months=40),
+                AnimalStartSpec(
+                    tag="P1", sex="F", bucket="PREGNANCY_EARLY", age_months=40, bred_days_ago=50
+                ),
+            ],
+            params=_quiet_params(max_doe_age_months=36),
+        )
+    )
+    old = _journey(result, "OLD")
+    assert (old.final_status, old.exit_kind, old.exit_day) == ("CULLED", "CULLED", 1)
+    assert any("Cull OLD — age" in h for _, _, h in _tasks_on(result, 1))
+    assert _journey(result, "P1").final_status == "ACTIVE"
+    assert result.totals.culls == 1
+
+
+def test_young_buck_cannot_service() -> None:
+    """Sires are age-gated at 12 months: a 2-month buck serves nobody (and the
+    no-buck note fires); a 13-month buck serves normally."""
+    young = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe(), AnimalStartSpec(tag="B1", sex="M", bucket="BREEDING", age_months=2)],
+            params=_quiet_params(),
+        )
+    )
+    assert young.totals.services == 0
+    assert any("No buck stood in BREEDING" in note for note in young.notes)
+    mature = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe(), AnimalStartSpec(tag="B1", sex="M", bucket="BREEDING", age_months=13)],
+            params=_quiet_params(),
+        )
+    )
+    assert mature.totals.services == 1
+
+
+def test_quads_wean_to_male_kids_and_sell() -> None:
+    """Litter mean 4.0 with all-male births: D1-1..D1-4 are born day 151 and
+    wean together to MALE_KIDS on day 211; with male_sale_age_months=1 they
+    are already past the sale age at weaning, so they sell the same day (the
+    sales phase runs after the weaning phase)."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=220,
+            seed=1,
+            animals=[_doe(), _buck()],
+            params=_quiet_params(
+                litter_size_mean=4.0, female_fraction_at_birth=0.0, male_sale_age_months=1
+            ),
+        )
+    )
+    born = sorted(
+        (j.tag, j.sex, j.born_day) for j in result.journeys if j.born_day == 151
+    )
+    assert born == [
+        ("D1-1", "M", 151),
+        ("D1-2", "M", 151),
+        ("D1-3", "M", 151),
+        ("D1-4", "M", 151),
+    ]
+    for tag in ("D1-1", "D1-2", "D1-3", "D1-4"):
+        assert _moves_of(result, tag) == [(211, "RECOVERY", "MALE_KIDS", "weaning")]
+        journey = _journey(result, tag)
+        assert (journey.exit_kind, journey.exit_day) == ("SOLD", 211)
+    assert result.totals.sales == 4
+    assert any(
+        "sale window 1–2 months" in task.detail
+        for record in result.days
+        for task in record.tasks
+    )
+
+
+def test_preserviced_doe_is_scanned_on_her_own_calendar() -> None:
+    """A doe arriving 10 days past service (gestation day 10 on day 1) is
+    scanned when her gestation reaches 32: day 23, not day 33."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=25,
+            animals=[_doe(bred_days_ago=10), _buck()],
+            params=_quiet_params(),
+        )
+    )
+    assert _moves_of(result, "D1") == [(23, "BREEDING", "PREGNANCY_EARLY", "ultrasound")]
+    assert any("scan POSITIVE" in h for _, _, h in _tasks_on(result, 23))
+    assert not any("Pregnancy check: D1" in h for _, _, h in _tasks_on(result, 22))
+
+
+def test_booster_detail_admits_a_missed_primary() -> None:
+    """Arriving at gestation day 120, the primary (EKD−40) is history: the
+    booster's detail must say so instead of claiming a 15-day gap."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=10,
+            animals=[
+                AnimalStartSpec(
+                    tag="P1", sex="F", bucket="PREGNANCY_LATE", age_months=30, bred_days_ago=120
+                )
+            ],
+            params=_quiet_params(),
+        )
+    )
+    booster = [
+        task
+        for record in result.days
+        for task in record.tasks
+        if task.category == "VACCINE"
+    ]
+    assert len(booster) == 1
+    assert booster[0].detail == "Booster only — her primary dose pre-dates this run."
+
+
+def test_totals_aggregates_are_pinned_exactly() -> None:
+    """Two animals in BREEDING for 7 quiet days: every totals dict is pinned.
+    Per day: 4 FEED tasks (1 mix + 3 deliveries) and 4 CLEANING tasks (clean
+    + verify, morning and night); day 1 adds the single breed duty."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            seed=1,
+            animals=[_doe(), _buck()],
+            params=_quiet_params(),
+        )
+    )
+    totals = result.totals
+    assert totals.feed_kg_by_recipe == {"MAINTENANCE_75_25": 16.8}  # 7 × 2 × 1.2
+    assert totals.tasks_by_category == {"CLEANING": 28, "FEED": 28, "OTHER": 1}
+    assert totals.tasks_by_role == {"CLEANER": 28, "FEEDER": 28, "MANAGER": 1}
+    assert totals.vet_tasks_by_building == {}
+    assert totals.building_days == {"BREEDING": 7}
+    assert totals.moves == 0
+
+
+def test_seed_bounds_match_the_api_layer() -> None:
+    assert DailyOpsInput(
+        start_date=date(2026, 9, 3), animals=[_doe()], seed=2**62
+    ).seed == 2**62
+    assert DailyOpsInput(
+        start_date=date(2026, 9, 3), animals=[_doe()], seed=-(2**62)
+    ).seed == -(2**62)
+    with pytest.raises(ValidationError):
+        DailyOpsInput(start_date=date(2026, 9, 3), animals=[_doe()], seed=2**62 + 1)

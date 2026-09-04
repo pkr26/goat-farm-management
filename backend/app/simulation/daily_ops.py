@@ -235,7 +235,8 @@ class DailyOpsInput(BaseModel):
 
     start_date: date
     horizon_days: int = Field(default=90, ge=MIN_HORIZON_DAYS, le=MAX_HORIZON_DAYS)
-    seed: int = Field(default=2026)
+    # Bounds mirror schemas.common.MAX_ID (the API layer re-validates).
+    seed: int = Field(default=2026, ge=-(2**62), le=2**62)
     animals: list[AnimalStartSpec] = Field(min_length=1, max_length=MAX_START_HEAD)
     params: DailyOpsParams = Field(default_factory=DailyOpsParams)
 
@@ -558,7 +559,14 @@ class _DailyOpsRun:
             self.params.kid_pre_weaning_mortality, _PROFILE.weaning_days
         )
         self.adult_hazard = _daily_hazard(self.params.adult_annual_mortality, 365)
-        self.abortion_hazard = _daily_hazard(self.params.abortion_rate, _PROFILE.gestation_days)
+        # The draw window is scan → kidding (gestation days 32..149): a loss
+        # before the scan is indistinguishable from a failed conception, so
+        # the nominal rate anchors to the exposed window — not all 150 days —
+        # or the effective rate would undershoot the configured one.
+        self.abortion_hazard = _daily_hazard(
+            self.params.abortion_rate,
+            _PROFILE.gestation_days - _PROFILE.pregnancy_check_after_service_days,
+        )
         self._litter_p = _litter_probabilities(self.params.litter_size_mean)
 
         for spec in payload.animals:
@@ -572,6 +580,14 @@ class _DailyOpsRun:
                 scanned = (
                     pregnant or spec.bred_days_ago < _PROFILE.pregnancy_check_after_service_days
                 )
+            # A started doe standing in RECOVERY without a dependent kid is
+            # mid postpartum recovery: without this clock she could never
+            # leave the bucket (weaning needs an in-sim kidding record).
+            postpartum_due = None
+            if spec.bucket == Bucket.RECOVERY.value and not spec.dependent_kid:
+                postpartum_due = 1 + max(
+                    0, _PROFILE.postpartum_recovery_days - spec.days_in_bucket
+                )
             self.animals[spec.tag] = _Animal(
                 tag=spec.tag,
                 sex=spec.sex,
@@ -583,6 +599,7 @@ class _DailyOpsRun:
                 scanned=scanned,
                 pregnant=pregnant,
                 dependent_kid=spec.dependent_kid,
+                postpartum_due_day=postpartum_due,
                 milestone_floor=(spec.bred_days_ago if spec.bred_days_ago is not None else -1)
                 if pregnant
                 else -1,
@@ -683,7 +700,10 @@ class _DailyOpsRun:
             kid = self.animals.get(tag)
             if kid is not None and kid.active() and kid.bucket == Bucket.RECOVERY.value:
                 # Operational orphan/early wean: kids graduate to the sexed
-                # growing pens without the day-60 ceremony.
+                # growing pens without the day-60 ceremony. Graduation ends
+                # both the creep ration and the pre-weaning mortality hazard,
+                # exactly like the day-60 weaning below.
+                kid.dependent_kid = False
                 self._move(
                     kid,
                     day,
@@ -999,7 +1019,11 @@ class _DailyOpsRun:
                     animal.bucket,
                     [animal.tag],
                     f"Pre-kidding ET+TT vaccine booster: {animal.tag}",
-                    "Booster 15 days after the primary dose.",
+                    (
+                        "Booster 15 days after the primary dose."
+                        if animal.vaccine_primary_done
+                        else "Booster only — her primary dose pre-dates this run."
+                    ),
                 )
             if (
                 not animal.moved_to_delivery
@@ -1077,7 +1101,11 @@ class _DailyOpsRun:
         bucks = [
             a
             for a in sorted(self._active(), key=lambda a: a.tag)
-            if a.sex == "M" and a.bucket == Bucket.BREEDING.value
+            if a.sex == "M"
+            and a.bucket == Bucket.BREEDING.value
+            # The live app gates sires on age (and weight); the age proxy keeps
+            # a starter buck kid from serving does months too early.
+            and a.age_months(day) >= _PROFILE.min_sire_breeding_age_months
         ]
         if not bucks:
             return
@@ -1145,6 +1173,11 @@ class _DailyOpsRun:
             for _ in range(litter):
                 animal.litter_ordinal += 1
                 tag = f"{animal.tag}-{animal.litter_ordinal}"
+                # self.animals is keyed by tag: a starter already owning this
+                # kid tag must never be silently replaced by the newborn.
+                while tag in self.animals:
+                    animal.litter_ordinal += 1
+                    tag = f"{animal.tag}-{animal.litter_ordinal}"
                 female = self.rng.random() < self.params.female_fraction_at_birth
                 sex = "F" if female else "M"
                 stillborn = self.rng.random() < self.params.stillbirth_rate
@@ -1261,6 +1294,30 @@ class _DailyOpsRun:
                     "postpartum",
                     "Postpartum recovery complete (no surviving kids)",
                 )
+            elif animal.dependent_kid and animal.age_days(day) >= _PROFILE.weaning_days:
+                # Started unweaned kids carry no in-sim dam link, so the day-60
+                # clock runs on their own age; without this fallback they would
+                # stand in RECOVERY (on creep feed) forever.
+                animal.dependent_kid = False
+                self._record(
+                    day,
+                    TIME_DUTIES,
+                    "WEANING",
+                    animal.bucket,
+                    [animal.tag],
+                    f"Age wean {animal.tag}",
+                    (
+                        f"Starter kid with no dam link; weaning age "
+                        f"{_PROFILE.weaning_days} days reached."
+                    ),
+                )
+                self._move(
+                    animal,
+                    day,
+                    Bucket.MALE_KIDS.value if animal.sex == "M" else Bucket.FEMALE_KIDS.value,
+                    "weaning",
+                    f"Age {animal.age_days(day)} days (starter kid, no dam link)",
+                )
 
     def _mortality(self, day: int) -> None:
         for animal in sorted(self._active(), key=lambda a: a.tag):
@@ -1318,7 +1375,8 @@ class _DailyOpsRun:
                     f"Sell {animal.tag} — meat window",
                     (
                         f"Age ~{animal.age_months(day):.1f} months "
-                        f"(sale window {MEAT_SALE_AGE_MONTHS[0]}–{MEAT_SALE_AGE_MONTHS[1]} months)."
+                        f"(sale window {self.params.male_sale_age_months}–"
+                        f"{self.params.male_sale_age_months + 1} months)."
                     ),
                 )
                 self._exit(
@@ -1513,8 +1571,9 @@ def _build_explanations(result: DailyOpsResult, run: _DailyOpsRun) -> list[Metri
             explanation=(
                 f"{totals.moves} moves were executed, each validated against the same legal "
                 "bucket graph the live app enforces (models.lifecycle.LEGAL_BUCKET_TRANSITIONS) "
-                "and stamped with the workflow context that caused it — ultrasound, kidding, "
-                "weaning, delivery, quarantine release, abortion, postpartum or breeding."
+                "and stamped with the workflow context that caused it — manual, ultrasound, "
+                "delivery, kidding, weaning, orphan weaning, quarantine release, abortion, "
+                "postpartum or breeding."
             ),
             figures={"moves": totals.moves},
         ),
@@ -1542,11 +1601,15 @@ def _build_explanations(result: DailyOpsResult, run: _DailyOpsRun) -> list[Metri
             key="exits",
             title="Leaving the herd: sales, culls, deaths",
             explanation=(
-                f"{totals.sales} male kids were sold entering the 8–9 month meat window; "
-                f"{totals.culls} does were culled (two failed services or age "
+                f"{totals.sales} male kids were sold entering the "
+                f"{run.params.male_sale_age_months}–{run.params.male_sale_age_months + 1} "
+                f"month meat window; {totals.culls} does were culled "
+                f"({run.params.failed_services_before_cull} failed services or age "
                 f"{run.params.max_doe_age_months} months); {totals.deaths} animals died "
                 "(background mortality hazards converted from the operational phase rates: "
-                "15% kid loss across the 60-day pre-weaning window, 5% adult loss per year). "
+                f"{run.params.kid_pre_weaning_mortality:.0%} kid loss across the "
+                f"{GOAT_PROFILE.weaning_days}-day pre-weaning window, "
+                f"{run.params.adult_annual_mortality:.0%} adult loss per year). "
                 f"The herd stands at {head_end} head on the final day, from "
                 f"{result.head_start} at the start."
             ),
@@ -1585,7 +1648,8 @@ def _build_notes(result: DailyOpsResult, run: _DailyOpsRun) -> list[str]:
             "the live 22 kg weight gate is not modelled."
         ),
         (
-            "Meat sales fire entering the 8–9 month window; "
+            f"Meat sales fire entering the {run.params.male_sale_age_months}–"
+            f"{run.params.male_sale_age_months + 1} month window; "
             "the 24–28 kg weight band is not modelled."
         ),
         (
@@ -1594,10 +1658,15 @@ def _build_notes(result: DailyOpsResult, run: _DailyOpsRun) -> list[str]:
         ),
         (
             "A failed scan re-serves the doe on her next heat (21 days); "
-            "two consecutive failures cull her."
+            f"{run.params.failed_services_before_cull} consecutive failures cull her."
         ),
     ]
-    has_buck = any(a.sex == "M" and a.bucket == Bucket.BREEDING.value for a in run.animals.values())
+    has_buck = any(
+        a.sex == "M"
+        and a.bucket == Bucket.BREEDING.value
+        and a.age_months(1) >= GOAT_PROFILE.min_sire_breeding_age_months
+        for a in run.animals.values()
+    )
     if not has_buck:
         notes.append(
             "No buck stood in BREEDING at the start — no does can be served until one does."

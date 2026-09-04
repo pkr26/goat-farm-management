@@ -18,6 +18,10 @@ export interface DailyOpsRunIn {
      * @maximum 365
      */
   horizon_days?: number;
+  /**
+     * @minimum -4611686018427388000
+     * @maximum 4611686018427388000
+     */
   seed?: number;
   /**
      * @minItems 1

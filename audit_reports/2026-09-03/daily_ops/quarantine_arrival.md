@@ -1228,7 +1228,7 @@ Each morning the day's ration per recipe is mixed at the feed store and then del
 
 ### Every move is a legal lifecycle transition
 
-5 moves were executed, each validated against the same legal bucket graph the live app enforces (models.lifecycle.LEGAL_BUCKET_TRANSITIONS) and stamped with the workflow context that caused it — ultrasound, kidding, weaning, delivery, quarantine release, abortion, postpartum or breeding.
+5 moves were executed, each validated against the same legal bucket graph the live app enforces (models.lifecycle.LEGAL_BUCKET_TRANSITIONS) and stamped with the workflow context that caused it — manual, ultrasound, delivery, kidding, weaning, orphan weaning, quarantine release, abortion, postpartum or breeding.
 
 ### Reproduction: breed → scan +32d → kidding +150d
 
@@ -1236,7 +1236,7 @@ Each morning the day's ration per recipe is mixed at the feed store and then del
 
 ### Leaving the herd: sales, culls, deaths
 
-0 male kids were sold entering the 8–9 month meat window; 0 does were culled (two failed services or age 72 months); 0 animals died (background mortality hazards converted from the operational phase rates: 15% kid loss across the 60-day pre-weaning window, 5% adult loss per year). The herd stands at 5 head on the final day, from 5 at the start.
+0 male kids were sold entering the 8–9 month meat window; 0 does were culled (2 failed services or age 72 months); 0 animals died (background mortality hazards converted from the operational phase rates: 15% kid loss across the 60-day pre-weaning window, 0% adult loss per year). The herd stands at 5 head on the final day, from 5 at the start.
 
 ### Same input, same farm
 

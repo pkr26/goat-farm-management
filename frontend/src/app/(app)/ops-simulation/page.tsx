@@ -79,7 +79,9 @@ const BUCKETS = [
 
 type BucketCode = (typeof BUCKETS)[number];
 
-/** One building per bucket, labelled with the seeded goat names. */
+/** One building per bucket, labelled with the seeded goat names. Mirrors the
+ * backend's GOAT_BUILDING_NAMES (models/feed_rules.py); where the API sends
+ * an authoritative building_name (task rows), that wins over this map. */
 const BUILDING_NAMES: Record<string, string> = {
   QUARANTINE: "Quarantine Ward",
   FOUNDATION: "Foundation / Grow-out",
@@ -101,6 +103,11 @@ function buildingName(building: string): string {
 const MIN_HORIZON_DAYS = 7;
 const MAX_HORIZON_DAYS = 365;
 const MAX_START_HEAD = 500;
+// Per-animal bounds from AnimalStartSpec in shared/openapi.json; the backend
+// re-validates (422), but blocking the run client-side avoids a lost round trip.
+const MAX_AGE_MONTHS = 240;
+const MAX_DAYS_IN_BUCKET = 3650;
+const MAX_BRED_DAYS = 150;
 
 type HerdRow = {
   key: string;
@@ -238,6 +245,8 @@ export default function OpsSimulationPage() {
   const [result, setResult] = useState<DailyOpsResult | null>(null);
   const [ledger, setLedger] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(1);
+  // The ledger can be megabytes of text: it mounts only when opened.
+  const [ledgerOpen, setLedgerOpen] = useState(false);
 
   const rowErrors = useMemo(() => {
     const errors: string[] = [];
@@ -247,6 +256,21 @@ export default function OpsSimulationPage() {
     if (duplicates.length > 0) errors.push(`Duplicate tags: ${[...new Set(duplicates)].join(", ")}`);
     if (rows.length === 0) errors.push("Add at least one animal.");
     if (rows.length > MAX_START_HEAD) errors.push(`At most ${MAX_START_HEAD} head per run.`);
+    for (const row of rows) {
+      const label = row.tag.trim() || "an unnamed animal";
+      if (row.ageMonths < 0 || row.ageMonths > MAX_AGE_MONTHS) {
+        errors.push(`${label}: age must be 0–${MAX_AGE_MONTHS} months.`);
+      }
+      if (row.daysInBucket < 0 || row.daysInBucket > MAX_DAYS_IN_BUCKET) {
+        errors.push(`${label}: days in bucket must be 0–${MAX_DAYS_IN_BUCKET}.`);
+      }
+      if (row.bredDaysAgo.trim() !== "") {
+        const bred = Number(row.bredDaysAgo);
+        if (!Number.isInteger(bred) || bred < 0 || bred > MAX_BRED_DAYS) {
+          errors.push(`${label}: bred days ago must be a whole number 0–${MAX_BRED_DAYS}.`);
+        }
+      }
+    }
     return errors;
   }, [rows]);
 
@@ -291,6 +315,7 @@ export default function OpsSimulationPage() {
         setResult(response.data.result);
         setLedger(response.data.ledger ?? null);
         setSelectedDay(1);
+        setLedgerOpen(false);
         window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (err) {
         toast.error(errorMessage(err, "The simulation could not run."));
@@ -476,11 +501,11 @@ export default function OpsSimulationPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
+                {rows.map((row, index) => (
                   <TableRow key={row.key}>
                     <TableCell>
                       <Input
-                        aria-label={`Tag for row ${row.key}`}
+                        aria-label={`Tag for row ${index + 1}${row.tag.trim() ? ` (${row.tag.trim()})` : ""}`}
                         value={row.tag}
                         onChange={(event) => updateRow(row.key, { tag: event.target.value })}
                         className="w-28"
@@ -624,6 +649,7 @@ export default function OpsSimulationPage() {
                       size="sm"
                       className="h-8 px-2 text-xs"
                       onClick={() => setSelectedDay(day.day)}
+                      aria-pressed={day.day === selectedDay}
                       aria-label={`Go to day ${day.day}${badges ? ` — ${badges}` : " — routine"}`}
                       title={badges || `Day ${day.day} — routine only`}
                     >
@@ -665,7 +691,7 @@ export default function OpsSimulationPage() {
                               </span>
                             ) : null}
                           </TableCell>
-                          <TableCell>{buildingName(task.building)}</TableCell>
+                          <TableCell>{task.building_name ?? buildingName(task.building)}</TableCell>
                           <TableCell>{task.role}</TableCell>
                         </TableRow>
                       ))}
@@ -813,47 +839,50 @@ export default function OpsSimulationPage() {
             title="Animal journeys"
             description="One row per animal: where it started, every hop between buildings, and how it ended."
           >
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-24">Tag</TableHead>
-                  <TableHead className="w-14">Sex</TableHead>
-                  <TableHead className="w-20">Born</TableHead>
-                  <TableHead>Hops</TableHead>
-                  <TableHead className="w-56">Final</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {result.journeys.map((journey) => (
-                  <TableRow key={journey.tag}>
-                    <TableCell className="font-medium">{journey.tag}</TableCell>
-                    <TableCell>{journey.sex}</TableCell>
-                    <TableCell>{journey.born_day ?? "start"}</TableCell>
-                    <TableCell>
-                      {(journey.hops ?? []).length === 0
-                        ? "—"
-                        : (journey.hops ?? [])
-                            .map(
-                              (hop) =>
-                                `d${hop.day} ${buildingName(hop.from_bucket ?? "")}→${buildingName(
-                                  hop.to_bucket,
-                                )} (${hop.context})`,
-                            )
-                            .join(" → ")}
-                    </TableCell>
-                    <TableCell>
-                      {journey.final_bucket ? (
-                        `${buildingName(journey.final_bucket)} (active)`
-                      ) : (
-                        <span>
-                          {journey.exit_kind} on day {journey.exit_day} — {journey.exit_reason}
-                        </span>
-                      )}
-                    </TableCell>
+            {/* One row per animal ever alive — scroll the body, not the page. */}
+            <div className="max-h-96 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-24">Tag</TableHead>
+                    <TableHead className="w-14">Sex</TableHead>
+                    <TableHead className="w-20">Born</TableHead>
+                    <TableHead>Hops</TableHead>
+                    <TableHead className="w-56">Final</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {result.journeys.map((journey) => (
+                    <TableRow key={journey.tag}>
+                      <TableCell className="font-medium">{journey.tag}</TableCell>
+                      <TableCell>{journey.sex}</TableCell>
+                      <TableCell>{journey.born_day ?? "start"}</TableCell>
+                      <TableCell>
+                        {(journey.hops ?? []).length === 0
+                          ? "—"
+                          : (journey.hops ?? [])
+                              .map(
+                                (hop) =>
+                                  `d${hop.day} ${buildingName(hop.from_bucket ?? "")}→${buildingName(
+                                    hop.to_bucket,
+                                  )} (${hop.context})`,
+                              )
+                              .join(" → ")}
+                      </TableCell>
+                      <TableCell>
+                        {journey.final_bucket ? (
+                          `${buildingName(journey.final_bucket)} (active)`
+                        ) : (
+                          <span>
+                            {journey.exit_kind} on day {journey.exit_day} — {journey.exit_reason}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </DataTableCard>
 
           <Card>
@@ -880,18 +909,26 @@ export default function OpsSimulationPage() {
               </ul>
               {ledger && (
                 <div>
-                  <Button variant="outline" size="sm" onClick={downloadLedger}>
-                    <Download />
-                    Download the day-by-day ledger
-                  </Button>
-                  <details className="mt-2">
-                    <summary className="cursor-pointer text-sm text-muted-foreground">
-                      Preview the ledger (Markdown)
-                    </summary>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={downloadLedger}>
+                      <Download />
+                      Download the day-by-day ledger
+                    </Button>
+                    <Button
+                      id="ops-sim-ledger-preview-toggle"
+                      variant="ghost"
+                      size="sm"
+                      aria-pressed={ledgerOpen}
+                      onClick={() => setLedgerOpen((value) => !value)}
+                    >
+                      {ledgerOpen ? "Hide the ledger preview" : "Preview the ledger (Markdown)"}
+                    </Button>
+                  </div>
+                  {ledgerOpen && (
                     <pre className="mt-2 max-h-96 overflow-auto rounded-lg border bg-muted/40 p-3 text-xs">
                       {ledger}
                     </pre>
-                  </details>
+                  )}
                 </div>
               )}
             </CardContent>

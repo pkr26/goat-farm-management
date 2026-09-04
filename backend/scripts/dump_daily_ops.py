@@ -8,7 +8,9 @@ Run from the repo root:
 
     backend/.venv/bin/python backend/scripts/dump_daily_ops.py [out-dir]
 
-Default out-dir: audit_reports/<today>/daily_ops
+Default out-dir: audit_reports/2026-09-03/daily_ops — pinned to the commit
+date (not <today>) so regeneration is byte-stable across days; pass an
+explicit out-dir to write elsewhere.
 """
 
 import sys
