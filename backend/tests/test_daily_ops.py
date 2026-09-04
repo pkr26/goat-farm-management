@@ -750,7 +750,7 @@ def test_no_buck_note_when_herd_has_no_sire() -> None:
         )
     )
     assert result.totals.services == 0
-    assert any("No buck stood in BREEDING" in note for note in result.notes)
+    assert any("No buck in this herd" in note for note in result.notes)
 
 
 # ---------------------------------------------------------------------------
@@ -1122,3 +1122,142 @@ def test_seed_bounds_match_the_api_layer() -> None:
     ).seed == -(2**62)
     with pytest.raises(ValidationError):
         DailyOpsInput(start_date=date(2026, 9, 3), animals=[_doe()], seed=2**62 + 1)
+
+
+# ---------------------------------------------------------------------------
+# 7. Stranded-male fixes: RECOVERY males rejected, Foundation sires graduate
+# ---------------------------------------------------------------------------
+
+
+def test_rejects_male_in_recovery_without_dependent_kid() -> None:
+    """The only males in RECOVERY are unweaned kids with their dam; a male
+    standing there without dependent_kid has no exit in the engine (sales fire
+    from MALE_KIDS, culls apply to does), so the input is rejected up front
+    instead of stranding him for the whole run."""
+    with pytest.raises(ValidationError, match="growers belong in MALE_KIDS"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[
+                AnimalStartSpec(
+                    tag="M9", sex="M", bucket="RECOVERY", age_months=6, days_in_bucket=10
+                )
+            ],
+        )
+    # The coherent form — an unweaned male kid with its dam — is still valid
+    # and weans by age (covered by test_recovery_starter_kid_weans_by_age).
+    AnimalStartSpec(
+        tag="K1", sex="M", bucket="RECOVERY", age_months=1, dependent_kid=True
+    )
+
+
+def test_sire_graduates_from_foundation_and_serves_same_day() -> None:
+    """A Foundation grower past the 12-month sire gate graduates into the
+    breeding pen (context 'breeding') and covers a waiting doe the same day:
+    the graduation runs before the bucks are collected."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            seed=1,
+            animals=[
+                _doe(),
+                AnimalStartSpec(tag="G1", sex="M", bucket="FOUNDATION", age_months=13),
+            ],
+            params=_quiet_params(),
+        )
+    )
+    assert _moves_of(result, "G1") == [(1, "FOUNDATION", "BREEDING", "breeding")]
+    assert any("Graduate G1 to BREEDING" in h for _, _, h in _tasks_on(result, 1))
+    assert result.totals.services == 1
+    assert any(t.headline == "Breed D1 — sire G1" for t in result.days[0].tasks)
+
+
+def test_foundation_male_waits_for_the_sire_age_gate() -> None:
+    """An 11-month grower (dob day -334: 11 × 30.44 = 334.84 → 335) reaches
+    12 months (365.28 days) on day 32 — no service before, graduation and
+    service on the day itself."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=40,
+            seed=1,
+            animals=[
+                _doe(),
+                AnimalStartSpec(tag="G1", sex="M", bucket="FOUNDATION", age_months=11),
+            ],
+            params=_quiet_params(),
+        )
+    )
+    assert _moves_of(result, "G1") == [(32, "FOUNDATION", "BREEDING", "breeding")]
+    assert result.totals.services == 1
+    assert any(
+        t.headline == "Breed D1 — sire G1" for t in result.days[31].tasks
+    )
+    assert all(
+        "Breed D1" not in t.headline
+        for record in result.days[:31]
+        for t in record.tasks
+    )
+
+
+def test_quarantined_male_releases_then_graduates_same_day() -> None:
+    """A mature male finishing quarantine (protocol day 45 on day 1) is
+    released to FOUNDATION in the 09:00 round and graduates to BREEDING in
+    the same day's breeding phase — the two hops land on one day, in order."""
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            seed=1,
+            animals=[
+                AnimalStartSpec(
+                    tag="Q1",
+                    sex="M",
+                    bucket="QUARANTINE",
+                    age_months=24,
+                    days_in_bucket=44,
+                )
+            ],
+            params=_quiet_params(),
+        )
+    )
+    assert _moves_of(result, "Q1") == [
+        (1, "QUARANTINE", "FOUNDATION", "quarantine_release"),
+        (1, "FOUNDATION", "BREEDING", "breeding"),
+    ]
+
+
+def test_no_buck_note_distinguishes_future_sires_from_no_male() -> None:
+    """With no standing buck the note must say when services can still begin
+    (a young sire exists somewhere) and when they cannot (no male at all)."""
+    future = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe(), AnimalStartSpec(tag="G1", sex="M", bucket="FOUNDATION", age_months=6)],
+            params=_quiet_params(),
+        )
+    )
+    assert future.totals.services == 0
+    assert any("No buck stood in BREEDING" in note for note in future.notes)
+    assert any("12-month age gate" in note for note in future.notes)
+
+    young_in_pen = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe(), AnimalStartSpec(tag="B1", sex="M", bucket="BREEDING", age_months=2)],
+            params=_quiet_params(),
+        )
+    )
+    assert any("No buck stood in BREEDING" in note for note in young_in_pen.notes)
+
+    none = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe()],
+            params=_quiet_params(),
+        )
+    )
+    assert any("No buck in this herd" in note for note in none.notes)

@@ -5,7 +5,7 @@
  * in those paths cannot survive.
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -350,9 +350,13 @@ describe("OpsSimulationPage — journeys and gating", () => {
     renderWithProviders(<OpsSimulationPage />);
     await run(user);
 
-    expect(
-      screen.getByText("d2 Delivery Ward→Recovery Ward (kidding)"),
-    ).toBeInTheDocument();
+    // The journey hop renders as one chip-row: day, [from] → [to], context.
+    const journeyRow = screen.getByRole("row", { name: /SOLD on day 9/ });
+    const hop = within(journeyRow).getByRole("listitem");
+    expect(within(hop).getByText("d2")).toBeInTheDocument();
+    expect(within(hop).getByTitle("Delivery Ward")).toBeInTheDocument();
+    expect(within(hop).getByTitle("Recovery Ward")).toBeInTheDocument();
+    expect(within(hop).getByText("kidding")).toBeInTheDocument();
     expect(screen.getByText(/SOLD on day 9 — Cull/)).toBeInTheDocument();
     expect(screen.getByText(/Breeding Bucket \(active\)/)).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument(); // D1 never moved

@@ -98,6 +98,22 @@ async def test_run_rejects_incoherent_herd(client: httpx.AsyncClient) -> None:
     assert "unique" in str(resp.json()["detail"])
 
 
+async def test_run_rejects_male_in_recovery_without_dependent_kid(
+    client: httpx.AsyncClient,
+) -> None:
+    """A male standing in RECOVERY without dependent_kid would be stranded for
+    the whole run (no sale, no cull path), so the herd is rejected with 422."""
+    headers = await owner_with_farm(client, email="male-recovery@ops-sim.in")
+    document = _run_document(
+        animals=[
+            {"tag": "M9", "sex": "M", "bucket": "RECOVERY", "age_months": 6, "days_in_bucket": 10}
+        ]
+    )
+    resp = await client.post("/api/ops-sim/run", json=document, headers=headers)
+    assert resp.status_code == 422
+    assert "MALE_KIDS" in str(resp.json()["detail"])
+
+
 async def test_run_rejects_strict_and_bounded_fields(client: httpx.AsyncClient) -> None:
     headers = await owner_with_farm(client, email="bounds@ops-sim.in")
     # Float horizon (strict int) and out-of-range values all 422 before a run.

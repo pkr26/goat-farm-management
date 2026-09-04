@@ -15,6 +15,7 @@
 
 import { useMemo, useState, type ComponentProps } from "react";
 import {
+  ArrowRight,
   Baby,
   Banknote,
   Beef,
@@ -63,6 +64,7 @@ import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
+import { cn } from "@/lib/utils";
 
 const BUCKETS = [
   "QUARANTINE",
@@ -98,6 +100,127 @@ const BUILDING_NAMES: Record<string, string> = {
 
 function buildingName(building: string): string {
   return BUILDING_NAMES[building] ?? building;
+}
+
+/** One stable colour per bucket, used everywhere a building appears on this
+ * page (moves, transition matrix, journeys, occupancy) so an animal's path
+ * between buildings can be tracked by colour alone. */
+const BUCKET_COLORS: Record<string, { chip: string; dot: string }> = {
+  QUARANTINE: {
+    chip: "border-orange-500/40 bg-orange-500/15 text-orange-700 dark:text-orange-300",
+    dot: "bg-orange-500",
+  },
+  FOUNDATION: {
+    chip: "border-lime-500/40 bg-lime-500/15 text-lime-700 dark:text-lime-300",
+    dot: "bg-lime-500",
+  },
+  BREEDING: {
+    chip: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
+    dot: "bg-violet-500",
+  },
+  PREGNANCY_EARLY: {
+    chip: "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300",
+    dot: "bg-fuchsia-500",
+  },
+  PREGNANCY_LATE: {
+    chip: "border-pink-500/40 bg-pink-500/15 text-pink-700 dark:text-pink-300",
+    dot: "bg-pink-500",
+  },
+  DELIVERY: {
+    chip: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300",
+    dot: "bg-amber-500",
+  },
+  RECOVERY: {
+    chip: "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+    dot: "bg-emerald-500",
+  },
+  RESTING: {
+    chip: "border-teal-500/40 bg-teal-500/15 text-teal-700 dark:text-teal-300",
+    dot: "bg-teal-500",
+  },
+  MALE_KIDS: {
+    chip: "border-blue-500/40 bg-blue-500/15 text-blue-700 dark:text-blue-300",
+    dot: "bg-blue-500",
+  },
+  FEMALE_KIDS: {
+    chip: "border-indigo-500/40 bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
+    dot: "bg-indigo-500",
+  },
+  FEED_STORE: {
+    chip: "border-slate-500/40 bg-slate-500/15 text-slate-700 dark:text-slate-300",
+    dot: "bg-slate-500",
+  },
+};
+
+/** Compact chip labels; the full building name rides along in the tooltip. */
+const SHORT_BUILDING_NAMES: Record<string, string> = {
+  QUARANTINE: "Quarantine",
+  FOUNDATION: "Foundation",
+  BREEDING: "Breeding",
+  PREGNANCY_EARLY: "Pregnancy A",
+  PREGNANCY_LATE: "Pregnancy B",
+  DELIVERY: "Delivery",
+  RECOVERY: "Recovery",
+  RESTING: "Resting",
+  MALE_KIDS: "Male Kids",
+  FEMALE_KIDS: "Female Kids",
+  FEED_STORE: "Feed Store",
+};
+
+/** A colour-coded building chip: the visual atom for "where an animal is". */
+function BucketChip({ bucket, className }: { bucket: string; className?: string }) {
+  const colors = BUCKET_COLORS[bucket] ?? BUCKET_COLORS.FEED_STORE;
+  return (
+    <span
+      title={buildingName(bucket)}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-medium whitespace-nowrap",
+        colors.chip,
+        className,
+      )}
+    >
+      <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", colors.dot)} />
+      {SHORT_BUILDING_NAMES[bucket] ?? bucket}
+    </span>
+  );
+}
+
+/** The arrow between two chips — an icon, never a text glyph, so it cannot be
+ * confused with the building names around it. */
+function BucketArrow({ className }: { className?: string }) {
+  return (
+    <ArrowRight
+      aria-hidden="true"
+      className={cn("size-3.5 shrink-0 text-muted-foreground", className)}
+    />
+  );
+}
+
+/** The workflow context that caused a move, shown as a quiet mono badge. */
+function ContextBadge({ context }: { context: string }) {
+  return (
+    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+      {context}
+    </span>
+  );
+}
+
+/** One hop as a chip pair: [from] → [to]. Shared by the moves table, the
+ * transition matrix and the journeys list so the three read identically. */
+function BucketMoveLine({
+  fromBucket,
+  toBucket,
+}: {
+  fromBucket: string | null;
+  toBucket: string;
+}) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <BucketChip bucket={fromBucket ?? ""} />
+      <BucketArrow />
+      <BucketChip bucket={toBucket} />
+    </span>
+  );
 }
 
 const MIN_HORIZON_DAYS = 7;
@@ -748,7 +871,18 @@ export default function OpsSimulationPage() {
                       <TableBody>
                         {selectedRecord.occupancy?.map((row) => (
                           <TableRow key={row.building}>
-                            <TableCell>{buildingName(row.building)}</TableCell>
+                            <TableCell>
+                              <span className="flex items-center gap-2">
+                                <span
+                                  aria-hidden="true"
+                                  className={cn(
+                                    "size-2 shrink-0 rounded-full",
+                                    (BUCKET_COLORS[row.building] ?? BUCKET_COLORS.FEED_STORE).dot,
+                                  )}
+                                />
+                                {buildingName(row.building)}
+                              </span>
+                            </TableCell>
                             <TableCell className="text-right tabular-nums">{row.heads}</TableCell>
                           </TableRow>
                         ))}
@@ -774,9 +908,14 @@ export default function OpsSimulationPage() {
                         <TableRow key={index}>
                           <TableCell className="font-medium">{move.tag}</TableCell>
                           <TableCell>
-                            {buildingName(move.from_bucket ?? "")} → {buildingName(move.to_bucket)}
+                            <BucketMoveLine
+                              fromBucket={move.from_bucket}
+                              toBucket={move.to_bucket}
+                            />
                           </TableCell>
-                          <TableCell>{move.context}</TableCell>
+                          <TableCell>
+                            <ContextBadge context={move.context} />
+                          </TableCell>
                           <TableCell className="text-muted-foreground">{move.reason}</TableCell>
                         </TableRow>
                       ))}
@@ -825,9 +964,15 @@ export default function OpsSimulationPage() {
               <TableBody>
                 {result.transition_counts.map((row) => (
                   <TableRow key={`${row.from_bucket}-${row.to_bucket}-${row.context}`}>
-                    <TableCell>{buildingName(row.from_bucket)}</TableCell>
-                    <TableCell>{buildingName(row.to_bucket)}</TableCell>
-                    <TableCell>{row.context}</TableCell>
+                    <TableCell>
+                      <BucketChip bucket={row.from_bucket} />
+                    </TableCell>
+                    <TableCell>
+                      <BucketChip bucket={row.to_bucket} />
+                    </TableCell>
+                    <TableCell>
+                      <ContextBadge context={row.context} />
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{row.count}</TableCell>
                   </TableRow>
                 ))}
@@ -858,20 +1003,45 @@ export default function OpsSimulationPage() {
                       <TableCell>{journey.sex}</TableCell>
                       <TableCell>{journey.born_day ?? "start"}</TableCell>
                       <TableCell>
-                        {(journey.hops ?? []).length === 0
-                          ? "—"
-                          : (journey.hops ?? [])
-                              .map(
-                                (hop) =>
-                                  `d${hop.day} ${buildingName(hop.from_bucket ?? "")}→${buildingName(
-                                    hop.to_bucket,
-                                  )} (${hop.context})`,
-                              )
-                              .join(" → ")}
+                        {(journey.hops ?? []).length === 0 ? (
+                          "—"
+                        ) : (
+                          // One chip-row per hop: the day, [from] → [to] and
+                          // the context — a journey reads top-to-bottom, not
+                          // as one long text run.
+                          <ol className="space-y-1">
+                            {(journey.hops ?? []).map((hop, index) => (
+                              <li
+                                key={index}
+                                className="flex flex-wrap items-center gap-1"
+                                aria-label={`Day ${hop.day}: ${buildingName(hop.from_bucket ?? "")} to ${buildingName(hop.to_bucket)} (${hop.context})`}
+                              >
+                                <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                                  d{hop.day}
+                                </span>
+                                <BucketChip bucket={hop.from_bucket ?? ""} />
+                                <BucketArrow />
+                                <BucketChip bucket={hop.to_bucket} />
+                                <ContextBadge context={hop.context} />
+                              </li>
+                            ))}
+                          </ol>
+                        )}
                       </TableCell>
                       <TableCell>
                         {journey.final_bucket ? (
-                          `${buildingName(journey.final_bucket)} (active)`
+                          <span className="flex items-center gap-1.5">
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                "size-2 shrink-0 rounded-full",
+                                (
+                                  BUCKET_COLORS[journey.final_bucket] ?? BUCKET_COLORS.FEED_STORE
+                                ).dot,
+                              )}
+                            />
+                            {buildingName(journey.final_bucket)} (active)
+                          </span>
                         ) : (
                           <span>
                             {journey.exit_kind} on day {journey.exit_day} — {journey.exit_reason}

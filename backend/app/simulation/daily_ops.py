@@ -206,6 +206,15 @@ class AnimalStartSpec(BaseModel):
             raise ValueError(f"Only female animals may start in {self.bucket}")
         if self.dependent_kid and self.bucket != Bucket.RECOVERY.value:
             raise ValueError("dependent_kid only applies in RECOVERY (kids with their dam)")
+        # Operationally the only males in RECOVERY are unweaned kids with their
+        # dam; anything else has no exit from the bucket in the engine (sales
+        # fire from MALE_KIDS, culls apply to does), so it must be rejected
+        # here rather than strand the animal for the whole run.
+        if self.sex == "M" and self.bucket == Bucket.RECOVERY.value and not self.dependent_kid:
+            raise ValueError(
+                "A male in RECOVERY must be an unweaned kid with its dam "
+                "(dependent_kid=true); growers belong in MALE_KIDS"
+            )
         return self
 
 
@@ -493,7 +502,6 @@ class _Animal:
     hops: list[_Hop] = field(default_factory=list)
     # reproductive state
     bred_day: int | None = None
-    scanned: bool = True  # starting does in BREEDING with bred_days_ago rescan
     pregnant: bool = False
     assigned_buck: str | None = None
     failed_services: int = 0
@@ -573,13 +581,9 @@ class _DailyOpsRun:
             dob_day = 1 - round(spec.age_months * DAYS_PER_MONTH)
             bred_day = None
             pregnant = False
-            scanned = True
             if spec.bred_days_ago is not None:
                 bred_day = 1 - spec.bred_days_ago
                 pregnant = spec.bucket in PREGNANT_BUCKETS
-                scanned = (
-                    pregnant or spec.bred_days_ago < _PROFILE.pregnancy_check_after_service_days
-                )
             # A started doe standing in RECOVERY without a dependent kid is
             # mid postpartum recovery: without this clock she could never
             # leave the bucket (weaning needs an in-sim kidding record).
@@ -596,7 +600,6 @@ class _DailyOpsRun:
                 entered_day=1 - spec.days_in_bucket,
                 hops=[],
                 bred_day=bred_day,
-                scanned=scanned,
                 pregnant=pregnant,
                 dependent_kid=spec.dependent_kid,
                 postpartum_due_day=postpartum_due,
@@ -886,7 +889,6 @@ class _DailyOpsRun:
                     f"(+{_PROFILE.pregnancy_check_after_service_days}d check)."
                 ),
             )
-            animal.scanned = True
             scan_building = animal.bucket
             conceived = self.rng.random() < self.params.conception_rate
             if conceived:
@@ -1064,6 +1066,36 @@ class _DailyOpsRun:
     # -- phase 4: lifecycle events --------------------------------------------------
 
     def _breeding(self, day: int) -> None:
+        # Young sires graduate out of FOUNDATION into the breeding pen at the
+        # sire age gate — the mirror of the doe graduation below, and the only
+        # path that can put a buck into BREEDING mid-run (without it a herd
+        # that starts with no standing buck can never breed, however many
+        # growers mature).
+        for animal in sorted(self._active(), key=lambda a: a.tag):
+            if animal.sex != "M" or animal.bucket != Bucket.FOUNDATION.value:
+                continue
+            if animal.age_months(day) < _PROFILE.min_sire_breeding_age_months:
+                continue
+            self._record(
+                day,
+                TIME_DUTIES,
+                "BUCKET_MOVE",
+                animal.bucket,
+                [animal.tag],
+                f"Graduate {animal.tag} to BREEDING — sire age",
+                (
+                    f"Sire age gate {_PROFILE.min_sire_breeding_age_months} months "
+                    f"reached (age ~{animal.age_months(day):.1f} months); "
+                    "he joins the breeding pen."
+                ),
+            )
+            self._move(
+                animal,
+                day,
+                Bucket.BREEDING.value,
+                "breeding",
+                f"Sire age reached (~{animal.age_months(day):.1f} months)",
+            )
         # Collect eligible does WITHOUT moving anyone yet: operationally the
         # breeding record (which needs a sire) is what moves a doe into
         # BREEDING, so with no buck standing nobody graduates either.
@@ -1140,7 +1172,6 @@ class _DailyOpsRun:
                 continue
             doe.bred_day = day
             doe.assigned_buck = buck.tag
-            doe.scanned = False
             doe.moved_to_late = False
             doe.vaccine_primary_done = False
             doe.vaccine_booster_done = False
@@ -1661,15 +1692,29 @@ def _build_notes(result: DailyOpsResult, run: _DailyOpsRun) -> list[str]:
             f"{run.params.failed_services_before_cull} consecutive failures cull her."
         ),
     ]
-    has_buck = any(
-        a.sex == "M"
-        and a.bucket == Bucket.BREEDING.value
-        and a.age_months(1) >= GOAT_PROFILE.min_sire_breeding_age_months
-        for a in run.animals.values()
+    # Judged on the START state (a buck that matured during the run did not
+    # stand at the start): BREEDING bucks stand, and FOUNDATION/QUARANTINE
+    # growers are the only paths that can still put one in BREEDING.
+    standing_buck = any(
+        spec.sex == "M"
+        and spec.bucket == Bucket.BREEDING.value
+        and spec.age_months >= GOAT_PROFILE.min_sire_breeding_age_months
+        for spec in run.payload.animals
     )
-    if not has_buck:
+    if not standing_buck:
+        future_buck = any(
+            spec.sex == "M"
+            and spec.bucket
+            in (Bucket.BREEDING.value, Bucket.FOUNDATION.value, Bucket.QUARANTINE.value)
+            for spec in run.payload.animals
+        )
         notes.append(
-            "No buck stood in BREEDING at the start — no does can be served until one does."
+            "No buck stood in BREEDING at the start — services begin once a young "
+            "sire reaches the "
+            f"{GOAT_PROFILE.min_sire_breeding_age_months}-month age gate (Foundation "
+            "growers graduate into the breeding pen)."
+            if future_buck
+            else "No buck in this herd — no does can be served this run."
         )
     return notes
 
