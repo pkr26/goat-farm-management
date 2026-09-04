@@ -48,9 +48,7 @@ def upgrade() -> None:
         sa.Column("original_fat_pct", sa.Numeric(4, 2, asdecimal=False), nullable=True),
     )
     op.add_column("milk_records", sa.Column("original_notes", sa.Text(), nullable=True))
-    op.add_column(
-        "milk_records", sa.Column("original_recorded_by_id", sa.Integer(), nullable=True)
-    )
+    op.add_column("milk_records", sa.Column("original_recorded_by_id", sa.Integer(), nullable=True))
     op.create_foreign_key(
         "fk_milk_records_original_recorded_by",
         "milk_records",

@@ -70,7 +70,6 @@ def downgrade() -> None:
     # (code = NULL) — the d5e7f9a1b3c4 normalization pattern. Role ids,
     # memberships and every historical duty reference survive intact.
     op.execute(
-        f"UPDATE roles SET code = NULL "
-        f"WHERE code IS NOT NULL AND code NOT IN ({LEGACY_CODES_SQL})"
+        f"UPDATE roles SET code = NULL WHERE code IS NOT NULL AND code NOT IN ({LEGACY_CODES_SQL})"
     )
     _swap_constraint(LEGACY_CODES_SQL)
