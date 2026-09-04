@@ -45,6 +45,8 @@ import type {
   BucketBoardRow,
   ChangePasswordIn,
   CompareScenariosApiSimulationScenariosCompareGetParams,
+  DailyOpsRunIn,
+  DailyOpsRunOut,
   DashboardOut,
   DispenseIn,
   ErrorOut,
@@ -12805,5 +12807,127 @@ export const useDeletePlanApiPlannerPlansPlanIdDelete = <TError = ErrorType<Erro
         TContext
       > => {
       return useMutation(getDeletePlanApiPlannerPlansPlanIdDeleteMutationOptions(options), queryClient);
+    }
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse200 = {
+  data: DailyOpsRunOut
+  status: 200
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse400 = {
+  data: ErrorOut
+  status: 400
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse401 = {
+  data: ErrorOut
+  status: 401
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse403 = {
+  data: ErrorOut
+  status: 403
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse404 = {
+  data: ErrorOut
+  status: 404
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse409 = {
+  data: ErrorOut
+  status: 409
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse422 = {
+  data: HTTPValidationError
+  status: 422
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse429 = {
+  data: ErrorOut
+  status: 429
+}
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponseSuccess = (runDailyOpsSimulationApiOpsSimRunPostResponse200) & {
+  headers: Headers;
+};
+export type runDailyOpsSimulationApiOpsSimRunPostResponseError = (runDailyOpsSimulationApiOpsSimRunPostResponse400 | runDailyOpsSimulationApiOpsSimRunPostResponse401 | runDailyOpsSimulationApiOpsSimRunPostResponse403 | runDailyOpsSimulationApiOpsSimRunPostResponse404 | runDailyOpsSimulationApiOpsSimRunPostResponse409 | runDailyOpsSimulationApiOpsSimRunPostResponse422 | runDailyOpsSimulationApiOpsSimRunPostResponse429) & {
+  headers: Headers;
+};
+
+export type runDailyOpsSimulationApiOpsSimRunPostResponse = (runDailyOpsSimulationApiOpsSimRunPostResponseSuccess | runDailyOpsSimulationApiOpsSimRunPostResponseError)
+
+export const getRunDailyOpsSimulationApiOpsSimRunPostUrl = () => {
+
+
+
+
+  return `/api/ops-sim/run`
+}
+
+/**
+ * Simulate the farm day by day: the full duty schedule per building,
+ * every bucket move with its cause, feed manifests, births and exits.
+ * @summary Run Daily Ops Simulation
+ */
+export const runDailyOpsSimulationApiOpsSimRunPost = async (dailyOpsRunIn: DailyOpsRunIn, options?: Parameters<typeof customInstance>[1]): Promise<runDailyOpsSimulationApiOpsSimRunPostResponse> => {
+
+  return customInstance<runDailyOpsSimulationApiOpsSimRunPostResponse>(getRunDailyOpsSimulationApiOpsSimRunPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dailyOpsRunIn)
+  }
+);}
+
+
+
+
+
+export const getRunDailyOpsSimulationApiOpsSimRunPostMutationOptions = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDailyOpsSimulationApiOpsSimRunPost>>, TError,{data: DailyOpsRunIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+): UseMutationOptions<Awaited<ReturnType<typeof runDailyOpsSimulationApiOpsSimRunPost>>, TError,{data: DailyOpsRunIn}, TContext> => {
+
+const mutationKey = ['runDailyOpsSimulationApiOpsSimRunPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runDailyOpsSimulationApiOpsSimRunPost>>, {data: DailyOpsRunIn}> = (props) => {
+          const {data} = props ?? {};
+
+          return  runDailyOpsSimulationApiOpsSimRunPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunDailyOpsSimulationApiOpsSimRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runDailyOpsSimulationApiOpsSimRunPost>>>
+    export type RunDailyOpsSimulationApiOpsSimRunPostMutationBody = DailyOpsRunIn
+    export type RunDailyOpsSimulationApiOpsSimRunPostMutationError = ErrorType<ErrorOut | HTTPValidationError>
+
+    /**
+ * @summary Run Daily Ops Simulation
+ */
+export const useRunDailyOpsSimulationApiOpsSimRunPost = <TError = ErrorType<ErrorOut | HTTPValidationError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDailyOpsSimulationApiOpsSimRunPost>>, TError,{data: DailyOpsRunIn}, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runDailyOpsSimulationApiOpsSimRunPost>>,
+        TError,
+        {data: DailyOpsRunIn},
+        TContext
+      > => {
+      return useMutation(getRunDailyOpsSimulationApiOpsSimRunPostMutationOptions(options), queryClient);
     }
 

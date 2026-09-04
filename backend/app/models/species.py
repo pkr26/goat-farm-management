@@ -2,7 +2,7 @@
 
 A farm's ``farm_type`` selects one of these profiles; every service that
 currently hardcodes goat biology reads its numbers from here instead. The
-lifecycle bucket graph (services.animals.LEGAL_BUCKET_TRANSITIONS) is shared:
+lifecycle bucket graph (models.lifecycle.LEGAL_BUCKET_TRANSITIONS) is shared:
 each species only re-labels the same ten stage codes and adjusts timing.
 
 Values are per-breed commercial practice for the species this app models:

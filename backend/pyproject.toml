@@ -90,6 +90,7 @@ pytest_add_cli_args_test_selection = [
     "tests/test_simulation_planner.py",
     "tests/test_simulation_milk_planner.py",
     "tests/test_backward_planner.py",
+    "tests/test_daily_ops.py",
 ]
 mutate_only_covered_lines = true
 # mutmut excludes Python files from its generic dependency hash. Explicitly

@@ -53,7 +53,7 @@ function navGroupItems(label: string) {
 
 async function renderShell() {
   const rendered = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
-  await waitFor(() => expect(navLinks()).toHaveLength(14));
+  await waitFor(() => expect(navLinks()).toHaveLength(15));
   return rendered;
 }
 
@@ -173,7 +173,7 @@ describe("AppLayout — species-aware nav labels", () => {
     );
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     expect(navGroupItems("Herd")).toEqual(["Animals", "Buckets", "Breeding / AI", "Calving"]);
     expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding", "Milk"]);
     expect(screen.getByRole("link", { name: "Switch farm — current: Navipet Dairy" })).toHaveTextContent(

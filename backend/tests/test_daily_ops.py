@@ -1,0 +1,696 @@
+"""Buckets & Tasks daily-operations engine: hand-derived golden traces.
+
+Every date below is worked out by hand from the operational single sources
+of truth (not from the implementation):
+
+* GOAT_PROFILE: gestation 150d, pregnancy check +32d, pregnancy-late day 100,
+  prepartum lead 15d, weaning day 60, postpartum recovery 14d.
+* Seed/protocol: quarantine protocol steps land on days 1/4/5/10/20/30/40/45
+  of the stay, release to FOUNDATION on day 45; pre-kidding ET+TT vaccine at
+  EKD−40 and booster at EKD−25 (EKD = service + 150).
+* Feed: 40/20/40 shift split; per-head rates 1.0 (kids) … 1.5 (recovery);
+  creep 0.3 kg for unweaned kids; quarantine dry roughage for the first three
+  days in the bucket.
+* Policy: failed scan re-serves on the next heat (21 days); two consecutive
+  failures cull; male kids sell entering the 8-month window.
+
+Stochastic tests force the outcome they need (rate 0 or 1) so the arithmetic
+above pins every day number exactly. DB-free: part of the mutation-pure set.
+"""
+
+from datetime import date
+
+import pytest
+from pydantic import ValidationError
+
+from app.models.lifecycle import LEGAL_BUCKET_TRANSITIONS
+from app.simulation.daily_ops import (
+    DAILY_OPS_MODEL_VERSION,
+    AnimalStartSpec,
+    DailyOpsInput,
+    DailyOpsParams,
+    build_daily_ledger,
+    run_daily_ops,
+)
+
+
+def _quiet_params(**overrides: object) -> DailyOpsParams:
+    """Params with every stochastic outcome forced to its deterministic pole
+    (unless a test overrides one on purpose)."""
+    base: dict[str, object] = {
+        "conception_rate": 1.0,
+        "litter_size_mean": 1.0,
+        "female_fraction_at_birth": 1.0,
+        "stillbirth_rate": 0.0,
+        "abortion_rate": 0.0,
+        "kid_pre_weaning_mortality": 0.0,
+        "adult_annual_mortality": 0.0,
+    }
+    base.update(overrides)
+    return DailyOpsParams(**base)  # type: ignore[arg-type]
+
+
+def _doe(tag: str = "D1", **spec: object) -> AnimalStartSpec:
+    fields: dict[str, object] = {"tag": tag, "sex": "F", "bucket": "BREEDING", "age_months": 18}
+    fields.update(spec)
+    return AnimalStartSpec(**fields)  # type: ignore[arg-type]
+
+
+def _buck(tag: str = "B1") -> AnimalStartSpec:
+    return AnimalStartSpec(tag=tag, sex="M", bucket="BREEDING", age_months=24)
+
+
+def _moves_of(result, tag: str) -> list[tuple[int, str, str, str]]:
+    return [
+        (m.day, m.from_bucket, m.to_bucket, m.context)
+        for m in result.days
+        for m in m.moves
+        if m.tag == tag
+    ][:] or [
+        (h.day, h.from_bucket or "", h.to_bucket, h.context)
+        for j in result.journeys
+        if j.tag == tag
+        for h in j.hops
+    ]
+
+
+def _journey(result, tag: str):
+    return next(j for j in result.journeys if j.tag == tag)
+
+
+def _tasks_on(result, day: int) -> list[tuple[str, str, str]]:
+    record = result.days[day - 1]
+    return [(t.time, t.category, t.headline) for t in record.tasks]
+
+
+# ---------------------------------------------------------------------------
+# 1. The full doe cycle, day by day
+# ---------------------------------------------------------------------------
+
+
+def test_full_doe_cycle_golden_trace() -> None:
+    """D1 (18 mo, BREEDING) + B1. Conception certain, one female kid, no
+    losses. Hand-derived calendar:
+
+    day   1 — D1 served by B1
+    day  33 — pregnancy check +32d → PREGNANCY_EARLY (ultrasound)
+    day 101 — gestation day 100 → PREGNANCY_LATE
+    day 111 — EKD−40 pre-kidding ET+TT vaccine   (EKD = 1 + 150 = day 151)
+    day 126 — EKD−25 booster
+    day 136 — EKD−15 move to DELIVERY
+    day 151 — kidding due; D1-1 born (F) → both in RECOVERY
+    day 211 — kidding + 60: D1-1 → FEMALE_KIDS, D1 → RESTING
+    day 241 — RESTING flush (30d) → BREEDING, re-served same day
+    day 273 — second scan +32d → PREGNANCY_EARLY again
+    """
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=280,
+        seed=1,
+        animals=[_doe(), _buck()],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    assert _moves_of(result, "D1") == [
+        (33, "BREEDING", "PREGNANCY_EARLY", "ultrasound"),
+        (101, "PREGNANCY_EARLY", "PREGNANCY_LATE", "manual"),
+        (136, "PREGNANCY_LATE", "DELIVERY", "delivery"),
+        (151, "DELIVERY", "RECOVERY", "kidding"),
+        (211, "RECOVERY", "RESTING", "weaning"),
+        (241, "RESTING", "BREEDING", "breeding"),
+        (273, "BREEDING", "PREGNANCY_EARLY", "ultrasound"),
+    ]
+    # The kid is born into RECOVERY with the dam and weans to FEMALE_KIDS.
+    assert _moves_of(result, "D1-1") == [(211, "RECOVERY", "FEMALE_KIDS", "weaning")]
+    kid = _journey(result, "D1-1")
+    assert (kid.sex, kid.born_day, kid.dam_tag, kid.final_status) == ("F", 151, "D1", "ACTIVE")
+
+    # Service on day 1, scan tasks on day 33 (check + POSITIVE).
+    day1 = [t for t in _tasks_on(result, 1) if t[1] == "OTHER"]
+    assert day1 == [("09:00", "OTHER", "Breed D1 — sire B1")]
+    day33 = [h for _, c, h in _tasks_on(result, 33)]
+    assert "Pregnancy check: D1" in day33
+    assert "D1: scan POSITIVE" in day33
+    # Pre-kidding vaccines on their hand-derived days.
+    assert any("Pre-kidding ET+TT vaccine: D1" in h for _, _, h in _tasks_on(result, 111))
+    assert any("booster: D1" in h for _, _, h in _tasks_on(result, 126))
+    assert any("Move D1 to DELIVERY" in h for _, _, h in _tasks_on(result, 136))
+    assert any("Kidding due: D1" in h for _, _, h in _tasks_on(result, 151))
+    assert any("Record kidding: D1 — 1 live of 1" in h for _, _, h in _tasks_on(result, 151))
+    assert any("Wean kids of D1" in h for _, _, h in _tasks_on(result, 211))
+
+    assert result.totals.services == 2
+    assert result.totals.conceptions == 2
+    assert result.totals.kids_born_alive == 1
+    assert result.totals.kids_born_dead == 0
+    assert (result.totals.deaths, result.totals.culls, result.totals.sales) == (0, 0, 0)
+
+
+def test_day1_schedule_order_is_the_operational_routine() -> None:
+    """Feed at 06:30 (mix first), clean after it, duties at 09:00, feed 13:30
+    and 19:30, night clean after the night feed."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=7,
+        animals=[_doe(), _buck()],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    times = [t.time for t in result.days[0].tasks]
+    assert times == sorted(times)  # schedule is chronological
+    feed = [t for t in result.days[0].tasks if t.category == "FEED"]
+    assert feed[0].building == "FEED_STORE"  # the mix precedes every delivery
+    assert feed[0].headline.startswith("Mix 2.400 kg — Maintenance 75:25")
+    # One ration line: the mix plus one delivery per shift.
+    assert [t.time for t in feed] == ["06:30", "06:30", "13:30", "19:30"]
+    clean = [t for t in result.days[0].tasks if t.category == "CLEANING"]
+    # BREEDING occupied: morning clean + verify, night clean + verify.
+    assert len(clean) == 4
+    assert {t.time for t in clean} == {"07:15", "20:15"}
+    assert any("morning (after feeding)" in t.headline for t in clean)
+    assert any("Verify" in t.headline for t in clean)
+
+
+def test_feeding_math_matches_seeded_rates_and_shift_split() -> None:
+    """Two animals in BREEDING (1.2 kg/head) plus, from day 151, a lactating
+    doe (1.5) and her creep kid (0.3): daily totals and 40/20/40 shares."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=160,
+        animals=[_doe(), _buck()],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    day1 = {(line.building, line.recipe): line for line in result.days[0].feeding}
+    breeding = day1[("BREEDING", "MAINTENANCE_75_25")]
+    assert breeding.heads == 2
+    assert breeding.daily_kg == pytest.approx(2.4)
+    assert (breeding.morning_kg, breeding.afternoon_kg, breeding.night_kg) == (
+        pytest.approx(0.96),
+        pytest.approx(0.48),
+        pytest.approx(0.96),
+    )
+    # The day AFTER kidding (feed is planned at the morning round, before the
+    # 09:00 lifecycle events): three lines across two buildings.
+    day152 = {line.building: line for line in result.days[151].feeding}
+    assert day152["BREEDING"].recipe == "MAINTENANCE_75_25"
+    assert day152["BREEDING"].daily_kg == pytest.approx(1.2)
+    recovery_lines = {
+        line.recipe: line for line in result.days[151].feeding if line.building == "RECOVERY"
+    }
+    assert recovery_lines["LACTATING_60_40"].daily_kg == pytest.approx(1.5)
+    assert recovery_lines["CREEP"].daily_kg == pytest.approx(0.3)
+    for record in result.days:
+        for line in record.feeding:
+            # Gram-exact internal consistency on every line of every day.
+            assert line.daily_kg == pytest.approx(
+                line.morning_kg + line.afternoon_kg + line.night_kg
+            )
+
+
+# ---------------------------------------------------------------------------
+# 2. Quarantine protocol
+# ---------------------------------------------------------------------------
+
+
+def test_quarantine_protocol_days_and_release() -> None:
+    """Arrival on day 1: protocol steps on days 1/4/5/10/20/30/40 and release
+    on day 45; dry roughage for the first three days in the bucket."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=46,
+        animals=[
+            AnimalStartSpec(
+                tag="Q1", sex="F", bucket="QUARANTINE", age_months=14, days_in_bucket=0
+            ),
+            _buck(),
+        ],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    protocol_days = {}
+    for record in result.days:
+        for task in record.tasks:
+            if task.category in (
+                "QUARANTINE",
+                "DEWORMING",
+                "VACCINE",
+                "BUCKET_MOVE",
+            ) and task.animals == ["Q1"]:
+                protocol_days[record.day] = task.headline
+    assert sorted(protocol_days) == [1, 4, 5, 10, 20, 30, 40, 45]
+    assert "deworm" in protocol_days[4]
+    assert "PPR" in protocol_days[10]
+    assert "Release Q1 to FOUNDATION" in protocol_days[45]
+    # Released at 14 months with a buck standing: bred the same day.
+    assert _moves_of(result, "Q1") == [
+        (45, "QUARANTINE", "FOUNDATION", "quarantine_release"),
+        (45, "FOUNDATION", "BREEDING", "breeding"),
+    ]
+    # Dry roughage days 1–3 (bucket days 0,1,2), maintenance from day 4.
+    quarantine_recipes = {
+        record.day: [line.recipe for line in record.feeding if line.building == "QUARANTINE"]
+        for record in result.days[:5]
+    }
+    assert quarantine_recipes[1] == ["DRY_ROUGHAGE_ONLY"]
+    assert quarantine_recipes[3] == ["DRY_ROUGHAGE_ONLY"]
+    assert quarantine_recipes[4] == ["MAINTENANCE_75_25"]
+    # Released at 14 months, she is breeding-ready the same day.
+    assert (45, "FOUNDATION", "BREEDING", "breeding") in _moves_of(result, "Q1")
+
+
+def test_quarantine_mid_stay_input_catches_up() -> None:
+    """Arrived 10 days before the sim (arrival day index -9, so protocol
+    day = run day + 10): next steps are protocol day 20 (run day 10) and the
+    day-45 release (run day 35)."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=36,
+        animals=[
+            AnimalStartSpec(
+                tag="Q1", sex="F", bucket="QUARANTINE", age_months=14, days_in_bucket=10
+            )
+        ],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    # Released at 14 months but no buck stands on this farm: she stays in
+    # FOUNDATION (the breeding record is what moves a doe to BREEDING).
+    assert _moves_of(result, "Q1") == [(35, "QUARANTINE", "FOUNDATION", "quarantine_release")]
+    headlines_by_day = {
+        record.day: [t.headline for t in record.tasks if "Q1" in t.animals]
+        for record in result.days
+    }
+    assert any("Day 20" in h for h in headlines_by_day[10])
+
+
+# ---------------------------------------------------------------------------
+# 3. Pregnancy milestones and edge paths
+# ---------------------------------------------------------------------------
+
+
+def test_mid_pregnancy_start_skips_passed_milestones() -> None:
+    """Starting at gestation day 120 (PREGNANCY_LATE): the primary vaccine
+    (day 110) is history — only the booster (gestation 125 → day 6), the
+    DELIVERY move (135 → day 16) and kidding (150 → day 31) lie ahead."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=50,
+        animals=[
+            AnimalStartSpec(
+                tag="P1", sex="F", bucket="PREGNANCY_LATE", age_months=30, bred_days_ago=120
+            ),
+            _buck(),
+        ],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    assert _moves_of(result, "P1") == [
+        (16, "PREGNANCY_LATE", "DELIVERY", "delivery"),
+        (31, "DELIVERY", "RECOVERY", "kidding"),
+    ]
+    vaccine_days = [
+        record.day for record in result.days for task in record.tasks if task.category == "VACCINE"
+    ]
+    assert vaccine_days == [6]
+    assert any("booster: P1" in h for _, _, h in _tasks_on(result, 6))
+
+
+def test_stillborn_litter_moves_dam_postpartum_at_day_14() -> None:
+    """No surviving kids: the dam leaves RECOVERY via the postpartum move at
+    kidding + 14 (POSTPARTUM_RECOVERY_DAYS)."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=50,
+        animals=[
+            AnimalStartSpec(tag="P1", sex="F", bucket="DELIVERY", age_months=30, bred_days_ago=140)
+        ],
+        params=_quiet_params(stillbirth_rate=1.0),
+    )
+    result = run_daily_ops(payload)
+    assert _moves_of(result, "P1") == [
+        (11, "DELIVERY", "RECOVERY", "kidding"),
+        (25, "RECOVERY", "RESTING", "postpartum"),
+    ]
+    assert result.totals.kids_born_alive == 0
+    assert result.totals.kids_born_dead == 1
+
+
+def test_failed_services_reservice_on_heat_then_cull() -> None:
+    """Conception impossible: scan 1 fails day 33 (re-serve day 54 = 33+21),
+    scan 2 fails day 86 (54+32) → culled the same day."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=100,
+        animals=[_doe(), _buck()],
+        params=_quiet_params(conception_rate=0.0),
+    )
+    result = run_daily_ops(payload)
+    assert _moves_of(result, "D1") == []  # she never leaves BREEDING
+    assert any("scan NEGATIVE" in h for _, _, h in _tasks_on(result, 33))
+    assert any("Breed D1 — sire B1" in h for _, _, h in _tasks_on(result, 54))
+    assert any("cull review" in h for _, _, h in _tasks_on(result, 86))
+    journey = _journey(result, "D1")
+    assert (journey.final_status, journey.exit_day, journey.exit_kind) == ("CULLED", 86, "CULLED")
+    assert result.totals.culls == 1
+
+
+def test_buck_ratio_caps_open_services() -> None:
+    """One buck, ratio 2: only the first two does are served; the third waits
+    with an explicit hold duty."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=7,
+        animals=[_doe("D1"), _doe("D2"), _doe("D3"), _buck()],
+        params=_quiet_params(buck_doe_ratio=2),
+    )
+    result = run_daily_ops(payload)
+    day1 = [h for _, _, h in _tasks_on(result, 1)]
+    assert sum(1 for h in day1 if h.startswith("Breed ")) == 2
+    assert any(h.startswith("Hold D3 — sire capacity reached") for h in day1)
+    assert result.totals.services == 2
+
+
+def test_male_kid_sells_entering_the_meat_window() -> None:
+    """A 7-month male kid (213 days old on day 1) crosses 8 months
+    (243.52 days) after 31 more days: sold on day 32."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=40,
+        animals=[AnimalStartSpec(tag="MK1", sex="M", bucket="MALE_KIDS", age_months=7)],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    journey = _journey(result, "MK1")
+    assert (journey.final_status, journey.exit_day, journey.exit_kind) == ("SOLD", 32, "SOLD")
+    assert any("Sell MK1 — meat window" in h for _, _, h in _tasks_on(result, 32))
+
+
+def test_female_kid_breeding_ready_graduation() -> None:
+    """A 9-month female kid (274 days on day 1) reaches 10 months (304.4
+    days) on day 32 and moves FEMALE_KIDS → BREEDING the same day."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=35,
+        animals=[
+            AnimalStartSpec(tag="FK1", sex="F", bucket="FEMALE_KIDS", age_months=9),
+            _buck(),
+        ],
+        params=_quiet_params(),
+    )
+    result = run_daily_ops(payload)
+    assert _moves_of(result, "FK1") == [(32, "FEMALE_KIDS", "BREEDING", "breeding")]
+
+
+def test_adult_mortality_casualty_path() -> None:
+    """Certain mortality: every animal dies on day 1 with a vet casualty duty."""
+    payload = DailyOpsInput(
+        start_date=date(2026, 9, 3),
+        horizon_days=7,
+        animals=[_doe(), _buck()],
+        params=_quiet_params(adult_annual_mortality=1.0),
+    )
+    result = run_daily_ops(payload)
+    assert result.totals.deaths == 2
+    assert any("Attend casualty: D1 died" in h for _, _, h in _tasks_on(result, 1))
+    # The farm stands empty from the first evening onward.
+    assert all(day.occupancy == [] for day in result.days)
+
+
+# ---------------------------------------------------------------------------
+# 4. Cross-run invariants (stochastic mix, whole-run properties)
+# ---------------------------------------------------------------------------
+
+
+def _toy_herd(seed: int, horizon: int = 120) -> DailyOpsInput:
+    animals = [_doe(f"D{i}", age_months=12 + i) for i in range(1, 11)] + [
+        _buck(),
+        AnimalStartSpec(tag="MK1", sex="M", bucket="MALE_KIDS", age_months=7),
+        AnimalStartSpec(tag="FK1", sex="F", bucket="FEMALE_KIDS", age_months=9),
+        AnimalStartSpec(tag="Q1", sex="F", bucket="QUARANTINE", age_months=14, days_in_bucket=5),
+        AnimalStartSpec(
+            tag="P1", sex="F", bucket="PREGNANCY_EARLY", age_months=30, bred_days_ago=50
+        ),
+    ]
+    return DailyOpsInput(
+        start_date=date(2026, 9, 3), horizon_days=horizon, seed=seed, animals=animals
+    )
+
+
+def test_every_move_is_legal_and_context_valid() -> None:
+    result = run_daily_ops(_toy_herd(seed=7))
+    for record in result.days:
+        for move in record.moves:
+            allowed = LEGAL_BUCKET_TRANSITIONS[(move.from_bucket, move.to_bucket)]
+            assert move.context in allowed, (move.day, move.tag, move)
+
+
+def test_head_conservation_day_over_day() -> None:
+    """occupancy(day) - occupancy(day-1) == in-moves + births - out-moves -
+    exits, per building, every day (day-1 baseline = the starting herd)."""
+    payload = _toy_herd(seed=7)
+    result = run_daily_ops(payload)
+    previous: dict[str, int] = {}
+    for spec in payload.animals:
+        previous[spec.bucket] = previous.get(spec.bucket, 0) + 1
+    journeys = {j.tag: j for j in result.journeys}
+    for record in result.days:
+        current = {row.building: row.heads for row in record.occupancy}
+        delta = {b: current.get(b, 0) - previous.get(b, 0) for b in set(current) | set(previous)}
+        expected = {b: 0 for b in delta}
+        for move in record.moves:
+            if move.from_bucket:
+                expected[move.from_bucket] = expected.get(move.from_bucket, 0) - 1
+            expected[move.to_bucket] = expected.get(move.to_bucket, 0) + 1
+        for birth in record.births:
+            for kid in birth.kids:
+                if kid.status == "ALIVE":
+                    expected["RECOVERY"] += 1
+        for exit_ in record.exits:
+            journey = journeys[exit_.tag]
+            hops = [h for h in journey.hops if h.day <= exit_.day]
+            bucket = hops[-1].to_bucket if hops else journey.start_bucket
+            expected[bucket] = expected.get(bucket, 0) - 1
+        # A building only transited on this day (release + same-day re-move)
+        # nets zero on both sides; compare the non-zero flows.
+        assert {k: v for k, v in delta.items() if v} == {k: v for k, v in expected.items() if v}, (
+            record.day
+        )
+        previous = current
+
+
+def test_feeding_follows_morning_occupancy() -> None:
+    """Feed lines are planned at the 06:30 round, before the 09:00 lifecycle
+    events: a building is fed exactly when it stood occupied the previous
+    evening (day 1: the starting buckets)."""
+    payload = _toy_herd(seed=7)
+    result = run_daily_ops(payload)
+    previous = {spec.bucket for spec in payload.animals}
+    for record in result.days:
+        fed = {line.building for line in record.feeding}
+        assert fed == previous, record.day
+        for line in record.feeding:
+            total = line.morning_kg + line.afternoon_kg + line.night_kg
+            assert line.daily_kg == pytest.approx(total, abs=1e-9)
+            if line.recipe == "CREEP":
+                assert line.building == "RECOVERY"
+                assert line.kg_per_head == 0.3
+        previous = {row.building for row in record.occupancy}
+
+
+def test_cleaning_covers_morning_and_night_occupancy() -> None:
+    """Each building is cleaned in the morning iff it stood occupied the
+    previous evening, and at night iff occupied that evening; every cleaning
+    carries a cleaner-manager verification duty."""
+    payload = _toy_herd(seed=7)
+    result = run_daily_ops(payload)
+    previous = {spec.bucket for spec in payload.animals}
+    for record in result.days:
+        current = {row.building for row in record.occupancy}
+        morning_cleans: dict[str, int] = {}
+        night_cleans: dict[str, int] = {}
+        verifies = 0
+        for task in record.tasks:
+            if task.category != "CLEANING":
+                continue
+            if task.headline.startswith("Verify"):
+                verifies += 1
+            elif "morning" in task.headline:
+                morning_cleans[task.building] = morning_cleans.get(task.building, 0) + 1
+            else:
+                night_cleans[task.building] = night_cleans.get(task.building, 0) + 1
+        assert set(morning_cleans) == previous, record.day
+        assert set(night_cleans) == current, record.day
+        assert all(count == 1 for count in morning_cleans.values())
+        assert all(count == 1 for count in night_cleans.values())
+        assert verifies == len(previous) + len(current), record.day
+        previous = current
+
+
+def test_roles_follow_the_task_category_role_map() -> None:
+    from app.permissions import TASK_CATEGORY_ROLE_MAP
+
+    result = run_daily_ops(_toy_herd(seed=7))
+    for record in result.days:
+        for task in record.tasks:
+            if task.category in TASK_CATEGORY_ROLE_MAP:
+                assert task.role == TASK_CATEGORY_ROLE_MAP[task.category]
+
+
+def test_seed_replays_identically_and_other_seeds_differ() -> None:
+    first = run_daily_ops(_toy_herd(seed=7))
+    second = run_daily_ops(_toy_herd(seed=7))
+    assert first.model_dump() == second.model_dump()
+    other = run_daily_ops(_toy_herd(seed=8))
+    assert first.model_dump() != other.model_dump()
+
+
+def test_journeys_match_day_moves() -> None:
+    result = run_daily_ops(_toy_herd(seed=7))
+    flat_moves = {(m.day, m.tag) for record in result.days for m in record.moves}
+    flat_hops = {(h.day, j.tag) for j in result.journeys for h in j.hops}
+    assert flat_moves == flat_hops
+    # transition_counts sum to the totals.moves figure.
+    assert sum(t.count for t in result.transition_counts) == result.totals.moves
+
+
+def test_ledger_renders_the_whole_run_deterministically() -> None:
+    result = run_daily_ops(_toy_herd(seed=7))
+    ledger = build_daily_ledger(result)
+    assert ledger.startswith("# Buckets & Tasks — daily operations ledger")
+    assert "## Day 1 — 2026-09-03" in ledger
+    assert "## Day 120 —" in ledger
+    assert "## Transition matrix" in ledger
+    assert "## Animal journeys" in ledger
+    assert "## Explanations" in ledger
+    assert build_daily_ledger(result) == ledger
+    assert result.model_version == DAILY_OPS_MODEL_VERSION
+
+
+def test_explanations_echo_the_run_numbers() -> None:
+    result = run_daily_ops(_toy_herd(seed=7))
+    by_key = {e.key: e for e in result.explanations}
+    assert set(by_key) == {
+        "routine",
+        "buildings",
+        "feed",
+        "transitions",
+        "reproduction",
+        "exits",
+        "determinism",
+    }
+    assert by_key["transitions"].figures["moves"] == result.totals.moves
+    assert by_key["reproduction"].figures["services"] == result.totals.services
+    assert by_key["reproduction"].figures["kids_born_alive"] == result.totals.kids_born_alive
+    # Notes carry the v1 caveats.
+    assert any("Goat farms only" in note for note in result.notes)
+
+
+# ---------------------------------------------------------------------------
+# 5. Input validation (deliberate rejections)
+# ---------------------------------------------------------------------------
+
+
+def test_rejects_duplicate_tags() -> None:
+    with pytest.raises(ValidationError, match="unique"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe("D1"), _doe("D1")],
+        )
+
+
+def test_rejects_sex_bucket_mismatch() -> None:
+    with pytest.raises(ValidationError, match="MALE_KIDS"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[AnimalStartSpec(tag="X", sex="F", bucket="MALE_KIDS", age_months=6)],
+        )
+    with pytest.raises(ValidationError, match="RESTING"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[AnimalStartSpec(tag="X", sex="M", bucket="RESTING", age_months=24)],
+        )
+
+
+def test_rejects_pregnant_bucket_without_service_date() -> None:
+    with pytest.raises(ValidationError, match="needs bred_days_ago"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe(bucket="PREGNANCY_EARLY")],
+        )
+
+
+def test_rejects_out_of_window_gestation_days() -> None:
+    with pytest.raises(ValidationError, match="gestation days"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe(bucket="PREGNANCY_EARLY", bred_days_ago=10)],
+        )
+
+
+def test_rejects_breeding_doe_past_her_scan_date() -> None:
+    with pytest.raises(ValidationError, match="pregnancy check"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe(bred_days_ago=33)],
+        )
+
+
+def test_rejects_bred_days_ago_on_incoherent_buckets() -> None:
+    with pytest.raises(ValidationError, match="bred_days_ago belongs"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe(bucket="RESTING", bred_days_ago=10)],
+        )
+
+
+def test_rejects_overstayed_quarantine() -> None:
+    with pytest.raises(ValidationError, match="quarantine"):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[
+                AnimalStartSpec(
+                    tag="Q1", sex="F", bucket="QUARANTINE", age_months=14, days_in_bucket=45
+                )
+            ],
+        )
+
+
+def test_rejects_out_of_bounds_horizon_dates_and_herd() -> None:
+    with pytest.raises(ValidationError):
+        DailyOpsInput(start_date=date(2026, 9, 3), horizon_days=3, animals=[_doe()])
+    with pytest.raises(ValidationError):
+        DailyOpsInput(start_date=date(2026, 9, 3), horizon_days=400, animals=[_doe()])
+    with pytest.raises(ValidationError):
+        DailyOpsInput(start_date=date(1999, 12, 31), animals=[_doe()])
+    with pytest.raises(ValidationError):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            animals=[_doe(f"D{i}") for i in range(501)],
+        )
+    with pytest.raises(ValidationError):
+        DailyOpsInput(start_date=date(2026, 9, 3), animals=[])
+
+
+def test_rejects_float_and_extra_fields_strictly() -> None:
+    with pytest.raises(ValidationError):
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=90.5,  # type: ignore[arg-type]
+            animals=[_doe()],
+        )
+    with pytest.raises(ValidationError):
+        AnimalStartSpec(tag="D1", sex="F", bucket="BREEDING", age_months=18, surprise=1)  # type: ignore[call-arg]
+
+
+def test_no_buck_note_when_herd_has_no_sire() -> None:
+    result = run_daily_ops(
+        DailyOpsInput(
+            start_date=date(2026, 9, 3),
+            horizon_days=7,
+            animals=[_doe()],
+            params=_quiet_params(),
+        )
+    )
+    assert result.totals.services == 0
+    assert any("No buck stood in BREEDING" in note for note in result.notes)

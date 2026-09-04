@@ -71,6 +71,17 @@ from ..models import (
     planned_ultrasound_date,
     quarantine_schedule,
 )
+
+# Pure feed-allocation rule tables live in models.feed_rules (single source of
+# truth); re-exported here so ``from app.services import ...`` keeps working.
+from ..models.feed_rules import (
+    BUCKET_ALLOCATION_REFERENCE,
+    DRY_ROUGHAGE,
+    DRY_ROUGHAGE_INGREDIENTS,
+    RECIPE_DISPLAY,
+    SHIFT_TIMES,
+    bucket_allocation_reference,
+)
 from .animals import (
     TAG_ALPHABET,
     bucket_transition_error,
@@ -99,14 +110,8 @@ from .chronology import (
 )
 from .dashboard import ready_to_move_suggestions
 from .feeding import (
-    BUCKET_ALLOCATION_REFERENCE,
-    DRY_ROUGHAGE,
-    DRY_ROUGHAGE_INGREDIENTS,
-    RECIPE_DISPLAY,
-    SHIFT_TIMES,
     InsufficientFeedError,
     add_feed_stock,
-    bucket_allocation_reference,
     feeding_plan,
     get_daily_kg_per_head,
     mix_feed_batch,

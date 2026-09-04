@@ -47,6 +47,7 @@ const APP_ROUTE_PERMISSIONS = [
   { path: "/finance", permission: "finance.view" },
   { path: "/planner", permission: "simulation.view" },
   { path: "/simulation", permission: "simulation.view" },
+  { path: "/ops-simulation", permission: "simulation.view" },
   { path: "/reports", permission: "reports.view" },
   { path: "/team", permission: "team.manage" },
 ] as const;

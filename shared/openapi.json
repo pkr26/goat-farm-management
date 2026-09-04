@@ -11493,6 +11493,124 @@
           }
         }
       }
+    },
+    "/api/ops-sim/run": {
+      "post": {
+        "tags": [
+          "ops-simulation"
+        ],
+        "summary": "Run Daily Ops Simulation",
+        "description": "Simulate the farm day by day: the full duty schedule per building,\nevery bucket move with its cause, feed manifests, births and exits.",
+        "operationId": "run_daily_ops_simulation_api_ops_sim_run_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "x-farm-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "X-Farm-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyOpsRunIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyOpsRunOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected (invalid state or values)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but not permitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found (or belongs to another farm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict (state, replay, or race)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11866,6 +11984,115 @@
         ],
         "title": "AnimalIdentityOut",
         "description": "Safe identity used when an aggregate page names an animal."
+      },
+      "AnimalJourney": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "sex": {
+            "type": "string",
+            "title": "Sex"
+          },
+          "born_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Born Day"
+          },
+          "dam_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dam Tag"
+          },
+          "start_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Bucket"
+          },
+          "final_status": {
+            "type": "string",
+            "title": "Final Status"
+          },
+          "final_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Bucket"
+          },
+          "exit_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Day"
+          },
+          "exit_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Kind"
+          },
+          "exit_reason": {
+            "type": "string",
+            "title": "Exit Reason"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/JourneyHop"
+            },
+            "type": "array",
+            "title": "Hops"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tag",
+          "sex",
+          "born_day",
+          "dam_tag",
+          "start_bucket",
+          "final_status",
+          "final_bucket",
+          "exit_day",
+          "exit_kind",
+          "exit_reason"
+        ],
+        "title": "AnimalJourney",
+        "description": "One animal's whole simulated life: every hop between buildings."
       },
       "AnimalListOut": {
         "properties": {
@@ -12459,6 +12686,81 @@
           "history_limit"
         ],
         "title": "AnimalProfileOut"
+      },
+      "AnimalStartSpec": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Tag"
+          },
+          "sex": {
+            "type": "string",
+            "enum": [
+              "M",
+              "F"
+            ],
+            "title": "Sex"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "QUARANTINE",
+              "FOUNDATION",
+              "BREEDING",
+              "PREGNANCY_EARLY",
+              "PREGNANCY_LATE",
+              "DELIVERY",
+              "RECOVERY",
+              "RESTING",
+              "MALE_KIDS",
+              "FEMALE_KIDS"
+            ],
+            "title": "Bucket"
+          },
+          "age_months": {
+            "type": "integer",
+            "maximum": 240.0,
+            "minimum": 0.0,
+            "title": "Age Months"
+          },
+          "days_in_bucket": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 0.0,
+            "title": "Days In Bucket",
+            "default": 0
+          },
+          "bred_days_ago": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 150.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bred Days Ago"
+          },
+          "dependent_kid": {
+            "type": "boolean",
+            "title": "Dependent Kid",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tag",
+          "sex",
+          "bucket",
+          "age_months"
+        ],
+        "title": "AnimalStartSpec",
+        "description": "One animal standing in a bucket on day 1."
       },
       "AnnualPLRow": {
         "properties": {
@@ -13800,6 +14102,338 @@
         "title": "CullingAssumptions",
         "description": "Disposal and sire-replacement policy."
       },
+      "DailyOpsParams": {
+        "properties": {
+          "conception_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Conception Rate",
+            "default": 0.85
+          },
+          "litter_size_mean": {
+            "type": "number",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Litter Size Mean",
+            "default": 1.6
+          },
+          "female_fraction_at_birth": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Female Fraction At Birth",
+            "default": 0.5
+          },
+          "stillbirth_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Stillbirth Rate",
+            "default": 0.02
+          },
+          "abortion_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Abortion Rate",
+            "default": 0.02
+          },
+          "kid_pre_weaning_mortality": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Kid Pre Weaning Mortality",
+            "default": 0.15
+          },
+          "adult_annual_mortality": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Adult Annual Mortality",
+            "default": 0.05
+          },
+          "failed_services_before_cull": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Failed Services Before Cull",
+            "default": 2
+          },
+          "max_doe_age_months": {
+            "type": "integer",
+            "maximum": 240.0,
+            "minimum": 12.0,
+            "title": "Max Doe Age Months",
+            "default": 72
+          },
+          "male_sale_age_months": {
+            "type": "integer",
+            "maximum": 36.0,
+            "minimum": 1.0,
+            "title": "Male Sale Age Months",
+            "default": 8
+          },
+          "buck_doe_ratio": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Buck Doe Ratio",
+            "default": 20
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DailyOpsParams",
+        "description": "Stochastic and policy knobs. Timings are NOT here \u2014 they come from\nGOAT_PROFILE; these are the rates a user may reasonably tune."
+      },
+      "DailyOpsResult": {
+        "properties": {
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "species": {
+            "type": "string",
+            "title": "Species"
+          },
+          "start_date": {
+            "type": "string",
+            "title": "Start Date"
+          },
+          "horizon_days": {
+            "type": "integer",
+            "title": "Horizon Days"
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed"
+          },
+          "head_start": {
+            "type": "integer",
+            "title": "Head Start"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayRecord"
+            },
+            "type": "array",
+            "title": "Days"
+          },
+          "journeys": {
+            "items": {
+              "$ref": "#/components/schemas/AnimalJourney"
+            },
+            "type": "array",
+            "title": "Journeys"
+          },
+          "transition_counts": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionCount"
+            },
+            "type": "array",
+            "title": "Transition Counts"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/DailyOpsTotals"
+          },
+          "explanations": {
+            "items": {
+              "$ref": "#/components/schemas/MetricExplanation"
+            },
+            "type": "array",
+            "title": "Explanations"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model_version",
+          "species",
+          "start_date",
+          "horizon_days",
+          "seed",
+          "head_start",
+          "days",
+          "journeys",
+          "transition_counts",
+          "totals",
+          "explanations",
+          "notes"
+        ],
+        "title": "DailyOpsResult"
+      },
+      "DailyOpsRunIn": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "horizon_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 7.0,
+            "title": "Horizon Days",
+            "default": 90
+          },
+          "seed": {
+            "type": "integer",
+            "title": "Seed",
+            "default": 2026
+          },
+          "animals": {
+            "items": {
+              "$ref": "#/components/schemas/AnimalStartSpec"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Animals"
+          },
+          "params": {
+            "$ref": "#/components/schemas/DailyOpsParams"
+          },
+          "include_ledger": {
+            "type": "boolean",
+            "title": "Include Ledger",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "start_date",
+          "animals"
+        ],
+        "title": "DailyOpsRunIn",
+        "description": "One daily-operations simulation run: the starting herd standing in its\nbuckets, the run window and the optional Markdown ledger."
+      },
+      "DailyOpsRunOut": {
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/DailyOpsResult"
+          },
+          "ledger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ledger"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result"
+        ],
+        "title": "DailyOpsRunOut",
+        "description": "The simulation result plus the optional audit ledger."
+      },
+      "DailyOpsTotals": {
+        "properties": {
+          "feed_kg_by_recipe": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Feed Kg By Recipe"
+          },
+          "tasks_by_category": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tasks By Category"
+          },
+          "tasks_by_role": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tasks By Role"
+          },
+          "vet_tasks_by_building": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Vet Tasks By Building"
+          },
+          "building_days": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Building Days"
+          },
+          "services": {
+            "type": "integer",
+            "title": "Services"
+          },
+          "conceptions": {
+            "type": "integer",
+            "title": "Conceptions"
+          },
+          "failed_services": {
+            "type": "integer",
+            "title": "Failed Services"
+          },
+          "kids_born_alive": {
+            "type": "integer",
+            "title": "Kids Born Alive"
+          },
+          "kids_born_dead": {
+            "type": "integer",
+            "title": "Kids Born Dead"
+          },
+          "deaths": {
+            "type": "integer",
+            "title": "Deaths"
+          },
+          "culls": {
+            "type": "integer",
+            "title": "Culls"
+          },
+          "sales": {
+            "type": "integer",
+            "title": "Sales"
+          },
+          "moves": {
+            "type": "integer",
+            "title": "Moves"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "feed_kg_by_recipe",
+          "tasks_by_category",
+          "tasks_by_role",
+          "vet_tasks_by_building",
+          "building_days",
+          "services",
+          "conceptions",
+          "failed_services",
+          "kids_born_alive",
+          "kids_born_dead",
+          "deaths",
+          "culls",
+          "sales",
+          "moves"
+        ],
+        "title": "DailyOpsTotals"
+      },
       "DashboardKiddingDueOut": {
         "properties": {
           "id": {
@@ -14041,6 +14675,67 @@
         ],
         "title": "DashboardWeightOut",
         "description": "A recent weight with the animal identity needed to act on it."
+      },
+      "DayRecord": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/SimTask"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "moves": {
+            "items": {
+              "$ref": "#/components/schemas/SimMove"
+            },
+            "type": "array",
+            "title": "Moves"
+          },
+          "births": {
+            "items": {
+              "$ref": "#/components/schemas/SimBirth"
+            },
+            "type": "array",
+            "title": "Births"
+          },
+          "exits": {
+            "items": {
+              "$ref": "#/components/schemas/SimExit"
+            },
+            "type": "array",
+            "title": "Exits"
+          },
+          "feeding": {
+            "items": {
+              "$ref": "#/components/schemas/FeedLine"
+            },
+            "type": "array",
+            "title": "Feeding"
+          },
+          "occupancy": {
+            "items": {
+              "$ref": "#/components/schemas/OccupancyRow"
+            },
+            "type": "array",
+            "title": "Occupancy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "date"
+        ],
+        "title": "DayRecord"
       },
       "DispenseIn": {
         "properties": {
@@ -14651,6 +15346,66 @@
           "last_purchase_price_per_kg"
         ],
         "title": "FeedInventoryOut"
+      },
+      "FeedLine": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "building": {
+            "type": "string",
+            "title": "Building"
+          },
+          "recipe": {
+            "type": "string",
+            "title": "Recipe"
+          },
+          "recipe_display": {
+            "type": "string",
+            "title": "Recipe Display"
+          },
+          "heads": {
+            "type": "integer",
+            "title": "Heads"
+          },
+          "kg_per_head": {
+            "type": "number",
+            "title": "Kg Per Head"
+          },
+          "daily_kg": {
+            "type": "number",
+            "title": "Daily Kg"
+          },
+          "morning_kg": {
+            "type": "number",
+            "title": "Morning Kg"
+          },
+          "afternoon_kg": {
+            "type": "number",
+            "title": "Afternoon Kg"
+          },
+          "night_kg": {
+            "type": "number",
+            "title": "Night Kg"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "building",
+          "recipe",
+          "recipe_display",
+          "heads",
+          "kg_per_head",
+          "daily_kg",
+          "morning_kg",
+          "afternoon_kg",
+          "night_kg"
+        ],
+        "title": "FeedLine",
+        "description": "One (building, recipe) ration line for a day: the per-head rate, the\ndaily total and the 40/20/40 shift split (gram-exact: the daily total is\nthe sum of the three shifts)."
       },
       "FeedRecipeLineOut": {
         "properties": {
@@ -16491,6 +17246,42 @@
         ],
         "title": "HerdSnapshotOut",
         "description": "The farm's ACTIVE animals grouped into simulation starting cohorts."
+      },
+      "JourneyHop": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "from_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Bucket"
+          },
+          "to_bucket": {
+            "type": "string",
+            "title": "To Bucket"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "from_bucket",
+          "to_bucket",
+          "context"
+        ],
+        "title": "JourneyHop"
       },
       "KidEntryOut": {
         "properties": {
@@ -18552,6 +19343,25 @@
           "offset"
         ],
         "title": "MovementRestrictionHistoryOut"
+      },
+      "OccupancyRow": {
+        "properties": {
+          "building": {
+            "type": "string",
+            "title": "Building"
+          },
+          "heads": {
+            "type": "integer",
+            "title": "Heads"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "building",
+          "heads"
+        ],
+        "title": "OccupancyRow"
       },
       "OptimizationAssumptions": {
         "properties": {
@@ -21400,6 +22210,215 @@
         "title": "SensitivityItem",
         "description": "One-at-a-time sensitivity of NPV to a single parameter."
       },
+      "SimBirth": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "dam_tag": {
+            "type": "string",
+            "title": "Dam Tag"
+          },
+          "kids": {
+            "items": {
+              "$ref": "#/components/schemas/SimKidBirth"
+            },
+            "type": "array",
+            "title": "Kids"
+          },
+          "live_kids": {
+            "type": "integer",
+            "title": "Live Kids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "date",
+          "dam_tag",
+          "kids",
+          "live_kids"
+        ],
+        "title": "SimBirth"
+      },
+      "SimExit": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "date",
+          "tag",
+          "kind",
+          "reason"
+        ],
+        "title": "SimExit"
+      },
+      "SimKidBirth": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "sex": {
+            "type": "string",
+            "title": "Sex"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "tag",
+          "sex",
+          "status"
+        ],
+        "title": "SimKidBirth"
+      },
+      "SimMove": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "from_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Bucket"
+          },
+          "to_bucket": {
+            "type": "string",
+            "title": "To Bucket"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "date",
+          "tag",
+          "from_bucket",
+          "to_bucket",
+          "context",
+          "reason"
+        ],
+        "title": "SimMove",
+        "description": "One animal crossing buildings, with the workflow context that caused\nit (contexts are the legal ones from models.lifecycle)."
+      },
+      "SimTask": {
+        "properties": {
+          "day": {
+            "type": "integer",
+            "title": "Day"
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "time": {
+            "type": "string",
+            "title": "Time"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "building": {
+            "type": "string",
+            "title": "Building"
+          },
+          "building_name": {
+            "type": "string",
+            "title": "Building Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "animals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Animals"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "day",
+          "date",
+          "time",
+          "category",
+          "building",
+          "building_name",
+          "role",
+          "headline",
+          "detail"
+        ],
+        "title": "SimTask",
+        "description": "One duty performed on a day, routed to a crew like a live task row."
+      },
       "SimulationAssumptions": {
         "properties": {
           "meta": {
@@ -22907,6 +23926,35 @@
           "milk_price_per_kg_fat"
         ],
         "title": "TransactionOut"
+      },
+      "TransitionCount": {
+        "properties": {
+          "from_bucket": {
+            "type": "string",
+            "title": "From Bucket"
+          },
+          "to_bucket": {
+            "type": "string",
+            "title": "To Bucket"
+          },
+          "context": {
+            "type": "string",
+            "title": "Context"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "from_bucket",
+          "to_bucket",
+          "context",
+          "count"
+        ],
+        "title": "TransitionCount"
       },
       "UltrasoundIn": {
         "properties": {

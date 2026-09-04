@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from ..services.feeding import DRY_ROUGHAGE  # single source of truth for the sentinel
+from ..models.feed_rules import DRY_ROUGHAGE  # single source of truth for the sentinel
 from .animals import BucketStr
 from .common import NonNegativeMoneyFloat, PastOrTodayDate, QuantityKgFloat, StrictInputModel
 

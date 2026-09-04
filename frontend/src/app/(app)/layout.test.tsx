@@ -63,6 +63,7 @@ const ALL_NAV_LABELS = [
   "Finance",
   "Planner",
   "Simulation",
+  "Ops Simulation",
   "Reports",
   "Team",
 ];
@@ -469,13 +470,13 @@ describe("AppLayout — permission-gated nav", () => {
     replaceMock.mockClear();
   });
 
-  it("shows all 14 goat-farm nav items to the farm owner (full catalog minus dairy-only Milk)", async () => {
+  it("shows all 15 goat-farm nav items to the farm owner (full catalog minus dairy-only Milk)", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
     await screen.findByText("Test Goat Farm");
     // The default test farm is a goat (meat) farm; its owner holds every
     // permission including milk.view, but Milk is a buffalo-dairy module.
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(15));
     for (const label of ALL_NAV_LABELS) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
@@ -573,7 +574,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("nav links point at their module routes", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(15));
     const expected: Record<string, string> = {
       Dashboard: "/dashboard",
       Animals: "/animals",
@@ -587,6 +588,7 @@ describe("AppLayout — permission-gated nav", () => {
       Finance: "/finance",
       Planner: "/planner",
       Simulation: "/simulation",
+      "Ops Simulation": "/ops-simulation",
       Reports: "/reports",
       Team: "/team",
     };
@@ -598,7 +600,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("highlights the nav item matching the current path", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(15));
     // usePathname is mocked to /dashboard.
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
       "data-active",
@@ -629,7 +631,7 @@ describe("AppLayout — permission-gated nav", () => {
     navState.pathname = "/dashboard";
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(15));
     // The group heading is the only thing that explains why Health and
     // Feeding sit together; without it the sidebar is one flat list. The
     // default test farm is a goat (meat) farm, so the buffalo-dairy Milk
@@ -647,6 +649,7 @@ describe("AppLayout — permission-gated nav", () => {
       "Finance",
       "Planner",
       "Simulation",
+      "Ops Simulation",
       "Reports",
       "Team",
     ]);
@@ -672,7 +675,7 @@ describe("AppLayout — permission-gated nav", () => {
       <AppLayout defaultOpen={true}>{null}</AppLayout>,
     );
 
-    await waitFor(() => expect(navLinks()).toHaveLength(15));
+    await waitFor(() => expect(navLinks()).toHaveLength(16));
     expect(navGroupItems("Health & Feed")).toEqual(["Health", "Feeding", "Milk"]);
     unmount();
   });
@@ -695,7 +698,7 @@ describe("AppLayout — permission-gated nav", () => {
   it("keeps the permissions-failure notice out of a healthy sidebar", async () => {
     const { unmount } = renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(15));
     expect(
       screen.queryByText(/Could not load your permissions/),
     ).not.toBeInTheDocument();
@@ -797,7 +800,7 @@ describe("AppLayout — loading and no-farm states", () => {
   it("never sends a session that already has an active farm to /farm-select", async () => {
     renderWithProviders(<AppLayout defaultOpen={true}>{null}</AppLayout>);
 
-    await waitFor(() => expect(navLinks()).toHaveLength(14));
+    await waitFor(() => expect(navLinks()).toHaveLength(15));
     // The farm gate is the only navigation this shell performs; bouncing a
     // fully selected session would make every page load lose its route.
     expect(replaceMock).not.toHaveBeenCalled();
