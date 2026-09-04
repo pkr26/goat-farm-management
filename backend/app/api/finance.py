@@ -36,6 +36,7 @@ from ..schemas.finance import (
 )
 from ..services import (
     IdempotencyKey,
+    RequiredIdempotencyKey,
     execute_idempotent,
     monthly_pnl,
     require_animal_event_chronology,
@@ -607,16 +608,26 @@ async def _lock_milk_ledger(db: AsyncSession, farm: CurrentFarm) -> None:
     )
 
 
+# Milk-sale overbooking allowance: a tiny rounding band (0.5% of recorded
+# production plus an absolute 10 L for very small herds). The previous flat
+# 10% never reset, authorizing a permanently renewable ~10% of fictitious
+# income (₹22 lakh/yr on a 200-Murrah dairy) that passed every provenance
+# check; this fence still absorbs sale-side rounding without becoming a
+# revenue-overbooking budget.
+MILK_SALE_ALLOWANCE_FRACTION = 0.005
+MILK_SALE_ALLOWANCE_LITRES = 10.0
+
+
 async def _guard_milk_sold_within_production(
     db: AsyncSession, farm: CurrentFarm, new_litres: float
 ) -> None:
     """A milk sale cannot claim litres the parlour never recorded.
 
     Cumulative non-voided MILK-income litres (including this row) are checked
-    against the farm's recorded MilkRecord production, with a 10% allowance
-    for sale-side rounding and calf-milk/waste reconciliation differences.
-    Callers hold the farm's milk-ledger advisory lock so two concurrent sales
-    cannot both observe the pre-insert totals and slip past the fence.
+    against the farm's recorded MilkRecord production, with only the small
+    rounding allowance above. Callers hold the farm's milk-ledger advisory
+    lock so two concurrent sales cannot both observe the pre-insert totals
+    and slip past the fence.
     """
     sold = (
         await db.execute(
@@ -635,7 +646,8 @@ async def _guard_milk_sold_within_production(
             )
         )
     ).scalar_one()
-    if float(sold) + float(new_litres) > float(produced) * 1.10:
+    allowed = float(produced) * (1.0 + MILK_SALE_ALLOWANCE_FRACTION) + MILK_SALE_ALLOWANCE_LITRES
+    if float(sold) + float(new_litres) > allowed:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -654,7 +666,9 @@ async def add_transaction(
     user: CurrentUser,
     farm: CurrentFarm,
     perms: FinanceManage,
-    idempotency_key: IdempotencyKey = None,
+    # Required: a manual ledger row has no DB natural key, so the
+    # Idempotency-Key is the only replay defense against double-booking.
+    idempotency_key: RequiredIdempotencyKey,
 ) -> TransactionOut:
     """Record an income/expense with an optional verified farm-animal link."""
 

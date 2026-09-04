@@ -299,13 +299,44 @@ async def test_ultrasound_kid_count_is_species_capped(client):
         headers=goat_headers,
     )
     assert doe.status_code in (200, 201), doe.text
-    gb = await client.post(
+    buck = await client.post(
+        "/api/animals",
+        json={
+            "tag_number": "BUCK-QUAD",
+            "sex": "M",
+            "breed": "Osmanabadi",
+            # Old enough to clear the 12-month sire floor at the backdated
+            # service date (today-40): 450 days ≈ 13.4 months then.
+            "date_of_birth": (date.today() - timedelta(days=450)).isoformat(),
+            "source": "PURCHASED",
+            "current_bucket": "BREEDING",
+            "historical_import_reason": "litter-cap fixture",
+            "weight_kg": 32.0,
+            "weight_date": (date.today() - timedelta(days=390)).isoformat(),
+        },
+        headers=goat_headers,
+    )
+    assert buck.status_code in (200, 201), buck.text
+    # Goats are natural service only — an AI claim is refused (species gate).
+    ai_refused = await client.post(
         "/api/breeding",
         json={
             "doe_id": doe.json()["id"],
             "breeding_date": (date.today() - timedelta(days=40)).isoformat(),
             "method": "AI",
             "semen_sire_name": "Semen sire 7",
+        },
+        headers=goat_headers,
+    )
+    assert ai_refused.status_code == 409, ai_refused.text
+    assert "goat protocol" in ai_refused.json()["detail"]
+    gb = await client.post(
+        "/api/breeding",
+        json={
+            "doe_id": doe.json()["id"],
+            "buck_id": buck.json()["id"],
+            "breeding_date": (date.today() - timedelta(days=40)).isoformat(),
+            "method": "NATURAL",
         },
         headers=goat_headers,
     )
@@ -424,9 +455,7 @@ async def test_milk_correction_freezes_original_and_requires_reason(client):
     assert first["correction_reason"] is None
 
     # A correction without a stated reason is refused and changes nothing.
-    refused = await client.post(
-        "/api/milk/new", json=submit(litres=9.2), headers=headers
-    )
+    refused = await client.post("/api/milk/new", json=submit(litres=9.2), headers=headers)
     assert refused.status_code == 422, refused.text
     assert "correction_reason" in refused.json()["detail"]
 
@@ -872,24 +901,75 @@ def test_murrah_simulation_is_mass_balanced_and_profitable_shape():
         + h.male_growers
     )
     for m in result.months:
-        expected = (
-            previous + m.births + m.purchases_head - m.deaths - m.sales_head - m.culls_head
-        )
+        expected = previous + m.births + m.purchases_head - m.deaths - m.sales_head - m.culls_head
         assert m.total_herd == pytest.approx(expected, abs=1e-6), m.month
         assert m.total_herd >= 0
         previous = m.total_herd
 
 
 def test_murrah_monte_carlo_milk_price_risk():
+    """The milk-price risk variable alone must produce the NPV spread.
+
+    Every other risk is disabled (each draws a fixed 1.0 via common random
+    numbers). Event-level shocks (mortality/disease episodes) still vary
+    run-to-run and are adverse-only by schema, so with the milk_price draw
+    deleted every run lands at or below the deterministic base — the
+    bracket assertion below fails. The counterpart test pins the same thing
+    via band widths, deterministically (shared seed).
+    """
     from app.simulation.defaults import get_preset
     from app.simulation.engine import run_simulation
 
     a = get_preset("murrah_dairy")
-    a.risk.monte_carlo_runs = 25
+    a.risk.monte_carlo_runs = 50
+    for name in (
+        "meat_price",
+        "feed_price",
+        "adult_mortality",
+        "kid_mortality",
+        "litter_size",
+        "conception_rate",
+        "fodder_yield",
+        "operating_cost",
+    ):
+        getattr(a.risk, name).enabled = False
+    base = run_simulation(a, with_break_even=False, with_monte_carlo=False)
     result = run_simulation(a, with_break_even=False, with_monte_carlo=True)
     mc = result.monte_carlo
-    assert mc.npv_p5 <= mc.npv_p50 <= mc.npv_p95
-    assert mc.npv_p95 > mc.npv_p5
+    assert mc.npv_p5 < mc.npv_p50 < mc.npv_p95
+    # Cheaper milk drags the downside below the deterministic run; pricier
+    # milk lifts the upside above it — the band must bracket the base.
+    assert mc.npv_p5 < base.metrics.npv < mc.npv_p95
+
+
+def test_murrah_monte_carlo_milk_price_draw_beats_engine_event_noise():
+    """Counterpart to the test above: with milk_price disabled too, the band
+    shrinks to the engine's residual per-run event noise, which must be far
+    smaller than the milk-price-driven spread — proving the percentiles
+    respond to the risk draws rather than just percentile arithmetic."""
+    from app.simulation.defaults import get_preset
+    from app.simulation.engine import run_simulation
+
+    def band_width(enabled_milk: bool) -> float:
+        a = get_preset("murrah_dairy")
+        a.risk.monte_carlo_runs = 50
+        for name in (
+            "meat_price",
+            "feed_price",
+            "adult_mortality",
+            "kid_mortality",
+            "litter_size",
+            "conception_rate",
+            "fodder_yield",
+            "operating_cost",
+        ):
+            getattr(a.risk, name).enabled = False
+        if not enabled_milk:
+            a.risk.milk_price.enabled = False
+        mc = run_simulation(a, with_break_even=False, with_monte_carlo=True).monte_carlo
+        return mc.npv_p95 - mc.npv_p5
+
+    assert band_width(enabled_milk=False) < band_width(enabled_milk=True) * 0.5
 
 
 def test_dairy_culls_book_at_dry_off_and_keep_milking_until_then():

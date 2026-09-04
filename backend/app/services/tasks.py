@@ -461,8 +461,7 @@ async def complete_task(
                 if animal.id in litter_animal_ids
                 and animal.dam_id == weaning_doe.id
                 and animal.status == AnimalStatus.ACTIVE.value
-                and animal.current_bucket
-                in (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
+                and animal.current_bucket in (Bucket.FEMALE_KIDS.value, Bucket.MALE_KIDS.value)
             ]
         # A retained older duty may be completed after the doe has another live
         # litter (supported by historical correction). Wean only the linked

@@ -198,7 +198,14 @@ passes. Resume API replicas only after that succeeds.
   Milking Attendant, Milk Quality Supervisor and Calf-shed Attendant seeded on
   buffalo farms; all editable, plus custom roles). `milk.quality` splits fat
   testing from yield recording — the ₹/kg-fat pricing input is keyed by the
-  quality/manager roles, never the parlour recorder. `GET
+  quality/manager roles, never the parlour recorder. **Fat-pricing unit
+  convention:** milk quantities are recorded in *litres* everywhere (parlour
+  ledger and sales), and the ₹/kg-fat price multiplies that litre figure
+  directly — i.e. a litre is treated as a kilogram (density ~1.03 kg/L for
+  Murrah milk is deliberately not applied). Ledger and simulation share this
+  convention, so internal reconciliations are consistent; reconciliation
+  against plant statements paid on weighed kg will show a systematic ~3%
+  volume-vs-mass gap. `GET
   /api/auth/permissions` returns the caller's effective set for the active
   farm; the nav and buttons mirror it.
 - Legacy `pbkdf2_sha256$iterations$salt_hex$digest_hex` password hashes
@@ -291,6 +298,18 @@ Because the profile mutates only covered lines, archive or remove the generated
 `backend/mutants/` cache after editing mutation-target source code and before an
 authoritative run. Mutmut 3.7 can otherwise reuse stale line-coverage mappings;
 test-only changes are invalidated by the configured test-file dependency hash.
+
+**Mutation-score scope (read before quoting a number).** The mutmut campaign
+mutates **only `app/simulation/*.py` and `app/schemas/simulation.py`** —
+20 of the backend tree's ~240 Python files — and runs only the ten deterministic simulation
+suites against each mutant (`only_mutate` and
+`pytest_add_cli_args_test_selection` in `backend/pyproject.toml`). A headline
+like "90% kill rate" is a statement about the simulation package, not the
+routers, services, security, or data layer; those are covered by the
+integration suite over real PostgreSQL instead. The same applies to frontend
+Stryker deltas quoted from targeted campaigns — the last full-repo snapshot
+is the authoritative aggregate, and targeted post-remediation reports carry
+live survivors by construction.
 
 The API contract flows one way: backend routes/schemas →
 `shared/openapi.json` → Orval-generated TanStack Query hooks

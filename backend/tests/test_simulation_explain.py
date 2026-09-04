@@ -248,8 +248,12 @@ def test_metric_narratives_are_stable_across_core_financial_branches() -> None:
     # Digests regenerated in the audit-remediation contract update: the
     # labour-rule, DSCR-window and growth-curve corrections changed the
     # default run's numbers, so every narrative quoting them re-hashed.
+    # Re-hashed again in the 2026-09-04 red-team remediation: the Monte-Carlo
+    # feed-price draw no longer scales home-grown green fodder (a cultivation
+    # cost — consistent with the drought channel), shifting the risk band the
+    # narratives quote. Deterministic digests above are unchanged.
     assert _report_digest(risk) == (
-        "6b64fe4e7737d336763da11ee4d3b632f8152be107309b769841d1479a09ae81"
+        "8f965c2c10996a6e67477d65712d54493d36d194535b638c3ce60e4a49a540cc"
     )
 
 

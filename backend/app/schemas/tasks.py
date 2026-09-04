@@ -3,7 +3,7 @@
 from datetime import date, datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..models import MAX_RECUR_DAYS, MAX_TASK_TITLE_LENGTH  # single source of truth
 from .common import BoundedId, PostgresText, StrictInputModel, StrictInt
@@ -37,6 +37,16 @@ class TaskCreateIn(StrictInputModel):
     assigned_role_id: BoundedId | None = None
     assigned_user_id: BoundedId | None = None
     recur_days: StrictInt | None = Field(default=None, ge=1, le=MAX_RECUR_DAYS)
+
+    @field_validator("due_date")
+    @classmethod
+    def _sane_year_band(cls, value: date) -> date:
+        # A year-1 due date is permanently "overdue" and poisons every
+        # dashboard aggregate that counts it; year 2000 mirrors the
+        # purchase-date floor (any real duty predating the app is fiction).
+        if not 2000 <= value.year <= 2100:
+            raise ValueError("due_date must be between year 2000 and 2100")
+        return value
 
     @model_validator(mode="after")
     def recurrence_must_have_representable_successor(self) -> "TaskCreateIn":

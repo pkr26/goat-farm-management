@@ -148,28 +148,24 @@ async def test_weaning_duty_routes_by_farm_type(client: httpx.AsyncClient) -> No
         ).scalar_one()
 
     async with get_sessionmaker()() as db:
-        assert (
-            await _default_role_id_for_category(db, goat_id, "GOAT", "WEANING")
-            == await role_id(db, goat_id, "MOVER")
+        assert await _default_role_id_for_category(db, goat_id, "GOAT", "WEANING") == await role_id(
+            db, goat_id, "MOVER"
         )
-        assert (
-            await _default_role_id_for_category(db, dairy_id, "BUFFALO_DAIRY", "WEANING")
-            == await role_id(db, dairy_id, "CALF_ATTENDANT")
-        )
+        assert await _default_role_id_for_category(
+            db, dairy_id, "BUFFALO_DAIRY", "WEANING"
+        ) == await role_id(db, dairy_id, "CALF_ATTENDANT")
         # Unmapped categories and non-dairy overrides are unaffected.
-        assert (
-            await _default_role_id_for_category(db, dairy_id, "BUFFALO_DAIRY", "VACCINE")
-            == await role_id(db, dairy_id, "VET")
-        )
+        assert await _default_role_id_for_category(
+            db, dairy_id, "BUFFALO_DAIRY", "VACCINE"
+        ) == await role_id(db, dairy_id, "VET")
 
         calf = await db.get(Role, await role_id(db, dairy_id, "CALF_ATTENDANT"))
         assert calf is not None
         calf.deleted_at = utcnow()
         await db.commit()
-        assert (
-            await _default_role_id_for_category(db, dairy_id, "BUFFALO_DAIRY", "WEANING")
-            == await role_id(db, dairy_id, "MOVER")
-        )
+        assert await _default_role_id_for_category(
+            db, dairy_id, "BUFFALO_DAIRY", "WEANING"
+        ) == await role_id(db, dairy_id, "MOVER")
 
 
 async def test_readyz_returns_documented_unavailable_body_when_pool_fails(
@@ -1576,9 +1572,7 @@ async def test_repair_seeds_dairy_presets_only_on_dairy_farms() -> None:
         owner = User(email="dairy-repair-owner@farm.in", password_hash="argon2-placeholder")
         db.add(owner)
         await db.flush()
-        dairy = Farm(
-            name="Legacy Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY"
-        )
+        dairy = Farm(name="Legacy Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY")
         db.add(dairy)
         await db.flush()
         await seed_farm_inventory(db, dairy.id)
@@ -1602,9 +1596,7 @@ async def test_backfill_routes_dairy_weaning_to_calf_attendant() -> None:
         owner = User(email="dairy-backfill-owner@farm.in", password_hash="argon2-placeholder")
         db.add(owner)
         await db.flush()
-        dairy = Farm(
-            name="Backfill Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY"
-        )
+        dairy = Farm(name="Backfill Dairy", owner_id=owner.id, farm_type="BUFFALO_DAIRY")
         db.add(dairy)
         await db.flush()
         await seed_default_roles(db, dairy.id)
@@ -1632,9 +1624,7 @@ async def test_backfill_routes_dairy_weaning_to_calf_attendant() -> None:
     assert claimed == 1
 
     async with get_sessionmaker()() as db:
-        task = (
-            await db.execute(select(Task).where(Task.farm_id == dairy_id))
-        ).scalar_one()
+        task = (await db.execute(select(Task).where(Task.farm_id == dairy_id))).scalar_one()
         calf_role = (
             await db.execute(
                 select(Role).where(Role.farm_id == dairy_id, Role.code == "CALF_ATTENDANT")

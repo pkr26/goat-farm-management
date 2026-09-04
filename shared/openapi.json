@@ -2321,6 +2321,25 @@
               "type": "string",
               "title": "X-Farm-Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -3144,6 +3163,25 @@
             "schema": {
               "type": "string",
               "title": "X-Farm-Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[\\x21-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -5706,7 +5744,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "anyOf": [
                 {
@@ -7296,7 +7334,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "required": false,
+            "required": true,
             "schema": {
               "anyOf": [
                 {

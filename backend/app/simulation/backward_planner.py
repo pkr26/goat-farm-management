@@ -401,8 +401,7 @@ def _purchase_actions(
         + r.gestation_months
         + herd.purchased_doe_settling_months
         + 1
-        for animal_class in target_classes
-        or ["male_grower"]
+        for animal_class in target_classes or ["male_grower"]
     ]
     lead = min(class_leads)
     grow_months = lead - r.gestation_months - herd.purchased_doe_settling_months - 1
@@ -507,9 +506,7 @@ def build_backward_plan(
             window = _ClassWindow(variant, target.animal_class)
             chain = _requirement_chain(variant, target, offset, achievable, window, nouns)
             chains.append(chain)
-            bred_month = window.bred_month(
-                offset, variant.reproduction.gestation_months
-            )
+            bred_month = window.bred_month(offset, variant.reproduction.gestation_months)
             # A bred month before month 1 is not a to-do — it is the reason
             # the target cannot fill: the breeding that produced these
             # animals had to happen before the plan existed. Label it as a

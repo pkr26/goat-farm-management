@@ -2259,11 +2259,17 @@ async def test_sale_creates_income_transaction(client: httpx.AsyncClient) -> Non
     assert "Sale of MEAT-1" in txn["notes"]
 
 
-async def test_sale_without_price_creates_no_transaction(client: httpx.AsyncClient) -> None:
+async def test_sale_without_price_books_flagged_zero_transaction(client: httpx.AsyncClient) -> None:
+    """An unpriced sale can no longer vanish from the ledger (off-ledger-sale
+    hole): it books a ₹0 ANIMAL_SALE row whose note says the price is missing."""
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner, tag="MEAT-2", sex="M", bucket="MALE_KIDS")
     await change_status(client, owner, animal["id"], "SOLD")
-    assert (await get_finance(client, owner))["transactions"] == []
+    rows = (await get_finance(client, owner))["transactions"]
+    assert len(rows) == 1
+    assert rows[0]["amount"] == 0.0
+    assert rows[0]["source_type"] == "ANIMAL_SALE"
+    assert "no price recorded" in rows[0]["notes"]
 
 
 async def test_sale_with_zero_price_creates_zero_audit_transaction(

@@ -437,6 +437,33 @@ async def create_animal(
                         f"and entry weight at least {min_weight:g} kg"
                     ),
                 )
+    # Species-scaled weight bands apply on this path too: a fabricated
+    # 950-kg entry weight or birth weight here coalesces into "latest
+    # weight" downstream and would permanently satisfy the breeding gates —
+    # the same hole the /weight, /kidding and /purchases endpoints fence.
+    weight_profile = species_profile(farm.farm_type)
+    if payload.birth_weight is not None and not (
+        weight_profile.birth_weight_kg_range[0]
+        <= payload.birth_weight
+        <= weight_profile.birth_weight_kg_range[1]
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{weight_profile.young} birth weight must be between "
+                f"{weight_profile.birth_weight_kg_range[0]:g} and "
+                f"{weight_profile.birth_weight_kg_range[1]:g} kg — "
+                f"{payload.birth_weight:g} kg is not a credible newborn weight"
+            ),
+        )
+    if payload.weight_kg is not None and payload.weight_kg > weight_profile.max_adult_weight_kg:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Weight {payload.weight_kg:g} kg exceeds the credible adult "
+                f"scale for this farm's species ({weight_profile.max_adult_weight_kg:g} kg cap)"
+            ),
+        )
     requested_tag = (payload.tag_number or "").strip()
 
     async def mutate() -> AnimalOut:
@@ -911,7 +938,18 @@ async def record_weight(
                 detail=f"{animal.tag_number} is {animal.status.lower()} — cannot record a weight.",
             )
         # finite/positive/future-date/bcs-range guards from v1 live in
-        # WeightIn's validators.
+        # WeightIn's validators; the species-scaled adult cap lives here —
+        # a 999 kg reading on a 30-kg doe is not data, and it would poison
+        # every eligibility gate and dashboard that reads "latest weight".
+        adult_cap = species_profile(farm.farm_type).max_adult_weight_kg
+        if payload.weight_kg > adult_cap:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Weight {payload.weight_kg:g} kg exceeds the credible adult "
+                    f"scale for this farm's species ({adult_cap:g} kg cap)"
+                ),
+            )
         record_date = payload.date or today(farm.timezone)
         try:
             require_farm_not_future(record_date, farm, "weight date")
@@ -1205,22 +1243,29 @@ async def change_status(
     if payload.new_status in SALE_CAPABLE_STATUSES:
         animal.sale_price = money(payload.sale_price) if payload.sale_price is not None else None
         animal.buyer_name = (payload.buyer_name or "").strip() or None
-        if payload.sale_price is not None:
-            db.add(
-                Transaction(
-                    farm_id=farm.id,
-                    date=status_date,
-                    type=TransactionType.INCOME.value,
-                    category=TransactionCategory.ANIMAL_SALE.value,
-                    amount=money(payload.sale_price),
-                    related_animal_id=animal.id,
-                    notes=f"Sale of {animal.tag_number}"
-                    + (f" to {animal.buyer_name}" if animal.buyer_name else ""),
-                    created_by_id=user.id,
-                    source_type="ANIMAL_SALE",
-                    source_id=animal.id,
-                )
+        # A SOLD/CULLED animal always lands in the ledger. When the price is
+        # omitted the row books ₹0 and says so in plain text: the asset
+        # leaving the herd must be countable from the finance views, never
+        # silently invisible (the off-ledger-sale hole).
+        sale_note = f"Sale of {animal.tag_number}"
+        if animal.buyer_name:
+            sale_note += f" to {animal.buyer_name}"
+        if payload.sale_price is None:
+            sale_note += " — no price recorded (₹0 booked)"
+        db.add(
+            Transaction(
+                farm_id=farm.id,
+                date=status_date,
+                type=TransactionType.INCOME.value,
+                category=TransactionCategory.ANIMAL_SALE.value,
+                amount=money(payload.sale_price) if payload.sale_price is not None else money(0),
+                related_animal_id=animal.id,
+                notes=sale_note,
+                created_by_id=user.id,
+                source_type="ANIMAL_SALE",
+                source_id=animal.id,
             )
+        )
     await db.commit()
     return await _animal_out(
         db, animal, today(farm.timezone), farm.timezone, perms, farm_type=farm.farm_type

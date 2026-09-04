@@ -72,6 +72,10 @@ def _expected_milk_amount(
     Fat-based procurement wins whenever its pair is complete — the dairy
     plant pays for fat solids, so litres x fat%/100 x ₹/kg-fat is the price
     of record; a flat ₹/litre only prices the sale when no fat pair is given.
+    UNIT CONVENTION: the litre figure is treated as a kilogram (no ~1.03
+    density conversion) — the simulation engine shares this convention, so
+    internal reconciliations agree while plant statements paid on weighed
+    kg carry a systematic ~3% volume-vs-mass gap.
     Converting through ``str`` keeps binary-float noise out of the ledger.
     """
     if fat_pct is not None and price_per_kg_fat is not None:
@@ -111,8 +115,7 @@ def _validate_milk_provenance(
         return
     if not is_milk_income:
         raise ValueError(
-            "Milk litres / unit price are valid only on INCOME transactions "
-            "in the MILK category"
+            "Milk litres / unit price are valid only on INCOME transactions in the MILK category"
         )
     if txn.milk_litres is None:
         raise ValueError("Milk provenance requires litres")
@@ -122,8 +125,7 @@ def _validate_milk_provenance(
         )
     if txn.milk_unit_price_per_litre is None and txn.milk_fat_pct is None:
         raise ValueError(
-            "Milk provenance requires a price: milk_unit_price_per_litre or "
-            "milk_price_per_kg_fat"
+            "Milk provenance requires a price: milk_unit_price_per_litre or milk_price_per_kg_fat"
         )
     expected = _expected_milk_amount(
         txn.milk_litres,

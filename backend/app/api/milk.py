@@ -1,16 +1,18 @@
 """Milk: per-animal yield recording and herd totals (dairy farms)."""
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..deps import CurrentFarm, CurrentUser, DbSession, require_perm
 from ..models import (
     Animal,
     AnimalSource,
     AnimalStatus,
+    BreedingOutcome,
+    BreedingRecord,
     Bucket,
     FarmType,
     KiddingRecord,
@@ -224,15 +226,15 @@ async def add_milk_record(
         # farm, or be an imported adult purchase (an in-milk foundation dam
         # bought in milk). A never-calved heifer — bred or not — has no
         # parlour ledger to write to.
-        has_calved = (
+        profile = species_profile(farm.farm_type)
+        last_calving = (
             await db.execute(
-                select(KiddingRecord.id)
-                .where(KiddingRecord.farm_id == farm.id, KiddingRecord.doe_id == animal.id)
-                .limit(1)
+                select(func.max(KiddingRecord.date)).where(
+                    KiddingRecord.farm_id == farm.id, KiddingRecord.doe_id == animal.id
+                )
             )
-        ).scalar_one_or_none() is not None
-        if not has_calved:
-            profile = species_profile(farm.farm_type)
+        ).scalar_one_or_none()
+        if last_calving is None:
             age_months = animal.age_months_on(today(farm.timezone))
             # The imported-in-milk exception requires a provable adult age:
             # without an effective DOB a purchased female could be a heifer
@@ -249,6 +251,54 @@ async def add_milk_record(
                         f"{animal.tag_number} has no recorded calving — milk is recorded "
                         "for dams in the milking string (imported in-milk purchases "
                         "with a recorded age excepted)"
+                    ),
+                )
+        elif payload.date < last_calving:
+            # A yield cannot predate the calving that started the lactation:
+            # the date was mid-gestation or in a dry period of an earlier
+            # lactation, and no downstream aggregate could distinguish the
+            # fabricated litres from real milk.
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Milk date cannot predate {animal.tag_number}'s latest "
+                    f"{profile.parturition} on {last_calving.isoformat()} — a yield "
+                    "asserts an active lactation"
+                ),
+            )
+        # Dry-period fence: the final prepartum window (dry-off ~60 days
+        # before the expected calving for dairy) is biologically milk-free —
+        # the same window whose tasks the breeding service schedules. A
+        # reading inside it is fabricated regardless of the animal's current
+        # bucket, which only reflects the latest recorded move. A pregnancy
+        # already resolved by a recorded KiddingRecord is excluded — the
+        # outcome stays CONFIRMED_PREGNANT with its EKD after calving, and a
+        # dam that calved early (say day 282 of a 310-day EKD) is genuinely
+        # lactating between her actual calving and the stale EKD.
+        expected_calving = (
+            await db.execute(
+                select(BreedingRecord.expected_kidding_date)
+                .outerjoin(KiddingRecord, KiddingRecord.breeding_record_id == BreedingRecord.id)
+                .where(
+                    BreedingRecord.farm_id == farm.id,
+                    BreedingRecord.doe_id == animal.id,
+                    BreedingRecord.outcome == BreedingOutcome.CONFIRMED_PREGNANT.value,
+                    BreedingRecord.expected_kidding_date.is_not(None),
+                    KiddingRecord.id.is_(None),
+                )
+                .order_by(BreedingRecord.expected_kidding_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if expected_calving is not None:
+            dry_start = expected_calving - timedelta(days=profile.prepartum_move_lead_days)
+            if dry_start <= payload.date <= expected_calving:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{animal.tag_number} is in her dry period (expected "
+                        f"{profile.parturition} {expected_calving.isoformat()}, dry from "
+                        f"{dry_start.isoformat()}) — no yield is recorded in that window"
                     ),
                 )
         try:

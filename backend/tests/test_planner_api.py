@@ -251,9 +251,7 @@ async def test_planner_plan_crud(client: httpx.AsyncClient) -> None:
         f"/api/planner/plans/{created['id']}",
         json={
             "expected_revision": 1,
-            "targets": [
-                {"year_month": "2028-01", "animal_class": "male_grower", "count": 40.0}
-            ],
+            "targets": [{"year_month": "2028-01", "animal_class": "male_grower", "count": 40.0}],
         },
         headers=headers,
     )
@@ -290,9 +288,9 @@ async def test_planner_plan_lock_namespace_is_unique(client: httpx.AsyncClient) 
     feature's farm lock — a collision serializes unrelated writes across
     features (regression: it once shared 4714 with the finance milk ledger)."""
     from app.api.finance import MILK_LEDGER_LOCK_NAMESPACE
-    from app.services.tasks import MANUAL_TASK_QUEUE_LOCK_NAMESPACE
     from app.api.simulation import SCENARIO_QUOTA_LOCK_NAMESPACE
     from app.api.team import TEAM_PROVISIONING_LOCK_NAMESPACE
+    from app.services.tasks import MANUAL_TASK_QUEUE_LOCK_NAMESPACE
 
     taken = {
         MANUAL_TASK_QUEUE_LOCK_NAMESPACE,
@@ -317,9 +315,7 @@ async def test_planner_plan_rejects_out_of_range_years_at_the_schema(
             json={
                 "name": f"Dead plan {bad_start}",
                 "start_year_month": bad_start,
-                "targets": [
-                    {"year_month": bad_target, "animal_class": "doe", "count": 1.0}
-                ],
+                "targets": [{"year_month": bad_target, "animal_class": "doe", "count": 1.0}],
                 "assumptions": assumptions,
             },
             headers=owner,
@@ -365,9 +361,7 @@ async def test_backward_plan_ceiling_rejection_is_not_charged(
     owner = await owner_with_farm(client)
     assumptions = await default_assumptions(client, owner)
     charged = []
-    monkeypatch.setattr(
-        planner_api, "_charge_run_budget", lambda *a: charged.append(a)
-    )
+    monkeypatch.setattr(planner_api, "_charge_run_budget", lambda *a: charged.append(a))
     document = _plan_document(
         assumptions, [{"year_month": "2050-01", "animal_class": "male_grower", "count": 5.0}]
     )

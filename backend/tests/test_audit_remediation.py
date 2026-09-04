@@ -338,11 +338,9 @@ async def test_dairy_fresh_pen_exit_with_live_calf(client: httpx.AsyncClient):
     # survives" because the survivorship check lacked the species gate, and
     # skip refused as "the only way out" — stranding the dam to day 90.
     # Completing it now must move the dam to RESTING with her calf alive.
-    completed = await client.post(f"/api/tasks/{fresh["id"]}/complete", headers=headers)
+    completed = await client.post(f"/api/tasks/{fresh['id']}/complete", headers=headers)
     assert completed.status_code == 200, completed.text
-    dam = (
-        await client.get(f"/api/animals/{calved.json()['doe_id']}", headers=headers)
-    ).json()
+    dam = (await client.get(f"/api/animals/{calved.json()['doe_id']}", headers=headers)).json()
     assert dam.get("animal", dam)["current_bucket"] == "RESTING"
 
 
@@ -543,9 +541,7 @@ async def test_owner_provisioned_worker_must_rotate_before_acting(client: httpx.
     bearer = {"Authorization": f"Bearer {body['access_token']}"}
 
     # Domain reads/mutations are blocked until the rotation completes...
-    blocked = await client.get(
-        "/api/dashboard", headers=bearer | {"X-Farm-Id": owner["X-Farm-Id"]}
-    )
+    blocked = await client.get("/api/dashboard", headers=bearer | {"X-Farm-Id": owner["X-Farm-Id"]})
     assert blocked.status_code == 403
     assert "change it" in blocked.json()["detail"].lower()
     # ...while the auth routes that clear the flag stay reachable.
@@ -559,7 +555,5 @@ async def test_owner_provisioned_worker_must_rotate_before_acting(client: httpx.
     )
     assert changed.status_code == 200, changed.text
     fresh = {"Authorization": f"Bearer {changed.json()['access_token']}"}
-    allowed = await client.get(
-        "/api/dashboard", headers=fresh | {"X-Farm-Id": owner["X-Farm-Id"]}
-    )
+    allowed = await client.get("/api/dashboard", headers=fresh | {"X-Farm-Id": owner["X-Farm-Id"]})
     assert allowed.status_code == 200, allowed.text

@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import CurrentFarm, CurrentMembership, CurrentUser, DbSession, require_perm
-from ..models import Animal, PurchaseBatch, Task, TaskStatus
+from ..models import Animal, PurchaseBatch, Task, TaskStatus, species_profile
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..schemas.purchases import (
     PurchaseBatchDetailOut,
@@ -121,6 +121,17 @@ async def create_batch(
             require_farm_not_future(payload.date, farm, "purchase date")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        # Species-scaled cap: the generic 0-1000 kg band would let a goat
+        # purchase average 950 kg/head and fabricate "latest weight" facts.
+        adult_cap = species_profile(farm.farm_type).max_adult_weight_kg
+        if payload.avg_weight_kg is not None and payload.avg_weight_kg > adult_cap:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Average weight {payload.avg_weight_kg:g} kg exceeds the credible "
+                    f"adult scale for this farm's species ({adult_cap:g} kg cap)"
+                ),
+            )
         try:
             batch = await create_purchase_batch(
                 db,

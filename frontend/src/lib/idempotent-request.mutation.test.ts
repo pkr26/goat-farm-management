@@ -750,6 +750,7 @@ describe("idempotency mutation boundaries", () => {
         "/api/team/workers",
         "/api/health/events",
         "/api/simulation/scenarios",
+        "/api/milk/new",
         "/api/breeding",
         "/api/kidding",
         "/api/feeding/dispense",

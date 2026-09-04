@@ -496,6 +496,15 @@ def test_feed_price_draw_moves_purchased_green_fodder() -> None:
     assert variant.feed.purchased_green_price_per_kg == pytest.approx(
         a.feed.purchased_green_price_per_kg * 1.5
     )
+    # Home-grown green fodder is a cultivation cost (its risk is the
+    # fodder_yield draw), so the purchased-feed price draw must leave it
+    # untouched — matching the drought/shock channel in market.py, which
+    # also leaves the home green price unshocked.
+    assert variant.feed.green_price_per_kg == a.feed.green_price_per_kg
+    assert variant.feed.dry_price_per_kg == pytest.approx(a.feed.dry_price_per_kg * 1.5)
+    assert variant.feed.concentrate_price_per_kg == pytest.approx(
+        a.feed.concentrate_price_per_kg * 1.5
+    )
 
 
 def test_operating_cost_draw_includes_per_head_transport() -> None:
@@ -588,7 +597,9 @@ def test_apply_draws_scales_every_risk_control_in_the_documented_direction() -> 
 
     assert variant.sales.meat_price_per_kg == pytest.approx(150.0)
     assert variant.sales.transport_cost_per_head == pytest.approx(100.0)
-    assert variant.feed.green_price_per_kg == pytest.approx(4.0)
+    # Home-grown green fodder is cultivation cost (risk carried by the
+    # fodder_yield draw), so the purchased-feed price draw leaves it at base.
+    assert variant.feed.green_price_per_kg == pytest.approx(2.0)
     assert variant.feed.purchased_green_price_per_kg == pytest.approx(6.0)
     assert variant.feed.dry_price_per_kg == pytest.approx(8.0)
     assert variant.feed.concentrate_price_per_kg == pytest.approx(10.0)

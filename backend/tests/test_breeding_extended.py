@@ -3000,12 +3000,17 @@ async def test_kidding_negative_birth_weight(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 422
 
 
-async def test_kidding_zero_birth_weight_ok(client: httpx.AsyncClient) -> None:
+async def test_kidding_zero_birth_weight_rejected(client: httpx.AsyncClient) -> None:
+    """A 0 kg newborn is not credible data (species band starts at 0.5 kg for
+    goats); an unmeasured weight is simply omitted, not zero."""
     headers = await owner_with_farm(client)
     _doe, _buck, br = await pregnant_doe(client, headers, gestation_days=160)
     resp = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "M", "birth_weight": 0.0}])
+    assert resp.status_code == 422, resp.text
+    assert "not a credible newborn weight" in resp.json()["detail"]
+    resp = await kid_on_ekd_raw(client, headers, br, kids=[{"sex": "M"}])
     assert resp.status_code == 201, resp.text
-    assert resp.json()["kids"][0]["birth_weight"] == 0.0
+    assert resp.json()["kids"][0]["birth_weight"] is None
 
 
 async def test_kidding_tag_too_long(client: httpx.AsyncClient) -> None:

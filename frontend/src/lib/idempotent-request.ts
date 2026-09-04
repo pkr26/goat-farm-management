@@ -181,13 +181,21 @@ export function isIdempotencyProtectedMutation(url: string, method?: string): bo
     path === "/api/team/workers" ||
     path === "/api/health/events" ||
     path === "/api/simulation/scenarios" ||
+    // Milk records are DB-naturally-keyed (animal/day/shift), but sending the
+    // key also buys single-network-retry coalescing: a double-submit under a
+    // flaky link replays the committed response instead of surfacing a
+    // misleading correction-required 422.
+    path === "/api/milk/new" ||
     // Pregnancy/kidding creation auto-creates tasks and (for kidding) animals,
-    // so an ambiguous replay duplicates durable stock. The contract does not
-    // yet declare an Idempotency-Key for these routes; client-side this still
-    // dedupes concurrent submits and reuses one key across the automatic
-    // network retry. Server-side dedup needs the backend param (tracked).
+    // so an ambiguous replay duplicates durable stock. Both routes now
+    // declare the Idempotency-Key server-side too, so the automatic network
+    // retry replays the committed response instead of a 409.
     path === "/api/breeding" ||
     path === "/api/kidding" ||
+    // Stock/money mutations. The server REQUIRES the key on dispense and
+    // finance/new (no DB natural key backs them — the key is the only replay
+    // defense); the remaining stock routes below merely accept it, and the
+    // client still sends it for single-retry coalescing.
     path === "/api/feeding/dispense" ||
     path === "/api/feeding/mix" ||
     /^\/api\/feeding\/inventory\/\d+\/add$/.test(path)

@@ -43,6 +43,7 @@ def _is_bakrid_month(observed: date) -> bool:
     festival_month = BAKRID_DATES_BY_YEAR.get(observed.year)
     return festival_month is not None and festival_month[0] == observed.month
 
+
 type CalibrationValue = int | float | list[float]
 _MAX_HISTORY_ROWS = 20_000
 
@@ -79,7 +80,6 @@ def _months_between(start: date, end: date) -> float:
     if end <= start:
         return 0.0
     return (end - start).days / 30.44  # same convention as the engine's DAYS_PER_MONTH
-
 
 
 def _annual_fraction_from_exposure(deaths: int, animal_months: float) -> float:

@@ -181,13 +181,9 @@ async def test_run_rejects_seed_out_of_bounds(client: httpx.AsyncClient) -> None
     bounded to the app's integer range instead of amplifying the request."""
     headers = await owner_with_farm(client, email="seedbound@ops-sim.in")
     for seed in (2**63, -(2**63), 10**30):
-        resp = await client.post(
-            "/api/ops-sim/run", json=_run_document(seed=seed), headers=headers
-        )
+        resp = await client.post("/api/ops-sim/run", json=_run_document(seed=seed), headers=headers)
         assert resp.status_code == 422, seed
-    resp = await client.post(
-        "/api/ops-sim/run", json=_run_document(seed=2**62), headers=headers
-    )
+    resp = await client.post("/api/ops-sim/run", json=_run_document(seed=2**62), headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["result"]["seed"] == 2**62
 
@@ -203,7 +199,8 @@ async def test_run_ledger_rejects_oversized_runs(client: httpx.AsyncClient) -> N
     ]
     document = _run_document(horizon_days=365, animals=animals)
     resp = await client.post(
-        "/api/ops-sim/run", json=_run_document(**{**document, "include_ledger": True}),
+        "/api/ops-sim/run",
+        json=_run_document(**{**document, "include_ledger": True}),
         headers=headers,
     )
     assert resp.status_code == 422, resp.text

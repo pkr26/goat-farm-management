@@ -210,9 +210,7 @@ async def _run_offloaded(
     nouns: SpeciesNouns = GOAT_NOUNS,
 ) -> SimulationResult:
     """Offload one standard run (see ``_offload`` for the machinery)."""
-    return await _offload(
-        lambda: _run(assumptions, monte_carlo, sensitivity, optimization, nouns)
-    )
+    return await _offload(lambda: _run(assumptions, monte_carlo, sensitivity, optimization, nouns))
 
 
 # One run per farm and per user, plus a process-wide ceiling. This prevents a
@@ -259,9 +257,7 @@ async def _run_for_farm(
         # limiter turns away never runs and must not spend the budget.
         _check_run_budget(farm_id, user_id, cost)
         _charge_run_budget(farm_id, user_id, cost)
-        return await _run_offloaded(
-            assumptions, monte_carlo, sensitivity, optimization, nouns
-        )
+        return await _run_offloaded(assumptions, monte_carlo, sensitivity, optimization, nouns)
 
     return await _with_run_limits(farm_id, user_id, run)
 
@@ -589,9 +585,7 @@ async def compare_scenarios(
         _charge_run_budget(farm_id, user_id, cost)
         return ScenarioCompareOut(
             scenarios=scenario_snapshots,
-            results=[
-                await _run_offloaded(a, False, False, False, nouns) for a in loaded
-            ],
+            results=[await _run_offloaded(a, False, False, False, nouns) for a in loaded],
         )
 
     return await _with_run_limits(farm_id, user_id, run_compare)

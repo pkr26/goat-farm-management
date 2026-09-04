@@ -905,9 +905,7 @@ def _run_core(
         # Settling does are deliberately outside ``does_before``: like every
         # event purchase they bypass the retention cap when they land, and the
         # cap re-asserts itself at the next graduation.
-        does_before = (
-            sum(svc) + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
-        )
+        does_before = sum(svc) + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
         retained = f_gro_out * a.herd.female_retention_fraction
         if a.herd.max_breeding_does > 0:
             retained = min(retained, max(0.0, a.herd.max_breeding_does - does_before))
@@ -1005,9 +1003,7 @@ def _run_core(
         # finishing pen), not a distinct pool — counting it double-counted the
         # breeding string and over-purchased sires (~1 extra buck per 25
         # milking does). The step-6 herd total below omits it the same way.
-        does_now = (
-            sum(svc) + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
-        )
+        does_now = sum(svc) + sum(open_waiting) + sum(preg) + (0.0 if dairy_mode else sum(lact))
         needed_bucks = _ceil_head_ratio(does_now, cull.buck_doe_ratio) if does_now > 0.0 else 0
         if a.herd.auto_purchase_bucks and bucks < needed_bucks:
             buy = needed_bucks - bucks
@@ -1090,9 +1086,7 @@ def _run_core(
             # booked phantom finishing head.
             breeding_total_before = breeding_pool_before
             if breeding_total_before > 0.0:
-                doe_ages = _scale(
-                    doe_ages, max(0.0, 1.0 - repeat_culls / breeding_total_before)
-                )
+                doe_ages = _scale(doe_ages, max(0.0, 1.0 - repeat_culls / breeding_total_before))
             if dairy_mode:
                 lact_total = sum(lact)
                 if lact_total > 0.0:
@@ -1236,9 +1230,7 @@ def _run_core(
             does_state_total = open_total + preg_total
             milking_does = min(lact_total, does_state_total + finishing_total)
             settling_total = sum(settling)
-            dry_does = max(
-                0.0, does_state_total + finishing_total - milking_does - settling_total
-            )
+            dry_does = max(0.0, does_state_total + finishing_total - milking_does - settling_total)
             total_herd = (
                 f_kid_total
                 + m_kid_total
@@ -1451,6 +1443,8 @@ def _run_core(
         # milk-price seasonality, milk-price growth and the milk-price shock.
         milk_growth = annual_growth_multiplier(sales.annual_milk_price_growth_rate, month)
         if sales.milk_price_per_kg_fat > 0.0 and sales.milk_fat_pct > 0.0:
+            # UNIT CONVENTION: litres are treated as kg (no density factor),
+            # matching the ledger's fat-pricing math in schemas/finance.py.
             effective_milk_price = sales.milk_price_per_kg_fat * sales.milk_fat_pct / 100.0
         else:
             effective_milk_price = sales.milk_price_per_litre
@@ -1468,9 +1462,12 @@ def _run_core(
             * sales.monthly_milk_yield_multipliers[calendar_month - 1]
             * (shocks.milk_yield[shock_index] if shocks.milk_yield else 1.0)
         )
-        # Whole milk fed to retained pre-wean calves is produced, not sold:
-        # the f_kid class spans the species' pre-wean months (weaning at
-        # ~day 90 for buffalo), so every calf in it drinks the daily allowance.
+        # Whole milk fed to retained pre-wean calves is produced, not sold.
+        # PROTOCOL: only retained FEMALE calves (the f_kid class) are charged
+        # the daily allowance. Male calves are sold at birth at the preset's
+        # male_calf_sell_at_birth_fraction, and the small retained share is
+        # assumed bucket/colostrum-fed outside the saleable-milk account —
+        # a documented heifer-only convention, not an oversight.
         if sales.calf_milk_litres_per_day_per_calf > 0.0 and sum(f_kid) > 0.0:
             milk_litres_month = max(
                 0.0,

@@ -463,7 +463,11 @@ def test_engine_emits_every_simulatable_transition_context() -> None:
         DailyOpsInput(
             start_date=date(2026, 9, 3),
             horizon_days=50,
-            animals=[AnimalStartSpec(tag="P1", sex="F", bucket="DELIVERY", age_months=30, bred_days_ago=140)],
+            animals=[
+                AnimalStartSpec(
+                    tag="P1", sex="F", bucket="DELIVERY", age_months=30, bred_days_ago=140
+                )
+            ],
             params=_quiet_params(stillbirth_rate=1.0),
         ),
         # quarantine release
@@ -477,7 +481,11 @@ def test_engine_emits_every_simulatable_transition_context() -> None:
         DailyOpsInput(
             start_date=date(2026, 9, 3),
             horizon_days=10,
-            animals=[AnimalStartSpec(tag="R1", sex="F", bucket="RECOVERY", age_months=30, days_in_bucket=5)],
+            animals=[
+                AnimalStartSpec(
+                    tag="R1", sex="F", bucket="RECOVERY", age_months=30, days_in_bucket=5
+                )
+            ],
             params=_quiet_params(),
         ),
     ]
@@ -784,10 +792,7 @@ def test_orphan_weaning_on_dam_cull_clears_the_pre_weaning_hazard() -> None:
     # (before the birth) and by day 152 the kid stands weaned in FEMALE_KIDS —
     # so this kid never eats a creep line.
     creep_days = [
-        record.day
-        for record in result.days
-        for line in record.feeding
-        if line.recipe == "CREEP"
+        record.day for record in result.days for line in record.feeding if line.recipe == "CREEP"
     ]
     assert creep_days == []
 
@@ -804,9 +809,7 @@ def test_orphan_weaned_kids_never_carry_the_kid_hazard() -> None:
                 horizon_days=300,
                 seed=seed,
                 animals=[_doe("D1"), _doe("D2"), _doe("D3"), _buck()],
-                params=_quiet_params(
-                    kid_pre_weaning_mortality=0.5, adult_annual_mortality=0.30
-                ),
+                params=_quiet_params(kid_pre_weaning_mortality=0.5, adult_annual_mortality=0.30),
             )
         )
         for journey in result.journeys:
@@ -843,8 +846,11 @@ def test_newborn_tags_never_replace_starting_animals() -> None:
     assert (newborn.born_day, newborn.dam_tag) == (151, "D1")
     final_head = sum(row.heads for row in result.days[-1].occupancy)
     assert (
-        result.head_start + result.totals.kids_born_alive
-        - result.totals.deaths - result.totals.culls - result.totals.sales
+        result.head_start
+        + result.totals.kids_born_alive
+        - result.totals.deaths
+        - result.totals.culls
+        - result.totals.sales
     ) == final_head
 
 
@@ -861,8 +867,12 @@ def test_recovery_starter_kid_weans_by_age() -> None:
                     tag="RK1", sex="F", bucket="RECOVERY", age_months=9, dependent_kid=True
                 ),
                 AnimalStartSpec(
-                    tag="RK2", sex="F", bucket="RECOVERY", age_months=1,
-                    dependent_kid=True, days_in_bucket=30,
+                    tag="RK2",
+                    sex="F",
+                    bucket="RECOVERY",
+                    age_months=1,
+                    dependent_kid=True,
+                    days_in_bucket=30,
                 ),
             ],
             params=_quiet_params(),
@@ -927,7 +937,7 @@ def test_abortion_hazard_anchors_to_the_exposed_window() -> None:
     150-day gestation: the nominal rate must reproduce over the window the
     engine actually draws on."""
     from app.models.species import GOAT_PROFILE
-    from app.simulation.daily_ops import _DailyOpsRun, _daily_hazard
+    from app.simulation.daily_ops import _daily_hazard, _DailyOpsRun
 
     run = _DailyOpsRun(
         DailyOpsInput(
@@ -1029,9 +1039,7 @@ def test_quads_wean_to_male_kids_and_sell() -> None:
             ),
         )
     )
-    born = sorted(
-        (j.tag, j.sex, j.born_day) for j in result.journeys if j.born_day == 151
-    )
+    born = sorted((j.tag, j.sex, j.born_day) for j in result.journeys if j.born_day == 151)
     assert born == [
         ("D1-1", "M", 151),
         ("D1-2", "M", 151),
@@ -1044,9 +1052,7 @@ def test_quads_wean_to_male_kids_and_sell() -> None:
         assert (journey.exit_kind, journey.exit_day) == ("SOLD", 211)
     assert result.totals.sales == 4
     assert any(
-        "sale window 1–2 months" in task.detail
-        for record in result.days
-        for task in record.tasks
+        "sale window 1–2 months" in task.detail for record in result.days for task in record.tasks
     )
 
 
@@ -1082,10 +1088,7 @@ def test_booster_detail_admits_a_missed_primary() -> None:
         )
     )
     booster = [
-        task
-        for record in result.days
-        for task in record.tasks
-        if task.category == "VACCINE"
+        task for record in result.days for task in record.tasks if task.category == "VACCINE"
     ]
     assert len(booster) == 1
     assert booster[0].detail == "Booster only — her primary dose pre-dates this run."
@@ -1114,12 +1117,10 @@ def test_totals_aggregates_are_pinned_exactly() -> None:
 
 
 def test_seed_bounds_match_the_api_layer() -> None:
-    assert DailyOpsInput(
-        start_date=date(2026, 9, 3), animals=[_doe()], seed=2**62
-    ).seed == 2**62
-    assert DailyOpsInput(
-        start_date=date(2026, 9, 3), animals=[_doe()], seed=-(2**62)
-    ).seed == -(2**62)
+    assert DailyOpsInput(start_date=date(2026, 9, 3), animals=[_doe()], seed=2**62).seed == 2**62
+    assert DailyOpsInput(start_date=date(2026, 9, 3), animals=[_doe()], seed=-(2**62)).seed == -(
+        2**62
+    )
     with pytest.raises(ValidationError):
         DailyOpsInput(start_date=date(2026, 9, 3), animals=[_doe()], seed=2**62 + 1)
 
@@ -1145,9 +1146,7 @@ def test_rejects_male_in_recovery_without_dependent_kid() -> None:
         )
     # The coherent form — an unweaned male kid with its dam — is still valid
     # and weans by age (covered by test_recovery_starter_kid_weans_by_age).
-    AnimalStartSpec(
-        tag="K1", sex="M", bucket="RECOVERY", age_months=1, dependent_kid=True
-    )
+    AnimalStartSpec(tag="K1", sex="M", bucket="RECOVERY", age_months=1, dependent_kid=True)
 
 
 def test_sire_graduates_from_foundation_and_serves_same_day() -> None:
@@ -1190,14 +1189,8 @@ def test_foundation_male_waits_for_the_sire_age_gate() -> None:
     )
     assert _moves_of(result, "G1") == [(32, "FOUNDATION", "BREEDING", "breeding")]
     assert result.totals.services == 1
-    assert any(
-        t.headline == "Breed D1 — sire G1" for t in result.days[31].tasks
-    )
-    assert all(
-        "Breed D1" not in t.headline
-        for record in result.days[:31]
-        for t in record.tasks
-    )
+    assert any(t.headline == "Breed D1 — sire G1" for t in result.days[31].tasks)
+    assert all("Breed D1" not in t.headline for record in result.days[:31] for t in record.tasks)
 
 
 def test_quarantined_male_releases_then_graduates_same_day() -> None:

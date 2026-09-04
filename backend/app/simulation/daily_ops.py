@@ -589,9 +589,7 @@ class _DailyOpsRun:
             # leave the bucket (weaning needs an in-sim kidding record).
             postpartum_due = None
             if spec.bucket == Bucket.RECOVERY.value and not spec.dependent_kid:
-                postpartum_due = 1 + max(
-                    0, _PROFILE.postpartum_recovery_days - spec.days_in_bucket
-                )
+                postpartum_due = 1 + max(0, _PROFILE.postpartum_recovery_days - spec.days_in_bucket)
             self.animals[spec.tag] = _Animal(
                 tag=spec.tag,
                 sex=spec.sex,

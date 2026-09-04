@@ -32,6 +32,7 @@ from ..services import (
     DRY_ROUGHAGE,
     IdempotencyKey,
     InsufficientFeedError,
+    RequiredIdempotencyKey,
     add_feed_stock,
     bucket_allocation_reference,
     execute_idempotent,
@@ -137,7 +138,10 @@ async def dispense(
     user: CurrentUser,
     farm: CurrentFarm,
     perms: FeedingManage,
-    idempotency_key: IdempotencyKey = None,
+    # Required: a dispense has no DB natural key (the same bucket/shift may
+    # legitimately be dispensed twice), so the Idempotency-Key is the only
+    # replay defense against a double stock debit.
+    idempotency_key: RequiredIdempotencyKey,
 ) -> FeedingRecordOut:
     """Record feed actually dispensed to a bucket on a shift."""
 

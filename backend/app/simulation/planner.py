@@ -80,9 +80,7 @@ def _class_max_age(animal_class: str, sale_age_months: int, first_breeding_month
     base = animal_class.rsplit("_", maxsplit=1)[-1]
     if base == "grower":
         ceiling = (
-            first_breeding_months
-            if animal_class.startswith("female")
-            else max(sale_age_months, 6)
+            first_breeding_months if animal_class.startswith("female") else max(sale_age_months, 6)
         )
         return max(ceiling - 1, 6)
     return _CLASS_MAX_AGE[base]
@@ -343,10 +341,7 @@ def _marginal_kids_per_doe(
             if graduation <= last_month:
                 daughters[graduation] = (
                     daughters.get(graduation, 0.0)
-                    + dam_mass
-                    * female_per_birth
-                    * survival_to_afb
-                    * herd.female_retention_fraction
+                    + dam_mass * female_per_birth * survival_to_afb * herd.female_retention_fraction
                 )
         for pool in (ready, kidding, daughters):
             for key in pool:
@@ -585,9 +580,7 @@ def build_plan_report(
     notes: list[str] = []
 
     if close_gaps_enabled and not before.all_met:
-        purchases, after, gaps_closed, gap_notes = close_gaps(
-            assumptions, targets, nouns=nouns
-        )
+        purchases, after, gaps_closed, gap_notes = close_gaps(assumptions, targets, nouns=nouns)
         notes.extend(gap_notes)
         if not gaps_closed:
             notes.append(

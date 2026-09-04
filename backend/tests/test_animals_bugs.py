@@ -393,11 +393,21 @@ async def test_farm_born_dam_dying_in_recovery_keeps_her_own_birth_entry(
         headers=owner,
     )
     assert weighed.status_code == 201, weighed.text
+    # An UNRELATED sire: breeding her back to her own father (GRANDSIRE) is
+    # rejected by the inbreeding fence, and this test's subject is her birth
+    # entry, not the mating policy.
+    unrelated_sire = await make_buck(
+        client,
+        owner,
+        tag="OUTSIDER-SIRE",
+        date_of_birth=iso(today() - timedelta(days=1500)),
+        weight_date=iso(today() - timedelta(days=1500)),
+    )
     br2 = await make_breeding(
         client,
         owner,
         farm_born_doe_id,
-        buck["id"],
+        unrelated_sire["id"],
         breeding_date=iso(today() - timedelta(days=160)),
     )
     br2 = await confirm(client, owner, br2["id"], kid_count=1)

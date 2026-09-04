@@ -760,9 +760,7 @@ async def seed_default_roles(db: AsyncSession, farm_id: int) -> None:
     exactly what `test_concurrent_role_seed_serializes_on_farm_row` pins.
     """
     farm_type = (
-        await db.execute(
-            select(Farm.farm_type).where(Farm.id == farm_id).with_for_update()
-        )
+        await db.execute(select(Farm.farm_type).where(Farm.id == farm_id).with_for_update())
     ).scalar_one()
     result = await db.execute(
         select(Role.code, Role.name, Role.deleted_at).where(Role.farm_id == farm_id)
@@ -1008,12 +1006,8 @@ async def backfill_task_assignments_batch(db: AsyncSession, *, batch_size: int) 
         )
     )
     roles = {(farm_id, code): role_id for farm_id, code, role_id in role_rows.all()}
-    farm_type_rows = await db.execute(
-        select(Farm.id, Farm.farm_type).where(Farm.id.in_(farm_ids))
-    )
-    farm_types = {
-        farm_id: farm_type for farm_id, farm_type in farm_type_rows.all()
-    }
+    farm_type_rows = await db.execute(select(Farm.id, Farm.farm_type).where(Farm.id.in_(farm_ids)))
+    farm_types = {farm_id: farm_type for farm_id, farm_type in farm_type_rows.all()}
     assigned = 0
     for task in tasks:
         role_id = (

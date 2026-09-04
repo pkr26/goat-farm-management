@@ -76,7 +76,11 @@ services:
       # internal service name in every override as well as public hosts.
       GOATFARM_ALLOWED_HOSTS: '${GOATFARM_ALLOWED_HOSTS:-["localhost","127.0.0.1","test","testserver","backend"]}'
       GOATFARM_MIN_PASSWORD_LENGTH: ${GOATFARM_MIN_PASSWORD_LENGTH:-8}
-      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:-development-only-idempotency-hmac-secret-change-me}
+      # No compose fallback default: the backend config applies the identical
+      # development default itself, and its production gate rejects that known
+      # value fail-closed — a compose-level fallback would only blur which
+      # layer supplied the secret. Production must set a real secret.
+      GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET: ${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_SECRET:?set a stable idempotency HMAC secret (required — see .env.example)}
       GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS: '${GOATFARM_IDEMPOTENCY_REQUEST_HMAC_PREVIOUS_SECRETS:-[]}'
       # Defaults to exactly the edge container's configurable address (see the
       # `default` network below) — never the whole bridge range, which would
@@ -128,6 +132,10 @@ services:
       # HTTP; a Secure refresh cookie alone cannot protect bearer responses.
       GOATFARM_ENVIRONMENT: ${GOATFARM_ENVIRONMENT:-development}
       GOATFARM_EDGE_PUBLIC_SCHEME: ${GOATFARM_EDGE_PUBLIC_SCHEME:-http}
+      # The bind-host guard below must see the same value the ports mapping
+      # interpolated; without this entry the in-container default silently
+      # reads loopback and the public-bind warning can never fire.
+      GOATFARM_EDGE_BIND_HOST: ${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}
     command:
       - /bin/sh
       - -ec
@@ -136,6 +144,14 @@ services:
           echo "Refusing production edge without an asserted HTTPS terminator (set GOATFARM_EDGE_PUBLIC_SCHEME=https)." >&2
           exit 2
         fi
+        case "$${GOATFARM_EDGE_BIND_HOST:-127.0.0.1}" in
+          127.0.0.1|localhost|::1) ;;
+          *)
+            if [ "$$GOATFARM_ENVIRONMENT" != "production" ]; then
+              echo "WARNING: the edge is bound to $${GOATFARM_EDGE_BIND_HOST} while GOATFARM_ENVIRONMENT is '$$GOATFARM_ENVIRONMENT' — every production gate (Secure cookies, strict CORS, TLS assertion, password floor) is OFF on a publicly reachable listener. Set GOATFARM_ENVIRONMENT=production behind a TLS terminator." >&2
+            fi
+            ;;
+        esac
         exec nginx -g 'daemon off;'
     networks:
       default:

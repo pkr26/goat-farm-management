@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,12 +22,14 @@ from ..schemas.breeding import (
 )
 from ..schemas.common import COMMON_ERROR_RESPONSES, MAX_INT32_ID, MAX_PAGE_OFFSET, PostgresText
 from ..services import (
+    IdempotencyKey,
     LitterSizeError,
     breeding_candidate_counts,
     breeding_candidate_page,
     breeding_weights_as_of,
     create_breeding_record,
     doe_has_open_breeding,
+    execute_idempotent,
     is_breeding_candidate,
     is_buck_breeding_candidate,
     mark_aborted,
@@ -214,126 +216,148 @@ async def get_breeding_record(
 @router.post("", status_code=201)
 async def create_breeding(
     payload: BreedingCreateIn,
+    response: Response,
     db: DbSession,
     user: CurrentUser,
     farm: CurrentFarm,
     perms: Annotated[set[str], Depends(require_perm("breeding.manage"))],
+    idempotency_key: IdempotencyKey = None,
 ) -> BreedingRecordOut:
     try:
         require_farm_not_future(payload.breeding_date, farm, "breeding_date")
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     # Ids above the int4 PK ceiling cannot exist — 404, never an asyncpg
-    # int32 DataError (500). The doe row is locked FOR UPDATE: a concurrent
-    # sale/death must serialize against the breeding — the loser re-reads the
-    # committed status and fails the eligibility check below instead of
-    # leaving an open PENDING breeding on a non-ACTIVE doe.
+    # int32 DataError (500). Both this and the farm-not-future check above
+    # are deterministic input-shape checks, so they run before the
+    # idempotency claim; everything state-dependent below lives inside
+    # mutate() so a replay never re-evaluates (or re-fails) it.
     if payload.doe_id > MAX_INT32_ID or (
         payload.buck_id is not None and payload.buck_id > MAX_INT32_ID
     ):
         raise HTTPException(status_code=404, detail="Doe or buck not found")
-    participant_ids = {payload.doe_id}
-    if payload.buck_id is not None:
-        participant_ids.add(payload.buck_id)
-    candidate_ids = sorted(participant_ids)
-    locked_ids = list(
-        (
-            await db.execute(
-                select(Animal.id)
-                .where(Animal.farm_id == farm.id, Animal.id.in_(candidate_ids))
-                .order_by(Animal.id)
-                .with_for_update()
-            )
-        ).scalars()
-    )
-    if locked_ids != candidate_ids:
-        raise HTTPException(status_code=404, detail="Doe or buck not found")
 
-    # Load only scalar animal rows after both are locked in canonical order.
-    # Eligibility history is represented by bounded SQL facts below, so a
-    # long-lived animal cannot amplify a breeding write through its lifetime
-    # weight or breeding collections.
-    animals = list(
-        (
-            await db.execute(
-                select(Animal).where(Animal.farm_id == farm.id, Animal.id.in_(candidate_ids))
+    async def mutate() -> BreedingRecordOut:
+        # The doe row is locked FOR UPDATE: a concurrent sale/death must
+        # serialize against the breeding — the loser re-reads the committed
+        # status and fails the eligibility check below instead of leaving an
+        # open PENDING breeding on a non-ACTIVE doe.
+        participant_ids = {payload.doe_id}
+        if payload.buck_id is not None:
+            participant_ids.add(payload.buck_id)
+        candidate_ids = sorted(participant_ids)
+        locked_ids = list(
+            (
+                await db.execute(
+                    select(Animal.id)
+                    .where(Animal.farm_id == farm.id, Animal.id.in_(candidate_ids))
+                    .order_by(Animal.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+        if locked_ids != candidate_ids:
+            raise HTTPException(status_code=404, detail="Doe or buck not found")
+
+        # Load only scalar animal rows after both are locked in canonical order.
+        # Eligibility history is represented by bounded SQL facts below, so a
+        # long-lived animal cannot amplify a breeding write through its lifetime
+        # weight or breeding collections.
+        animals = list(
+            (
+                await db.execute(
+                    select(Animal).where(Animal.farm_id == farm.id, Animal.id.in_(candidate_ids))
+                )
+            ).scalars()
+        )
+        animals_by_id = {animal.id: animal for animal in animals}
+        doe = animals_by_id[payload.doe_id]
+        buck = animals_by_id.get(payload.buck_id) if payload.buck_id is not None else None
+        weights = await breeding_weights_as_of(db, candidate_ids, payload.breeding_date)
+        has_open_breeding = await doe_has_open_breeding(db, farm.id, doe.id)
+        # Same eligibility rules as v1's doe/buck pickers — a forged request
+        # cannot breed a male, a sold doe, or an already-pregnant doe. Targeted
+        # one-doe check: no full candidate-set build per create. Natural service
+        # validates the sire the same way; an AI service has no herd sire.
+        sire_eligible = (
+            is_buck_breeding_candidate(
+                buck,
+                latest_weight_kg=weights.get(buck.id),
+                reference_date=payload.breeding_date,
+                farm_type=farm.farm_type,
             )
-        ).scalars()
+            if buck is not None
+            else payload.method in ("AI", "AI_SEXED")
+        )
+        if (
+            not is_breeding_candidate(
+                doe,
+                latest_weight_kg=weights.get(doe.id),
+                has_open_breeding=has_open_breeding,
+                reference_date=payload.breeding_date,
+                farm_type=farm.farm_type,
+            )
+            or not sire_eligible
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Doe or buck is not eligible for breeding",
+            )
+        doe_tag = doe.tag_number  # capture pre-rollback: rollback expires ORM attrs
+        try:
+            br = await create_breeding_record(
+                db,
+                farm,
+                doe,
+                buck,
+                payload.breeding_date,
+                created_by_id=user.id,
+                doe_latest_weight_kg=weights.get(doe.id),
+                has_open_breeding=has_open_breeding,
+                method=payload.method,
+                semen_sire_name=payload.semen_sire_name,
+                actor_is_owner=user.id == farm.owner_id,
+            )
+            br_id = br.id
+        except ValueError as exc:
+            # Lifecycle/biology conflict (unresolved breeding, VWP, inbreeding
+            # fence, species protocol) — raced or forged request.
+            await db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except IntegrityError:
+            # A concurrent create raced the pre-check into the
+            # uq_breeding_open_pregnancy partial UNIQUE (one PENDING per doe).
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"{doe_tag} already has an unresolved breeding/pregnancy",
+            ) from None
+        # Re-fetch with eager loads: the fresh row has no relationships loaded, and
+        # async sessions forbid the lazy load a response build would trigger.
+        refreshed = await db.execute(
+            select(BreedingRecord)
+            .options(
+                selectinload(BreedingRecord.doe),
+                selectinload(BreedingRecord.buck),
+                selectinload(BreedingRecord.kidding_record),
+            )
+            .where(BreedingRecord.id == br_id)
+        )
+        return breeding_out(refreshed.scalar_one())
+
+    return await execute_idempotent(
+        db,
+        http_response=response,
+        key=idempotency_key,
+        farm_id=farm.id,
+        actor_id=user.id,
+        operation="POST /api/breeding",
+        payload=payload,
+        path_identity={},
+        success_status=201,
+        response_type=BreedingRecordOut,
+        mutate=mutate,
     )
-    animals_by_id = {animal.id: animal for animal in animals}
-    doe = animals_by_id[payload.doe_id]
-    buck = animals_by_id.get(payload.buck_id) if payload.buck_id is not None else None
-    weights = await breeding_weights_as_of(db, candidate_ids, payload.breeding_date)
-    has_open_breeding = await doe_has_open_breeding(db, farm.id, doe.id)
-    # Same eligibility rules as v1's doe/buck pickers — a forged request
-    # cannot breed a male, a sold doe, or an already-pregnant doe. Targeted
-    # one-doe check: no full candidate-set build per create. Natural service
-    # validates the sire the same way; an AI service has no herd sire.
-    sire_eligible = (
-        is_buck_breeding_candidate(
-            buck,
-            latest_weight_kg=weights.get(buck.id),
-            reference_date=payload.breeding_date,
-            farm_type=farm.farm_type,
-        )
-        if buck is not None
-        else payload.method in ("AI", "AI_SEXED")
-    )
-    if (
-        not is_breeding_candidate(
-            doe,
-            latest_weight_kg=weights.get(doe.id),
-            has_open_breeding=has_open_breeding,
-            reference_date=payload.breeding_date,
-            farm_type=farm.farm_type,
-        )
-        or not sire_eligible
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Doe or buck is not eligible for breeding",
-        )
-    doe_tag = doe.tag_number  # capture pre-rollback: rollback expires ORM attrs
-    try:
-        br = await create_breeding_record(
-            db,
-            farm,
-            doe,
-            buck,
-            payload.breeding_date,
-            created_by_id=user.id,
-            doe_latest_weight_kg=weights.get(doe.id),
-            has_open_breeding=has_open_breeding,
-            method=payload.method,
-            semen_sire_name=payload.semen_sire_name,
-            actor_is_owner=user.id == farm.owner_id,
-        )
-        br_id = br.id
-        await db.commit()
-    except ValueError as exc:
-        # Doe already has an unresolved breeding/pregnancy (raced/forged request).
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from None
-    except IntegrityError:
-        # A concurrent create raced the pre-check into the
-        # uq_breeding_open_pregnancy partial UNIQUE (one PENDING per doe).
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=f"{doe_tag} already has an unresolved breeding/pregnancy",
-        ) from None
-    # Re-fetch with eager loads: the fresh row has no relationships loaded, and
-    # async sessions forbid the lazy load a response build would trigger.
-    refreshed = await db.execute(
-        select(BreedingRecord)
-        .options(
-            selectinload(BreedingRecord.doe),
-            selectinload(BreedingRecord.buck),
-            selectinload(BreedingRecord.kidding_record),
-        )
-        .where(BreedingRecord.id == br_id)
-    )
-    return breeding_out(refreshed.scalar_one())
 
 
 @router.post("/{record_id}/ultrasound")

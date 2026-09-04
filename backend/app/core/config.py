@@ -29,6 +29,8 @@ def _dev_key_dir() -> Path:
         return repo_keys
     base = os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
     return Path(base) / "goatfarm" / "keys"
+
+
 MAX_PREVIOUS_JWT_PUBLIC_KEYS = 3
 MAX_PREVIOUS_IDEMPOTENCY_HMAC_SECRETS = 3
 MIN_IDEMPOTENCY_HMAC_SECRET_LENGTH = 32
@@ -126,6 +128,10 @@ class Settings(BaseSettings):
     idempotency_cleanup_interval_seconds: int = Field(default=3600, ge=60)
     idempotency_cleanup_batch_size: int = Field(default=500, ge=1, le=10_000)
     idempotency_cleanup_max_batches: int = Field(default=10, ge=1, le=100)
+    # Per-actor ceiling on live (unexpired) idempotency records. The purge
+    # loop is throughput-capped, so without this a client minting a fresh key
+    # per request could grow the shared table faster than cleanup drains it.
+    idempotency_max_open_records_per_actor: int = Field(default=1_000, ge=1, le=100_000)
     # Sensitive request fingerprints must not be usable as an offline password
     # verifier by a database/backup reader. This key is deliberately distinct
     # from JWT signing keys and must remain stable across replicas/restarts.

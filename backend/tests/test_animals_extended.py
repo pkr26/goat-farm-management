@@ -1121,10 +1121,17 @@ async def test_create_birth_weight_boundaries(client: httpx.AsyncClient) -> None
     for bad in [-2, "-2", "nan", "inf", "1e999"]:
         resp = await post_animal(client, owner, base | {"birth_weight": bad})
         assert resp.status_code == 422, bad
-    animal = await make_animal(client, owner, tag="G-2", source="BORN", birth_weight=0)
-    assert animal["birth_weight"] == 0.0  # zero is non-negative → allowed
-    animal = await make_animal(client, owner, tag="G-3", source="BORN", birth_weight=1000)
-    assert animal["birth_weight"] == 1000.0  # exactly the 1000 kg weight cap
+    # Species band (goat: 0.5-8 kg) applies on create: a 0 kg newborn is not
+    # credible data (an unmeasured weight is omitted, not zeroed), and the
+    # 1000 kg schema cap is far above any kid — both refuse here too.
+    for out_of_band in [0, 1000]:
+        resp = await post_animal(
+            client, owner, base | {"tag_number": f"G-{out_of_band}", "birth_weight": out_of_band}
+        )
+        assert resp.status_code == 422, out_of_band
+        assert "not a credible newborn weight" in resp.text
+    animal = await make_animal(client, owner, tag="G-3", source="BORN", birth_weight=3.5)
+    assert animal["birth_weight"] == 3.5  # inside the goat band
     resp = await post_animal(client, owner, base | {"tag_number": "G-4", "birth_weight": 1e6})
     assert resp.status_code == 422  # beyond the cap — B2 float-overflow bound
 
@@ -2339,14 +2346,22 @@ async def test_status_sold_books_income_transaction(client: httpx.AsyncClient) -
     assert "Hyderabad Traders" in txn["notes"]
 
 
-async def test_status_sold_without_price_books_no_transaction(client: httpx.AsyncClient) -> None:
+async def test_status_sold_without_price_books_flagged_zero_transaction(
+    client: httpx.AsyncClient,
+) -> None:
+    """An unpriced sale stays visible in the ledger as a flagged ₹0 row —
+    it can no longer leave the herd off the books."""
     owner = await owner_with_farm(client)
     animal = await make_animal(client, owner)
     resp = await mark_status(client, owner, animal["id"], "SOLD")
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "SOLD"
     assert resp.json()["sale_price"] is None
-    assert await transactions(client, owner) == []
+    rows = await transactions(client, owner)
+    assert len(rows) == 1
+    assert rows[0]["amount"] == 0.0
+    assert rows[0]["source_type"] == "ANIMAL_SALE"
+    assert "no price recorded" in rows[0]["notes"]
 
 
 async def test_status_culled_with_price_books_cull_sale_transaction(
@@ -2391,7 +2406,7 @@ async def test_status_sold_zero_price_books_a_zero_income_transaction(
     assert txns[0]["amount"] == 0.0
 
 
-async def test_status_dead_and_unpriced_culled_book_no_transaction(
+async def test_status_dead_books_nothing_unpriced_cull_books_flagged_zero(
     client: httpx.AsyncClient,
 ) -> None:
     owner = await owner_with_farm(client)
@@ -2401,7 +2416,11 @@ async def test_status_dead_and_unpriced_culled_book_no_transaction(
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == status
         assert resp.json()["sale_price"] is None
-    assert await transactions(client, owner) == []
+    rows = await transactions(client, owner)
+    # DEAD leaves no ledger row; the unpriced CULLED books a flagged ₹0 row.
+    assert len(rows) == 1
+    assert rows[0]["amount"] == 0.0
+    assert "no price recorded" in rows[0]["notes"]
 
 
 async def test_status_dead_rejects_smuggled_sale_price_without_mutation(

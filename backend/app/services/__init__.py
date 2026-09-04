@@ -131,7 +131,7 @@ from .health import (
     vaccination_schedule_for_animal,
     validated_template,
 )
-from .idempotency import IdempotencyKey, execute_idempotent
+from .idempotency import IdempotencyKey, RequiredIdempotencyKey, execute_idempotent
 from .kidding import KidSpec, LitterSizeError, record_kidding, replan_dam_after_last_kid_death
 from .milk import list_milk_records, milk_summary, record_milk
 from .purchases import create_purchase_batch, schedule_quarantine_tasks
@@ -195,6 +195,7 @@ __all__ = [
     "LitterSizeError",
     "ManualTaskCapacityError",
     "PurchaseBatch",
+    "RequiredIdempotencyKey",
     "Role",
     "Task",
     "TaskCategory",

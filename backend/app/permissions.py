@@ -325,9 +325,7 @@ ROLE_PRESETS: list[RolePreset] = [
     {
         "code": "VIEWER",
         "name": "Auditor (read-only)",
-        "description": (
-            "Read-only access across the farm for investors, consultants and lenders."
-        ),
+        "description": ("Read-only access across the farm for investors, consultants and lenders."),
         "permissions": [
             "dashboard.view",
             "animals.view",
@@ -394,10 +392,9 @@ def task_role_codes(farm_type: str, category: str) -> tuple[str, ...]:
     base = TASK_CATEGORY_ROLE_MAP.get(category)
     if base is None:
         return ()
-    override = (
-        DAIRY_TASK_CATEGORY_ROLE_MAP.get(category) if farm_type == BUFFALO_DAIRY else None
-    )
+    override = DAIRY_TASK_CATEGORY_ROLE_MAP.get(category) if farm_type == BUFFALO_DAIRY else None
     return (override, base) if override is not None else (base,)
+
 
 # What an assignee must be able to DO with each auto-assigned category, on top
 # of the tasks.view / tasks.complete every duty-facing preset role holds

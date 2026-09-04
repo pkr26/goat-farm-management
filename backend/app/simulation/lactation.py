@@ -22,7 +22,13 @@ Two shapes are supported:
 
 Both shapes are normalised so the whole lactation sums to exactly
 ``lactation_milk_litres``; the planner's herd arithmetic depends on that
-identity.
+identity. Note the identity holds for the CURVE itself: the engine then
+applies the farm's ``monthly_milk_yield_multipliers`` (heat-stress trough,
+lean-season premium) which are NOT mean-normalized, so a preset whose
+multipliers average below 1.0 realizes slightly less than
+``lactation_milk_litres`` per lactation-year (the Murrah preset's yield
+curve averages ~0.989 → ≈1.1% below the stated total). That seasonality
+drift is intentional biology, not a rounding bug.
 """
 
 import math

@@ -85,9 +85,12 @@ def _apply_draws(a: SimulationAssumptions, draws: dict[str, float]) -> Simulatio
     variant.sales.milk_price_per_kg_fat = min(
         MAX_MONEY, variant.sales.milk_price_per_kg_fat * draws["milk_price"]
     )
-    variant.feed.green_price_per_kg = min(
-        MAX_MONEY, variant.feed.green_price_per_kg * draws["feed_price"]
-    )
+    # The feed-price draw is a PURCHASED-feed price risk: purchased green,
+    # dry and concentrate are all bought at market prices. Home-grown green
+    # fodder is deliberately NOT scaled here — its cost is cultivation, whose
+    # yield/growth risk is carried by the fodder_yield draw, and the engine's
+    # drought/shock channel (feed_prices_for_month) likewise leaves the home
+    # green price unshocked. The two risk channels must stay consistent.
     variant.feed.purchased_green_price_per_kg = min(
         MAX_MONEY, variant.feed.purchased_green_price_per_kg * draws["feed_price"]
     )
@@ -526,6 +529,11 @@ def run_sensitivity(a: SimulationAssumptions) -> list[SensitivityItem]:
 
 
 def _scale_feed_prices(variant: SimulationAssumptions, factor: float) -> None:
+    # OAT tornado scope note: this sensitivity case perturbs ALL FOUR feed
+    # prices (home green included) as a pure parameter sweep. The Monte-Carlo
+    # feed_price RISK draw deliberately excludes home green (a cultivation
+    # cost whose risk rides the fodder_yield draw); the two scopes differ by
+    # design, mirroring market.feed_prices_for_month.
     variant.feed.green_price_per_kg = min(MAX_MONEY, variant.feed.green_price_per_kg * factor)
     variant.feed.purchased_green_price_per_kg = min(
         MAX_MONEY, variant.feed.purchased_green_price_per_kg * factor

@@ -46,9 +46,7 @@ def test_buffalo_narrative_reads_dairy_nouns() -> None:
     assert "produces" in births and "calves" in births
 
     report_text = "\n".join(
-        paragraph
-        for section in res.narrative_report
-        for paragraph in section.paragraphs
+        paragraph for section in res.narrative_report for paragraph in section.paragraphs
     )
     for goat_word in ("doe(s)", " doe ", "does,", "buck(s)", "kid(s)", " kids"):
         assert goat_word not in report_text, f"goat noun {goat_word!r} leaked into a dairy report"

@@ -1,5 +1,6 @@
 """Breeding."""
 
+import logging
 from datetime import date, timedelta
 from typing import Literal
 
@@ -37,6 +38,8 @@ from ._common import (
 from .animals import move_animal
 from .health import PRE_CALVING_THERAPY_TITLE, PRE_KIDDING_VACCINE_TITLE
 from .kidding import LitterSizeError
+
+logger = logging.getLogger(__name__)
 
 BreedingCandidateKind = Literal["doe", "buck"]
 
@@ -433,12 +436,41 @@ async def create_breeding_record(
 ) -> BreedingRecord:
     participants: list[tuple[Animal, str]] = [(doe, "Doe")]
     profile = species_profile(farm.farm_type)
+    if farm.farm_type == "GOAT" and method != BreedingMethod.NATURAL.value:
+        # The goat (meat) protocol is natural cover with buck rotation; an
+        # AI/AI_SEXED claim on a goat farm both bypasses the buck:doe ratio
+        # cap (the genetic-concentration control) and erases sire lineage —
+        # kids from such a pregnancy record sire_id=None.
+        raise ValueError(
+            "AI and sexed-semen services are not part of the goat protocol — "
+            "record a NATURAL service with a herd buck"
+        )
     if method == BreedingMethod.NATURAL.value:
         if buck is None:
             raise ValueError("A natural service requires a herd buck")
         participants.append((buck, "Buck"))
     else:
         buck = None  # an AI service never credits a herd sire row
+    if buck is not None:
+        # Inbreeding fence (buck rotation promise): parent-offspring and
+        # full-sibling pairings corrupt the lineage graph that kidding
+        # writes (sire_id/dam_id) and every downstream retention decision
+        # inherits. Half-sibling pairings remain permitted, matching common
+        # livestock practice.
+        buck_is_doe_parent = buck.id in {doe.sire_id, doe.dam_id}
+        doe_is_buck_parent = doe.id in {buck.sire_id, buck.dam_id}
+        full_siblings = (
+            doe.sire_id is not None
+            and doe.sire_id == buck.sire_id
+            and doe.dam_id is not None
+            and doe.dam_id == buck.dam_id
+        )
+        if buck_is_doe_parent or doe_is_buck_parent or full_siblings:
+            raise ValueError(
+                f"{buck.tag_number} and {doe.tag_number} are close kin "
+                "(parent-offspring or full siblings) — the mating policy "
+                "rejects inbreeding; use another sire"
+            )
     for animal, role in participants:
         if animal.effective_dob and breeding_date < animal.effective_dob:
             raise ValueError(f"{role} breeding chronology cannot predate its recorded birth date")
@@ -456,6 +488,7 @@ async def create_breeding_record(
             f"{profile.failed_services_before_cull} failed services — only the "
             "farm owner can record another service for her"
         )
+    cull_rule_overridden = doe.cull_candidate and actor_is_owner
     latest_boundary = await _latest_doe_reproductive_boundary(db, farm.id, doe.id)
     if latest_boundary is not None and breeding_date <= latest_boundary:
         raise ValueError(
@@ -506,6 +539,19 @@ async def create_breeding_record(
         created_by_id=created_by_id,
     )
     db.add(br)
+    if cull_rule_overridden:
+        # Logged only once every later validation has passed: an unbounded
+        # service streak on a 3×-failed dam must leave an auditable trail of
+        # who allowed it — and never claim an override for a request that
+        # was subsequently refused by chronology, VWP or the ratio cap.
+        logger.warning(
+            "Cull-rule override: user %s recorded another service for cull-candidate "
+            "doe %s (farm %s) beyond the %s-failed-services limit",
+            created_by_id,
+            doe.tag_number,
+            farm.id,
+            profile.failed_services_before_cull,
+        )
     await db.flush()
     await _add_task(
         db,

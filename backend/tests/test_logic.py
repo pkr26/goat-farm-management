@@ -706,7 +706,7 @@ async def test_purchase_batch_explicit_zero_price_books_zero_expense(
     client: httpx.AsyncClient,
 ) -> None:
     """An explicit ₹0 batch books a ₹0 ANIMAL_PURCHASE expense; omitting
-    total_price books nothing (previously `if total_price:` skipped both)."""
+    total_price now books a flagged ₹0 row too (off-ledger-purchase hole)."""
     headers = await owner_with_farm(client)
     resp = await client.post(
         "/api/purchases/new",
@@ -731,7 +731,13 @@ async def test_purchase_batch_explicit_zero_price_books_zero_expense(
     assert resp.status_code == 201, resp.text
     resp = await client.get("/api/finance", headers=headers)
     purchases = [t for t in resp.json()["transactions"] if t["category"] == "ANIMAL_PURCHASE"]
-    assert len(purchases) == 1  # still only the explicit-zero one
+    # An unpriced batch can no longer acquire inventory invisibly: it also
+    # books ₹0, flagged "no price recorded" in the note (order-independent:
+    # the listing sorts newest-first, but both rows share the same date).
+    assert len(purchases) == 2
+    assert [t["amount"] for t in purchases] == [0.0, 0.0]
+    flagged = [t for t in purchases if "no price recorded" in t["notes"]]
+    assert len(flagged) == 1
 
 
 # ---------------------------------------------------------------------------

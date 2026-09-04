@@ -456,7 +456,7 @@ async def test_feed_setting_daily_kg_bounds(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Weight fields (cap 1000 kg)
+# Weight fields (schema cap 1000 kg; species-scaled adult cap on top)
 # ---------------------------------------------------------------------------
 async def test_weight_bounds(client: httpx.AsyncClient) -> None:
     owner = await owner_with_farm(client)
@@ -466,9 +466,14 @@ async def test_weight_bounds(client: httpx.AsyncClient) -> None:
         assert resp.status_code == 422, bad
     resp = await client.get(f"/api/animals/{aid}", headers=owner)
     assert resp.json()["weights"] == []
+    # The species-scaled adult cap (goat: 150 kg) is enforced below the schema
+    # cap — a goat-scale farm refuses even schema-valid giant readings.
     resp = await client.post(
         f"/api/animals/{aid}/weight", json={"weight_kg": WEIGHT_KG_CAP}, headers=owner
     )
+    assert resp.status_code == 422, resp.text
+    assert "credible adult scale" in resp.json()["detail"]
+    resp = await client.post(f"/api/animals/{aid}/weight", json={"weight_kg": 60.0}, headers=owner)
     assert resp.status_code == 201, resp.text
 
 
@@ -490,9 +495,19 @@ async def test_animal_create_weight_bounds(client: httpx.AsyncClient) -> None:
         for bad in (1e308, 1e309, WEIGHT_KG_CAP + 0.5, float("nan")):
             resp = await post_raw_json(client, "/api/animals", field_base | {field: bad}, owner)
             assert resp.status_code == 422, (field, bad)
+        # The schema cap is 1000 kg, but the species band is tighter (goat:
+        # 0.5-8 kg birth, 150 kg adult) — schema-valid giants are refused on
+        # this path too, closing the create-form bypass of the band checks.
         resp = await client.post(
             "/api/animals",
             json=field_base | {"tag_number": f"OK-{field}", field: WEIGHT_KG_CAP},
+            headers=owner,
+        )
+        assert resp.status_code == 422, (field, resp.text)
+        in_band = 4.5 if field == "birth_weight" else 60.0
+        resp = await client.post(
+            "/api/animals",
+            json=field_base | {"tag_number": f"OK-{field}", field: in_band},
             headers=owner,
         )
         assert resp.status_code == 201, (field, resp.text)
@@ -561,7 +576,12 @@ async def test_kidding_birth_weight_bounds(client: httpx.AsyncClient) -> None:
     for bad in (1e308, 1e309, WEIGHT_KG_CAP + 0.5, float("nan")):
         resp = await post_raw_json(client, "/api/kidding", kidding_payload(bad), owner)
         assert resp.status_code == 422, bad
+    # Species-banded birth weight (goat: 0.5-8 kg) sits below the schema cap —
+    # a schema-valid 1000 kg kid is refused as not a credible newborn.
     resp = await client.post("/api/kidding", json=kidding_payload(WEIGHT_KG_CAP), headers=owner)
+    assert resp.status_code == 422, resp.text
+    assert "not a credible newborn weight" in resp.json()["detail"]
+    resp = await client.post("/api/kidding", json=kidding_payload(3.5), headers=owner)
     assert resp.status_code == 201, resp.text
 
 
@@ -573,8 +593,14 @@ async def test_purchase_avg_weight_bounds(client: httpx.AsyncClient) -> None:
             client, "/api/purchases/new", base | {"avg_weight_kg": bad}, owner
         )
         assert resp.status_code == 422, bad
+    # Species-scaled adult cap (goat: 150 kg) applies below the schema cap.
     resp = await client.post(
         "/api/purchases/new", json=base | {"avg_weight_kg": WEIGHT_KG_CAP}, headers=owner
+    )
+    assert resp.status_code == 422, resp.text
+    assert "credible adult scale" in resp.json()["detail"]
+    resp = await client.post(
+        "/api/purchases/new", json=base | {"avg_weight_kg": 45.0}, headers=owner
     )
     assert resp.status_code == 201, resp.text
 

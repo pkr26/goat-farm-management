@@ -9,6 +9,7 @@ import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from uuid import uuid4
 
 import asyncpg
 import httpx
@@ -217,13 +218,38 @@ async def _rotate_provisioned_password(response: httpx.Response) -> None:
     response.headers.raw[:] = kept + [(b"set-cookie", v.encode()) for v in new_cookies]
 
 
+# Mutations whose Idempotency-Key the server now REQUIRES (no DB natural key
+# backs them, so the key is the only replay defense). The test client injects
+# a fresh key when one is absent so existing call sites keep exercising the
+# business logic; the 422-on-keyless contract itself is pinned by dedicated
+# tests in test_redteam_remediation_2026_09_04.py, which empty this set via
+# monkeypatch to send genuinely keyless requests.
+IDEMPOTENCY_REQUIRED_PATHS = {"/api/finance/new", "/api/feeding/dispense"}
+
+
+async def _auto_idempotency_key(request: httpx.Request) -> None:
+    if request.method.upper() != "POST":
+        return
+    if request.url.path not in IDEMPOTENCY_REQUIRED_PATHS:
+        return
+    # Presence check, not truthiness: an explicitly empty or otherwise
+    # invalid key must reach the server (and its 422), never be silently
+    # replaced by a fresh valid one.
+    if "idempotency-key" in request.headers:
+        return
+    request.headers["Idempotency-Key"] = f"test-auto-{uuid4().hex}"
+
+
 @pytest.fixture()
 async def client() -> AsyncGenerator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=create_app())
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://test",
-        event_hooks={"response": [_rotate_provisioned_password]},
+        event_hooks={
+            "request": [_auto_idempotency_key],
+            "response": [_rotate_provisioned_password],
+        },
     ) as c:
         yield c
 

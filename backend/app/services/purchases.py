@@ -98,7 +98,8 @@ async def create_purchase_batch(
     """Create a purchase batch, optionally stub N animals into QUARANTINE,
     auto-generate the 45-day quarantine task schedule, and book the expense.
     Stub sex is explicit (a bought buck must not become a breeding-candidate
-    "doe"); an explicit ₹0 price books a ₹0 expense, None books nothing."""
+    "doe"); an explicit ₹0 price books a ₹0 expense, and an omitted price
+    books a flagged ₹0 expense (never invisible inventory)."""
     if count < 1:
         raise ValueError("Batch count must be at least 1")
     if count > MAX_BATCH_COUNT:
@@ -199,20 +200,26 @@ async def create_purchase_batch(
             )
         await schedule_quarantine_tasks(db, farm, batch)
 
-    if exact_total_price is not None:  # an explicit ₹0 still books a ₹0 expense
-        db.add(
-            Transaction(
-                farm_id=farm.id,
-                date=batch_date,
-                type=TransactionType.EXPENSE.value,
-                category=TransactionCategory.ANIMAL_PURCHASE.value,
-                amount=exact_total_price,
-                notes=f"Purchase batch #{batch.id}: {count} animals"
-                + (f" from {supplier}" if supplier else ""),
-                created_by_id=created_by_id,
-                source_type="PURCHASE_BATCH",
-                source_id=batch.id,
-            )
+    # Every batch books an expense row — an unpriced batch still acquires
+    # countable inventory, so it books ₹0 and says so in plain text instead
+    # of acquiring animals cost-free and invisibly on the books.
+    purchase_note = f"Purchase batch #{batch.id}: {count} animals"
+    if supplier:
+        purchase_note += f" from {supplier}"
+    if exact_total_price is None:
+        purchase_note += " — no price recorded (₹0 booked)"
+    db.add(
+        Transaction(
+            farm_id=farm.id,
+            date=batch_date,
+            type=TransactionType.EXPENSE.value,
+            category=TransactionCategory.ANIMAL_PURCHASE.value,
+            amount=exact_total_price if exact_total_price is not None else money(0),
+            notes=purchase_note,
+            created_by_id=created_by_id,
+            source_type="PURCHASE_BATCH",
+            source_id=batch.id,
         )
+    )
     await db.flush()
     return batch

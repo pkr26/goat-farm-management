@@ -463,17 +463,29 @@ async def test_create_rejects_unknown_extra_fields(client: httpx.AsyncClient) ->
 
 
 async def test_create_far_past_date(client: httpx.AsyncClient) -> None:
+    """The duty-year band starts at 2000 (mirroring the purchase-date floor):
+    year 1900 is refused; a 2001 duty is the oldest acceptable overdue item."""
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Ancient", due=date(1900, 1, 1))
-    assert duty["due_date"] == "1900-01-01"
+    resp = await post_duty(client, owner, title="Ancient", due_date="1900-01-01")
+    assert resp.status_code == 422, resp.text
+    assert "between year 2000 and 2100" in resp.text
+
+    duty = await make_duty(client, owner, "Ancient", due=date(2001, 1, 1))
+    assert duty["due_date"] == "2001-01-01"
     tabs = await get_tabs(client, owner)
     assert tabs["overdue"][-1]["id"] == duty["id"]  # oldest overdue sorts first
 
 
 async def test_create_far_future_date(client: httpx.AsyncClient) -> None:
+    """The duty-year band ends at 2100: year 2200 is refused; a 2099 duty is
+    the farthest acceptable upcoming item."""
     owner = await owner_with_farm(client)
-    duty = await make_duty(client, owner, "Far future", due=date(2200, 1, 1))
-    assert duty["due_date"] == "2200-01-01"
+    resp = await post_duty(client, owner, title="Far future", due_date="2200-01-01")
+    assert resp.status_code == 422, resp.text
+    assert "between year 2000 and 2100" in resp.text
+
+    duty = await make_duty(client, owner, "Far future", due=date(2099, 1, 1))
+    assert duty["due_date"] == "2099-01-01"
     tabs = await get_tabs(client, owner)
     assert tabs["upcoming"][-1]["id"] == duty["id"]
 

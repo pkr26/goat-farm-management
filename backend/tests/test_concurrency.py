@@ -372,9 +372,20 @@ async def test_concurrent_dry_roughage_dispenses_never_oversell_inventory(
     }
     async with second_client() as other:
         await warm(other, owner)
+        # The dispense route requires an Idempotency-Key (no DB natural key);
+        # the two racers carry distinct keys — two genuinely separate
+        # dispenses fighting over the last stock.
         one, two = await asyncio.gather(
-            client.post("/api/feeding/dispense", json=payload, headers=owner),
-            other.post("/api/feeding/dispense", json=payload, headers=owner),
+            client.post(
+                "/api/feeding/dispense",
+                json=payload,
+                headers=owner | {"Idempotency-Key": "dispense-race-a"},
+            ),
+            other.post(
+                "/api/feeding/dispense",
+                json=payload,
+                headers=owner | {"Idempotency-Key": "dispense-race-b"},
+            ),
         )
 
     assert sorted([one.status_code, two.status_code]) == [201, 400]

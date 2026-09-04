@@ -2317,16 +2317,23 @@ async def test_purchase_books_expense_transaction(client: httpx.AsyncClient) -> 
     assert "Kurnool Traders" in txn["notes"]
 
 
-async def test_purchase_without_price_books_no_transaction(client: httpx.AsyncClient) -> None:
+async def test_purchase_without_price_books_flagged_zero_transaction(
+    client: httpx.AsyncClient,
+) -> None:
+    """An unpriced batch can no longer acquire animals invisibly: it books a
+    ₹0 ANIMAL_PURCHASE row flagged in its note (off-ledger-purchase hole)."""
     headers = await owner_with_farm(client)
     await make_batch(client, headers, count=3, total_price=None)
-    assert await transactions(client, headers) == []
+    rows = await transactions(client, headers)
+    assert len(rows) == 1
+    assert rows[0]["amount"] == 0.0
+    assert "no price recorded" in rows[0]["notes"]
 
 
 async def test_purchase_with_zero_price_books_zero_transaction(client: httpx.AsyncClient) -> None:
     """An explicit ₹0 is a real (free) purchase: it books a ₹0 ANIMAL_PURCHASE
     expense and a 0.00 per-head price — distinct from omitting the price
-    entirely, which books nothing (see the test above)."""
+    entirely, which books a FLAGGED ₹0 row (see the test above)."""
     headers = await owner_with_farm(client)
     batch = await make_batch(client, headers, count=3, total_price=0)
     txns = await transactions(client, headers)

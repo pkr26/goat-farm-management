@@ -273,9 +273,7 @@ def _simulate(
     if herd.does > 0:
         _spread_doe_ages(float(herd.does))
         if herd.foundation_flock_state == "mixed":
-            svc[0] += _place_across_cycle(
-                float(herd.does), waiting, preg, lact, r.conception_rate
-            )
+            svc[0] += _place_across_cycle(float(herd.does), waiting, preg, lact, r.conception_rate)
         else:  # "open": clean start, bred from month 1
             svc[0] += float(herd.does)
 
@@ -297,9 +295,7 @@ def _simulate(
 
         # Purchases (start of month, like engine events).
         if month <= ramp_months and per_ramp_month > 0.0:
-            svc[0] += _place_across_cycle(
-                per_ramp_month, waiting, preg, lact, r.conception_rate
-            )
+            svc[0] += _place_across_cycle(per_ramp_month, waiting, preg, lact, r.conception_rate)
             _spread_doe_ages(per_ramp_month)
 
         # Lactation progression; waiting does graduate to ready; finished
@@ -951,8 +947,7 @@ def _build_explanations(
                 "the extra covers the whole milk your retained heifer calves drink, plus "
                 "culls and deaths the bare division ignores."
                 if seed_gap > 0.05
-                else "matching the bare division (no calf-milk allowance or attrition to "
-                "cover)."
+                else "matching the bare division (no calf-milk allowance or attrition to cover)."
             )
         ),
     ]

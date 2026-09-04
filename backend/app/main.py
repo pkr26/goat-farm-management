@@ -536,6 +536,31 @@ async def readyz() -> ReadinessStatusOut | JSONResponse:
     return ReadinessStatusOut(status="ready")
 
 
+# Mutations whose Idempotency-Key the server REQUIRES (see
+# services.idempotency.required_idempotency_key). FastAPI infers the header's
+# OpenAPI "required" flag from the dependency parameter's None default, so it
+# publishes optional even where a keyless request is a guaranteed 422 — the
+# generated contract must tell clients the truth.
+_REQUIRED_IDEMPOTENCY_HEADER_ROUTES = (
+    ("/api/finance/new", "post"),
+    ("/api/feeding/dispense", "post"),
+)
+
+
+def _publish_required_idempotency_headers(app: FastAPI) -> None:
+    default_openapi = app.openapi
+
+    def openapi_with_required_headers(**kwargs: object) -> dict:
+        schema = default_openapi(**kwargs)  # type: ignore[operator]
+        for path, method in _REQUIRED_IDEMPOTENCY_HEADER_ROUTES:
+            for parameter in schema["paths"][path][method]["parameters"]:
+                if parameter.get("name") == "Idempotency-Key" and parameter.get("in") == "header":
+                    parameter["required"] = True
+        return schema
+
+    app.openapi = openapi_with_required_headers  # type: ignore[method-assign]
+
+
 def create_app() -> FastAPI:
     _configure_logging()
     settings = get_settings()
@@ -550,6 +575,7 @@ def create_app() -> FastAPI:
         redoc_url=None if is_production else "/redoc",
         openapi_url=None if is_production else "/openapi.json",
     )
+    _publish_required_idempotency_headers(app)
     app.add_exception_handler(RequestValidationError, request_validation_handler)
     app.add_exception_handler(PasswordWorkCapacityError, password_capacity_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

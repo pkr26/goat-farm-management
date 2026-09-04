@@ -230,8 +230,7 @@ async def ready_to_move_suggestions(
             context.c.sex == "M",
             context.c.current_bucket == Bucket.MALE_KIDS.value,
             context.c.effective_dob.is_not(None),
-            context.c.effective_dob
-            <= add_months(reference_date, -MEAT_SALE_AGE_MONTHS[0]),
+            context.c.effective_dob <= add_months(reference_date, -MEAT_SALE_AGE_MONTHS[0]),
             context.c.latest_weight_as_of >= MEAT_SALE_WEIGHT_KG[0],
             context.c.has_active_withdrawal.is_(False),
         )

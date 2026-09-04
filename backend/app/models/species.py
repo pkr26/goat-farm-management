@@ -70,6 +70,12 @@ class SpeciesProfile:
     failed_services_before_cull: int
     # Upper bound on recorded litter size per parturition.
     max_litter_size: int
+    # Sanity band for one newborn's recorded birth weight. A cross-species
+    # 0–1000 kg band let a fabricated kid weight permanently satisfy the
+    # breeding weight gates (birth weight coalesces into "latest weight").
+    birth_weight_kg_range: tuple[float, float]
+    # Cap on any single recorded live weight on this species' adult scale.
+    max_adult_weight_kg: float
     # Sanity band on one animal's total recorded yield per day (dairy only).
     max_daily_milk_litres: float
 
@@ -97,6 +103,8 @@ GOAT_PROFILE = SpeciesProfile(
     voluntary_waiting_days=14,
     failed_services_before_cull=2,
     max_litter_size=4,
+    birth_weight_kg_range=(0.5, 8.0),
+    max_adult_weight_kg=150.0,
     max_daily_milk_litres=0.0,
 )
 
@@ -125,6 +133,8 @@ BUFFALO_DAIRY_PROFILE = SpeciesProfile(
     voluntary_waiting_days=60,
     failed_services_before_cull=3,
     max_litter_size=2,
+    birth_weight_kg_range=(15.0, 80.0),
+    max_adult_weight_kg=1000.0,
     max_daily_milk_litres=40.0,
 )
 

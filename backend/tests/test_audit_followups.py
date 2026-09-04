@@ -177,9 +177,7 @@ async def test_rotation_fence_allowlist_blocks_identity_acts(client: httpx.Async
     assert (await client.get("/api/auth/farms", headers=bearer)).status_code == 200
     # Identity-level acts are fenced: creating farms under the worker's
     # identity, deleting the account, exporting its data.
-    new_farm = await client.post(
-        "/api/auth/farms", json={"name": "Laundered"}, headers=bearer
-    )
+    new_farm = await client.post("/api/auth/farms", json={"name": "Laundered"}, headers=bearer)
     assert new_farm.status_code == 403
     assert "change it" in new_farm.json()["detail"].lower()
     exported = await client.get("/api/auth/account/export", headers=bearer)
@@ -430,13 +428,10 @@ async def _migration_scenario():
         conn = await asyncpg.connect(dsn)
         try:
             ppr = await conn.fetchrow(
-                "SELECT repeat_months FROM vaccine_templates "
-                "WHERE farm_type='GOAT' AND name='PPR'"
+                "SELECT repeat_months FROM vaccine_templates WHERE farm_type='GOAT' AND name='PPR'"
             )
             assert ppr["repeat_months"] == 12
-            orf = await conn.fetchval(
-                "SELECT count(*) FROM vaccine_templates WHERE name='ORF'"
-            )
+            orf = await conn.fetchval("SELECT count(*) FROM vaccine_templates WHERE name='ORF'")
             assert orf == 0
             rate = await conn.fetchval(
                 "SELECT daily_kg_per_head FROM bucket_definitions "
@@ -512,6 +507,7 @@ async def test_creep_line_requires_weaning_age(client: httpx.AsyncClient):
     headers = await owner_with_farm(client)
     farm_id = int(headers["X-Farm-Id"])
     async with get_sessionmaker()() as db:
+
         def _animal(tag, dob_days, dam_id=None):
             return Animal(
                 farm_id=farm_id,
@@ -546,9 +542,7 @@ async def test_creep_line_requires_weaning_age(client: httpx.AsyncClient):
     # The yearling dam — lactating, in RECOVERY with her calf, but 400 days
     # old — must never be planned on the calf creep line.
     adult_recovery = [
-        line
-        for line in lines
-        if line["bucket"] == "RECOVERY" and line["recipe_code"] != "CREEP"
+        line for line in lines if line["bucket"] == "RECOVERY" and line["recipe_code"] != "CREEP"
     ]
     assert adult_recovery and adult_recovery[0]["heads"] >= 2, lines
 
@@ -582,9 +576,7 @@ async def test_register_email_probe_lockout_never_blocks_a_fresh_address(
 
     # 49 prior duplicate-email probes (per-IP usage stays at 1).
     for _ in range(49):
-        auth_api.register_email_limiter.record(
-            "register-email", email_key, 300, max_attempts=50
-        )
+        auth_api.register_email_limiter.record("register-email", email_key, 300, max_attempts=50)
 
     # The 50th duplicate probe charges the bucket through the HTTP path and
     # is still answered as a duplicate (the enumeration oracle itself).

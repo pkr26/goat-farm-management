@@ -68,9 +68,7 @@ def test_breeding_vocabularies_match_enums() -> None:
 def test_milk_and_feeding_vocabularies_match_enums() -> None:
     assert _literal_values(milk.MilkShift) == {s.value for s in models.FeedingShift}
     assert _literal_values(ShiftStr) == {s.value for s in models.FeedingShift}
-    assert _literal_values(IngredientCategoryStr) == {
-        c.value for c in models.IngredientCategory
-    }
+    assert _literal_values(IngredientCategoryStr) == {c.value for c in models.IngredientCategory}
 
 
 def test_farm_type_literal_matches_enum() -> None:

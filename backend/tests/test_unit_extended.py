@@ -323,9 +323,7 @@ def test_dairy_weaning_override_targets_the_calf_attendant() -> None:
     # Dairy weaning (day ~90) is calf-shed work; the base MOVER mapping stays
     # the goat/universal default and the fallback.
     assert set(DAIRY_TASK_CATEGORY_ROLE_MAP) <= set(TASK_CATEGORY_ROLE_MAP)
-    assert set(DAIRY_TASK_CATEGORY_ROLE_MAP.values()) <= set(
-        p["code"] for p in ROLE_PRESETS
-    )
+    assert set(DAIRY_TASK_CATEGORY_ROLE_MAP.values()) <= set(p["code"] for p in ROLE_PRESETS)
     assert DAIRY_TASK_CATEGORY_ROLE_MAP == {"WEANING": "CALF_ATTENDANT"}
 
 

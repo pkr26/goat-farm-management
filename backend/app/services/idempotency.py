@@ -17,7 +17,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +62,30 @@ def single_idempotency_key(
 
 
 IdempotencyKey = Annotated[str | None, Depends(single_idempotency_key)]
+
+
+def required_idempotency_key(request: Request, value: _IdempotencyHeader = None) -> str:
+    """Same single-header contract as ``single_idempotency_key``, but mandatory.
+
+    For mutations with no database natural key backing them (manual ledger
+    rows, feed dispenses) the Idempotency-Key is the only replay defense, so
+    a keyless request must be rejected rather than silently committed — a
+    non-registry client replaying a lost response would otherwise double-book
+    money or double-debit stock.
+    """
+    key = single_idempotency_key(request, value)
+    if key is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Idempotency-Key header is required for this mutation — "
+                "resend the same key to retry safely"
+            ),
+        )
+    return key
+
+
+RequiredIdempotencyKey = Annotated[str, Depends(required_idempotency_key)]
 
 
 async def purge_expired_idempotency_records(
@@ -291,9 +315,10 @@ async def execute_idempotent[ResponseT: BaseModel](
             raise
 
     now = utcnow()
+    settings = get_settings()
     request_hash, accepted_request_hashes = _request_hashes(operation, payload, path_identity)
     key_digest = _sha256(key.encode("ascii"))
-    expires_at = now + timedelta(hours=get_settings().idempotency_retention_hours)
+    expires_at = now + timedelta(hours=settings.idempotency_retention_hours)
 
     try:
         claim = (
@@ -372,6 +397,36 @@ async def execute_idempotent[ResponseT: BaseModel](
             http_response.status_code = replay_status
             http_response.headers["Idempotency-Replayed"] = "true"
             return response_type.model_validate(body)
+
+        # Per-actor capacity guard, checked only on the FRESH-claim path: a
+        # replay of an already-committed result is read-only and cannot grow
+        # the table, so it must stay answerable even at the cap (the client's
+        # only way to retrieve a committed response it never saw). The count
+        # includes this claim, hence the strict >: at cap it rejects before
+        # any domain mutation runs, and the rollback discards the claim.
+        open_records = (
+            await db.execute(
+                select(func.count())
+                .select_from(IdempotencyRecord)
+                .where(
+                    IdempotencyRecord.actor_id == actor_id,
+                    (
+                        IdempotencyRecord.farm_id == farm_id
+                        if farm_id is not None
+                        else IdempotencyRecord.farm_id.is_(None)
+                    ),
+                    IdempotencyRecord.expires_at > now,
+                )
+            )
+        ).scalar_one()
+        if open_records > settings.idempotency_max_open_records_per_actor:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    "Too many idempotent mutations are still inside their retention "
+                    "window for this account — retry later as earlier records expire"
+                ),
+            )
 
         response = await mutate()
         body = response.model_dump(mode="json")

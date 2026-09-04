@@ -222,9 +222,7 @@ def test_documented_pre_weaning_rate_removes_ten_percent_of_the_crop() -> None:
     # After the third kid-class month the crop is exactly 10% smaller; the
     # following month they are weaners and take no further kid mortality.
     assert res.months[3].f_kids + res.months[3].m_kids == pytest.approx(born * 0.90, abs=1e-9)
-    assert res.months[4].f_weaners + res.months[4].m_weaners == pytest.approx(
-        born * 0.90, abs=1e-9
-    )
+    assert res.months[4].f_weaners + res.months[4].m_weaners == pytest.approx(born * 0.90, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -804,9 +802,7 @@ def test_male_weight_curve_carries_the_young_male_premium() -> None:
     assert g.young_male_weight_premium == pytest.approx(0.10)
     assert male_weight_at_age(1, g, 42.0) == pytest.approx(6.0 * 1.10)
     assert male_weight_at_age(10, g, 42.0) == pytest.approx(23.5 * 1.10)
-    assert male_weight_at_age(23, g, 42.0) == pytest.approx(
-        weight_at_age(23, g, 42.0) * 1.10
-    )
+    assert male_weight_at_age(23, g, 42.0) == pytest.approx(weight_at_age(23, g, 42.0) * 1.10)
     # At the adult weight age the premium no longer applies.
     assert male_weight_at_age(24, g, 42.0) == pytest.approx(42.0)
 
@@ -1021,15 +1017,11 @@ def test_eid_uplift_applies_in_festival_month_only() -> None:
         meta=MetaAssumptions(horizon_months=24),
         # A legacy eid_month is still present: explicit festival months must
         # win, so month 3 (calendar October) stays at the base price.
-        sales=SalesAssumptions(
-            festival_sale_months=[15], eid_month=10, eid_price_uplift=0.30
-        ),
+        sales=SalesAssumptions(festival_sale_months=[15], eid_month=10, eid_price_uplift=0.30),
     )
     legacy = SimulationAssumptions(
         meta=MetaAssumptions(horizon_months=24),
-        sales=SalesAssumptions(
-            festival_sale_months=[], eid_month=10, eid_price_uplift=0.30
-        ),
+        sales=SalesAssumptions(festival_sale_months=[], eid_month=10, eid_price_uplift=0.30),
     )
     res_flat = run_simulation(flat, with_break_even=False)
     res_festival = run_simulation(festival, with_break_even=False)
@@ -1059,9 +1051,7 @@ def test_males_finishing_near_a_festival_are_held_and_sold_in_it() -> None:
     months before a festival month are held (still growing, eating and mortal)
     and sold IN the festival month at the festival price — Telangana herds
     are managed to finish bucks into Bakrid."""
-    event = HerdEventAssumptions(
-        month=9, kind="purchase", animal_class="male_grower", count=3
-    )
+    event = HerdEventAssumptions(month=9, kind="purchase", animal_class="male_grower", count=3)
 
     def run(festival_months: list[int]) -> SimulationResult:
         a = event_toy([event], horizon=24)
@@ -1448,7 +1438,19 @@ def pin_legacy_growth(a: SimulationAssumptions) -> SimulationAssumptions:
     alignment (9 months, stall-fed finish curve) is covered by its own tests."""
     a.growth.sale_age_months = 10
     a.growth.weight_by_age_months = [
-        2.5, 6.0, 9.5, 12.1, 14.1, 15.8, 17.1, 18.2, 19.0, 19.6, 20.0, 20.3, 20.5,
+        2.5,
+        6.0,
+        9.5,
+        12.1,
+        14.1,
+        15.8,
+        17.1,
+        18.2,
+        19.0,
+        19.6,
+        20.0,
+        20.3,
+        20.5,
     ]
     a.reproduction.age_at_first_breeding_months = 12
     return a
@@ -1675,9 +1677,7 @@ def test_long_chain_grower_purchase_uses_sex_weight_and_midpoint_slot(
 
     result = run_simulation(assumptions, with_break_even=False)
     midpoint_age = 15
-    weight_fn = (
-        male_weight_at_age if animal_class == "male_grower" else weight_at_age
-    )
+    weight_fn = male_weight_at_age if animal_class == "male_grower" else weight_at_age
     expected_cost = (
         2.0
         * weight_fn(
@@ -2313,9 +2313,7 @@ def test_event_sale_of_young_stock_gets_festival_uplift() -> None:
     def run(festival_months: list[int]) -> float:
         a = SimulationAssumptions(
             meta=MetaAssumptions(horizon_months=24),
-            sales=SalesAssumptions(
-                festival_sale_months=festival_months, eid_price_uplift=0.30
-            ),
+            sales=SalesAssumptions(festival_sale_months=festival_months, eid_price_uplift=0.30),
             events=[
                 HerdEventAssumptions(month=15, kind="sale", animal_class="male_grower", count=2)
             ],

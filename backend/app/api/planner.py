@@ -80,9 +80,7 @@ def _load_plan_parts(plan: PlannerPlan) -> tuple[list[PlannerTarget], Simulation
     skipped in the list endpoint — never a bare 500 for the whole farm.
     """
     try:
-        targets = [
-            PlannerTarget.model_validate(item) for item in json.loads(plan.targets)
-        ]
+        targets = [PlannerTarget.model_validate(item) for item in json.loads(plan.targets)]
     except (json.JSONDecodeError, ValidationError) as exc:
         raise HTTPException(
             status_code=422,
@@ -499,9 +497,7 @@ async def update_plan(
 
 
 @router.delete("/plans/{plan_id}", status_code=204)
-async def delete_plan(
-    db: DbSession, farm: CurrentFarm, perms: SimManage, plan_id: int
-) -> Response:
+async def delete_plan(db: DbSession, farm: CurrentFarm, perms: SimManage, plan_id: int) -> Response:
     plan = await _get_plan(db, farm.id, plan_id)
     await db.delete(plan)
     await db.commit()

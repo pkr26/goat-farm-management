@@ -560,8 +560,12 @@ async def test_finance_create_replays_conflicts_and_deduplicates_concurrently(
     assert conflict.status_code == 409
     assert "different request" in conflict.json()["detail"]
 
-    # Without the optional header, existing duplicate-creation behavior stays
-    # intact: two calls create two independent ledger entries.
+    # The header is now REQUIRED (no DB natural key backs a manual ledger
+    # row): the test client injects fresh keys for headerless posts, so the
+    # two "omitted" calls below are two distinct keyed mutations — two
+    # independent ledger entries, each with its own claim. A genuinely
+    # keyless request is pinned to 422 in
+    # test_redteam_remediation_2026_09_04.py.
     omitted_one = await client.post(
         "/api/finance/new", json=finance_payload(amount=7), headers=owner
     )
@@ -591,8 +595,10 @@ async def test_finance_create_replays_conflicts_and_deduplicates_concurrently(
                 )
             )
         ).scalar_one()
-    assert ledger_count == 4  # one sequential + one concurrent + two headerless
-    assert await idempotency_count() == 2
+    assert ledger_count == 4  # one sequential + one concurrent + two keyed
+    # Four claims: sequential, its replay (shared record), and one per keyed
+    # "omitted" post (the client's injected keys are distinct per request).
+    assert await idempotency_count() == 4
 
 
 async def test_finance_correction_is_exactly_once_and_hashes_path_identity(
@@ -2168,14 +2174,16 @@ async def test_concurrent_create_and_reject_share_manual_capacity_lock(
     assert pending == 1
 
 
-def test_openapi_declares_optional_bounded_idempotency_header_on_all_routes() -> None:
+def test_openapi_declares_bounded_idempotency_header_on_all_routes() -> None:
     schema = create_app().openapi()
-    routes = [
+    # The two mutations with no DB natural key REJECT keyless requests at
+    # runtime, so the published contract must mark their header required —
+    # generated clients then send it instead of discovering the 422 live.
+    required_routes = {("/api/finance/new", "post"), ("/api/feeding/dispense", "post")}
+    routes = required_routes | {
         ("/api/auth/farms", "post"),
-        ("/api/finance/new", "post"),
         ("/api/finance/transactions/{transaction_id}/correct", "post"),
         ("/api/purchases/new", "post"),
-        ("/api/feeding/dispense", "post"),
         ("/api/feeding/mix", "post"),
         ("/api/feeding/inventory/{item_id}/add", "post"),
         ("/api/health/events", "post"),
@@ -2184,14 +2192,17 @@ def test_openapi_declares_optional_bounded_idempotency_header_on_all_routes() ->
         ("/api/tasks", "post"),
         ("/api/team/workers", "post"),
         ("/api/simulation/scenarios", "post"),
-    ]
+        ("/api/breeding", "post"),
+        ("/api/kidding", "post"),
+        ("/api/milk/new", "post"),
+    }
     for path, method in routes:
         parameters = schema["paths"][path][method]["parameters"]
         header = next(
             parameter for parameter in parameters if parameter["name"] == "Idempotency-Key"
         )
         assert header["in"] == "header"
-        assert header["required"] is False
+        assert header["required"] is ((path, method) in required_routes)
         string_variant = next(
             variant for variant in header["schema"]["anyOf"] if variant.get("type") == "string"
         )
