@@ -11,6 +11,7 @@ import { useVaccinationScheduleApiHealthScheduleAnimalIdGet } from "@/api/genera
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -141,6 +142,7 @@ function VaccinationSchedulePageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title={
           <>

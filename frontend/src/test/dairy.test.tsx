@@ -58,6 +58,8 @@ describe("farm vocabulary", () => {
       weaningDays: 60,
       youngStayWithDam: true,
       maxLitterSize: 4,
+      maxWeightKg: 150,
+      birthWeightKg: { min: 0.5, max: 8 },
     });
     expect(buffalo.facts).toEqual({
       gestationWindowDays: { min: 270, max: 350 },
@@ -65,6 +67,8 @@ describe("farm vocabulary", () => {
       weaningDays: 90,
       youngStayWithDam: false,
       maxLitterSize: 2,
+      maxWeightKg: 1000,
+      birthWeightKg: { min: 15, max: 80 },
     });
     // The tag generator issues "G-XXXXX" for every species
     // (services/animals.generate_unique_tag) — the prefix must never

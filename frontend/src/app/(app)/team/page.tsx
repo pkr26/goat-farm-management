@@ -57,6 +57,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -205,14 +206,17 @@ function WorkerRow({
     actionLock.current = "role";
     setActionSettling(true);
     setActionError(null);
+    const farmScope = captureFarmScope();
     try {
       await roleMutation.mutateAsync({ membershipId: m.id, data: { role_id: roleId } });
+      if (!farmScope()) return;
       toast.success("Role updated.");
       // Keep the row claimed until the server-owned role/status snapshot has
       // landed. Unlocking after only the POST response exposes stale controls
       // (including controls the newly assigned role may make protected).
       await invalidate();
     } catch (err) {
+      if (!farmScope()) return;
       const message = mutationError(err);
       setActionError({ action: "role", message, roleId });
       toast.error(message);
@@ -233,14 +237,17 @@ function WorkerRow({
     actionLock.current = "status";
     setActionSettling(true);
     setActionError(null);
+    const farmScope = captureFarmScope();
     try {
       await statusMutation.mutateAsync({
         membershipId: m.id,
         data: { is_active: desiredActive },
       });
+      if (!farmScope()) return;
       toast.success(desiredActive ? "Worker activated." : "Worker deactivated.");
       await invalidate();
     } catch (err) {
+      if (!farmScope()) return;
       const message = mutationError(err);
       setActionError({ action: "status", message, desiredActive });
       toast.error(message);
@@ -465,6 +472,7 @@ function AddWorkerDialog({
   async function onSubmit(values: WorkerValues) {
     if (!authority.canStart()) return;
     await createFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setFormError(null);
       try {
         await createMutation.mutateAsync({
@@ -475,11 +483,13 @@ function AddWorkerDialog({
             password: values.password,
           },
         });
+        if (!farmScope()) return;
         toast.success("Worker added.");
         await invalidate();
         onOpenChange(false);
         reset();
       } catch (err) {
+        if (!farmScope()) return;
         const message = mutationError(err);
         setFormError(message);
         toast.error(message);
@@ -660,15 +670,18 @@ function ResetPasswordDialog({
   async function onSubmit(values: ResetValues) {
     if (!authority.canStart()) return;
     await resetFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setFormError(null);
       try {
         await resetMutation.mutateAsync({
           membershipId: membership.id,
           data: { password: values.password },
         });
+        if (!farmScope()) return;
         toast.success("Password reset.");
         onClose();
       } catch (err) {
+        if (!farmScope()) return;
         const message = mutationError(err);
         setFormError(message);
         toast.error(message);
@@ -802,6 +815,7 @@ function RoleDialog({
   async function onSubmit(values: RoleValues) {
     if (!authority.canStart()) return;
     await saveFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setFormError(null);
       const data = {
         name: values.name.trim(),
@@ -814,14 +828,17 @@ function RoleDialog({
             roleId: role.id,
             data: { ...data, expected_revision: role.revision },
           });
+          if (!farmScope()) return;
           toast.success("Role saved.");
         } else {
           await createMutation.mutateAsync({ data });
+          if (!farmScope()) return;
           toast.success("Role created.");
         }
         await invalidate();
         onClose();
       } catch (err) {
+        if (!farmScope()) return;
         // A 409 means another admin already changed this role, so the
         // `expected_revision` closed over here is stale. Without refreshing
         // the cache a retry replays the same stale revision and is guaranteed
@@ -1030,14 +1047,17 @@ function RoleCard({
     deleteLock.current = true;
     setDeleteSettling(true);
     setDeleteError(null);
+    const farmScope = captureFarmScope();
     try {
       await deleteMutation.mutateAsync({ roleId: role.id });
+      if (!farmScope()) return;
       toast.success("Role deleted.");
       // The cached card survives while /api/team refetches. Hold both actions
       // through that refresh so the deleted role cannot be edited or deleted
       // again from the stale card.
       await invalidate();
     } catch (err) {
+      if (!farmScope()) return;
       const message = mutationError(err);
       setDeleteError(message);
       toast.error(message);
@@ -1269,6 +1289,11 @@ export default function TeamPage() {
         description="Manage the workers on this farm, their roles and what each role can do."
       />
 
+      {/* Deliberately NOT the shared StaleDataNotice: stale team data is not
+          just informational — authority checks freeze every action until a
+          fresh snapshot lands, so this banner is an assertive alert that
+          blocks work rather than an informational status. Keep the two
+          contracts separate. */}
       {query.isError && (
         <div className="space-y-3" role="alert">
           <p className="text-sm text-destructive">

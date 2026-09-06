@@ -216,7 +216,7 @@ function savedPlanRow(overrides: Record<string, unknown> = {}) {
 
 interface PlanResponse {
   status: number;
-  body: unknown;
+  body: Record<string, unknown>;
 }
 
 interface Options {
@@ -1360,6 +1360,31 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     expect(update).toBeDisabled();
   });
 
+  it("does not delete until the confirm dialog is accepted", async () => {
+    const user = userEvent.setup();
+    const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
+    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    // Staged only: the DELETE must not fire from the row button alone.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(state.deletedIds).toEqual([]);
+
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
+    await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
+    await waitFor(() =>
+      expect(toastMocks.success).toHaveBeenCalledWith("Deleted “Festival plan”."),
+    );
+  });
+
+  it("cancels the delete-confirm dialog without deleting", async () => {
+    const user = userEvent.setup();
+    const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
+    await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(state.deletedIds).toEqual([]);
+    expect(screen.getByText("Festival plan")).toBeInTheDocument();
+  });
+
   it("deletes a saved plan and clears an open plan", async () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
@@ -1367,6 +1392,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     expect(screen.getByRole("button", { name: /Update “Festival plan”/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Deleted “Festival plan”."),
@@ -1383,6 +1409,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
       deleteStatus: 202,
     });
     await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(toastMocks.success).not.toHaveBeenCalled();
@@ -1393,6 +1420,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     const user = userEvent.setup();
     const state = await renderLoaded2({ savedPlans: [savedPlanRow()] });
     await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() => expect(state.deletedIds).toEqual(["7"]));
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Deleted “Festival plan”."),
@@ -1407,6 +1435,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     });
     await user.click((await screen.findAllByRole("button", { name: "Open" }))[0]!);
     await user.click(screen.getByRole("button", { name: "Delete plan Other plan" }));
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() =>
       expect(toastMocks.success).toHaveBeenCalledWith("Deleted “Other plan”."),
     );
@@ -1419,6 +1448,7 @@ describe("PlannerPage mutation round 2: save, update, delete and open", () => {
     const user = userEvent.setup();
     await renderLoaded2({ savedPlans: [savedPlanRow()], deleteNetworkError: true });
     await user.click(await screen.findByRole("button", { name: "Delete plan Festival plan" }));
+    await user.click(await screen.findByRole("button", { name: "Delete plan" }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith("Could not delete the plan."),
     );

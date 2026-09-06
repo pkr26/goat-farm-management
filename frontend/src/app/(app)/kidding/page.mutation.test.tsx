@@ -10,7 +10,7 @@
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 
@@ -59,7 +59,6 @@ function daysFromToday(delta: number): string {
   return addDays(TODAY, delta);
 }
 const BRED_ON = daysFromToday(-120);
-const GESTATION_FLOOR = daysFromToday(-20);
 
 function makeBreeding(overrides: Partial<BreedingRecordOut>): BreedingRecordOut {
   return {
@@ -279,18 +278,18 @@ describe("KiddingPage mutation hardening", () => {
       target: { value: "T".repeat(51) },
     });
     fireEvent.change(within(dialog).getByLabelText("Kid 1 weight (kg)"), {
-      target: { value: "-1" },
+      target: { value: "0.2" },
     });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
 
     expect(await within(dialog).findByText("Max 50 characters")).toBeInTheDocument();
-    expect(within(dialog).getByText("Must be ≥ 0")).toBeInTheDocument();
+    expect(within(dialog).getByText("A newborn kid weighs at least 0.5 kg")).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText("Kid 1 weight (kg)"), {
-      target: { value: "1001" },
+      target: { value: "9" },
     });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
-    expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+    expect(await within(dialog).findByText("A newborn kid weighs at most 8 kg")).toBeInTheDocument();
   });
 
   // ---------- select option labels ----------
@@ -419,7 +418,7 @@ describe("KiddingPage mutation hardening", () => {
   });
 
   it("explains a deep link to a pregnancy that is no longer confirmed", async () => {
-    payload.upcoming = [makeBreeding({ id: 12, outcome: "OPEN" })];
+    payload.upcoming = [makeBreeding({ id: 12, outcome: "FAILED" })];
     navState.search = "?breeding_id=12";
     await renderLoaded();
 
@@ -595,9 +594,10 @@ describe("KiddingPage mutation hardening", () => {
 
     // Permissions skeleton branch (goat vocabulary needs no farms fetch).
     server.use(
-      http.get("/api/auth/permissions", () =>
-        HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }, { delay: 400 }),
-      ),
+      http.get("/api/auth/permissions", async () => {
+        await delay(400);
+        return HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS });
+      }),
     );
     const { unmount } = renderWithProviders(<KiddingPage />);
     expect(screen.getByText(description)).toBeInTheDocument();

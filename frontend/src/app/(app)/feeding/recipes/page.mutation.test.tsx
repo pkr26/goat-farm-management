@@ -21,7 +21,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-function recipesHandler(payload: unknown) {
+function recipesHandler(payload: Record<string, unknown>) {
   return http.get("/api/feeding/recipes", () => HttpResponse.json(payload));
 }
 

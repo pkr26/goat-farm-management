@@ -61,6 +61,14 @@ import { PageSkeleton } from "@/components/skeletons";
 import { PermissionsError } from "@/components/permissions-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -79,8 +87,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
-import { formatLitres, formatMoney } from "@/lib/format";
+import { farmToday, formatLitres, formatMoney } from "@/lib/format";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { usePermissions } from "@/lib/use-permissions";
 import { useSingleFlight } from "@/lib/use-single-flight";
@@ -123,8 +132,10 @@ function formatYearMonth(value: string): string {
 }
 
 function currentYearMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // The farm's timezone, not the browser's: an operator west of IST opening
+  // the planner between 00:00 and 05:30 farm time must not land in (or be
+  // capped at) the previous month.
+  return farmToday().slice(0, 7);
 }
 
 function addMonths(yearMonth: string, months: number): string {
@@ -288,9 +299,11 @@ export default function PlannerPage() {
       toast.error("The breed preset is still loading — try again in a moment.");
       return;
     }
+    const farmScope = captureFarmScope();
     try {
       const res = await snapshotQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
+        if (!farmScope()) return;
         toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
         return;
       }
@@ -314,26 +327,32 @@ export default function PlannerPage() {
           : prev,
       );
       setBasisSource("herd");
+      if (!farmScope()) return;
       toast.success(`Starting stock set to your current herd (${snap.total_head} head).`);
     } catch (err) {
+      if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not load the herd snapshot."));
     }
   }
 
   async function onCalibrateFromFarm() {
+    const farmScope = captureFarmScope();
     try {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
+        if (!farmScope()) return;
         toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
         return;
       }
       const calibrated = res.data.data;
       setAssumptions(calibrated.assumptions);
       setBasisSource("calibration");
+      if (!farmScope()) return;
       toast.success(
         `Calibrated ${calibrated.evidence.length} assumptions from your farm records.`,
       );
     } catch (err) {
+      if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not calibrate from farm records."));
     }
   }
@@ -401,6 +420,7 @@ export default function PlannerPage() {
 
   async function onPlan() {
     await plannerAction.run(async () => {
+      const farmScope = captureFarmScope();
       const payload = anchoredAssumptions();
       if (!payload || targets.length === 0 || targetErrors.length > 0) return;
       setPlanError(null);
@@ -417,11 +437,12 @@ export default function PlannerPage() {
             risk_runs: 100,
           },
         });
-        if (res.status === 200) {
+        if (res.status === 200 && farmScope()) {
           setReport(res.data);
           setPlanInputsSnapshot(planInputsKey);
         }
       } catch (err) {
+        if (!farmScope()) return;
         const message = errorMessage(err, "Plan failed");
         setPlanError(message);
         toast.error(message);
@@ -450,6 +471,7 @@ export default function PlannerPage() {
 
   async function onMilkPlan() {
     await plannerAction.run(async () => {
+      const farmScope = captureFarmScope();
       const payload = anchoredAssumptions();
       if (!payload) return;
       setMilkError(null);
@@ -463,12 +485,13 @@ export default function PlannerPage() {
             hold_year_round: milkHoldYearRound,
           },
         });
-        if (res.status === 200) {
+        if (res.status === 200 && farmScope()) {
           setMilkReport(res.data);
           setMilkRanStart(startMonth);
           setMilkInputsSnapshot(milkInputsKey);
         }
       } catch (err) {
+        if (!farmScope()) return;
         const message = errorMessage(err, "Milk plan failed");
         setMilkError(message);
         toast.error(message);
@@ -486,6 +509,10 @@ export default function PlannerPage() {
   const deletePlanMutation = useDeletePlanApiPlannerPlansPlanIdDelete();
   const [planName, setPlanName] = useState("");
   const [openPlan, setOpenPlan] = useState<PlannerPlanOut | null>(null);
+  // DELETE is permanent with no undo; the row button only stages the plan
+  // here and the confirm dialog below performs it (same contract as the
+  // simulation page's scenario delete).
+  const [pendingDelete, setPendingDelete] = useState<PlannerPlanOut | null>(null);
 
   const plansPage = plansQuery.data?.status === 200 ? plansQuery.data.data : null;
   const savedPlans = plansPage ? plansPage.items.filter((item) => item.valid) : [];
@@ -496,6 +523,7 @@ export default function PlannerPage() {
 
   async function onSavePlan() {
     await saveAction.run(async () => {
+      const farmScope = captureFarmScope();
       const payload = anchoredAssumptions();
       const name = planName.trim();
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
@@ -519,12 +547,13 @@ export default function PlannerPage() {
             assumptions: payload,
           },
         });
-        if (res.status === 201) {
+        if (res.status === 201 && farmScope()) {
           setOpenPlan(res.data);
           invalidatePlans();
           toast.success(`Saved plan “${name}”.`);
         }
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(errorMessage(err, "Could not save the plan."));
       }
     });
@@ -532,6 +561,7 @@ export default function PlannerPage() {
 
   async function onUpdatePlan() {
     await saveAction.run(async () => {
+      const farmScope = captureFarmScope();
       if (!openPlan) return;
       const payload = anchoredAssumptions();
       if (!payload || targets.length === 0 || targetErrors.length > 0) {
@@ -558,12 +588,13 @@ export default function PlannerPage() {
             assumptions: payload,
           },
         });
-        if (res.status === 200) {
+        if (res.status === 200 && farmScope()) {
           setOpenPlan(res.data);
           invalidatePlans();
           toast.success(`Updated “${res.data.name}”.`);
         }
       } catch (err) {
+        if (!farmScope()) return;
         if (err instanceof ApiError && err.status === 409) {
           toast.error(
             "This plan changed in another tab. The latest revision was loaded — press Update again.",
@@ -589,9 +620,11 @@ export default function PlannerPage() {
   }
 
   async function onDeletePlan(plan: PlannerPlanOut) {
+    setPendingDelete(null);
+    const farmScope = captureFarmScope();
     try {
       const res = await deletePlanMutation.mutateAsync({ planId: plan.id });
-      if (res.status === 204) {
+      if (res.status === 204 && farmScope()) {
         if (openPlan?.id === plan.id) {
           setOpenPlan(null);
           setPlanName("");
@@ -600,6 +633,7 @@ export default function PlannerPage() {
         toast.success(`Deleted “${plan.name}”.`);
       }
     } catch (err) {
+      if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not delete the plan."));
     }
   }
@@ -1434,7 +1468,7 @@ export default function PlannerPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => void onDeletePlan(plan)}
+                        onClick={() => setPendingDelete(plan)}
                         disabled={!canManage || deletePlanMutation.isPending}
                         aria-label={`Delete plan ${plan.name}`}
                       >
@@ -1454,6 +1488,48 @@ export default function PlannerPage() {
           </p>
         )}
       </DataTableCard>
+
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingDelete(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete plan?</DialogTitle>
+            <DialogDescription>
+              {pendingDelete !== null && (
+                <>
+                  This permanently deletes{" "}
+                  <span className="font-medium text-foreground">{pendingDelete.name}</span>{" "}
+                  and its saved assumptions. Runs already exported are not affected.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletePlanMutation.isPending}
+              onClick={() => setPendingDelete(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletePlanMutation.isPending || pendingDelete === null}
+              onClick={() => {
+                if (pendingDelete) void onDeletePlan(pendingDelete);
+              }}
+            >
+              {deletePlanMutation.isPending ? "Deleting…" : "Delete plan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

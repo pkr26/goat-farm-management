@@ -132,7 +132,6 @@ describe("DashboardPage — overdue preview cap", () => {
   it("shows five rows and names the exact remainder", async () => {
     await renderLoaded();
 
-    const rows = screen.getAllByRole("row");
     // 5 overdue body rows (+1 for the table's own header-less row per card).
     expect(screen.getByText("Overdue tasks (7)")).toBeInTheDocument();
     expect(screen.getAllByText(/3d late/)).toHaveLength(5);

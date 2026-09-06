@@ -370,13 +370,15 @@ describe("PurchasesPage new-batch dialog", () => {
   // REGRESSION — avg_weight_kg had only a lower bound client-side, so a
   // grams-vs-kg typo passed the review step and only failed on the final POST
   // with a raw pydantic message and no field-level error.
-  it("rejects an average weight above the server's 1000 kg ceiling", async () => {
+  it("rejects an average weight above the species ceiling", async () => {
     const { user, dialog } = await openDialog();
 
     await user.type(within(dialog).getByLabelText(/Avg weight/), "2500");
     await user.click(within(dialog).getByRole("button", { name: "Review batch" }));
 
-    expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText("At most 150 kg for this farm's species"),
+    ).toBeInTheDocument();
     expect(postCalls).toBe(0);
   });
 
@@ -618,6 +620,47 @@ describe("PurchasesPage batch detail dialog", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("#5")).toBeInTheDocument();
+  });
+
+  // INTEGRATION — pins the StaleDataNotice contract end-to-end: a batch that
+  // loaded and then fails its background refetch must keep showing the cached
+  // content WITH a visible stale-data banner, never silently.
+  it("warns with a banner when a reopened batch's refresh fails over cached data", async () => {
+    const { user } = await openDetail();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    server.use(
+      http.get("/api/purchases/5", () =>
+        HttpResponse.json({ detail: "refresh failed" }, { status: 500 }),
+      ),
+    );
+    const row = screen.getByText("#5").closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(await within(dialog).findByRole("status")).toHaveTextContent(
+      "Could not refresh — showing the last loaded data.",
+    );
+    // The retained batch content stays visible beneath the notice.
+    expect(within(dialog).getByText("Batch #5")).toBeInTheDocument();
+    // A working retry clears the notice.
+    server.use(
+      http.get("/api/purchases/5", () =>
+        HttpResponse.json({
+          batch: BATCH_1,
+          animals: [ANIMAL_STUB],
+          tasks: [TASK_PENDING, TASK_DONE],
+          animals_total: 1,
+          animals_limit: 100,
+          animals_offset: 0,
+        }),
+      ),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(within(dialog).queryByRole("status")).not.toBeInTheDocument(),
+    );
   });
 
   it("lists created animals with links to their pages", async () => {

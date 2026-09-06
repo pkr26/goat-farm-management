@@ -5,7 +5,7 @@
  * and assignment selects, dialog close guards and error branches.
  */
 
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,7 +45,6 @@ beforeAll(() => {
 
 const TODAY = farmToday();
 const TOMORROW = addDays(TODAY, 1);
-const THREE_DAYS_AGO = addDays(TODAY, -3);
 
 function makeTask(overrides: Partial<TaskOut>): TaskOut {
   return {
@@ -628,7 +627,7 @@ describe("TasksPage round-2 mutation survivors", () => {
     server.use(
       tasksHandler(
         emptyBoard({
-          completed: [makeTask({ id: 4, title: "Old check", status: "COMPLETED", verification_note: "redo properly" })],
+          completed: [makeTask({ id: 4, title: "Old check", status: "DONE", verification_note: "redo properly" })],
           completed_total: 1,
         }),
       ),

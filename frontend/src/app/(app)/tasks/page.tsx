@@ -26,6 +26,7 @@ import { AnimalPicker } from "@/components/animal-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
@@ -57,6 +58,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_TASK_TITLE_LENGTH, MAX_RECUR_DAYS } from "@/lib/backend-caps";
 import { useAuth } from "@/lib/auth-context";
 import { addDays, farmToday, formatDate, formatFarmDateTime } from "@/lib/format";
@@ -238,61 +240,69 @@ function RowActions({
 
   async function completeTask() {
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setActionError(null);
       try {
         await completeMutation.mutateAsync({ taskId: task.id });
+        if (!farmScope()) return;
         toast.success("Task completed.");
         invalidate();
       } catch (error) {
-        reportActionError("complete", error);
+        if (farmScope()) reportActionError("complete", error);
       }
     });
   }
 
   async function skipTask() {
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setActionError(null);
       try {
         await skipMutation.mutateAsync({
           taskId: task.id,
           data: { reason: skipReason.trim() || null },
         });
+        if (!farmScope()) return;
         toast.success("Task skipped.");
         setSkipReason("");
         setSkipOpen(false);
         invalidate();
       } catch (error) {
-        reportActionError("skip", error);
+        if (farmScope()) reportActionError("skip", error);
       }
     });
   }
 
   async function verifyTask() {
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setActionError(null);
       try {
         await verifyMutation.mutateAsync({ taskId: task.id });
+        if (!farmScope()) return;
         toast.success("Task verified.");
         invalidate();
       } catch (error) {
-        reportActionError("verify", error);
+        if (farmScope()) reportActionError("verify", error);
       }
     });
   }
 
   async function rejectTask() {
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setActionError(null);
       try {
         await rejectMutation.mutateAsync({
           taskId: task.id,
           data: { note: note.trim() || null },
         });
+        if (!farmScope()) return;
         toast.success("Task sent back.");
         setNote("");
         invalidate();
       } catch (error) {
-        reportActionError("reject", error);
+        if (farmScope()) reportActionError("reject", error);
       }
     });
   }
@@ -643,7 +653,13 @@ const dutySchema = z
     due_date: z
       .string()
       .min(1, "Due date is required")
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid due date"),
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a valid due date")
+      // Mirror the backend's year band so impossible dates fail inline
+      // instead of as a 422 after submit.
+      .refine((v) => {
+        const year = Number(v.slice(0, 4));
+        return year >= 2000 && year <= 2100;
+      }, "Year must be between 2000 and 2100"),
     category: z.enum(["FEED", "CLEANING", "OTHER"]),
     recur_days: z
       .string()
@@ -664,7 +680,12 @@ const dutySchema = z
     if (!Number.isInteger(recurrenceDays) || recurrenceDays < 1 || recurrenceDays > MAX_RECUR_DAYS) {
       return;
     }
-    const latestDueDate = addDays("9999-12-31", -recurrenceDays);
+    // The backend validates the 2000–2100 band only on the create request
+    // (schemas/tasks.py); successors are inserted by services/tasks.py, which
+    // bypasses that validator. Reject inline any series whose first occurrence
+    // would already leave the band — forward-consistent with the backend's
+    // contract even though today's spawn path would not 422.
+    const latestDueDate = addDays("2100-12-31", -recurrenceDays);
     if (values.due_date > latestDueDate) {
       ctx.addIssue({
         code: "custom",
@@ -860,6 +881,7 @@ function TasksPageContent() {
 
   async function createDuty(values: DutyValues) {
     setCreateError(null);
+    const farmScope = captureFarmScope();
     try {
       await createMutation.mutateAsync({
         data: {
@@ -879,11 +901,13 @@ function TasksPageContent() {
               : null,
         },
       });
+      if (!farmScope()) return;
       toast.success("Duty created.");
       invalidateFarmData(queryClient);
       setOpen(false);
       reset(dutyDefaults());
     } catch (err) {
+      if (!farmScope()) return;
       const message = mutationError(err);
       setCreateError(message);
       toast.error(message);
@@ -1026,6 +1050,7 @@ function TasksPageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="Tasks"
         description="Duties and auto-generated protocol tasks, grouped by when they're due."

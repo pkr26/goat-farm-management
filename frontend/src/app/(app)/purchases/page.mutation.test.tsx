@@ -8,7 +8,7 @@
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
+import { delay, HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { permissionsHandler, server } from "@/test/msw-server";
@@ -602,9 +602,10 @@ describe("PurchasesPage round-2 mutation survivors", () => {
 
     // Permissions-loading branch: header + skeleton while perms are delayed.
     server.use(
-      http.get("/api/auth/permissions", () =>
-        HttpResponse.json({ is_owner: false, permissions: ["purchases.view"] }, { delay: 400 }),
-      ),
+      http.get("/api/auth/permissions", async () => {
+        await delay(400);
+        return HttpResponse.json({ is_owner: false, permissions: ["purchases.view"] });
+      }),
     );
     const { unmount } = renderWithProviders(<PurchasesPage />);
     // The perms-loading branch carries the description synchronously (the

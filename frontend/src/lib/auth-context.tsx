@@ -49,6 +49,11 @@ interface AuthState {
    *  must-change-password flag clearing on rotation) without re-running
    *  session establishment. */
   updateUser: (user: SessionUser) => void;
+  /** Synchronous read of the freshest membership list. React state only
+   *  updates on re-render, but a login continuation needs the list its own
+   *  signIn call just committed — e.g. to skip a farmless account's doomed
+   *  /api/auth/permissions request (no X-Farm-Id → 422). */
+  getFarms: () => FarmEntry[];
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -412,6 +417,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (mounted.current) setUser(u);
   }, []);
 
+  const getFarms = useCallback(() => farmsRef.current, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -423,8 +430,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refreshFarms,
       updateUser,
+      getFarms,
     }),
-    [user, farms, farmId, loading, selectFarm, signIn, signOut, refreshFarms, updateUser],
+    [user, farms, farmId, loading, selectFarm, signIn, signOut, refreshFarms, updateUser, getFarms],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

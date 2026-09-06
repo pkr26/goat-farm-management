@@ -21,6 +21,7 @@ import type { BreedingRecordOut, KiddingRecordOut } from "@/api/generated/models
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
@@ -103,17 +104,29 @@ const KID_SEX_ITEMS: Record<string, string> = { F: "Female", M: "Male" };
 const KIDDING_HISTORY_LIMIT = 50;
 const DUE_LIST_LIMIT = 25;
 
-const kidSchema = z.object({
-  tag: z.string().max(50, "Max 50 characters").optional(),
-  sex: z.enum(["M", "F"]),
-  // Mirrors NonNegativeWeightKgFloat (le=1000, schemas/common.py): a grams-as-kg
-  // typo like 5000 should fail inline instead of bouncing the whole kidding
-  // with an opaque server 422, matching the purchases weight field's cap.
-  birth_weight: z.number().nonnegative("Must be ≥ 0").max(1000, "At most 1000 kg").nullish(),
-  status: z.enum(KID_STATUSES),
-  // Required exactly when the kid died, mirroring KidIn (schemas/kidding.py).
-  mortality_reported_at: z.string().optional(),
-});
+/** Per-kid schema, built per farm: the backend rejects a recorded birth
+ * weight outside the species' credible newborn band (birth_weight_kg_range —
+ * goat 0.5–8 kg, buffalo 15–80 kg), so mirror both bounds inline instead of
+ * bouncing the whole kidding with an opaque server 422. */
+const kidSchema = (vocabulary: FarmVocabulary) =>
+  z.object({
+    tag: z.string().max(50, "Max 50 characters").optional(),
+    sex: z.enum(["M", "F"]),
+    birth_weight: z
+      .number()
+      .min(
+        vocabulary.facts.birthWeightKg.min,
+        `A newborn ${vocabulary.young} weighs at least ${vocabulary.facts.birthWeightKg.min} kg`,
+      )
+      .max(
+        vocabulary.facts.birthWeightKg.max,
+        `A newborn ${vocabulary.young} weighs at most ${vocabulary.facts.birthWeightKg.max} kg`,
+      )
+      .nullish(),
+    status: z.enum(KID_STATUSES),
+    // Required exactly when the kid died, mirroring KidIn (schemas/kidding.py).
+    mortality_reported_at: z.string().optional(),
+  });
 /** The farm vocabulary threads through every validation message ("Kidding
  * date cannot be…", "At least one kid"), so the schema is built per farm. */
 function kiddingSchema(vocabulary: FarmVocabulary) {
@@ -129,7 +142,7 @@ function kiddingSchema(vocabulary: FarmVocabulary) {
       // dialog's notes rather than only as a server 422 on submit.
       notes: z.string().max(4_000, "Notes cannot exceed 4000 characters").optional(),
       kids: z
-        .array(kidSchema)
+        .array(kidSchema(vocabulary))
         .min(1, `At least one ${vocabulary.young}`)
         // Species litter cap (goat ≤4, buffalo ≤2) mirrors
         // SpeciesProfile.max_litter_size — LitterSizeError on the server.
@@ -803,6 +816,7 @@ function KiddingPageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title={vocabulary.parturitionCap}
         description={`Confirmed pregnancies due soon and recent ${vocabulary.parturition} history.`}

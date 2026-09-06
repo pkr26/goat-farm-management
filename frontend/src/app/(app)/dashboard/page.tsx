@@ -25,6 +25,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
@@ -208,6 +209,9 @@ export default function DashboardPage() {
     // today) lead, passive stats follow. `md:order-none` restores source
     // order on desktop.
     <div className="flex flex-col gap-6">
+      {query.isError && (
+        <StaleDataNotice onRetry={() => void query.refetch()} />
+      )}
       <PageHeader
         title={farm ? `${farm.name} — Dashboard` : "Dashboard"}
         description="Herd overview — tasks, breeding dates and recent weights."

@@ -3,12 +3,14 @@
 /** Farm picker (also used for "switch farm") + new-farm creation. */
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Milk, PawPrint } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, LogOut, Milk, PawPrint } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { getPermissionsApiAuthPermissionsGetQueryOptions } from "@/api/generated/endpoints";
 import type { FarmCreateIn, PermissionsOut } from "@/api/generated/models";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +64,8 @@ type FarmValues = z.infer<typeof farmSchema>;
 function FarmSelectPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user, farms, farmId, loading, selectFarm, refreshFarms } = useAuth();
+  const { user, farms, farmId, loading, selectFarm, refreshFarms, signOut } = useAuth();
+  const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const [selectingFarmId, setSelectingFarmId] = useState<number | null>(null);
   const mounted = useRef(true);
@@ -94,8 +97,21 @@ function FarmSelectPageContent() {
     // the authoritative timezone.
     selectFarm(farm.id, farm.timezone);
     try {
-      const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
+      // Fetch through the shared query cache (same key the shell's
+      // usePermissions consumers use) so landing on the first page reuses
+      // this result instead of refetching permissions a second time.
+      const envelope = await queryClient.fetchQuery(
+        getPermissionsApiAuthPermissionsGetQueryOptions(),
+      );
       if (!mounted.current || authSessionEpochValue() !== sessionEpoch) return;
+      // The fetch core rejects non-2xx before an envelope is built, so a
+      // settled envelope is always 200; the narrowing is for the type system
+      // only, not a reachable error path.
+      const permissions =
+        envelope.status === 200 ? (envelope.data as PermissionsOut) : null;
+      if (!permissions) {
+        throw new ApiError(envelope.status, "Could not load permissions for this farm.");
+      }
       const requestedPath = permittedAppPathFromList(
         searchParams.get("returnTo"),
         permissions.permissions,
@@ -172,7 +188,21 @@ function FarmSelectPageContent() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 p-4 sm:p-6">
       <div className="w-full max-w-2xl space-y-6">
-        <div className="space-y-3 text-center">
+        <div className="relative space-y-3 text-center">
+          {/* This screen sits outside the app shell, which owns the only other
+              sign-out control — a just-registered user must still be able to
+              leave (e.g. they registered the wrong account). */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="absolute right-0 top-0"
+            onClick={() => void signOut()}
+            disabled={loading}
+          >
+            <LogOut aria-hidden="true" />
+            Sign out
+          </Button>
           <Logo className="justify-center" />
           <div className="space-y-1">
             <h1 className="font-heading text-2xl font-semibold tracking-tight">Your farms</h1>

@@ -917,7 +917,7 @@ describe("TasksPage new-duty dialog copy", () => {
     const { user, dialog } = await openDialog();
     const { title, dueDate, recurDays, create } = fieldsOf(dialog);
     await user.type(title, "Decade inspection");
-    fireEvent.change(dueDate, { target: { value: "9999-12-31" } });
+    fireEvent.change(dueDate, { target: { value: "2100-12-31" } });
     fireEvent.change(recurDays, { target: { value: "10" } });
     await user.click(create);
 
@@ -928,12 +928,13 @@ describe("TasksPage new-duty dialog copy", () => {
     ).toBeInTheDocument();
     expect(createBody).toBeNull();
 
-    // The last due date that still leaves room for the next occurrence.
-    fireEvent.change(dueDate, { target: { value: "9999-12-21" } });
+    // The last due date that still leaves room for the next occurrence
+    // inside the backend's 2000–2100 band.
+    fireEvent.change(dueDate, { target: { value: "2100-12-21" } });
     await user.click(create);
 
     await waitFor(() => expect(createBody).not.toBeNull());
-    expect(createBody).toMatchObject({ due_date: "9999-12-21", recur_days: 10 });
+    expect(createBody).toMatchObject({ due_date: "2100-12-21", recur_days: 10 });
   });
 
   it.each([" 10", "10 ", "3651"])(
@@ -942,7 +943,7 @@ describe("TasksPage new-duty dialog copy", () => {
       const { user, dialog } = await openDialog();
       const { title, dueDate, recurDays, create } = fieldsOf(dialog);
       await user.type(title, "Malformed recurrence");
-      fireEvent.change(dueDate, { target: { value: "9999-12-31" } });
+      fireEvent.change(dueDate, { target: { value: "2100-12-31" } });
       fireEvent.change(recurDays, { target: { value: recur } });
       await user.click(create);
 

@@ -33,6 +33,14 @@ export interface SpeciesFacts {
   youngStayWithDam: boolean;
   /** Biological cap on litter size (max_litter_size): goat ≤4, buffalo ≤2. */
   maxLitterSize: number;
+  /** Credible adult body-weight ceiling (max_adult_weight_kg): the backend
+   * rejects recorded weights and purchase averages above it (goat 150 kg,
+   * buffalo 1000 kg). */
+  maxWeightKg: number;
+  /** Credible newborn weight band (birth_weight_kg_range): the backend
+   * rejects recorded birth weights outside it (goat 0.5–8 kg, buffalo
+   * 15–80 kg). */
+  birthWeightKg: { min: number; max: number };
 }
 
 export interface FarmVocabulary {
@@ -101,6 +109,8 @@ const GOAT_VOCABULARY: FarmVocabulary = {
     weaningDays: 60,
     youngStayWithDam: true,
     maxLitterSize: 4,
+    maxWeightKg: 150,
+    birthWeightKg: { min: 0.5, max: 8 },
   },
 };
 
@@ -132,6 +142,8 @@ const BUFFALO_VOCABULARY: FarmVocabulary = {
     weaningDays: 90,
     youngStayWithDam: false,
     maxLitterSize: 2,
+    maxWeightKg: 1000,
+    birthWeightKg: { min: 15, max: 80 },
   },
 };
 

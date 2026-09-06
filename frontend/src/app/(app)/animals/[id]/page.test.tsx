@@ -1134,14 +1134,14 @@ describe("AnimalProfilePage", () => {
       expect(weightBodies).toHaveLength(0);
     });
 
-    it("rejects a weight above the server's 1000 kg ceiling", async () => {
+    it("rejects a weight above the species ceiling", async () => {
       const user = userEvent.setup();
       await renderProfile();
       const dialog = await openDialog(user, "Record weight");
       setInput(within(dialog).getByLabelText(/weight \(kg\)/i), "1200");
       await user.click(within(dialog).getByRole("button", { name: "Save" }));
       expect(
-        await within(dialog).findByText("Weight must be at most 1000 kg"),
+        await within(dialog).findByText("Weight must be at most 150 kg for this farm's species"),
       ).toBeInTheDocument();
       expect(weightBodies).toHaveLength(0);
     });

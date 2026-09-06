@@ -1,19 +1,23 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import {
+  getPermissionsApiAuthPermissionsGetQueryOptions,
+} from "@/api/generated/endpoints";
+import type { LoginIn, PermissionsOut, TokenOut } from "@/api/generated/models";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch, ApiError, authSessionEpochValue } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import type { LoginIn, PermissionsOut, TokenOut } from "@/api/generated/models";
 import {
   firstPermittedPathFromList,
   permittedAppPathFromList,
@@ -37,7 +41,8 @@ type LoginValues = z.infer<typeof loginSchema>;
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn } = useAuth();
+  const { signIn, getFarms } = useAuth();
+  const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
   const mounted = useRef(true);
   const submission = useSingleFlight();
@@ -66,10 +71,31 @@ function LoginPageContent() {
         if (!mounted.current) return;
         await signIn(body.access_token, body.user);
         if (!mounted.current) return;
+        // A farmless account has no permissions context yet: the call would
+        // 422 (no X-Farm-Id to validate against). Farm selection is the
+        // required next step anyway, so go there without the doomed request.
         const signedInEpoch = authSessionEpochValue();
+        if (getFarms().length === 0) {
+          if (mounted.current && authSessionEpochValue() === signedInEpoch) {
+            router.push("/farm-select");
+          }
+          return;
+        }
         try {
-          const permissions = await apiFetch<PermissionsOut>("/api/auth/permissions");
+          // Fetch through the shared query cache so the shell's
+          // usePermissions consumers hit this result instead of refetching.
+          const envelope = await queryClient.fetchQuery(
+            getPermissionsApiAuthPermissionsGetQueryOptions(),
+          );
           if (!mounted.current || authSessionEpochValue() !== signedInEpoch) return;
+          // The fetch core rejects non-2xx before an envelope is built, so a
+          // settled envelope is always 200; the narrowing is for the type
+          // system only, not a reachable error path.
+          const permissions =
+            envelope.status === 200 ? (envelope.data as PermissionsOut) : null;
+          if (!permissions) {
+            throw new ApiError(envelope.status, "Could not load permissions.");
+          }
           // A session-expiry deep link keeps its destination: the farm-switch
           // variant of the validator demotes record ids the new farm cannot
           // own, exactly as /farm-select does (L1).

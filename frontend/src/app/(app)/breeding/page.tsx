@@ -29,6 +29,7 @@ import type { RemotePickerOption } from "@/components/remote-picker";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -139,9 +140,6 @@ const breedingSchema = (vocabulary: FarmVocabulary) =>
         path: ["buck_id"],
         message: `Select a ${vocabulary.maleAdult} for a natural service`,
       });
-    }
-    if (values.method !== "NATURAL" && values.semen_sire_name?.trim() === undefined) {
-      return; // semen identity is optional; the straw may not record it
     }
   });
 type BreedingValues = z.infer<ReturnType<typeof breedingSchema>>;
@@ -936,6 +934,7 @@ function BreedingPageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="Breeding"
         description="Breeding records, ultrasound checks and pregnancy outcomes."

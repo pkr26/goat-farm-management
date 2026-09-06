@@ -35,6 +35,8 @@ describe("farmVocabulary — goat farm", () => {
       weaningDays: 60,
       youngStayWithDam: true,
       maxLitterSize: 4,
+      maxWeightKg: 150,
+      birthWeightKg: { min: 0.5, max: 8 },
     });
   });
 });
@@ -72,6 +74,8 @@ describe("farmVocabulary — buffalo dairy", () => {
       weaningDays: 90,
       youngStayWithDam: false,
       maxLitterSize: 2,
+      maxWeightKg: 1000,
+      birthWeightKg: { min: 15, max: 80 },
     });
   });
 });

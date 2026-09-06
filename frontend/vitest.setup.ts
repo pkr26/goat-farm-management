@@ -74,7 +74,14 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => {
   cleanup();
   server.resetHandlers();
+  // On Node >= 25 an experimental host localStorage can shadow the jsdom
+  // realm's — `localStorage` may resolve to a different Storage instance
+  // than `window.localStorage`, the one the app actually writes. Clear BOTH
+  // or a farm id written by one test file bleeds into the next on the same
+  // worker (observed as cross-file "farmId" assertions seeing other files'
+  // values).
   localStorage?.clear?.();
+  window.localStorage?.clear?.();
 });
 
 afterAll(() => server.close());

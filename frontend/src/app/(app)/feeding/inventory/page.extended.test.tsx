@@ -316,7 +316,7 @@ describe("InventoryPage add-stock dialog", () => {
     await user.click(within(dialog).getByRole("button", { name: "Add" }));
 
     expect(
-      await within(dialog).findByText("Positive-price restock must total at least ₹0.01"),
+      await within(dialog).findByText("Restock total is too small to round up to ₹0.01"),
     ).toBeInTheDocument();
     expect(addCalls).toBe(0);
   });

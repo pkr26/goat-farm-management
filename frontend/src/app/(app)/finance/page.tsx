@@ -57,11 +57,13 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmToday, formatDate, formatMoney } from "@/lib/format";
@@ -263,6 +265,7 @@ function CorrectionDialog({
     }
     setConsequenceHint(null);
     await correctionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       onPendingChange(true);
       setFormError(null);
       try {
@@ -285,10 +288,12 @@ function CorrectionDialog({
           transactionId: transaction.id,
           data: correctionPayload,
         });
+        if (!farmScope()) return;
         toast.success("Correction recorded. The original entry remains in the audit trail.");
         onSaved();
         onClose();
       } catch (error) {
+        if (!farmScope()) return;
         const message = mutationError(error);
         setFormError(message);
         toast.error(message);
@@ -654,6 +659,7 @@ function FinancePageContent() {
 
   async function onSubmit(values: TxnValues) {
     await addFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setFormError(null);
       const attempt = ++addAttempt.current;
       try {
@@ -671,14 +677,16 @@ function FinancePageContent() {
           },
         });
         // The write landed: confirm it and refresh the ledger whatever the
-        // dialog has since done.
+        // dialog has since done — unless the farm changed, in which case this
+        // continuation belongs to the previous farm's UI.
+        if (!farmScope()) return;
         toast.success("Transaction saved.");
         invalidateFarmData(queryClient);
         if (addAttempt.current !== attempt) return;
         setOpen(false);
         reset(txnDefaults());
       } catch (err) {
-        if (addAttempt.current !== attempt) return;
+        if (addAttempt.current !== attempt || !farmScope()) return;
         const message = mutationError(err);
         setFormError(message);
         toast.error(message);
@@ -756,6 +764,7 @@ function FinancePageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="Finance"
         description="Income, expenses and monthly profit & loss for the farm."
@@ -859,9 +868,15 @@ function FinancePageContent() {
             type="month"
             value={month}
             onChange={(e) => {
-              setMonth(e.target.value);
+              // Firefox desktop has no type="month" support: the input degrades
+              // to free text. Accept only the canonical shape (or a cleared
+              // field, which resets the filter) so garbage never reaches the
+              // API or the shareable URL — same guard as the planner.
+              const value = e.target.value;
+              if (value !== "" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return;
+              setMonth(value);
               setOffset(0);
-              replaceLedgerUrl(e.target.value, typeFilter, categoryFilter);
+              replaceLedgerUrl(value, typeFilter, categoryFilter);
             }}
             className="w-40"
             aria-label="Filter by month"

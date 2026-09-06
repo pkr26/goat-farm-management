@@ -10,6 +10,7 @@ import type { AnimalIdentityOut } from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -142,6 +143,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="Reports"
         description="Key herd, breeding and mortality numbers at a glance."

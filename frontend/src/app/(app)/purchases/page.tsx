@@ -21,6 +21,7 @@ import { PurchaseBatchInSex } from "@/api/generated/models";
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { InlineLoading, PageSkeleton, TableSkeleton } from "@/components/skeletons";
 import { StatusBadge } from "@/components/status-badge";
@@ -52,6 +53,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_AGE_MONTHS, MAX_BATCH_COUNT } from "@/lib/backend-caps";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
@@ -90,8 +92,13 @@ const SEX_ITEMS: Record<string, string> = {
 };
 
 // Bounds mirror backend/app/schemas/purchases.py (count 1..1000, age 0..240,
-// weight 0..1000 kg, prices ≥ 0, date year ≥ 2000 and not in the future).
-const batchSchema = z
+// prices ≥ 0, date year ≥ 2000 and not in the future). avg_weight_kg is
+// species-scaled client-side to max_adult_weight_kg; the wire schema still
+// hard-caps at 1000 kg and the API re-checks the species cap.
+/** Species-scaled average-weight cap (max_adult_weight_kg): the backend
+ * rejects a batch average above the farm species' credible adult scale. */
+const batchSchema = (maxWeightKg: number) =>
+  z
   .object({
     date: z.string().min(1, "Date is required"),
     supplier: z.string().max(120, "At most 120 characters").optional(),
@@ -105,7 +112,7 @@ const batchSchema = z
       z.number().min(0, "Cannot be negative").max(MAX_AGE_MONTHS, `At most ${MAX_AGE_MONTHS} months`),
     ),
     avg_weight_kg: optNum(
-      z.number().min(0, "Cannot be negative").max(1000, "At most 1000 kg"),
+      z.number().min(0, "Cannot be negative").max(maxWeightKg, `At most ${maxWeightKg} kg for this farm's species`),
     ),
     total_price: optNum(
       z
@@ -125,8 +132,8 @@ const batchSchema = z
     message: "Date cannot be in the future",
     path: ["date"],
   });
-type BatchInput = z.input<typeof batchSchema>;
-type BatchValues = z.output<typeof batchSchema>;
+type BatchInput = z.input<ReturnType<typeof batchSchema>>;
+type BatchValues = z.output<ReturnType<typeof batchSchema>>;
 
 /** Created animals + open quarantine tasks for one batch. */
 function BatchDetailDialog({
@@ -179,6 +186,9 @@ function BatchDetailDialog({
         ) : (
           detail && (
             <div className="space-y-5">
+              {query.isError && (
+                <StaleDataNotice onRetry={() => void query.refetch()} />
+              )}
               <p className="text-sm text-muted-foreground">
                 {formatDate(detail.batch.date)}
                 {detail.batch.supplier ? ` · ${detail.batch.supplier}` : ""} ·{" "}
@@ -376,7 +386,7 @@ function PurchasesPageContent() {
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<BatchInput, unknown, BatchValues>({
-    resolver: zodResolver(batchSchema),
+    resolver: zodResolver(batchSchema(vocabulary.facts.maxWeightKg)),
     defaultValues: {
       date: localToday(),
       count: 1,
@@ -392,6 +402,7 @@ function PurchasesPageContent() {
 
   async function createBatch(values: BatchValues) {
     await createFlight.run(async () => {
+      const farmScope = captureFarmScope();
       const attempt = ++createAttempt.current;
       try {
         await createMutation.mutateAsync({
@@ -407,6 +418,7 @@ function PurchasesPageContent() {
             create_animals: values.create_animals,
           },
         });
+        if (!farmScope()) return;
         toast.success("Purchase batch created.");
         invalidateFarmData(queryClient);
         if (createAttempt.current !== attempt) return;
@@ -419,7 +431,7 @@ function PurchasesPageContent() {
           create_animals: true,
         });
       } catch (err) {
-        if (createAttempt.current !== attempt) return;
+        if (createAttempt.current !== attempt || !farmScope()) return;
         toast.error(mutationError(err));
       }
     });
@@ -490,6 +502,7 @@ function PurchasesPageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="Purchase batches"
         description={`Incoming groups of ${vocabulary.speciesPlural} — each batch auto-creates its 45-day quarantine protocol.`}

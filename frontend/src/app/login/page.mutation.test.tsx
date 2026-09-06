@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { permissionsHandler, server } from "@/test/msw-server";
+import { permissionsHandler, server, TEST_FARMS } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 
 import LoginPage from "./page";
@@ -43,7 +43,9 @@ describe("LoginPage — mutation targets", () => {
       http.post("/api/auth/login", () =>
         HttpResponse.json({ access_token: "login-token", user: USER }),
       ),
-      http.get("/api/auth/farms", () => HttpResponse.json([])),
+      // The login continuation only routes to /farm-select for a farmless
+      // account; these tests sign in a member, so the farms list is non-empty.
+      http.get("/api/auth/farms", () => HttpResponse.json(TEST_FARMS)),
     );
   });
 
@@ -86,6 +88,26 @@ describe("LoginPage — mutation targets", () => {
 
     await fillAndSubmit(user);
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
+  });
+
+  it("routes a farmless account to farm selection without requesting permissions", async () => {
+    let permissionCalls = 0;
+    server.use(
+      http.get("/api/auth/farms", () => HttpResponse.json([])),
+      http.get("/api/auth/permissions", () => {
+        permissionCalls += 1;
+        // A farmless account has no X-Farm-Id: the backend rejects the call.
+        return HttpResponse.json({ detail: "farm id required" }, { status: 422 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPage />);
+
+    await fillAndSubmit(user);
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/farm-select"));
+    // The early return must skip the request entirely — navigation via the
+    // old 422-catch fallback would look identical to the router alone.
+    expect(permissionCalls).toBe(0);
   });
 
   it("surfaces the server's own words for a 401", async () => {

@@ -61,6 +61,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useFarmType } from "@/hooks/use-farm-type";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { MAX_ANIMAL_TAG_LENGTH, MAX_FREE_TEXT_LENGTH } from "@/lib/backend-caps";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary, type FarmVocabulary } from "@/lib/farm-vocabulary";
@@ -184,8 +185,14 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
     birth_weight: optNum(
       z
         .number()
-        .nonnegative()
-        .max(1000, "At most 1000 kg")
+        .min(
+          vocabulary.facts.birthWeightKg.min,
+          `A newborn ${vocabulary.young} weighs at least ${vocabulary.facts.birthWeightKg.min} kg`,
+        )
+        .max(
+          vocabulary.facts.birthWeightKg.max,
+          `A newborn ${vocabulary.young} weighs at most ${vocabulary.facts.birthWeightKg.max} kg`,
+        )
         .refine(isPersistableNonnegativeWeight, MIN_PERSISTED_WEIGHT_MESSAGE),
     ),
     purchase_date: z
@@ -205,7 +212,10 @@ const createAnimalSchema = (vocabulary: FarmVocabulary) =>
         .number()
         .positive()
         .min(MIN_PERSISTED_KG, MIN_PERSISTED_KG_MESSAGE)
-        .max(1000, "At most 1000 kg"),
+        .max(
+          vocabulary.facts.maxWeightKg,
+          `At most ${vocabulary.facts.maxWeightKg} kg for this farm's species`,
+        ),
     ),
     weight_date: z
       .string()
@@ -415,6 +425,7 @@ function CreateAnimalDialog({
 
   async function onSubmit(values: CreateValues) {
     await createFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await createMut.mutateAsync({
           data: {
@@ -443,11 +454,15 @@ function CreateAnimalDialog({
                 : null,
           },
         });
+        // The write landed on the farm it was aimed at; a switch since then
+        // means this continuation belongs to the previous farm's UI.
+        if (!farmScope()) return;
         toast.success("Animal added.");
         reset();
         setOpen(false);
         onCreated();
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
       }
     });

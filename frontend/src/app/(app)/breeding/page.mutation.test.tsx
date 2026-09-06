@@ -11,7 +11,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 
 import type { AnimalOut, BreedingRecordOut } from "@/api/generated/models";
@@ -77,6 +77,9 @@ function makeAnimal(overrides: Partial<AnimalOut>): AnimalOut {
     cull_candidate: false,
     movement_restricted: false,
     restriction_reason: null,
+    restriction_cleared_at: null,
+    restriction_cleared_by_id: null,
+    restriction_clearance_reference: null,
     suspected_scheduled_disease: false,
     suspected_disease: null,
     authority_notified_at: null,
@@ -299,7 +302,7 @@ describe("BreedingPage mutation hardening", () => {
       semen_sire_name: null,
       breeding_date: TODAY,
     });
-    expect("buck_id" in breedingPostBody).toBe(false);
+    expect("buck_id" in breedingPostBody!).toBe(false);
   });
 
   it("posts a sexed-AI breeding with the trimmed semen-sire name", async () => {
@@ -338,7 +341,7 @@ describe("BreedingPage mutation hardening", () => {
 
     await user.click(save);
     await waitFor(() => expect(breedingPostBody).not.toBeNull());
-    expect("buck_id" in breedingPostBody).toBe(false);
+    expect("buck_id" in breedingPostBody!).toBe(false);
   });
 
   it("rejects a breeding date whose typed shape is not YYYY-MM-DD", async () => {
@@ -366,8 +369,8 @@ describe("BreedingPage mutation hardening", () => {
       buck_id: 20,
       breeding_date: TODAY,
     });
-    expect("method" in breedingPostBody).toBe(false);
-    expect("semen_sire_name" in breedingPostBody).toBe(false);
+    expect("method" in breedingPostBody!).toBe(false);
+    expect("semen_sire_name" in breedingPostBody!).toBe(false);
   });
 
   // ---------- species vocabulary (buffalo dairy) ----------

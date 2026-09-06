@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/empty-state";
 import { useListRecipesApiFeedingRecipesGet } from "@/api/generated/endpoints";
 import { DataTableCard } from "@/components/data-table-card";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PageSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,7 @@ export default function RecipesPage() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="TMR recipes"
         description="Total mixed ration formulas and the bucket each one feeds."

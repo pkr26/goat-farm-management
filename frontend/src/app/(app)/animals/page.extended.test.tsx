@@ -7,12 +7,13 @@
  * server error paths.
  */
 
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { toast } from "sonner";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setCurrentFarmId } from "@/lib/api-client";
 import { permissionsHandler, server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { addDays, farmToday, setActiveFarmTimezone } from "@/lib/format";
@@ -573,7 +574,7 @@ describe("AnimalsPage extended", () => {
       setDate(within(dialog).getByLabelText(/birth weight/i), "-0.5");
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
       expect(
-        await within(dialog).findByText(/expected number to be >=0/),
+        await within(dialog).findByText("A newborn kid weighs at least 0.5 kg"),
       ).toBeInTheDocument();
       expect(postCalls).toBe(0);
     });
@@ -934,6 +935,46 @@ describe("AnimalsPage extended", () => {
       await waitFor(() => expect(toastMock.success).toHaveBeenCalledWith("Animal added."));
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
+
+    // INTEGRATION — pins the farm-scope fence end-to-end through a real
+    // dialog: a create that resolves after the operator switched farms must
+    // not toast success or close the dialog (the continuation belongs to the
+    // previous farm's UI), while the same flow without a switch still does.
+    it("does not toast or close a create that resolves after a farm switch", async () => {
+      let release!: () => void;
+      const gated = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      server.use(
+        http.post("/api/animals", async () => {
+          postCalls += 1;
+          await gated;
+          return HttpResponse.json({ id: 999 }, { status: 201 });
+        }),
+      );
+      const user = userEvent.setup();
+      await renderLoaded();
+      const dialog = await openCreateDialog(user);
+      await user.type(within(dialog).getByLabelText(/tag number/i), "G-96");
+      await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
+      await waitFor(() => expect(postCalls).toBe(1));
+
+      act(() => setCurrentFarmId("99"));
+      release();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(toastMock.success).not.toHaveBeenCalledWith("Animal added.");
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      // Control: the identical flow on the current farm completes normally.
+      act(() => setCurrentFarmId("1"));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Save animal",
+      }));
+      await waitFor(() =>
+        expect(toastMock.success).toHaveBeenCalledWith("Animal added."),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    });
   });
 
   // REGRESSION — the page used to validate and bound dates/lengths against
@@ -1011,7 +1052,7 @@ describe("AnimalsPage extended", () => {
       expect(postCalls).toBe(0);
     });
 
-    it("rejects an entry weight above the server's 1000 kg ceiling", async () => {
+    it("rejects an entry weight above the species ceiling", async () => {
       const user = userEvent.setup();
       await renderLoaded();
       const dialog = await openCreateDialog(user);
@@ -1020,7 +1061,9 @@ describe("AnimalsPage extended", () => {
       });
       await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
-      expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+      expect(
+        await within(dialog).findByText("At most 150 kg for this farm's species"),
+      ).toBeInTheDocument();
       expect(postCalls).toBe(0);
     });
 

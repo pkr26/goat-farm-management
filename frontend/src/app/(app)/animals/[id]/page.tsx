@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, ArrowLeftRight, Baby, GitBranch, HeartPulse, Scale } from "lucide-react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useState, type ReactNode } from "react";
+import { Suspense, useMemo, useState, type ReactNode } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -60,6 +60,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
 import { useFarmType } from "@/hooks/use-farm-type";
@@ -116,20 +117,23 @@ function useProfileRefresh(animalId: number) {
   };
 }
 
-const weightSchema = z.object({
-  date: z
-    .string()
-    .optional()
-    .refine((s) => !s || s <= localToday(), "Date can't be in the future"),
-  weight_kg: z.coerce
-    .number()
-    .positive("Weight must be greater than 0")
-    .max(1000, "Weight must be at most 1000 kg"),
-  bcs: optNum(z.number().int().min(1).max(5)),
-  notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
-});
-type WeightInput = z.input<typeof weightSchema>;
-type WeightValues = z.output<typeof weightSchema>;
+/** Species-scaled cap (max_adult_weight_kg): the backend rejects a recorded
+ * weight above it, so mirror the band inline per the farm's species. */
+const weightSchema = (maxWeightKg: number) =>
+  z.object({
+    date: z
+      .string()
+      .optional()
+      .refine((s) => !s || s <= localToday(), "Date can't be in the future"),
+    weight_kg: z.coerce
+      .number()
+      .positive("Weight must be greater than 0")
+      .max(maxWeightKg, `Weight must be at most ${maxWeightKg} kg for this farm's species`),
+    bcs: optNum(z.number().int().min(1).max(5)),
+    notes: z.string().max(255, "Notes cannot exceed 255 characters").optional(),
+  });
+type WeightInput = z.input<ReturnType<typeof weightSchema>>;
+type WeightValues = z.output<ReturnType<typeof weightSchema>>;
 type ProfileActionFlight = ReturnType<typeof useSingleFlight>;
 
 function AddWeightDialog({
@@ -145,16 +149,19 @@ function AddWeightDialog({
 }) {
   const [open, setOpen] = useState(false);
   const mut = useRecordWeightApiAnimalsAnimalIdWeightPost();
+  const vocabulary = farmVocabulary(useFarmType());
+  const schema = useMemo(() => weightSchema(vocabulary.facts.maxWeightKg), [vocabulary]);
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm<WeightInput, unknown, WeightValues>({ resolver: zodResolver(weightSchema) });
+  } = useForm<WeightInput, unknown, WeightValues>({ resolver: zodResolver(schema) });
 
   async function onSubmit(values: WeightValues) {
     if (profileSettling) return;
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await mut.mutateAsync({
           animalId,
@@ -165,11 +172,13 @@ function AddWeightDialog({
             notes: emptyToNull(values.notes),
           },
         });
+        if (!farmScope()) return;
         toast.success("Weight recorded.");
         reset();
         setOpen(false);
         onDone();
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
       }
     });
@@ -308,6 +317,7 @@ function MoveBucketDialog({
   async function onSubmit(values: MoveValues) {
     if (profileSettling) return;
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await mut.mutateAsync({
           animalId,
@@ -316,11 +326,13 @@ function MoveBucketDialog({
             reason: emptyToNull(values.reason),
           },
         });
+        if (!farmScope()) return;
         toast.success("Animal moved.");
         reset();
         setOpen(false);
         onDone();
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
       }
     });
@@ -535,6 +547,7 @@ function StatusDialog({
   async function onSubmit(values: StatusValues) {
     if (profileSettling) return;
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await mut.mutateAsync({
           animalId,
@@ -571,11 +584,13 @@ function StatusDialog({
                 : null,
           },
         });
+        if (!farmScope()) return;
         toast.success(`Marked ${values.new_status}.`);
         reset();
         setOpen(false);
         onDone();
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(err instanceof ApiError ? err.detail : "Something went wrong");
       }
     });
@@ -850,6 +865,7 @@ function ClearRestrictionDialog({
     }
     setError(null);
     await actionFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await mutation.mutateAsync({
           animalId,
@@ -858,12 +874,14 @@ function ClearRestrictionDialog({
             expected_restriction_version: restrictionVersion,
           },
         });
+        if (!farmScope()) return;
         toast.success("Movement restriction cleared with an audit reference.");
         setReference("");
         setConflictedVersion(null);
         setOpen(false);
         onDone();
       } catch (caught) {
+        if (!farmScope()) return;
         if (caught instanceof ApiError && caught.status === 409) {
           setConflictedVersion(restrictionVersion);
           setError(`${caught.detail} Refreshing the current restriction episode before retrying.`);

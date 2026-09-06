@@ -50,6 +50,7 @@ import {
   SortableTableHead,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { useAuth } from "@/lib/auth-context";
 import { enumLabel } from "@/lib/enum-labels";
 import { farmVocabulary } from "@/lib/farm-vocabulary";
@@ -168,14 +169,17 @@ export default function MilkPage() {
       fat_pct: parsedFat ?? null,
     };
     await submit.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await addRecord.mutateAsync({ data: payload });
+        if (!farmScope()) return;
         toast.success(`Recorded ${parsedLitres} L (${enumLabel("shift", shift).toLowerCase()})`);
         setLitres("");
         setFatPct("");
         await invalidateFarmData(queryClient);
         await Promise.all([summary.refetch(), listing.refetch()]);
       } catch (error) {
+        if (!farmScope()) return;
         toast.error(error instanceof ApiError ? error.detail : "Could not record the yield.");
       }
     });

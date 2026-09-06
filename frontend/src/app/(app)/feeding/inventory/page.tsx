@@ -49,6 +49,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatMoney } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -106,7 +107,9 @@ const addStockSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["price_per_kg"],
-        message: "Positive-price restock must total at least ₹0.01",
+        // The backend rounds derived expense HALF_UP to whole paise; a total
+        // under half a paisa rounds to ₹0.00 and is not bookable.
+        message: "Restock total is too small to round up to ₹0.01",
       });
     } else if (total > 1_000_000_000.004) {
       ctx.addIssue({
@@ -134,6 +137,7 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
 
   async function onSubmit(values: AddStockValues) {
     await addFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         const res = await mut.mutateAsync({
           itemId: item.id,
@@ -142,6 +146,7 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
         // The API quantizes qty_kg to 3 dp (ROUND_HALF_UP) before it touches the
         // balance, so confirming the typed value would put a quantity that was
         // never stored in writing. Report the balance the server came back with.
+        if (!farmScope()) return;
         toast.success(
           res.status === 200
             ? `Stock added — ${item.ingredient} is now at ${formatPersistedKg(res.data.qty_on_hand)} kg.`
@@ -151,6 +156,7 @@ function AddStockDialog({ item }: { item: FeedInventoryOut }) {
         reset();
         setOpen(false);
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(mutationError(err));
       }
     });
@@ -288,14 +294,17 @@ function MixBatchDialog({
 
   async function onSubmit(values: MixValues) {
     await mixFlight.run(async () => {
+      const farmScope = captureFarmScope();
       setShortage(null);
       try {
         await mut.mutateAsync({ data: { recipe_code: values.recipe_code, batch_kg: values.batches * 100 } });
+        if (!farmScope()) return;
         toast.success(`Mixed ${values.batches * 100} kg — inventory decremented.`);
         invalidateFarmData(queryClient);
         reset();
         onOpenChange(false);
       } catch (err) {
+        if (!farmScope()) return;
         // Insufficient stock comes back as a 400 with the shortage detail — show it in the dialog.
         if (err instanceof ApiError && err.status === 400) {
           setShortage(err.detail);

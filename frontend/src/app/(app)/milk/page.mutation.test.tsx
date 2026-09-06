@@ -74,10 +74,6 @@ const MONTHS = [
 const TODAY = new Date()
   .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 const [Y, M, D] = TODAY.split("-").map(Number);
-/** Expected short tick label, computed independently of shortDay(). */
-function expectedShortDay(iso: string): string {
-  return `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]}`;
-}
 const TODAY_SHORT = `${D} ${MONTHS[M - 1]}`;
 const TODAY_FULL = `${D} ${MONTHS[M - 1]} ${Y}`;
 
@@ -169,9 +165,10 @@ describe("MilkPage mutation hardening", () => {
   it("shows the skeleton until permissions resolve, then the parlour", async () => {
     server.use(
       dairyFarmHandler(),
-      http.get("/api/auth/permissions", () =>
-        HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }, { delay: 400 }),
-      ),
+      http.get("/api/auth/permissions", async () => {
+        await delay(400);
+        return HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS });
+      }),
       http.get("/api/milk/summary", () => HttpResponse.json(FULL_SUMMARY)),
       http.get("/api/milk", () => HttpResponse.json(FULL_RECORDS)),
     );
@@ -665,9 +662,10 @@ describe("MilkPage mutation hardening", () => {
       "Milking buffalo yields by milking shift, herd daily totals and 30-day averages.";
     server.use(
       dairyFarmHandler(),
-      http.get("/api/auth/permissions", () =>
-        HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS }, { delay: 400 }),
-      ),
+      http.get("/api/auth/permissions", async () => {
+        await delay(400);
+        return HttpResponse.json({ is_owner: true, permissions: ALL_PERMISSIONS });
+      }),
       http.get("/api/milk/summary", () => HttpResponse.json(FULL_SUMMARY)),
       http.get("/api/milk", () => HttpResponse.json(FULL_RECORDS)),
     );

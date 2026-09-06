@@ -27,6 +27,7 @@ import {
 import { DataTableCard } from "@/components/data-table-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import { InlineLoading, PageSkeleton } from "@/components/skeletons";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +57,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { farmToday, formatDate } from "@/lib/format";
 import { invalidateFarmData } from "@/lib/query-invalidation";
 import {
@@ -174,6 +176,7 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
 
   async function onSubmit(values: SettingValues) {
     await settingFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await mut.mutateAsync({
           data: {
@@ -181,12 +184,14 @@ function KgPerHeadDialog({ line }: { line: PlanLineOut }) {
             daily_kg_per_head: values.daily_kg_per_head,
           },
         });
+        if (!farmScope()) return;
         const stored = quantizePersistedKg(values.daily_kg_per_head);
         toast.success(`Saved ${formatPersistedKg(stored)} kg/head for ${bucketLabel}.`);
         reset({ daily_kg_per_head: stored });
         invalidateFarmData(queryClient);
         setOpen(false);
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(mutationError(err));
       }
     });
@@ -450,6 +455,7 @@ function FeedingPageContent() {
 
   async function onDispense(values: DispenseValues) {
     await dispenseFlight.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         await dispenseMutation.mutateAsync({
           data: {
@@ -460,10 +466,12 @@ function FeedingPageContent() {
             date: values.date || null,
           },
         });
+        if (!farmScope()) return;
         toast.success("Dispensing recorded.");
         invalidateFarmData(queryClient);
         setDispenseOpen(false);
       } catch (err) {
+        if (!farmScope()) return;
         toast.error(mutationError(err));
       }
     });
@@ -562,6 +570,7 @@ function FeedingPageContent() {
 
   return (
     <div className="space-y-6">
+      {query.isError && <StaleDataNotice onRetry={() => void query.refetch()} />}
       <PageHeader
         title="Feeding — today"
         description="The 3-shift ration plan and what's been dispensed so far."

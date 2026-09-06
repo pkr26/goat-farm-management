@@ -803,11 +803,36 @@ describe("TasksPage branch guards", () => {
       expect(createBody).toMatchObject({ animal_id: 7 });
     });
 
+    it("rejects due dates outside the backend's 2000–2100 year band inline", async () => {
+      const { user, dialog } = await openDialog();
+      await user.type(within(dialog).getByLabelText("Title *"), "Time traveller check");
+      fireEvent.change(within(dialog).getByLabelText("Due date *"), {
+        target: { value: "2101-01-01" },
+      });
+
+      await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
+
+      expect(
+        await within(dialog).findByText("Year must be between 2000 and 2100"),
+      ).toBeInTheDocument();
+      expect(createBody).toBeNull();
+
+      fireEvent.change(within(dialog).getByLabelText("Due date *"), {
+        target: { value: "1999-12-31" },
+      });
+      await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
+
+      expect(
+        await within(dialog).findByText("Year must be between 2000 and 2100"),
+      ).toBeInTheDocument();
+      expect(createBody).toBeNull();
+    });
+
     it("rejects the maximum recurrence when its successor would overflow the calendar", async () => {
       const { user, dialog } = await openDialog();
       await user.type(within(dialog).getByLabelText("Title *"), "Decade check");
       fireEvent.change(within(dialog).getByLabelText("Due date *"), {
-        target: { value: "9999-12-31" },
+        target: { value: "2100-12-31" },
       });
       fireEvent.change(within(dialog).getByLabelText("Repeats every (days)"), {
         target: { value: "3650" },
@@ -829,7 +854,7 @@ describe("TasksPage branch guards", () => {
         const { user, dialog } = await openDialog();
         await user.type(within(dialog).getByLabelText("Title *"), "Far-future inspection");
         fireEvent.change(within(dialog).getByLabelText("Due date *"), {
-          target: { value: "9999-12-31" },
+          target: { value: "2100-12-31" },
         });
         fireEvent.change(within(dialog).getByLabelText("Repeats every (days)"), {
           target: { value: recurrence },

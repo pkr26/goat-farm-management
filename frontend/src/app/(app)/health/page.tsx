@@ -38,6 +38,7 @@ import {
 import { useFarmType } from "@/hooks/use-farm-type";
 import { enumLabel } from "@/lib/enum-labels";
 import { PageHeader } from "@/components/page-header";
+import { StaleDataNotice } from "@/components/stale-data-notice";
 import { PaginationControls } from "@/components/pagination-controls";
 import {
   CardSkeleton,
@@ -1054,6 +1055,9 @@ function HealthPageContent() {
 
   return (
     <div className="space-y-6">
+      {eventsQuery.isError && (
+        <StaleDataNotice onRetry={() => void eventsQuery.refetch()} />
+      )}
       <PageHeader
         title="Health"
         description="Vaccinations, deworming and treatments across the herd."
@@ -1201,6 +1205,7 @@ function HealthPageContent() {
                 <TableHead>Route</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
                 <TableHead>Next due</TableHead>
+                <TableHead>Notes</TableHead>
                 <TableHead>Traceability & holds</TableHead>
               </TableRow>
             </TableHeader>

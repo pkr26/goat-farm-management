@@ -825,7 +825,7 @@ describe("TasksPage (extended)", () => {
     const { user, dialog } = await openDialog();
     await user.type(within(dialog).getByLabelText(/title/i), "Far-future inspection");
     fireEvent.change(within(dialog).getByLabelText(/due date/i), {
-      target: { value: "9999-12-31" },
+      target: { value: "2100-12-31" },
     });
     fireEvent.change(within(dialog).getByLabelText(/repeats every/i), {
       target: { value: "1" },
@@ -840,12 +840,12 @@ describe("TasksPage (extended)", () => {
     expect(createBody).toBeNull();
 
     fireEvent.change(within(dialog).getByLabelText(/due date/i), {
-      target: { value: "9999-12-30" },
+      target: { value: "2100-12-30" },
     });
     await user.click(within(dialog).getByRole("button", { name: "Create duty" }));
 
     await waitFor(() => expect(createBody).not.toBeNull());
-    expect(createBody).toMatchObject({ due_date: "9999-12-30", recur_days: 1 });
+    expect(createBody).toMatchObject({ due_date: "2100-12-30", recur_days: 1 });
   });
 
   it("assigns to a role, clearing any worker, and posts the role id", async () => {

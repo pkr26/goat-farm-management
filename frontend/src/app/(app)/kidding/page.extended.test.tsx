@@ -602,27 +602,28 @@ describe("KiddingPage", () => {
     });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
     const error = await within(dialog).findByRole("alert", { name: "" });
-    expect(error).toHaveTextContent("Must be ≥ 0");
+    expect(error).toHaveTextContent("A newborn kid weighs at least 0.5 kg");
     expect(within(dialog).getByLabelText("Kid 1 weight (kg)")).toHaveAccessibleDescription(
-      "Must be ≥ 0",
+      "A newborn kid weighs at least 0.5 kg",
     );
     expect(postBody).toBeNull();
   });
 
-  // REGRESSION — birth_weight had no client-side cap although the backend's
-  // NonNegativeWeightKgFloat rejects anything above 1000 kg, so a grams-as-kg
-  // typo (5000) was only caught by an opaque server 422 that bounced the whole
-  // kidding; the purchases weight field already flagged the same value inline.
-  it("rejects a birth weight above the backend's 1000 kg cap", async () => {
+  // REGRESSION — birth_weight was validated against a generic 1000 kg cap,
+  // but the backend enforces the species' credible newborn band
+  // (birth_weight_kg_range: goat 0.5–8 kg), so an impossible 20 kg kid was
+  // only caught by an opaque server 422 that bounced the whole kidding.
+  it("rejects a birth weight above the species' newborn band", async () => {
     const { user, dialog } = await openDialog();
-    expect(within(dialog).getByLabelText("Kid 1 weight (kg)")).toHaveAttribute("max", "1000");
     fireEvent.change(within(dialog).getAllByRole("spinbutton")[0], {
-      target: { value: "5000" },
+      target: { value: "20" },
     });
     await user.click(within(dialog).getByRole("button", { name: "Save kidding" }));
-    expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText("A newborn kid weighs at most 8 kg"),
+    ).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Kid 1 weight (kg)")).toHaveAccessibleDescription(
-      "At most 1000 kg",
+      "A newborn kid weighs at most 8 kg",
     );
     expect(postBody).toBeNull();
   });

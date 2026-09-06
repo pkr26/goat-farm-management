@@ -163,4 +163,25 @@ describe("KiddingPage — species gestation windows", () => {
     expect(screen.getAllByPlaceholderText("auto")).toHaveLength(2);
     expect(add).toBeDisabled();
   });
+
+  // REGRESSION — birth weights were validated against a generic 1000 kg cap;
+  // the backend's species newborn band (buffalo 15–80 kg) decides instead, so
+  // a 20 kg calf must pass inline where a 20 kg kid correctly fails.
+  it("accepts a dairy calf birth weight inside the buffalo newborn band", async () => {
+    const DAIRY_FARM = { ...TEST_FARMS[0], farm_type: "BUFFALO_DAIRY" };
+    server.use(http.get("/api/auth/farms", () => HttpResponse.json([DAIRY_FARM])));
+    stubKiddingEndpoints(listPayload([makeBreeding({ breeding_date: addDays(TODAY, -300) })]), posts);
+    renderWithProviders(<KiddingPage />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Record calving/i }));
+
+    fireEvent.change((await screen.findAllByRole("spinbutton"))[0], {
+      target: { value: "20" },
+    });
+    await user.click(await screen.findByRole("button", { name: "Save calving" }));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ kids: [expect.objectContaining({ birth_weight: 20 })] });
+  });
 });

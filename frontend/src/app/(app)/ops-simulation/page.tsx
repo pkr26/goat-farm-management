@@ -39,6 +39,7 @@ import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
 import { PermissionsError } from "@/components/permissions-error";
 import { StatCard } from "@/components/stat-card";
+import { farmToday } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -105,6 +106,11 @@ function buildingName(building: string): string {
 /** One stable colour per bucket, used everywhere a building appears on this
  * page (moves, transition matrix, journeys, occupancy) so an animal's path
  * between buildings can be tracked by colour alone. */
+// Token-system exemption: this page needs a 10-hue categorical palette to
+// keep every bucket visually distinct, which the semantic tones (success /
+// warning / info / destructive) and the 5-slot chart ramp cannot express.
+// Raw palette classes with explicit dark: variants are the established
+// fallback until a categorical token ramp lands in globals.css.
 const BUCKET_COLORS: Record<string, { chip: string; dot: string }> = {
   QUARANTINE: {
     chip: "border-orange-500/40 bg-orange-500/15 text-orange-700 dark:text-orange-300",
@@ -299,10 +305,9 @@ const PRESETS: { label: string; rows: () => HerdRow[] }[] = [
 ];
 
 function todayIsoDate(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate(),
-  ).padStart(2, "0")}`;
+  // The farm's timezone, not the browser's — same invariant as farmToday()
+  // elsewhere: 00:00–05:30 farm time must not resolve to the previous day.
+  return farmToday();
 }
 
 function formatKg(value: number): string {

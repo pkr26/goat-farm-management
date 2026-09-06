@@ -11,7 +11,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { permissionsHandler, server } from "@/test/msw-server";
+import { server } from "@/test/msw-server";
 import { renderWithProviders } from "@/test/render";
 import { APP_NAME } from "@/lib/brand";
 

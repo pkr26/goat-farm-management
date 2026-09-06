@@ -116,6 +116,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ApiError } from "@/lib/api-client";
+import { captureFarmScope } from "@/lib/farm-scope-guard";
 import { formatFarmDateTime, formatMoney } from "@/lib/format";
 import {
   SIMULATION_SECTION_HELP,
@@ -1682,9 +1683,11 @@ export default function SimulationPage() {
     // silently — while its button flipped back as though it had applied — so
     // the new breed's head counts got merged into the OLD breed's economics.
     const epoch = ++editorEpochRef.current;
+    const farmScope = captureFarmScope();
     try {
       const res = await snapshotQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
+        if (!farmScope()) return;
         toast.error(errorMessage(res.error, "Could not load the herd snapshot."));
         return;
       }
@@ -1723,13 +1726,16 @@ export default function SimulationPage() {
         new Set([...previous].filter((key) => key.startsWith("event:"))),
       );
       setEditorVersion((version) => version + 1);
+      if (!farmScope()) return;
       toast.success(`Loaded current herd (${snap.total_head} head).`);
     } catch (err) {
+      if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not load the herd snapshot."));
     }
   }
 
   async function onCalibrateFromFarm() {
+    const farmScope = captureFarmScope();
     // Claim an ordered editor intent, but do not clear a pending defaults
     // latch. If calibration fails, that older request is still a valid
     // fallback; if a NEW defaults click happens, it increments this epoch and
@@ -1739,6 +1745,7 @@ export default function SimulationPage() {
     try {
       const res = await calibrationQuery.refetch();
       if (res.isError || res.data?.status !== 200) {
+        if (!farmScope()) return;
         toast.error(errorMessage(res.error, "Could not calibrate from farm records."));
         return;
       }
@@ -1762,16 +1769,19 @@ export default function SimulationPage() {
       setCalibration(calibrated);
       setInvalidFields(new Set());
       setEditorVersion((version) => version + 1);
+      if (!farmScope()) return;
       toast.success(
         `Calibrated ${calibrated.evidence.length} assumptions from farm records.`,
       );
     } catch (err) {
+      if (!farmScope()) return;
       toast.error(errorMessage(err, "Could not calibrate from farm records."));
     }
   }
 
   async function onRun() {
     await simulationAction.run(async () => {
+      const farmScope = captureFarmScope();
       const payload = assumptionsWithEvents();
       if (!payload || hasEditorErrors) return;
       setRunError(null);
@@ -1784,7 +1794,7 @@ export default function SimulationPage() {
             optimization,
           },
         });
-        if (res.status === 200)
+        if (res.status === 200 && farmScope())
           setResult({
             data: res.data,
             fingerprint: assumptionsFingerprint(payload),
@@ -1793,6 +1803,7 @@ export default function SimulationPage() {
             source: "Current editor assumptions",
           });
       } catch (err) {
+        if (!farmScope()) return;
         const message = runErrorMessage(err, "Simulation failed");
         setRunError(message);
         toast.error(message);
@@ -1803,6 +1814,7 @@ export default function SimulationPage() {
   async function onRunScenario(scenario: ScenarioRow) {
     if (!scenarioUsable(scenario)) return;
     await simulationAction.run(async () => {
+      const farmScope = captureFarmScope();
       setRunError(null);
       setRunningScenarioId(scenario.id);
       try {
@@ -1810,7 +1822,7 @@ export default function SimulationPage() {
           scenarioId: scenario.id,
           params: { monte_carlo: monteCarlo, sensitivity, optimization },
         });
-        if (res.status === 200)
+        if (res.status === 200 && farmScope())
           setResult({
             data: res.data,
             fingerprint: assumptionsFingerprint(scenario.assumptions),
@@ -1819,6 +1831,7 @@ export default function SimulationPage() {
             source: `Saved scenario “${scenario.name}”`,
           });
       } catch (err) {
+        if (!farmScope()) return;
         const message = runErrorMessage(err, "Scenario run failed");
         setRunError(message);
         toast.error(message);
@@ -1830,9 +1843,11 @@ export default function SimulationPage() {
 
   async function onDeleteScenario(scenario: ScenarioRow) {
     await simulationAction.run(async () => {
+      const farmScope = captureFarmScope();
       setPendingDelete(null);
       try {
         await deleteMutation.mutateAsync({ scenarioId: scenario.id });
+        if (!farmScope()) return;
         toast.success("Scenario deleted.");
         // The deleted row owned focus; the section heading is the nearest
         // sensible home once it unmounts.
@@ -1894,6 +1909,7 @@ export default function SimulationPage() {
     if (!payload || !saveName.trim()) return;
     if (hasEditorErrors) return;
     await simulationAction.run(async () => {
+      const farmScope = captureFarmScope();
       setSaveError(null);
       try {
         const created = await createMutation.mutateAsync({
@@ -1903,6 +1919,7 @@ export default function SimulationPage() {
             assumptions: payload,
           },
         });
+        if (!farmScope()) return;
         toast.success("Scenario saved.");
         if (created.status === 201) {
           // The API intentionally preserves oldest-first ordering, so the new
@@ -1917,6 +1934,7 @@ export default function SimulationPage() {
         setSaveName("");
         setSaveNotes("");
       } catch (err) {
+        if (!farmScope()) return;
         const message = errorMessage(err, "Could not save the scenario.");
         setSaveError(message);
         toast.error(message);
@@ -1931,6 +1949,7 @@ export default function SimulationPage() {
     const epoch = editorEpochRef.current;
     const contentEpoch = editorContentEpochRef.current;
     await simulationAction.run(async () => {
+      const farmScope = captureFarmScope();
       try {
         const updated = await updateMutation.mutateAsync({
           scenarioId: loadedScenario.id,
@@ -1942,9 +1961,11 @@ export default function SimulationPage() {
         if (updated.status === 200 && editorEpochRef.current === epoch) {
           setLoadedScenario(updated.data);
         }
+        if (!farmScope()) return;
         toast.success("Scenario updated.");
         invalidateScenarios();
       } catch (err) {
+        if (!farmScope()) return;
         if (err instanceof ApiError && err.status === 409) {
           invalidateScenarios();
           try {

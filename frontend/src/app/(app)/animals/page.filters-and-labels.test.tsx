@@ -283,7 +283,7 @@ describe("AnimalsPage create dialog guards", () => {
     expect(postCalls).toBe(0);
   });
 
-  it("rejects a birth weight above the server's 1000 kg ceiling", async () => {
+  it("rejects a birth weight above the species' newborn band", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AnimalsPage />);
     await screen.findByText("1 animal(s)");
@@ -292,7 +292,9 @@ describe("AnimalsPage create dialog guards", () => {
     await user.type(within(dialog).getByLabelText("Birth weight (kg)"), "1200");
     await user.click(within(dialog).getByRole("button", { name: "Save animal" }));
 
-    expect(await within(dialog).findByText("At most 1000 kg")).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText("A newborn kid weighs at most 8 kg"),
+    ).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Entry weight (kg)")).toHaveValue(null);
     expect(postCalls).toBe(0);
   });
